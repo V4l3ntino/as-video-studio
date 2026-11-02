@@ -589,7 +589,9 @@ def reportar_openai(usage, calidad, tamano, imagenes=1, operacion="imagen",
     detalles = usage.get("input_tokens_details")
     cache = int((detalles or {}).get("cached_tokens") or 0) \
         if isinstance(detalles, dict) else 0
-    importe, procedencia = coste_openai(usage, tamano, calidad, imagenes)
+    suscripcion = (detalle or {}).get("facturacion") == "suscripcion_chatgpt"
+    importe, procedencia = (0.0, {"via": "suscripcion_chatgpt"}) if suscripcion \
+        else coste_openai(usage, tamano, calidad, imagenes)
     ficha = {"calidad": calidad, "tamano": tamano}
     # De donde sale el importe, guardado con el evento: sin esto no habria forma
     # de saber despues si un gasto viejo se tarifo por tokens o por imagen.
@@ -603,7 +605,7 @@ def reportar_openai(usage, calidad, tamano, imagenes=1, operacion="imagen",
                    usd=importe,
                    # el importe sale de la tabla de tarifas, no de la factura:
                    # la cabecera lo pinta con un matiz distinto por eso mismo
-                   usd_estimado=True, detalle=ficha)
+                    usd_estimado=not suscripcion, detalle=ficha)
 
 
 def reportar_tts(caracteres, operacion="sintesis", unidad=None, tokens=None,
@@ -751,8 +753,9 @@ def _medir_imagen(original):
         calidad = kwargs.get("quality") or meta.get("quality") or "low"
         tamano = meta.get("tamano") or kwargs.get("tamano") or "apaisado"
         registro = reportar_openai(meta.get("usage"), calidad, tamano,
-                                   detalle={"modelo": meta.get("modelo"),
-                                            "refs": meta.get("refs"),
+                                    detalle={"modelo": meta.get("modelo"),
+                                             "facturacion": meta.get("facturacion"),
+                                             "refs": meta.get("refs"),
                                             "segundos": meta.get("segundos")})
         # Y EL IMPORTE DE VERDAD SE DEVUELVE, no solo se anota.
         #

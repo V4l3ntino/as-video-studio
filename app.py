@@ -2298,6 +2298,7 @@ def estimar_video(cuerpo: dict = Body(default=None)):
                    "ritmo": ficha_ritmo["id"],
                    "con_imagen": imagenes},
         "coste": {"imagenes": imagenes, "calidad": calidad,
+                  "facturacion_imagenes": AJUSTES.coste_por_imagen(calidad)["facturacion"],
                   "usd_por_imagen": usd_imagen,
                   "usd_imagenes": usd_imagenes, "usd_tts": usd_tts,
                   "usd_total": round(usd_imagenes + usd_tts, 3)},
@@ -6383,6 +6384,41 @@ def guardar_claves(cuerpo: dict = Body(default=None)):
     return ficha
 
 
+def _motor_codex():
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f"los pasos no se han podido cargar: {ERROR_PASOS}")
+    return PASOS_MODULOS.medios.motor("imagen_openai/imagen.py")
+
+
+@app.get("/api/imagenes/codex")
+def estado_codex():
+    """Estado de la sesión de ChatGPT para imágenes, sin tokens ni claves."""
+    motor = _motor_codex()
+    ficha = motor.codex().estado()
+    ficha["proveedor"] = motor.proveedor_imagen()
+    return ficha
+
+
+@app.post("/api/imagenes/codex/activar")
+def activar_codex():
+    """Usa la suscripción de ChatGPT sin cambiar firmas ni regenerar imágenes."""
+    motor = _motor_codex()
+    motor.activar_codex()
+    return estado_codex()
+
+
+@app.post("/api/imagenes/codex/login")
+def login_codex():
+    """Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex."""
+    motor = _motor_codex()
+    try:
+        intento = motor.codex().iniciar_login()
+    except motor.codex().ErrorCodex as fallo:
+        raise ErrorApi(400, str(fallo))
+    motor.activar_codex()
+    return {"intento": intento}
+
+
 # ---------------------------------------------------------------------------
 # ENTRAR CON UNA CUENTA DEL CLI DESDE LA PANTALLA
 #
@@ -9108,6 +9144,7 @@ def _coste_previsto(ctx, pestanas):
     hechas = min(hechas, imagenes)
     por_generar = max(0, imagenes - hechas)
     return {"imagenes": imagenes, "calidad": calidad,
+            "facturacion_imagenes": AJUSTES.coste_por_imagen(calidad)["facturacion"],
             "usd_por_imagen": usd_imagen, "usd_imagenes": usd_imagenes,
             "imagenes_hechas": hechas, "imagenes_por_generar": por_generar,
             "usd_por_generar": round(por_generar * usd_imagen + usd_tts, 3),

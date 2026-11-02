@@ -1747,7 +1747,8 @@ def probar_asistente(cliente):
                                      "pantalla": {"pestana": "encargo"}})
     igual(respuesta.status_code, 202, f"una pregunta responde 202: {ficha}")
     igual(len(ficha.get("turnos") or []), 2, "con el turno de la persona y el del asistente")
-    igual(ficha["turnos"][1]["estado"], "pensando", "que empieza pensando")
+    ok(ficha["turnos"][1]["estado"] in ("pensando", "listo"),
+       "el turno empieza pensando o ya ha terminado si el doble respondió antes que el HTTP")
 
     def esperar_respuesta(segundos=20):
         limite = time.time() + segundos
@@ -3052,8 +3053,12 @@ def probar_video_light(cliente):
        f"y la dirección viene ENCENDIDA en un vídeo del modo light ({tareas})")
     ok(plan["coste"]["imagenes"] > 0,
        f"esta sí paga imágenes: {plan['coste']['imagenes']}")
-    ok(plan["coste"]["usd_total"] > 0,
-       f"y lo dice en dólares ANTES de pulsar: {plan['coste']['usd_total']} $")
+    if plan["coste"].get("facturacion_imagenes") == "suscripcion_chatgpt":
+        igual(plan["coste"]["usd_imagenes"], 0,
+              "las imágenes con cuota de ChatGPT no se presupuestan como cargos de API")
+    else:
+        ok(plan["coste"]["usd_total"] > 0,
+           f"y lo dice en dólares ANTES de pulsar: {plan['coste']['usd_total']} $")
     igual(plan["coste"]["planos"]["origen"], "estimado por la duración y el ritmo",
           "sin plan cortado todavía, los planos se estiman y se dice")
 

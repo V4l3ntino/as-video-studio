@@ -116,15 +116,21 @@ def coste_por_imagen(calidad, tamano=TAMANO):
     Devuelve las dos mitades por separado porque el reparto es justo lo que hay
     que ensenar: sin el, la comparacion entre calidades es de la parte pequena.
     """
+    try:
+        from . import medios
+    except ImportError:
+        import medios
+    suscripcion = medios.motor("imagen_openai/imagen.py").proveedor_imagen() == "codex"
     tokens = COSTE.tarifa_tokens() or {}
     por_token_entrada = float(tokens.get("entrada_imagen") or 0.0)
     entrada = TOKENS_ENTRADA_POR_IMAGEN * por_token_entrada
     devuelta = float(COSTE.tarifa_imagen(tamano, calidad) or 0.0)
     return {
         "calidad": calidad,
-        "usd_imagen": round(devuelta, 4),
-        "usd_referencias": round(entrada, 4),
-        "usd_total": round(devuelta + entrada, 4),
+        "usd_imagen": 0.0 if suscripcion else round(devuelta, 4),
+        "usd_referencias": 0.0 if suscripcion else round(entrada, 4),
+        "usd_total": 0.0 if suscripcion else round(devuelta + entrada, 4),
+        "facturacion": "suscripcion_chatgpt" if suscripcion else "api",
         "tokens_entrada": TOKENS_ENTRADA_POR_IMAGEN,
     }
 

@@ -210,7 +210,7 @@ def probar_todas(cuentas_claude=(), con_claude=True):
             fichas.extend(probar_claude(cuentas_claude))
         return fichas
     pruebas = (
-        (probar_openai, (almacen["openai"][0]["clave"] if almacen["openai"] else "")),
+        (probar_imagenes, (almacen["openai"][0]["clave"] if almacen["openai"] else "")),
         (probar_cartesia, almacen["cartesia"]["clave"]),
         (probar_jamendo, almacen["jamendo"]["clave"]),
         (probar_freesound, almacen["freesound"]["clave"]),
@@ -229,6 +229,21 @@ def probar_todas(cuentas_claude=(), con_claude=True):
             fichas.append(_ficha("claude", "sin_red", f"la prueba ha fallado: "
                                                       f"{type(fallo).__name__}: {fallo}"))
     return fichas
+
+
+def probar_imagenes(clave):
+    """Comprueba el login de Codex sin consumir cuota de imágenes."""
+    try:
+        from . import medios
+    except ImportError:
+        import medios
+    motor = medios.motor("imagen_openai/imagen.py")
+    if motor.proveedor_imagen() != "codex":
+        return probar_openai(clave)
+    sesion = motor.codex().estado()
+    return _ficha("openai", "ok" if sesion["conectada"] else "sin_clave",
+                  "ChatGPT / Codex: " + sesion["mensaje"]
+                  + ". La cuota disponible se comprueba al generar.")
 
 
 NOMBRES = {"openai": "OpenAI (imágenes)", "cartesia": "Cartesia (voz)",

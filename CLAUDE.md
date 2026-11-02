@@ -14,6 +14,14 @@ tarde averiguar.
 
 ## LO PRIMERO: aquí se paga por generar
 
+**Actualización: imágenes con ChatGPT / Codex.** Las instalaciones nuevas sin
+clave usan la sesión de ChatGPT del CLI oficial, con la cuota de Codex, no cargos
+de la API. Las claves existentes conservan el camino anterior hasta activar
+«Usar ChatGPT». El adaptador es `motores/imagen_openai/codex.py`; ver el setup en
+`README.md` y `python pasos/prueba_codex_imagen.py`. No se pasan los tokens de
+login a `/v1/images` ni se hace fallback de pago. Las reglas de firmas, caché y
+orden de generación de abajo siguen siendo necesarias: la cuota también se agota.
+
 Una tanda de imágenes de un vídeo de cuatro minutos son ~126 imágenes y ~4,4 $.
 No es un detalle de producto: es la razón de la mitad de las decisiones de este
 repo, y de estas tres reglas.
@@ -318,7 +326,7 @@ que nunca la fijaron, y regenerarlas se paga.
 powershell -NoProfile -File pruebas.ps1
 ```
 
-Las veinticinco en verde, y las herramientas de análisis sin nada que decir
+Las veintiséis en verde, y las herramientas de análisis sin nada que decir
 (`huerfanas_js` trae dos sospechosas de siempre, `async` y `fallar`, que no son
 llamadas).
 Y si has tocado la interfaz, **ábrela**: una regla de CSS de menos o un bloque

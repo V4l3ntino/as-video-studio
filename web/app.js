@@ -385,6 +385,7 @@ const API = {
     + `/capturas/contexto?${consulta}`,
   ajustesCLI: () => `${BASE}/api/ajustes-cli`,
   claves: () => `${BASE}/api/claves`,
+  codex: (accion = '') => `${BASE}/api/imagenes/codex${accion ? '/' + accion : ''}`,
   ajustes: () => `${BASE}/api/ajustes`,
   cuentasCLI: refrescar => `${BASE}/api/claves/cli${refrescar ? '?refrescar=1' : ''}`,
   entrarCLI: cid => `${BASE}/api/claves/cli/${encodeURIComponent(cid)}/entrar`,
@@ -2213,7 +2214,7 @@ function estadoConfig() {
          DOM porque `pintarConfig()` vacía y reconstruye la pantalla entera
          después de CADA guardado: sin esto, guardar una etiqueta borraría el
          código a medio pegar de otra cuenta. */
-      codigos: {}, latiendo: false };
+      codigos: {}, latiendo: false, codex: null, codexOcupado: false, codexLatido: false };
   }
   return APP.vista.config;
 }
@@ -2241,6 +2242,7 @@ async function cargarClaves() {
     vista.cargando = false;
   }
   cargarCuentasCLI();
+  cargarCodex();
   cargarAjustes();
   return vista.ficha;
 }
@@ -2379,10 +2381,13 @@ function seccionCalidadImagen() {
   }
 
   const base = datos.costes[0] || {};
+  const suscripcion = base.facturacion === 'suscripcion_chatgpt';
   const porcentaje = base.usd_total
     ? Math.round(100 * base.usd_referencias / base.usd_total) : 0;
   caja.appendChild(h('div', { clase: 'pista' },
-    'Lo que se ve aqui NO es el precio de OpenAI: es lo que cuesta el plano '
+    suscripcion ? 'Las imágenes usan la cuota de tu plan de ChatGPT. La calidad y el tamaño '
+      + 'afectan al consumo de Codex; no hay un cobro de API por imagen.'
+      : 'Lo que se ve aqui NO es el precio de OpenAI: es lo que cuesta el plano '
     + 'entero. A cada imagen se le adjuntan sus referencias de estilo, reparto y '
     + `continuidad, y esas se pagan aparte — en la calidad baja son el ${porcentaje} % `
     + 'del gasto. Por eso subir de calidad cuesta bastante menos de lo que '
@@ -2400,11 +2405,11 @@ function seccionCalidadImagen() {
     },
       h('span', { clase: 'nombre' }, fila.calidad),
       h('span', { clase: 'precio' },
-        `${fila.usd_total.toFixed(3)} $ por imagen`),
+        suscripcion ? 'Cuota de ChatGPT' : `${fila.usd_total.toFixed(3)} $ por imagen`),
       h('span', { clase: 'meta desglose' },
-        `${fila.usd_imagen.toFixed(3)} la imagen + ${fila.usd_referencias.toFixed(3)} `
+        suscripcion ? 'sin cargo de API' : `${fila.usd_imagen.toFixed(3)} la imagen + ${fila.usd_referencias.toFixed(3)} `
         + 'las referencias'),
-      h('span', { clase: 'meta veces' }, fila.veces_total > 1
+      h('span', { clase: 'meta veces' }, suscripcion ? 'según los límites de tu plan' : fila.veces_total > 1
         ? `×${fila.veces_total} de coste real, no ×${fila.veces_imagen}`
         : 'la mas barata')));
   });
@@ -2416,58 +2421,84 @@ function seccionCalidadImagen() {
 }
 
 
-/* Las cuentas de OpenAI: N, cada una con el correo de la suya. */
+async function cargarCodex() {
+  const vista = estadoConfig();
+  try {
+    vista.codex = await pedir(API.codex());
+  } catch (e) {
+    vista.codex = { conectada: false, mensaje: e.message };
+  }
+  repintarClaves();
+  const esperando = vista.codex.intento && vista.codex.intento.estado === 'esperando';
+  if (esperando && !vista.codexLatido) {
+    vista.codexLatido = true;
+    setTimeout(() => {
+      vista.codexLatido = false;
+      const cajon = $('#config');
+      if (INICIO.abierta || (cajon && !cajon.classList.contains('plegado'))) cargarCodex();
+    }, 3000);
+  }
+}
+
+async function accionCodex(accion) {
+  const vista = estadoConfig();
+  if (vista.codexOcupado) return;
+  vista.codexOcupado = true;
+  repintarClaves();
+  try {
+    await pedir(API.codex(accion), { method: 'POST', cuerpo: {} });
+    await cargarCodex();
+    cargarAjustes();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    vista.codexOcupado = false;
+    repintarClaves();
+  }
+}
+
+/* Configuración y guía comparten la sesión del CLI oficial; nunca reciben tokens. */
 function seccionOpenAI(ficha) {
-  const vivas = ficha.cuentas_imagen && ficha.cuentas_imagen.length
-    ? ficha.cuentas_imagen : null;
-  const porCola = {};
-  (vivas || []).forEach(c => { porCola[c.cola] = c; });
-
-  const puesta = ficha.openai.length > 0;
-  const cuenta = puesta ? ficha.openai[0] : null;
-  const viva = cuenta ? porCola[cuenta.cola] : null;
-  const campo = h('input', {
-    type: 'password',
-    placeholder: puesta ? `puesta (${cuenta.cola})` : 'sk-…',
-  });
-
+  const vista = estadoConfig();
+  const datos = vista.codex;
+  const conectada = !!(datos && datos.conectada);
+  const intento = (datos && datos.intento) || {};
+  const esperando = intento.estado === 'esperando';
   const caja = h('section', { clase: 'bloque-config' },
     h('div', { clase: 'fila' },
-      h('h3', {}, 'OpenAI — imágenes'),
+      h('h3', {}, 'ChatGPT / Codex — imágenes'),
       h('span', { clase: 'crece' }),
-      (viva && viva.sin_saldo
-        ? pastillaEstado('error', 'sin crédito')
-        : pastillaEstado(puesta ? 'ok' : 'vacio',
-          puesta ? cuenta.cola : 'sin poner'))),
+      pastillaEstado(conectada ? 'ok' : 'vacio', conectada ? 'conectada' : 'sin conectar')),
     h('div', { clase: 'pista' },
-      'La clave con la que se generan las imágenes. Imprescindible, como la de '
-      + 'Cartesia y la cuenta de Claude: sin ella no hay planos que montar.'),
-    h('div', { clase: 'fila-clave' }, campo,
-      h('button', {
-        clase: 'mini',
-        onclick: () => {
-          if (!campo.value.trim()) { toast('escribe la clave', true); return; }
-          guardarClaves({ openai: [{ etiqueta: '', clave: campo.value.trim(),
-            activa: true }] });
-          campo.value = '';
-        },
-      }, 'Cambiar'),
-      (puesta ? h('button', {
-        clase: 'mini fantasma peligro',
-        onclick: () => {
-          if (!window.confirm('¿Quitar la clave de OpenAI? Sin ella no se '
-            + 'pueden generar imágenes.')) return;
-          guardarClaves({ openai: [] });
-        },
-      }, 'Quitar') : null)));
-
-  /* EL RITMO MEDIDO, si el motor ya ha generado algo con ella. Es el límite de
-     imágenes por minuto que la cuenta admite de verdad, y sale de haberlo
-     probado: la barra de una tanda lo usa para decir cuánto queda. */
-  if (viva && viva.limite_por_minuto) {
+      'Genera los planos con la cuota de tu cuenta de ChatGPT mediante Codex. '
+      + 'No necesitas API key ni saldo de OpenAI Platform. Las imágenes consumen '
+      + 'los límites de Codex de tu plan; al agotarlos, la tanda se detiene y puedes retomarla.'),
+    h('div', { clase: 'meta' }, datos ? datos.mensaje : 'comprobando la sesión de Codex…'));
+  if (conectada) {
     caja.appendChild(h('div', { clase: 'meta' },
-      `${viva.limite_por_minuto} imágenes/min`
-      + (viva.medido ? ' (medido en tus tandas)' : ' (según el plan)')));
+      [datos.email, datos.plan].filter(Boolean).join(' · ')));
+  }
+  if (datos && datos.proveedor === 'api') {
+    caja.appendChild(h('div', { clase: 'caja-aviso' },
+      'Esta instalación todavía usa la API anterior. Activa ChatGPT para usar la suscripción.',
+      h('button', { clase: 'mini primario', disabled: vista.codexOcupado,
+        onclick: () => accionCodex('activar') }, 'Usar ChatGPT')));
+  }
+  if (esperando) {
+    caja.appendChild(h('div', { clase: 'caja-info' },
+      h('p', {}, 'Abre el acceso de OpenAI e introduce este código: ', h('b', {}, intento.codigo)),
+      h('a', { href: intento.url, target: '_blank', rel: 'noopener noreferrer' }, 'Iniciar sesión en ChatGPT'),
+      h('p', { clase: 'meta' }, 'La conexión se comprobará automáticamente. Si OpenAI lo pide, habilita el acceso con código de dispositivo en la seguridad de tu cuenta.')));
+  } else {
+    caja.appendChild(h('div', { clase: 'fila' },
+      h('button', { clase: 'mini primario', disabled: vista.codexOcupado || !datos,
+        onclick: () => accionCodex('login') },
+      vista.codexOcupado ? 'conectando…' : (conectada ? 'Cambiar cuenta' : 'Conectar con ChatGPT')),
+      h('button', { clase: 'mini', disabled: vista.codexOcupado,
+        onclick: cargarCodex }, 'Comprobar sesión')));
+  }
+  if (intento.estado === 'error') {
+    caja.appendChild(h('div', { clase: 'caja-error' }, intento.mensaje));
   }
   return caja;
 }
@@ -2685,7 +2716,7 @@ async function probarCuentaCLI(cid) {
    que no cuestan dinero. Es el mismo bloque en Configuración y en la última
    tarjeta de la guía. */
 const NOMBRES_PROVEEDOR = {
-  openai: 'OpenAI — imágenes', cartesia: 'Cartesia — voz', jamendo: 'Jamendo — música',
+  openai: 'Imágenes — ChatGPT / OpenAI', cartesia: 'Cartesia — voz', jamendo: 'Jamendo — música',
   freesound: 'FreeSound — efectos', claude: 'Claude',
 };
 
@@ -2702,7 +2733,8 @@ function bloquePruebaClaves() {
     h('div', { clase: 'pista' },
       '«Puesta» no es «funciona». Esto le habla a cada servicio con una llamada '
       + 'que no cuesta dinero y dice cuál autentica y cuál no. Lo único que no '
-      + 'puede saber es si OpenAI tiene saldo: eso se mira en su Billing.'));
+      + 'puede confirmar sin generar una imagen es la cuota disponible de Codex '
+      + 'o el saldo del motor API anterior.'));
   const pruebas = vista.pruebas;
   if (pruebas) {
     pruebas.forEach(p => {
@@ -6236,6 +6268,13 @@ async function pintarCosteDelEncargoLight(e, nodo) {
 function textoDeCoste(ficha) {
   const c = ficha.coste || {};
   const pl = ficha.planos || {};
+  if (c.facturacion_imagenes === 'suscripcion_chatgpt') {
+    const imagenes = c.imagenes_hechas
+      ? `${c.imagenes_por_generar} imágenes pendientes (${c.imagenes_hechas} ya hechas)`
+      : `${c.imagenes} imágenes`;
+    return `${pl.total} planos · ${imagenes} · cuota de ChatGPT`
+      + (c.usd_tts ? ` · ≈ ${Number(c.usd_tts).toFixed(2)} $ de voz` : '');
+  }
   if (c.imagenes_hechas) {
     return `${pl.total} planos · ${c.imagenes_por_generar} imágenes `
       + `(${c.imagenes_hechas} ya hechas) · ≈ ${Number(c.usd_por_generar || 0).toFixed(2)} $ `
@@ -6812,6 +6851,7 @@ function textoDelPlan(tanda) {
     partes.push(coste.imagenes_hechas
       ? `${coste.imagenes_por_generar} imágenes (${coste.imagenes_hechas} ya hechas)`
       : `${coste.imagenes} imágenes`);
+    if (coste.facturacion_imagenes === 'suscripcion_chatgpt') partes.push('cuota de ChatGPT');
   }
   if (coste.usd_total) {
     partes.push(coste.imagenes_hechas
@@ -10781,7 +10821,7 @@ const INICIO = { abierta: false, paso: 0, arrancando: false, accesoFallido: '' }
 const TARJETAS_INICIO = [
   { id: 'bienvenida', titulo: 'Bienvenido a AS Video Studio', pinta: tarjetaBienvenidaInicio },
   { id: 'claude', titulo: '1 · Tu cuenta de Claude', pinta: tarjetaClaudeInicio },
-  { id: 'openai', titulo: '2 · La clave de OpenAI (imágenes)', pinta: tarjetaOpenAIInicio },
+  { id: 'openai', titulo: '2 · Tu cuenta de ChatGPT (imágenes)', pinta: tarjetaOpenAIInicio },
   { id: 'cartesia', titulo: '3 · La clave de Cartesia (voz)', pinta: tarjetaCartesiaInicio },
   { id: 'jamendo', titulo: '4 · La clave de Jamendo (música, opcional)', pinta: tarjetaJamendoInicio },
   { id: 'freesound', titulo: '5 · La clave de FreeSound (efectos, opcional)', pinta: tarjetaFreeSoundInicio },
@@ -10894,12 +10934,12 @@ function tarjetaBienvenidaInicio() {
       'Esto convierte lo que escribas —unas notas, un artículo, tu propio guion— '
       + 'en un vídeo de animación narrada, en varios pasos con revisión entre '
       + 'ellos. Para que pueda hacerlo necesita hablar con cinco servicios, y '
-      + 'cada uno pide su llave. Esta guía te lleva a por ellas una a una, con el '
+      + 'usan tu sesión o una clave. Esta guía te lleva por ellos uno a uno, con el '
       + 'enlace de cada sitio.'),
     h('ol', { clase: 'inicio-pasos' },
       h('li', {}, h('b', {}, 'Claude'), ': tu cuenta, no una clave. Escribe el guion, el '
         + 'catálogo visual y los rótulos, y mueve al asistente de la burbuja.'),
-      h('li', {}, h('b', {}, 'OpenAI'), ': con ella se dibujan los planos.'),
+      h('li', {}, h('b', {}, 'ChatGPT / Codex'), ': tu cuenta para dibujar los planos, sin API key.'),
       h('li', {}, h('b', {}, 'Cartesia'), ': la voz que narra.'),
       h('li', {}, h('b', {}, 'Jamendo y FreeSound'), ': música y efectos. Son las dos únicas que se '
         + 'pueden dejar para luego; las otras tres hacen falta.')),
@@ -11079,26 +11119,7 @@ function pasoDelAccesoGuia(cuenta, intento) {
 }
 
 function tarjetaOpenAIInicio() {
-  const ficha = estadoConfig().ficha;
-  const puesta = !!(ficha && ficha.openai && ficha.openai.length);
-  return [
-    h('div', { clase: 'pista' },
-      'Con esta clave se dibujan los planos: sin ella no hay vídeo. Cada imagen '
-      + 'se paga; un vídeo de cuatro minutos son unos 4,4 $ en calidad baja.'),
-    h('ol', { clase: 'inicio-pasos' },
-      h('li', {}, 'Entra en ', enlaceInicio('platform.openai.com', 'https://platform.openai.com/'),
-        ' y crea una cuenta si no la tienes.'),
-      h('li', {}, 'Carga saldo en ',
-        enlaceInicio('Billing', 'https://platform.openai.com/settings/organization/billing/overview'),
-        ' («Add to credit balance»). Sin saldo la clave existe pero no genera nada.'),
-      h('li', {}, 'Ve a ', enlaceInicio('API keys', 'https://platform.openai.com/api-keys'),
-        ' → «Create new secret key». Cópiala entera (empieza por sk-) y pégala aquí: '
-        + 'OpenAI sólo la enseña una vez.')),
-    ficha ? estadoClaveInicio(puesta, puesta ? ficha.openai[0].cola : '')
-      : h('div', { clase: 'cargando' }, 'leyendo las claves…'),
-    campoClaveInicio('sk-…', clave => guardarClaves({
-      openai: [{ etiqueta: '', clave, activa: true }] })),
-  ];
+  return [seccionOpenAI(estadoConfig().ficha)];
 }
 
 function tarjetaCartesiaInicio() {
@@ -11172,18 +11193,19 @@ function tarjetaFinalInicio() {
     pastillaEstado(puesta ? 'ok' : (opcional ? 'parcial' : 'error'),
       puesta ? 'puesta' : (opcional ? 'para luego' : 'sin poner')),
     h('span', {}, nombre));
-  const faltan = [!claude, !(ficha.openai && ficha.openai.length), !(ficha.cartesia && ficha.cartesia.puesta)]
+  const imagenes = !!(estadoConfig().codex && estadoConfig().codex.conectada);
+  const faltan = [!claude, !imagenes, !(ficha.cartesia && ficha.cartesia.puesta)]
     .filter(Boolean).length;
   return [
     fila('Claude — guion, catálogo, rótulos y el asistente', claude),
-    fila('OpenAI — imágenes', !!(ficha.openai && ficha.openai.length)),
+    fila('ChatGPT / Codex — imágenes', imagenes),
     fila('Cartesia — voz', !!(ficha.cartesia && ficha.cartesia.puesta)),
     fila('Jamendo — música', !!(ficha.jamendo && ficha.jamendo.puesta), true),
     fila('FreeSound — efectos', !!(ficha.freesound && ficha.freesound.puesta), true),
     faltan
       ? h('div', { clase: 'caja-aviso' },
         `Falta${faltan > 1 ? 'n' : ''} ${faltan} de las tres que hacen falta para un vídeo `
-        + '(Claude, OpenAI y Cartesia). Sin ellas no sale el vídeo entero: se '
+        + '(Claude, ChatGPT y Cartesia). Sin ellas no sale el vídeo entero: se '
         + 'ponen desde Configuración, el engranaje de arriba a la derecha.')
       : h('div', { clase: 'caja-info' },
         'Está todo. Lo siguiente es crear un estilo (cómo se dibuja y cómo se '

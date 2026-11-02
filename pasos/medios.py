@@ -56,11 +56,16 @@ if os.name == "nt":
 #: Donde buscar el navegador del render, en orden. Las dos primeras son las de
 #: Windows; las de Linux van detras para que en Windows no cambie nada. Se puede
 #: forzar uno concreto con ESTUDIO_EDGE.
+_CHROME_PRUEBAS = tuple(str(ruta) for ruta in sorted(
+    (Path.home() / ".cache" / "ms-playwright").glob("chromium-*/chrome-linux64/chrome"),
+    reverse=True)) if sys.platform.startswith("linux") else ()
 EDGES = tuple(f for f in (os.environ.get("ESTUDIO_EDGE"),) if f) + (
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
     "/usr/bin/microsoft-edge",
     "/opt/microsoft/msedge/msedge",
+    # Un binario directo evita los lanzadores de escritorio de algunas distros.
+) + _CHROME_PRUEBAS + (
     "/usr/bin/chromium",
 )
 
@@ -1871,4 +1876,3 @@ def duracion_media(ruta):
         return float(salida.stdout.strip())
     except ValueError:
         return 0.0
-

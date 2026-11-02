@@ -460,6 +460,84 @@ def prueba_material_escrito():
           "y la barra ya no dice «Extrayendo el vídeo»")
 
 
+def prueba_fuentes_linux():
+    seccion("10] las muestras en Linux usan las mismas fuentes que el navegador")
+    import tipografia
+    carpeta = os.path.join(CARPETA, "fuentes")
+    os.makedirs(carpeta, exist_ok=True)
+    encontrada = os.path.join(carpeta, "sistema.ttf")
+    with open(encontrada, "wb") as fh:
+        fh.write(b"fuente de prueba")
+    respuesta = SimpleNamespace(returncode=0, stdout=encontrada)
+    with mock.patch.dict(os.environ, {"ESTUDIO_FUENTES": ""}), \
+            mock.patch.object(tipografia.os, "name", "posix"), \
+            mock.patch.object(tipografia, "CARPETA_FUENTES", carpeta), \
+            mock.patch.object(tipografia.subprocess, "run", return_value=respuesta) as ejecutar:
+        igual(tipografia._ttf("verdana.ttf"), encontrada,
+              "sin los enlaces del instalador, Fontconfig resuelve el fichero real")
+        igual(ejecutar.call_args.args[0][-1], "Verdana:weight=regular",
+              "se pregunta por la familia que usa el SVG, no por una sustituta arbitraria")
+        igual(tipografia._ttf("verdanab.ttf"), encontrada, "tambien resuelve negrita")
+        igual(ejecutar.call_args.args[0][-1], "Verdana:weight=bold",
+              "la negrita se mide con su peso, no con la fuente normal")
+        with mock.patch.dict(os.environ, {"ESTUDIO_FUENTES": carpeta}):
+            ejecutar.reset_mock()
+            igual(tipografia._ttf("verdana.ttf"), os.path.join(carpeta, "verdana.ttf"),
+                  "una carpeta configurada manda, aunque falte un fichero")
+            comprobar(not ejecutar.called, "no se oculta una instalacion mal configurada")
+        with mock.patch.object(tipografia, "FUENTES", {"verdana": ("ausente.ttf", "ausente.ttf")}), \
+                mock.patch.object(tipografia, "_fuentes", {}):
+            try:
+                tipografia.fuente("verdana", 12)
+                comprobar(False, "una fuente ausente debe fallar")
+            except OSError as fallo:
+                comprobar("ausente.ttf" in str(fallo) and "ESTUDIO_FUENTES" in str(fallo),
+                          "el error identifica el recurso y como configurarlo")
+
+
+def prueba_contador_planos_resueltos():
+    seccion("11] el contador no anuncia como hecho un plano que falla")
+    import p6_assets
+    carpeta = os.path.join(CARPETA, "contador")
+    dirs = {nombre: os.path.join(carpeta, nombre) for nombre in ("escenas", "componentes", "cache")}
+    for ruta in dirs.values():
+        os.makedirs(ruta, exist_ok=True)
+    _png(os.path.join(dirs["escenas"], "S001.png"), "blue")
+    escenas = [{"id": "S001", "narracion": "ya hecha", "t_in": 0, "t_out": 3, "set": "sitio"},
+               {"id": "S002", "narracion": "pendiente", "t_in": 3, "t_out": 6,
+                "set": "sitio", "componente": "pieza"}]
+    plan = {"escenas": escenas, "dependencias": {}}
+    avisos = []
+    def avisar(fraccion, texto="", cuenta=None):
+        avisos.append(cuenta)
+    try:
+        p6_assets._generar_escenas(plan, dirs, {"cadenas": 1}, carpeta,
+                                  lambda uid: True, None, {}, avisar)
+        comprobar(False, "un componente ausente debe fallar")
+    except RuntimeError:
+        igual([c for c in avisos if c], [(0, 2), (1, 2)],
+              "el plano conservado cuenta, el fallido no: nunca se anuncia 2 de 2")
+    _png(os.path.join(dirs["componentes"], "pieza.png"), "red")
+    avisos.clear()
+    p6_assets._generar_escenas(plan, dirs, {"cadenas": 1}, carpeta,
+                              lambda uid: True, None, {}, avisar)
+    igual([c for c in avisos if c], [(0, 2), (1, 2), (2, 2)],
+          "al resolver el segundo, el contador avanza hasta el total")
+    comprobar(os.path.exists(os.path.join(dirs["escenas"], "S002.json")),
+              "el contador termina con la ficha del plano ya escrita")
+    plan["escenas"] = [dict(escenas[0]),
+                       dict(escenas[1], id="S004", narracion="nuevo fallo", componente="ausente", set="otro"),
+                       dict(escenas[1], id="S005", narracion="otra pieza", set="tercero")]
+    try:
+        p6_assets._generar_escenas(plan, dirs, {"cadenas": 1}, carpeta,
+                                  lambda uid: True, None, {}, avisar)
+        comprobar(False, "el componente ausente debe detener la tanda")
+    except RuntimeError as fallo:
+        comprobar("ausente" in str(fallo), "se conserva la primera causa del fallo")
+    comprobar(not os.path.exists(os.path.join(dirs["escenas"], "S005.png")),
+              "tras fallar no se empiezan las cadenas que quedaban en cola")
+
+
 def main():
     try:
         prueba_motor_sin_adjuntos()
@@ -471,6 +549,8 @@ def main():
         prueba_previa()
         prueba_lotes()
         prueba_material_escrito()
+        prueba_fuentes_linux()
+        prueba_contador_planos_resueltos()
     finally:
         shutil.rmtree(CARPETA, ignore_errors=True)
     print()

@@ -74,11 +74,56 @@ autentica nada, a propósito (ver «Quién está dentro» más abajo).
 | **Microsoft Edge** (o Chrome) | rasterizar cada plano | igual |
 | Las **fuentes** de los subtítulos y las cartelas | medir y dibujar el texto | ver el aviso de `motores/README.md` |
 | El **CLI de Claude**, con sesión | el guion, el catálogo visual, los rótulos | no hay vídeo |
-| Una **clave de OpenAI** | las imágenes | no hay vídeo |
+| **Codex CLI**, con sesión de ChatGPT | las imágenes con la cuota del plan | no hay vídeo |
 | Una **clave de Cartesia** | la voz | no hay vídeo |
 | Las de **Jamendo** y **FreeSound** | música y efectos | el vídeo sale sin ellos; son las únicas prescindibles |
 
-Las claves se ponen en **Configuración** (el engranaje de arriba a la derecha) y
+En Linux local, las fuentes se resuelven con **Fontconfig** (`fc-match`) por la
+misma familia y peso que utiliza el navegador. `ESTUDIO_FUENTES` sigue teniendo
+prioridad para las instalaciones con una carpeta de fuentes preparada; si la
+configuras, debe contener los ficheros esperados, no una carpeta vacía.
+Para el render se reconoce también el Chrome instalado por Playwright en Linux;
+`ESTUDIO_EDGE` permite elegir un ejecutable concreto.
+
+Para las imágenes, instala el CLI oficial con `npm install -g @openai/codex`
+(probado con **0.165.0**) y conecta ChatGPT en la guía de inicio o en
+**Configuración → ChatGPT / Codex — imágenes**. También reconoce una sesión
+ya abierta con `codex login`. El acceso desde la web usa un código de dispositivo:
+se introduce en la página de OpenAI, no se pega ningún token en el Estudio.
+Si OpenAI lo solicita, activa el acceso por código de dispositivo en la seguridad
+de tu cuenta de ChatGPT.
+
+Codex genera las imágenes con `gpt-image-2` y consume los límites de Codex de tu
+plan, sin cargos de la API de imágenes. No es una cuota ilimitada: si se agota,
+se detiene la generación y puedes retomar lo pendiente. No pasa automáticamente
+a una API de pago. Calidad y tamaño se solicitan al agente; el PNG se normaliza
+al tamaño que espera el motor de vídeo.
+
+La herramienta admite **cinco imágenes de referencia por petición**. Si un
+plano necesita más, el adaptador conserva las primeras cuatro y agrupa las
+restantes en una lámina etiquetada; el encargo explica la correspondencia sin
+descartar referencias. Un exceso de adjuntos no es un agotamiento de cuota.
+
+Dentro de una tanda se procesan hasta **dos imágenes independientes a la vez**,
+manteniendo el orden de continuidad de cada secuencia. Se reutilizan los
+procesos de Codex, pero cada imagen abre un hilo nuevo. Para ir en serie fija
+`ESTUDIO_CODEX_CONCURRENCIA=1` (el máximo admitido es 2).
+
+Cada intento guarda un diagnóstico acotado en
+`<ESTUDIO_SECRETOS>/codex_imagenes/<id>.json`: motivo, estado del turno,
+referencias agrupadas y tiempos, sin el prompt ni credenciales. Ante una
+respuesta incompleta se consulta el **mismo turno** para recuperar su imagen,
+incluida la salida nativa en base64, sin repetir la generación. Los errores
+distinguen cuota, sesión, rechazo, referencias y respuesta incompleta. Los
+límites generales que devuelve Codex no garantizan cuota de imágenes.
+
+La sesión se guarda y renueva mediante el propio CLI (`CODEX_HOME` o `~/.codex`).
+`ESTUDIO_CODEX_HOME` permite aislarla por instalación y `ESTUDIO_CODEX` indicar
+el ejecutable. Usa la misma variable para un login manual y para el servicio.
+En instalaciones que ya tenían una clave se conserva el motor anterior hasta
+pulsar **Usar ChatGPT**; el cambio no modifica firmas ni regenera imágenes hechas.
+
+Las claves de los otros servicios se ponen en **Configuración** (el engranaje de arriba a la derecha) y
 se guardan en `secretos/claves.json`, fuera del control de versiones. Ninguna
 clave baja entera al navegador: la pantalla ve la etiqueta, los cuatro últimos
 caracteres y el estado.
@@ -148,7 +193,7 @@ De ahí salen dos reglas que parecen arbitrarias y no lo son:
 powershell -NoProfile -File pruebas.ps1
 ```
 
-Veinticinco suites, y **por PowerShell y no por bash**: Edge headless devuelve
+Veintiséis suites, y **por PowerShell y no por bash**: Edge headless devuelve
 código 0 y no escribe el PNG cuando se lanza desde un shell sandboxeado, así que
 `prueba_pasos_visuales` falla con «Edge no generó ...png» sin que nada esté roto.
 
@@ -164,6 +209,8 @@ Lo que se comprueba de verdad, y no es humo:
 - `pasos/prueba_regresiones.py` los fallos de octubre de 2026, uno por sección:
   crear un estilo, el catálogo visual, guardar un estilo sin romper sus vídeos,
   la captura del navegador, la previa, los lotes de render, el precio.
+- `python pasos/prueba_codex_imagen.py` comprueba imágenes nativas, referencias,
+  fallos de cuota y facturación de suscripción con dobles, sin red ni consumo.
 - `nucleo/prueba_adversarial.py` mata el proceso a mitad de una escritura, cruza
   hilos y procesos, y prueba a salirse de la carpeta con `../`.
 

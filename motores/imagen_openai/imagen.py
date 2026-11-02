@@ -17,6 +17,7 @@ concurrencia.
 """
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -335,6 +336,42 @@ RUTA_ENV = os.path.join(CARPETA_SECRETOS, ".env")
 #: Lo que el cubo ha aprendido de cada cuenta (ver «lo que se aprende»): con los
 #: datos de la instalacion, no con el programa, para que actualizar no lo borre.
 RUTA_LIMITES = os.path.join(CARPETA_SECRETOS, "limites_aprendidos.json")
+RUTA_PROVEEDOR = os.path.join(CARPETA_SECRETOS, "imagenes.json")
+_CODEX = None
+_CODEX_LOCK = threading.Lock()
+
+
+def codex():
+    """Carga el adaptador sin importar la aplicación ni los pasos."""
+    global _CODEX
+    with _CODEX_LOCK:
+        if _CODEX is None:
+            spec = importlib.util.spec_from_file_location(
+                "imagen_codex", os.path.join(os.path.dirname(__file__), "codex.py"))
+            modulo = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(modulo)
+            _CODEX = modulo
+    return _CODEX
+
+
+def proveedor_imagen():
+    """Instalaciones nuevas usan ChatGPT; las claves existentes siguen legibles."""
+    try:
+        with open(RUTA_PROVEEDOR, encoding="utf-8") as fh:
+            if json.load(fh).get("proveedor") == "codex":
+                return "codex"
+    except (OSError, ValueError, AttributeError):
+        pass
+    return "api" if _claves_declaradas() else "codex"
+
+
+def activar_codex():
+    """Preferencia de instalación, nunca params ni firmas de los vídeos."""
+    os.makedirs(CARPETA_SECRETOS, exist_ok=True)
+    ruta = RUTA_PROVEEDOR + ".tmp"
+    with open(ruta, "w", encoding="utf-8") as fh:
+        json.dump({"proveedor": "codex"}, fh)
+    os.replace(ruta, RUTA_PROVEEDOR)
 
 #: Cuanto se deja fuera del reparto una cuenta que dijo "sin credito". No es
 #: para siempre a proposito: una cuenta que se agoto a las diez y se recargo a
@@ -749,7 +786,10 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
     faltan = [r for r in referencias if not os.path.exists(r)]
     if faltan:
         raise ValueError("estas imagenes de referencia no existen: "
-                         + ", ".join(str(f) for f in faltan[:5]))
+                          + ", ".join(str(f) for f in faltan[:5]))
+
+    if api_key is None and proveedor_imagen() == "codex":
+        return codex().generar(prompt, referencias, quality, TAMANOS[tamano])
 
     # con api_key explicita se respeta esa clave (una cuenta efimera con su
     # propio cubo); sin ella, cada intento elige la cuenta con hueco -- que es

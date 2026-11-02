@@ -117,6 +117,9 @@ actualizar() {
     "$RAIZ/app/despliegue/login/" "$RAIZ/login/"
   ( cd "$RAIZ/login" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 ) || true
   "$RAIZ/venv/bin/pip" install --quiet -r "$RAIZ/app/requirements.txt"
+  if ! codex --version >/dev/null 2>&1; then
+    npm install -g @openai/codex@0.165.0 >/dev/null 2>&1
+  fi
   install -m 755 "$RAIZ/app/despliegue/asvs" /usr/local/bin/asvs
   install -m 755 "$RAIZ/app/despliegue/estudio-clave" /usr/local/bin/estudio-clave
 

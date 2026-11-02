@@ -3544,30 +3544,38 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                      % recolocadas["movidas"], None)
     total = len(escenas)
     cadenas = _cuantas_cadenas(p, escenas)
+    imagen = medios.motor("imagen_openai/imagen.py")
+    if getattr(imagen, "proveedor_imagen", lambda: "api")() == "codex":
+        cadenas = min(cadenas, imagen.codex().concurrencia())
     orden = {escena["id"]: indice for indice, escena in enumerate(escenas)}
 
     # el candado protege lo que comparten las cadenas: el diccionario de
     # resultados, el coste acumulado y el contador de avance
     cerrojo = threading.Lock()
     estado = {"coste": 0.0, "hechas": 0}
+    detener = threading.Event()
+    errores = []
 
     def anunciar(sid):
         with cerrojo:
             estado["hechas"] += 1
             hechas = estado["hechas"]
-        avisar(0.35 + 0.6 * (hechas / max(1, total)),
-               f"plano {sid} · {hechas} de {total}", (hechas, total))
+            avisar(0.35 + 0.6 * (hechas / max(1, total)),
+                   f"plano {sid} resuelto · {hechas} de {total}", (hechas, total))
+
+    avisar(0.35, f"0 de {total} planos resueltos", (0, total))
 
     def una_cadena(grupo):
         """Los planos de un set, en fila y arrastrando su propia continuidad."""
         previas = {}
         orden_cadena = []
         for escena in grupo:
+            if detener.is_set():
+                return
             sid = escena["id"]
             uid = f"escena:{sid}"
             destino = os.path.join(dirs["escenas"], f"{sid}.png")
             ficha_json = os.path.join(dirs["escenas"], f"{sid}.json")
-            anunciar(sid)
 
             # Una cartela no deja PNG, asi que su ficha en disco es lo unico
             # que dice que ya estaba hecha. Y tiene que ser una ficha DE
@@ -3636,6 +3644,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                          != _texto_clave(escena)))
                 with cerrojo:
                     resultados[uid] = ficha
+                anunciar(sid)
                 continue
 
             if cartelas.sin_imagen(escena):
@@ -3722,6 +3731,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                     with cerrojo:
                         resultados[uid] = dict(previa, origen="conservado",
                                                reaprovechada=True)
+                    anunciar(sid)
                     continue
                 escena_final = escena
                 corregido = None
@@ -3818,14 +3828,27 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             with cerrojo:
                 resultados[uid] = ficha
                 estado["coste"] += float(meta.get("coste") or 0.0)
+            anunciar(sid)
 
     # En fila tambien se va por grupos: es el MISMO reparto, un hilo detras de
     # otro. Asi «en fila» y «a la vez» dejan de ser dos caminos distintos con dos
     # ordenes distintos, y la unica diferencia entre ellos es el reloj.
     grupos = _cadenas_por_set(escenas, orden)
+
+    def vigilar(grupo):
+        try:
+            una_cadena(grupo)
+        except Exception as fallo:
+            with cerrojo:
+                if not errores:
+                    errores.append(fallo)
+            detener.set()
+
     if cadenas <= 1:
         for grupo in grupos:
-            una_cadena(grupo)
+            vigilar(grupo)
+        if errores:
+            raise errores[0]
         return estado["coste"]
 
     avisar(0.34, f"{len(grupos)} cadenas de planos, {cadenas} a la vez")
@@ -3833,8 +3856,10 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
     # tragado en su hilo: se recoge el resultado de cada una para que la
     # excepcion vuelva a levantarse aqui.
     with ThreadPoolExecutor(max_workers=cadenas) as pool:
-        for tarea in [pool.submit(una_cadena, g) for g in grupos]:
+        for tarea in [pool.submit(vigilar, g) for g in grupos]:
             tarea.result()
+    if errores:
+        raise errores[0]
     return estado["coste"]
 
 

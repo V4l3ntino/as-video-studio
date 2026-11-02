@@ -20,6 +20,7 @@ import os
 import shutil
 import sys
 import tempfile
+from unittest import mock
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 if RAIZ not in sys.path:
@@ -27,6 +28,7 @@ if RAIZ not in sys.path:
 
 import cartelas                                             # noqa: E402
 import presets_light as light                               # noqa: E402
+import medios                                              # noqa: E402
 
 _ok = 0
 _fallos = []
@@ -157,7 +159,8 @@ def probar_plan():
         shutil.rmtree(carpeta, ignore_errors=True)
 
 
-def probar_ritmo():
+@mock.patch.object(medios.motor("imagen_openai/imagen.py"), "proveedor_imagen", return_value="api")
+def probar_ritmo(_proveedor):
     """El deslizador: cinco escalones que de verdad escalan, y sus dos cifras."""
     seccion("EL RITMO: UN MANDO QUE RELLENA CINCO CAMPOS")
     import p4_voz

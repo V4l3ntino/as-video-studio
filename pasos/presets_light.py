@@ -399,7 +399,10 @@ def usd_por_imagen(calidad="low"):
         calidad = "low"
     try:
         import ajustes                                      # noqa: PLC0415
-        total = float(ajustes.coste_por_imagen(calidad).get("usd_total") or 0.0)
+        ficha = ajustes.coste_por_imagen(calidad)
+        if ficha.get("facturacion") == "suscripcion_chatgpt":
+            return 0.0
+        total = float(ficha.get("usd_total") or 0.0)
     except Exception:                                       # noqa: BLE001
         total = 0.0
     return total if total > 0 else USD_POR_IMAGEN[calidad]

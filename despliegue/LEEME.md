@@ -40,6 +40,14 @@ la vez y el cortafuegos sólo deja entrar por el 80 y el 443.
 reemplaza `app/` entera y no toca `datos/`. Si estuvieran dentro, actualizar
 sería un riesgo cada vez.
 
+Las imágenes nuevas usan Codex CLI con login de ChatGPT. El instalador instala
+el CLI probado (0.165.0) y fija `ESTUDIO_CODEX_HOME` en `datos/secretos/codex`:
+la sesión la escribe y renueva Codex, y sobrevive a las actualizaciones. Para
+instalaciones anteriores, instala el CLI si falta y conecta ChatGPT desde la
+guía; no hace falta migrar los proyectos. Sin `ESTUDIO_CODEX_HOME` se conserva
+el `CODEX_HOME` o el `HOME/.codex` del servicio. Consulta `README.md` para los
+límites de cuota y la transición desde una API key.
+
 Y se reemplaza con `rsync --delete`, no con un `tar` por encima. Un tar
 *superpone*: un fichero que llegó ahí por accidente no se va nunca, y acabas con
 basura acumulada dentro del árbol de código sin que ninguna actualización la

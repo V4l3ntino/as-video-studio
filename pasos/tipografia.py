@@ -12,6 +12,7 @@ Aqui no hay ninguna decision de diseno: solo la cuenta. Que letra y que tamano
 lleva cada cosa lo deciden los arquetipos de p7 y las plantillas de cartelas.
 """
 import os
+import subprocess
 import sys
 
 from PIL import ImageFont
@@ -22,11 +23,38 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 #: servidor se copian LAS MISMAS a una carpeta propia y se apunta con
 #: ESTUDIO_FUENTES. Tienen que ser los mismos ficheros: medir con una fuente y
 #: dibujar con otra da una cuenta bien y un numero mal (ver `p7_callouts`).
-CARPETA_FUENTES = os.environ.get("ESTUDIO_FUENTES") or r"C:\Windows\Fonts"
+CARPETA_FUENTES = os.environ.get("ESTUDIO_FUENTES") or (
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    if os.name == "nt" else "/usr/local/share/fonts/estudio")
+
+_FAMILIAS = {
+    "verdana": "Verdana", "arial": "Arial", "tahoma": "Tahoma",
+    "georgia": "Georgia", "consola": "Consolas", "segoeui": "Segoe UI",
+}
 
 
 def _ttf(nombre):
-    return os.path.join(CARPETA_FUENTES, nombre)
+    ruta = os.path.join(CARPETA_FUENTES, nombre)
+    if os.environ.get("ESTUDIO_FUENTES") or os.name == "nt" or os.path.isfile(ruta):
+        return ruta
+    # En Linux local no hay C:\Windows\Fonts ni los enlaces del instalador.
+    # Preguntar por la MISMA familia y peso que usa el SVG permite medir con
+    # el fichero que el navegador elegirá, sin sustituir fuentes a ciegas.
+    base = os.path.splitext(nombre)[0]
+    negrita = base.endswith("b") or base == "arialbd"
+    base = "arial" if base == "arialbd" else base[:-1] if negrita else base
+    familia = _FAMILIAS.get(base, base)
+    consulta = familia + (":weight=bold" if negrita else ":weight=regular")
+    try:
+        resultado = subprocess.run(
+            ["fc-match", "--format=%{file}", consulta], capture_output=True,
+            text=True, encoding="utf-8", timeout=5)
+        encontrada = resultado.stdout.strip()
+        if resultado.returncode == 0 and os.path.isfile(encontrada):
+            return encontrada
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return ruta
 
 
 #: Las fuentes del sistema, en pares (normal, negrita).
@@ -51,7 +79,14 @@ def fuente(nombre, tam, negrita=False):
     clave = (nombre.lower(), int(tam), bool(negrita))
     if clave not in _fuentes:
         rutas = FUENTES.get(nombre.lower()) or FUENTES["verdana"]
-        _fuentes[clave] = ImageFont.truetype(rutas[1 if negrita else 0], int(tam))
+        ruta = rutas[1 if negrita else 0]
+        try:
+            _fuentes[clave] = ImageFont.truetype(ruta, int(tam))
+        except OSError as fallo:
+            raise OSError(
+                f"No se puede abrir la fuente {nombre!r}: {ruta}. "
+                "Revisa ESTUDIO_FUENTES; en Linux instala Fontconfig y las fuentes "
+                "que utiliza el navegador.") from fallo
     return _fuentes[clave]
 
 

@@ -257,8 +257,11 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | | Ruta | Qué hace |
 |---|---|---|
 | `GET` | `/` | La interfaz del Estudio. |
+| `GET` | `/api/imagenes/codex` | Estado de la sesión de ChatGPT para imágenes, sin tokens ni claves. |
+| `POST` | `/api/imagenes/codex/activar` | Usa la suscripción de ChatGPT sin cambiar firmas ni regenerar imágenes. |
+| `POST` | `/api/imagenes/codex/login` | Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**147 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**150 endpoints.** Escrito por `generar_api.py` desde `app.py`.

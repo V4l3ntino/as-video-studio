@@ -313,7 +313,7 @@ navegador() {
 # ---------------------------------------------------- 5. Node y el CLI de Claude
 
 node_y_claude() {
-  paso "Node y el CLI de Claude"
+  paso "Node y los CLI de Claude y Codex"
 
   local mayor=0
   command -v node >/dev/null 2>&1 && mayor="$(node -v | sed 's/^v\([0-9]*\).*/\1/')"
@@ -336,6 +336,12 @@ node_y_claude() {
       || fallo "no se ha podido instalar el CLI de Claude (npm install -g @anthropic-ai/claude-code)."
   fi
   bien "claude $(claude --version 2>/dev/null | head -1)"
+  if ! codex --version >/dev/null 2>&1; then
+    nota "instalando Codex para las imagenes con ChatGPT..."
+    npm install -g @openai/codex@0.165.0 >/dev/null 2>&1 \
+      || fallo "no se ha podido instalar Codex (npm install -g @openai/codex@0.165.0)."
+  fi
+  bien "$(codex --version 2>/dev/null | head -1)"
 }
 
 # ------------------------------------------------- 6. usuario y carpetas
@@ -438,6 +444,7 @@ ESTUDIO_PRESETS=$RAIZ/datos/presets.json
 ESTUDIO_BANCO=$RAIZ/datos/banco
 ESTUDIO_BANCO_PRESETS=$RAIZ/datos/banco/presets
 ESTUDIO_SECRETOS=$RAIZ/datos/secretos
+ESTUDIO_CODEX_HOME=$RAIZ/datos/secretos/codex
 ESTUDIO_ENV=$RAIZ/datos/secretos/.env
 ESTUDIO_RECETAS=$RAIZ/datos/recetas.json
 ESTUDIO_AJUSTES=$RAIZ/datos/ajustes.json
@@ -805,4 +812,3 @@ cortafuegos
 la_contrasena
 comprobacion_final || true
 despedida
-
