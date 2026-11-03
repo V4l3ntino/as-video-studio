@@ -842,6 +842,10 @@ def instrumentar(pasos=None):
     if tono is not None:
         _envolver(tono, "_llamar_claude", _medir_claude("tono"),
                   informe, "tono.claude")
+    publicacion = getattr(pasos, "publicacion", None)
+    if publicacion is not None:
+        _envolver(publicacion, "_llamar_claude", _medir_claude("publicacion"),
+                  informe, "publicacion.claude")
     catalogo = getattr(pasos, "catalogo_visual", None)
     if catalogo is not None:
         _envolver(catalogo, "_llamar_claude", _medir_claude("catalogo_visual"),

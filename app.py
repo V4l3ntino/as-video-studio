@@ -65,7 +65,7 @@ from nucleo.proyecto import (Proyecto, ahora, escribir_json,  # noqa: E402
                              identificador, leer_json, leer_jsonl, lock_de,
                              recolocar,
                              ruta_contenida)
-from nucleo.trabajos import GestorTrabajos  # noqa: E402
+from nucleo.trabajos import Cancelado, GestorTrabajos  # noqa: E402
 
 # Los pasos cargan los motores de `motores/` al importarse. Si uno falla, el
 # servicio tiene que seguir sirviendo el resto en vez de no arrancar: el error se
@@ -5745,6 +5745,81 @@ def guardar_ajustes(cuerpo: dict = Body(default=None)):
     return {"ajustes": guardados, "costes": AJUSTES.tabla_de_costes()}
 
 
+# ------------------------------------------------------- publicación YouTube
+def _publicacion():
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f"los pasos no están cargados: {ERROR_PASOS}")
+    return PASOS_MODULOS.publicacion
+
+
+@app.get("/api/proyectos/{pid}/youtube")
+def leer_youtube(pid: str):
+    """Título, descripción, miniatura y avisos de actualización de YouTube."""
+    ctx = contexto(pid)
+    return {**_publicacion().leer(ctx.proyecto, ctx.estado),
+            "coste_miniatura": AJUSTES.coste_por_imagen("medium")}
+
+
+@app.put("/api/proyectos/{pid}/youtube")
+def editar_youtube(pid: str, cuerpo: dict = Body(default=None)):
+    """Edita los textos de publicación sin invalidar el montaje."""
+    ctx = contexto(pid)
+    with _cerrojo_de_cadena(ctx.id):
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine el trabajo antes de editar la publicación")
+        try:
+            datos = _publicacion().editar(ctx.proyecto, ctx.estado, _cuerpo(cuerpo))
+            return {**datos, "coste_miniatura": AJUSTES.coste_por_imagen("medium")}
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo))
+
+
+def _correr_publicacion(avisar, ctx, parte="pendientes", tolerar=False):
+    try:
+        with COSTE.contexto(ctx.proyecto, "render"):
+            resultado = _publicacion().preparar(ctx.proyecto, ctx.estado, avisar, parte)
+        return {**resultado, "resumen": "material de YouTube preparado"}
+    except Cancelado:
+        raise
+    except Exception as fallo:
+        if not tolerar:
+            raise
+        # El MP4 ya está completado: un servicio externo no debe marcarlo como
+        # fallido ni forzar a renderizar de nuevo para reintentar una miniatura.
+        ctx.bitacora.anotar("publicacion_pendiente", "render", {"error": str(fallo)})
+        avisar(1.0, "el MP4 está listo; queda reintentar la preparación de YouTube")
+        return {"resumen": "MP4 listo; publicación de YouTube pendiente", "error": str(fallo)}
+
+
+@app.post("/api/proyectos/{pid}/youtube", status_code=202)
+def preparar_youtube(pid: str, cuerpo: dict = Body(default=None)):
+    """Prepara YouTube o regenera solo texto/miniatura en segundo plano."""
+    ctx = contexto(pid)
+    parte = str(_cuerpo(cuerpo).get("parte") or "pendientes")
+    if parte not in ("pendientes", "texto", "miniatura"):
+        raise ErrorApi(400, "parte debe ser pendientes, texto o miniatura")
+    if not _publicacion().leer(ctx.proyecto, ctx.estado)["disponible"]:
+        raise ErrorApi(409, "primero hace falta un guion y un plan de escenas")
+    with _cerrojo_de_cadena(ctx.id):
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "ya hay un trabajo en marcha en este vídeo")
+        # Sin paso: no pone marcas de ejecutando/error en el grafo del MP4.
+        tid = ctx.gestor.lanzar("generar:youtube:render", _correr_publicacion, ctx, parte)
+        _registrar_trabajo(tid, ctx.id)
+    return {"trabajo_id": tid, "trabajo": ctx.gestor.estado(tid),
+            "eventos": f"/api/trabajos/{tid}/eventos"}
+
+
+@app.get("/api/proyectos/{pid}/youtube/texto")
+def descargar_youtube(pid: str):
+    """Descarga el título y la descripción guardados como archivo de texto."""
+    datos = leer_youtube(pid)
+    if not datos.get("titulo") or not datos.get("descripcion"):
+        raise ErrorApi(409, "todavía no hay textos preparados para YouTube")
+    return PlainTextResponse(datos["titulo"] + "\n\n" + datos["descripcion"] + "\n",
+                             headers={"Content-Disposition": 'attachment; filename="youtube.txt"'})
+
+
 # ------------------------------------------------------------------ enlaces
 # -------------------------------------------------------------------- recetas
 #
@@ -5885,6 +5960,8 @@ def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False):
     if tarea_id == "render":
         return _un_paso(ctx, "render", modo,
                         {"solo_montar": True} if solo_montar else None)
+    if tarea_id == "publicacion":
+        return _correr_publicacion, (ctx, "pendientes", True)
     raise ErrorApi(500, f"la receta declara la tarea '{tarea_id}' y nadie sabe "
                         f"hacerla: falta cablearla en app.py")
 
@@ -5943,6 +6020,8 @@ def _esta_al_dia(ctx, tarea):
     if tid == "efectos":
         return bool((ctx.estado.params("render") or {}).get("efectos")) \
             or bool(_falta_clave_de_sonido(tid))
+    if tid == "publicacion":
+        return _publicacion().leer(ctx.proyecto, ctx.estado)["completo"]
     return False
 
 
@@ -9227,6 +9306,8 @@ def _segundos_de_tarea(ctx, tarea, planos, palabras, reparto=None,
     Con eso el total de la tanda vuelve a ser el tiempo del paso, que es lo
     unico que la barra promete de verdad.
     """
+    if tarea["id"] == "publicacion":
+        return 150.0
     fase = tarea.get("fase")
     if fase:
         # UNA FASE NO SE ESCALA. Las tareas con fase propia --la guia de estilo,
@@ -9315,12 +9396,22 @@ def _plan_de_generacion(ctx, pestanas, modo="pendientes", datos=None):
                           ctx, pestana,
                           [{"id": t["id"]} for t in pendientes])})
         total += segundos
+    coste = _coste_previsto(ctx, pestanas)
+    if any(t["id"] == "publicacion" and t["se_hace"]
+           for f in fases for t in f["tareas"]):
+        datos_publicacion = _publicacion().leer(ctx.proyecto, ctx.estado)
+        if not datos_publicacion.get("miniatura"):
+            precio = AJUSTES.coste_por_imagen("medium")
+            coste["miniaturas"] = 1
+            coste["usd_miniatura"] = precio["usd_total"]
+            coste["usd_total"] = round(coste["usd_total"] + precio["usd_total"], 3)
+            coste["usd_por_generar"] = round(coste["usd_por_generar"] + precio["usd_total"], 3)
     return {
         "pestanas": list(pestanas), "modo": pedido,
         "fases": fases,
         "segundos": round(total, 1),
         "tareas": sum(len(f["pendientes"]) for f in fases),
-        "coste": _coste_previsto(ctx, pestanas),
+        "coste": coste,
         "impedimentos": [i for f in fases for i in f["impedimentos"]],
     }
 

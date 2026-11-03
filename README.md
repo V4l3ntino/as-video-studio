@@ -65,6 +65,26 @@ Y abrir `http://127.0.0.1:8020/`. Con `--host 0.0.0.0` escucha en la red local;
 **no lo pongas a la vista de internet sin un login delante**: la API no
 autentica nada, a propósito (ver «Quién está dentro» más abajo).
 
+### Listo para YouTube
+
+Al terminar la receta de montaje se preparan el **título**, la **descripción**
+y una **miniatura específica generada con IA**. En la pantalla **Vídeo**, debajo
+del reproductor, se pueden editar los textos (se guardan solos), copiarlos y
+descargarlos junto con la miniatura JPEG de 1280 × 720. Los vídeos que ya estaban
+montados tienen el botón **Preparar para YouTube**.
+La miniatura se diseña como una portada editorial: ilustración protagonista,
+titular corto y grande integrado y, cuando aporte contexto, una línea de apoyo.
+Conserva el estilo del canal y debe leerse al tamaño de una tarjeta de YouTube.
+
+Los textos usan Claude y la miniatura el motor de imágenes configurado: consume
+una imagen adicional, con la previsión de coste o cuota indicada en pantalla.
+Los capítulos, cuando el relato los admite, usan los tiempos reales de los
+bloques. Los datos viven en `publicacion/youtube.json`, fuera de los params del
+montaje: editarlos o regenerar solo la miniatura no vuelve a montar el MP4.
+Si cambia el guion, los tiempos o el estilo, se avisa para revisarlos sin
+sobrescribir lo editado. Un fallo al preparar YouTube no invalida el vídeo y se
+puede reintentar por separado. La subida a YouTube sigue siendo manual.
+
 ### Lo que hace falta tener
 
 | Qué | Para qué | Si falta |

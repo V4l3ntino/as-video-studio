@@ -45,6 +45,10 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/proyectos/{pid}/repaso/imagenes/{nombre}` | Una imagen de referencia de una nota. |
 | `DELETE` | `/api/proyectos/{pid}/repaso/{nid}` | Quita una nota del repaso. |
 | `PUT` | `/api/proyectos/{pid}/repaso/{nid}` | Cambia el texto, el instante o las imágenes de una nota. |
+| `GET` | `/api/proyectos/{pid}/youtube` | Título, descripción, miniatura y avisos de actualización de YouTube. |
+| `POST` | `/api/proyectos/{pid}/youtube` | Prepara YouTube o regenera solo texto/miniatura en segundo plano. |
+| `PUT` | `/api/proyectos/{pid}/youtube` | Edita los textos de publicación sin invalidar el montaje. |
+| `GET` | `/api/proyectos/{pid}/youtube/texto` | Descarga el título y la descripción guardados como archivo de texto. |
 
 ## Pasos: estado, params y ejecución
 
@@ -264,4 +268,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**150 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**154 endpoints.** Escrito por `generar_api.py` desde `app.py`.

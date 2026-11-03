@@ -5764,6 +5764,7 @@ async function cargarVideoLight(pid) {
     v.pedido = null;
     v.guion = await leerGuionLight();
     v.audio = await leerAudioLight();
+    await cargarYoutubeLight(pid);
     v.plan = null;
     v.planDe = '';
     // el coste es de ESTE vídeo: arrastrar el del anterior seria enseñar la
@@ -5932,6 +5933,7 @@ async function reengancharTandaLight(pid) {
     APP.trabajos[CLAVE_VIDEO_LIGHT] = Object.assign({}, vivo,
       { inicio: Date.now() - (vivo.segundos || 0) * 1000 });
     seguirTrabajo(CLAVE_VIDEO_LIGHT, vivo.id, async trabajo => {
+      if (nombre.includes('youtube')) await cargarYoutubeLight(pid);
       if (trabajo.estado === 'listo') {
         await cargarVideoLight(pid);
         // lo que hace `aplicarRepaso` al acabar: las notas aplicadas y las
@@ -6853,6 +6855,7 @@ function textoDelPlan(tanda) {
       : `${coste.imagenes} imágenes`);
     if (coste.facturacion_imagenes === 'suscripcion_chatgpt') partes.push('cuota de ChatGPT');
   }
+  if (coste.miniaturas) partes.push('1 miniatura adicional con IA');
   if (coste.usd_total) {
     partes.push(coste.imagenes_hechas
       ? `≈ ${Number(coste.usd_por_generar).toFixed(2)} $ · hasta ${Number(coste.usd_total).toFixed(2)} $ si hay que rehacerlas`
@@ -8413,8 +8416,8 @@ function botonRenderizarLight() {
       ? 'Tienes notas del repaso sin aplicar. Esto solo montaria el MP4 y '
         + 'saldria sin ellas. Usa «Aplicar», que aplica y monta de una vez.'
       : unirAyuda('Encadena los planos que acabas de mirar, con sus transiciones, '
-        + 'la voz y la musica, y saca el MP4. No genera ninguna imagen: no cuesta '
-        + 'dinero, cuesta tiempo de maquina.', textoDelPlan('render')),
+        + 'la voz y la musica, y saca el MP4 con recursos del equipo. Al terminar, '
+        + 'prepara los textos y una miniatura para YouTube si faltan (usa IA).', textoDelPlan('render')),
     h('button', {
       clase: notasSinAplicar ? 'mini' : 'avisa',
       disabled: corriendo || notasSinAplicar,
@@ -8523,8 +8526,8 @@ function vistaVideoLight() {
         ? 'El MP4 esta al dia con los planos y el audio de ahora. Volver a '
           + 'montarlo daria el mismo fichero.'
         : unirAyuda('Encadena los planos que ya has visto, con sus transiciones, '
-          + 'la voz y la musica, y saca el MP4. No genera ninguna imagen: no '
-          + 'cuesta dinero, cuesta tiempo de maquina.', textoDelPlan('render'))),
+          + 'la voz y la musica, y saca el MP4 con recursos del equipo. Al terminar, '
+          + 'prepara los textos y una miniatura para YouTube si faltan (usa IA).', textoDelPlan('render'))),
       h('button', {
         clase: notasSinAplicar ? 'mini' : 'primario',
         disabled: !!trabajoVideoLight() || notasSinAplicar
@@ -8556,7 +8559,162 @@ function vistaVideoLight() {
   /* EL REPASO VA DEBAJO DEL VÍDEO Y SOLO CUANDO HAY VÍDEO. Antes de eso no hay
      nada que comentar, y una caja de texto vacía debajo de una barra de
      progreso invita a escribir sobre algo que todavía no existe. */
+  if (hayMp4Light()) caja.appendChild(panelYoutubeLight());
   if (hayMp4Light() && !trabajoVideoLight()) caja.appendChild(panelRepaso());
+  return caja;
+}
+
+/* La publicación no es un param del render. Se edita una copia y se envían
+   solo los campos tocados; las descargas siempre reflejan lo guardado. */
+const YOUTUBE_LIGHT = {};
+
+function youtubeDelVideo(pid) {
+  const id = pid || videoAbierto().pid;
+  if (!YOUTUBE_LIGHT[id]) YOUTUBE_LIGHT[id] = {
+    datos: null, cambios: {}, error: '', guardando: false, generando: false, cita: null,
+  };
+  return YOUTUBE_LIGHT[id];
+}
+
+async function cargarYoutubeLight(pid) {
+  const y = youtubeDelVideo(pid);
+  try {
+    y.datos = await pedir(`${API.proyecto(pid)}/youtube`);
+    y.error = '';
+  } catch (err) { y.error = err.message; }
+}
+
+async function guardarYoutubeLight(pid) {
+  const y = youtubeDelVideo(pid);
+  clearTimeout(y.cita);
+  if (y.guardando) return false;
+  const cambios = Object.assign({}, y.cambios);
+  if (!Object.keys(cambios).length) return true;
+  y.guardando = true;
+  try {
+    y.datos = await pedir(`${API.proyecto(pid)}/youtube`, { method: 'PUT', cuerpo: cambios });
+    for (const [campo, texto] of Object.entries(cambios)) {
+      if (y.cambios[campo] === texto) delete y.cambios[campo];
+    }
+    y.error = '';
+    if (Object.keys(y.cambios).length) {
+      y.cita = setTimeout(() => guardarYoutubeLight(pid), 650);
+    }
+    return true;
+  } catch (err) { y.error = err.message; return false; }
+  finally {
+    y.guardando = false;
+    if (videoAbierto().pid === pid) repintarVideo();
+  }
+}
+
+async function generarYoutubeLight(parte) {
+  const pid = videoAbierto().pid;
+  const y = youtubeDelVideo(pid);
+  if (!await guardarYoutubeLight(pid)) return;
+  y.generando = true;
+  y.error = '';
+  repintarVideo();
+  try {
+    const datos = await pedir(`${API.proyecto(pid)}/youtube`, {
+      method: 'POST', cuerpo: { parte },
+    });
+    seguirTrabajo(CLAVE_VIDEO_LIGHT, datos.trabajo_id, async () => {
+      y.generando = false;
+      await cargarYoutubeLight(pid);
+      if (videoAbierto().pid === pid) repintarVideo();
+    });
+    y.generando = false;
+  } catch (err) { y.error = err.message; y.generando = false; }
+  repintarVideo();
+}
+
+async function copiarYoutubeLight(texto) {
+  try { await navigator.clipboard.writeText(texto); toast('Copiado'); }
+  catch (err) { toast('No se pudo copiar. Selecciona el texto y cópialo manualmente.', true); }
+}
+
+function panelYoutubeLight() {
+  const pid = videoAbierto().pid;
+  const y = youtubeDelVideo(pid);
+  const datos = y.datos || {};
+  const ocupado = !!trabajoVideoLight() || y.generando || y.guardando;
+  const precio = datos.coste_miniatura || {};
+  const consumo = precio.facturacion === 'suscripcion_chatgpt' ? 'cuota de ChatGPT'
+    : (precio.usd_total ? `≈ ${Number(precio.usd_total).toFixed(2)} $ por miniatura` : 'una imagen adicional');
+  const caja = h('section', { clase: 'youtube-light' },
+    h('div', { clase: 'fila' }, h('h3', {}, 'Listo para YouTube'),
+      h('span', { clase: 'crece' }),
+      h('span', { clase: 'meta' }, y.guardando ? 'guardando…'
+        : (Object.keys(y.cambios).length ? 'cambios sin guardar' : ''))),
+    h('p', { clase: 'meta' }, `Título y descripción con Claude; miniatura específica con IA (${consumo}). `
+      + 'Se guardan aparte del MP4.'));
+  if (y.error) caja.appendChild(cajaError(y.error));
+  if (!y.datos) {
+    caja.appendChild(h('button', { clase: 'mini', onclick: async () => {
+      await cargarYoutubeLight(pid); repintarVideo();
+    } }, 'Volver a cargar'));
+    return caja;
+  }
+  if (datos.texto_obsoleto || datos.miniatura_obsoleta) caja.appendChild(h('div', {
+    clase: 'caja-info',
+  }, 'El guion, los tiempos o el estilo han cambiado. Revisa los textos y la miniatura; '
+    + 'puedes actualizarlos por separado sin volver a montar el vídeo.'));
+  if (datos.error_texto) caja.appendChild(cajaError(`Textos: ${datos.error_texto}`));
+  if (datos.error_miniatura) caja.appendChild(cajaError(`Miniatura: ${datos.error_miniatura}`));
+  if (!datos.titulo || !datos.descripcion) {
+    caja.appendChild(h('button', {
+      clase: 'primario', disabled: ocupado || !datos.disponible,
+      onclick: () => generarYoutubeLight('pendientes'),
+    }, 'Preparar para YouTube'));
+    return caja;
+  }
+  for (const [campo, nombre, limite, filas] of [
+    ['titulo', 'Título', 100, 2], ['descripcion', 'Descripción', 5000, 9],
+  ]) {
+    const valor = Object.hasOwn(y.cambios, campo) ? y.cambios[campo] : datos[campo];
+    const contador = h('span', { clase: 'meta' }, `${valor.length}/${limite}`);
+    const area = h('textarea', {
+      rows: filas, maxlength: limite, value: valor, disabled: ocupado,
+      'aria-label': `${nombre} de YouTube`, datos: { foco: `youtube:${campo}` },
+      oninput: ev => {
+        y.cambios[campo] = ev.target.value;
+        contador.textContent = `${ev.target.value.length}/${limite}`;
+        clearTimeout(y.cita);
+        y.cita = setTimeout(() => guardarYoutubeLight(pid), 650);
+      },
+    });
+    caja.appendChild(h('div', { clase: 'youtube-campo' },
+      h('div', { clase: 'fila' }, h('label', {}, nombre), contador,
+        h('span', { clase: 'crece' }),
+        h('button', { clase: 'mini', onclick: () => copiarYoutubeLight(area.value) }, 'Copiar')),
+      area));
+  }
+  caja.appendChild(h('div', { clase: 'fila' },
+    h('button', { clase: 'mini', disabled: ocupado,
+      onclick: () => generarYoutubeLight('texto') }, 'Regenerar textos'),
+    Object.keys(y.cambios).length && !ocupado ? h('button', {
+      clase: 'mini', onclick: () => guardarYoutubeLight(pid),
+    }, 'Reintentar guardado') : null,
+    h('a', { clase: 'boton mini', href: `${API.proyecto(pid)}/youtube/texto`, download: '',
+      onclick: async ev => {
+        ev.preventDefault();
+        if (await guardarYoutubeLight(pid)) location.assign(`${API.proyecto(pid)}/youtube/texto`);
+      },
+    },
+      'Descargar textos')));
+  caja.appendChild(h('h4', {}, 'Miniatura · 1280 × 720'));
+  if (datos.miniatura) caja.appendChild(h('img', {
+    clase: 'youtube-miniatura', src: API.archivo(pid, datos.miniatura), alt: 'Miniatura de YouTube',
+  }));
+  else caja.appendChild(h('p', { clase: 'meta' }, 'La miniatura todavía no está generada.'));
+  caja.appendChild(h('div', { clase: 'fila' },
+    h('button', { clase: 'mini', disabled: ocupado,
+      onclick: () => generarYoutubeLight('miniatura'),
+    }, datos.miniatura ? 'Regenerar miniatura' : 'Generar miniatura'),
+    datos.miniatura ? h('a', { clase: 'boton mini',
+      href: API.archivo(pid, datos.miniatura), download: 'miniatura.jpg',
+    }, 'Descargar miniatura') : null));
   return caja;
 }
 /* ==========================================================================

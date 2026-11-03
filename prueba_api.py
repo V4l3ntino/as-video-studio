@@ -2278,8 +2278,9 @@ def probar_el_mensaje_publico_de_una_tanda():
          "pendientes": ["voz", "revision_audio"],
          "tareas": [{"id": "voz"}, {"id": "revision_audio"}]},
         {"pestana": "render", "desde": 10.0, "segundos": 10.0,
-         "pendientes": ["banda_sonora", "efectos", "render"],
-         "tareas": [{"id": "banda_sonora"}, {"id": "efectos"}, {"id": "render"}]}]}
+         "pendientes": ["banda_sonora", "efectos", "render", "publicacion"],
+         "tareas": [{"id": "banda_sonora"}, {"id": "efectos"}, {"id": "render"},
+                    {"id": "publicacion"}]}]}
     publicos, caseros = correr(servidor._correr_cadena, ["voz", "render"],
                                "todo", {}, plan)
     ok(any(m.startswith("voz · ") for m in caseros),
@@ -2296,11 +2297,11 @@ def probar_el_mensaje_publico_de_una_tanda():
         cabeza = frase.split(" · ")[0]
         if cabeza not in cabezas:
             cabezas.append(cabeza)
-    igual(cabezas, ["1 de 5", "2 de 5", "3 de 5", "4 de 5", "5 de 5",
+    igual(cabezas, ["1 de 6", "2 de 6", "3 de 6", "4 de 6", "5 de 6", "6 de 6",
                     servidor.PUBLICO_LISTO],
           "el contador recorre las DOS pestanas seguidas sin reiniciarse")
     primero = publicos.index(servidor.PUBLICO_LISTO)
-    ultima = max(i for i, p in enumerate(publicos) if p.startswith("5 de 5"))
+    ultima = max(i for i, p in enumerate(publicos) if p.startswith("6 de 6"))
     ok(primero > ultima,
        "«Listo» no sale hasta que ha pasado la ultima tarea de la tanda")
     igual(publicos[-1], servidor.PUBLICO_LISTO, "y es lo ultimo que se dice")
@@ -2318,9 +2319,9 @@ def probar_el_mensaje_publico_de_una_tanda():
              "pendientes": ["voz", "revision_audio"],
              "tareas": [{"id": "voz"}, {"id": "revision_audio"}]},
             {"pestana": "render", "desde": 10.0, "segundos": 10.0,
-             "pendientes": ["render"],
+             "pendientes": ["render", "publicacion"],
              "tareas": [{"id": "banda_sonora"}, {"id": "efectos"},
-                        {"id": "render"}]}]}
+                        {"id": "render"}, {"id": "publicacion"}]}]}
         publicos, _caseros = correr(servidor._correr_cadena, ["voz", "render"],
                                     "pendientes", {}, plan_pendiente)
     finally:
@@ -2330,7 +2331,7 @@ def probar_el_mensaje_publico_de_una_tanda():
         cabeza = frase.split(" · ")[0]
         if cabeza not in cabezas:
             cabezas.append(cabeza)
-    igual(cabezas, ["1 de 3", "2 de 3", "3 de 3", servidor.PUBLICO_LISTO],
+    igual(cabezas, ["1 de 4", "2 de 4", "3 de 4", "4 de 4", servidor.PUBLICO_LISTO],
           "una tanda con tareas al dia cuenta SOLO las que corre")
     ok(not [p for p in publicos if p.startswith("1 de 5")],
        "y no arranca contando las saltadas como hechas")
@@ -5149,6 +5150,58 @@ def probar_cero_cartelas_tambien_es_decidir():
         shutil.rmtree(carpeta, ignore_errors=True)
 
 
+def probar_publicacion_youtube(cliente):
+    """La publicación persiste fuera del grafo y se prepara sin renderizar."""
+    seccion("YOUTUBE: TEXTOS Y MINIATURA SIN INVALIDAR EL MP4")
+    from nucleo.proyecto import escribir_json
+    respuesta, creado = cliente.post("/api/proyectos", {"nombre": "Publicacion YouTube"})
+    pid = creado["proyecto"]["id"]
+    raiz = os.path.join(cliente.carpeta, pid)
+    ruta = f"/api/proyectos/{pid}/youtube"
+    respuesta, datos = cliente.get(ruta)
+    igual(respuesta.status_code, 200, "un proyecto antiguo sin publicación se puede abrir")
+    ok(not datos["disponible"], "sin guion ni plan no se ofrece generar")
+    respuesta, _ = cliente.post(ruta)
+    igual(respuesta.status_code, 409, "sin fuentes no se lanza ningún trabajo")
+    sembrar(raiz)
+    escenas = [{"id": f"S00{i}", "origen": {"bloque": f"B00{i}"},
+                "narracion": b["texto"], "t_in": (i - 1) * 20, "t_out": i * 20}
+               for i, b in enumerate(BLOQUES[:3], 1)]
+    escribir_json(os.path.join(raiz, "pasos", "assets", "trabajo", "plan.json"),
+                  {"escenas": escenas})
+    estado_ruta = os.path.join(raiz, "estado.json")
+    antes = io.open(estado_ruta, encoding="utf-8").read()
+    respuesta, trabajo = cliente.post(ruta)
+    igual(respuesta.status_code, 202, "la publicación arranca en segundo plano")
+    final = esperar_trabajo(cliente, trabajo["trabajo_id"])
+    igual(final["estado"], "listo", "la publicación simulada termina sin servicios reales")
+    respuesta, datos = cliente.get(ruta)
+    ok(datos["completo"], "se conservan título, descripción y miniatura")
+    respuesta, _ = cliente.get(f"/a/{pid}/{datos['miniatura']}")
+    igual(respuesta.status_code, 200, "la miniatura se puede descargar")
+    igual(respuesta.headers.get("content-type"), "image/jpeg", "la miniatura es JPEG")
+    miniatura = datos["miniatura"]
+    respuesta, _ = cliente.put(ruta, {"titulo": "Mi título revisado"})
+    igual(respuesta.status_code, 200, "el título se edita sin ejecutar ningún paso")
+    respuesta, _ = cliente.put(ruta, {"titulo": "x" * 101})
+    igual(respuesta.status_code, 400, "el servidor también aplica el límite del título")
+    respuesta, _ = cliente.get(ruta + "/texto")
+    ok("Mi título revisado" in respuesta.text, "la descarga incluye los textos editados")
+    ok("attachment" in respuesta.headers.get("content-disposition", ""),
+       "la descarga de textos lleva nombre de archivo")
+    respuesta, trabajo = cliente.post(ruta, {"parte": "miniatura"})
+    final = esperar_trabajo(cliente, trabajo["trabajo_id"])
+    igual(final["estado"], "listo", "la miniatura se regenera de forma independiente")
+    respuesta, datos = cliente.get(ruta)
+    igual(datos["titulo"], "Mi título revisado", "regenerar la miniatura conserva el título editado")
+    ok(datos["miniatura"] != miniatura, "cada miniatura tiene su ruta propia")
+    igual(io.open(estado_ruta, encoding="utf-8").read(), antes,
+          "preparar, editar y regenerar no escriben firmas ni marcas en el grafo")
+    respuesta, _ = cliente.post(ruta, {"parte": "inventada"})
+    igual(respuesta.status_code, 400, "no se admite una parte inventada")
+    cliente.delete(f"/api/proyectos/{pid}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prueba del servicio HTTP")
     parser.add_argument("--conservar", action="store_true",
@@ -5231,6 +5284,7 @@ def main():
         probar_retomar_un_estilo_a_medias(cliente)
         probar_el_video_nuevo_trae_lo_suyo(cliente)
         probar_cero_cartelas_tambien_es_decidir()
+        probar_publicacion_youtube(cliente)
     finally:
         parar(proceso)
         if not argumentos.conservar:

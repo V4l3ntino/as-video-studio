@@ -187,6 +187,11 @@ TAREAS = [
      "paso": "render", "necesita": ["banda_sonora", "efectos"], "cuesta": False,
      "opcional": False,
      "porque": "compone los clips y los muxea con la voz y la banda"},
+    {"id": "publicacion", "nombre": "Listo para YouTube", "pestana": "render",
+     "paso": "render", "necesita": ["render"], "cuesta": True,
+     "opcional": True,
+     "porque": "prepara título y descripción con Claude y una miniatura con IA; "
+               "consume una imagen adicional y no modifica el MP4"},
 ]
 
 # ===========================================================================
@@ -318,6 +323,10 @@ PUBLICO = {
         "unidad": "planos",
         "fases": ["uniendo las escenas", "mezclando voz y música",
                   "cerrando el archivo final"],
+    },
+    "publicacion": {
+        "nombre": "Preparando YouTube",
+        "fases": ["escribiendo el título y la descripción", "dibujando la miniatura"],
     },
 }
 

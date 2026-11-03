@@ -61,6 +61,7 @@ from . import p6_assets, p7_callouts, p8_render  # noqa: E402,F401
 # y repaso (lo que se escribe MIRANDO el video montado) el ultimo de los que
 # deciden: reparte notas en cambios de todos los pasos anteriores
 from . import repaso  # noqa: E402,F401
+from . import publicacion  # noqa: E402,F401
 # presets_light va el ULTIMO: la muestra de un preset se compone con p7 y
 # con cartelas, asi que necesita el paquete entero levantado.
 # enrutar_estilo (que hay que rehacer cuando se corrige el estilo con una
@@ -86,7 +87,7 @@ def modulo_de(paso_id):
     return MODULOS.get(str(paso_id))
 
 
-__all__ = ["catalogo_visual", "conservar", "repaso",
+__all__ = ["catalogo_visual", "conservar", "repaso", "publicacion",
            "cartelas", "claves", "cli_claude", "comun", "direccion",
            "enrutar_estilo", "redactor",
            "login_cli", "asistente", "salud_cli", "comprobar_claves", "mcp_estudio",

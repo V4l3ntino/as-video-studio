@@ -2026,6 +2026,15 @@ button.primario.grande { padding: 9px 18px; font-size: 14px; }
  * vez de encogerse hasta no poder darles. */
 
 .light-previa { display: flex; flex-direction: column; gap: 12px; }
+.youtube-light {
+  display: flex; flex-direction: column; gap: 14px; margin-top: 20px;
+  padding: 20px; background: var(--panel); border: 1px solid var(--linea);
+  border-radius: 12px;
+}
+.youtube-light h3, .youtube-light h4, .youtube-light p { margin: 0; }
+.youtube-campo { display: flex; flex-direction: column; gap: 6px; }
+.youtube-campo textarea { width: 100%; box-sizing: border-box; }
+.youtube-miniatura { display: block; width: 100%; max-width: 640px; aspect-ratio: 16 / 9; object-fit: contain; }
 
 .previa-marco {
   position: relative; width: 100%; aspect-ratio: 16 / 9;
