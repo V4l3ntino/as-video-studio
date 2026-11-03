@@ -439,6 +439,58 @@ def prueba_login():
     igual(login_cli.mirar("cli9"), None, "y no hay nada que mirar")
     comprobar(login_cli.cancelar("cli9") is False, "ni nada que cancelar")
 
+    # Cancelar desde otra peticion mientras se comprueba el codigo no debe
+    # provocar un AttributeError ni confirmar una cuenta despues de Dejar.
+    import threading
+    from unittest.mock import patch
+
+    for durante_situacion in (False, True):
+        esperando = threading.Event()
+        continuar = threading.Event()
+        errores = []
+
+        class ProcesoLogin:
+            stdin = io.BytesIO()
+
+            def poll(self):
+                if durante_situacion:
+                    return 0 if self.stdin.getvalue() else None
+                if self.stdin.getvalue():
+                    esperando.set()
+                    continuar.wait(3)
+                return None
+
+        def situacion_falsa(carpeta):
+            esperando.set()
+            continuar.wait(3)
+            return {"conectada": True}
+
+        intento = login_cli.Intento("cancelable", "no-se-usa")
+        intento.estado = "enlace"
+        intento.proceso = ProcesoLogin()
+
+        def enviar():
+            try:
+                intento.pegar("codigo-de-prueba")
+            except Exception as fallo:
+                errores.append(fallo)
+
+        with patch.object(login_cli.cli_claude, "matar_arbol"), \
+                patch.object(login_cli, "situacion", situacion_falsa):
+            hilo = threading.Thread(target=enviar, daemon=True)
+            hilo.start()
+            comprobar(esperando.wait(3), "la comprobacion alcanza la espera")
+            intento.matar()
+            continuar.set()
+            hilo.join(3)
+        comprobar(not hilo.is_alive(), "cancelar desbloquea la comprobacion")
+        comprobar(len(errores) == 1
+                  and isinstance(errores[0], login_cli.ErrorLogin)
+                  and "cancelado" in str(errores[0]),
+                  "cancelar devuelve un error de login controlado")
+        comprobar(intento.estado != "dentro",
+                  "un acceso cancelado no confirma la cuenta")
+
 
 # ---------------------------------------------------------------- historico
 

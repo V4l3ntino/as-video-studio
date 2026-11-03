@@ -257,8 +257,7 @@ class Intento:
     def _texto(self):
         return b"".join(self._trozos).decode("utf-8", errors="replace")
 
-    def _bombear(self):
-        flujo = self.proceso.stdout
+    def _bombear(self, flujo):
         while True:
             trozo = flujo.read(1)
             if not trozo:
@@ -279,17 +278,20 @@ class Intento:
         except OSError as fallo:
             raise ErrorLogin(
                 f"no se ha podido lanzar el CLI de claude: {fallo}") from fallo
-        threading.Thread(target=self._bombear, daemon=True).start()
+        proceso = self.proceso
+        threading.Thread(target=self._bombear, args=(proceso.stdout,),
+                         daemon=True).start()
 
         limite = time.time() + ESPERA_ENLACE_S
         while time.time() < limite:
+            self._comprobar_activo(proceso)
             hallado = _ENLACE.search(self._texto())
             if hallado:
                 with self._lock:
                     self.enlace = hallado.group(0)
                     self.estado = "enlace"
                 return self.ver()
-            if self.proceso.poll() is not None:
+            if proceso.poll() is not None:
                 break
             time.sleep(0.2)
 
@@ -307,12 +309,13 @@ class Intento:
         if not codigo:
             raise ErrorLogin("pega el codigo que te ha dado la pagina")
         with self._lock:
-            if self.estado not in ("enlace", "probando"):
+            if self.estado != "enlace":
                 raise ErrorLogin(
                     f"este intento ya no espera un codigo (esta en "
                     f"'{self.estado}'). Vuelve a darle a Entrar.")
             self.estado = "probando"
-        if self.proceso is None or self.proceso.poll() is not None:
+            proceso = self.proceso
+        if proceso is None or proceso.poll() is not None:
             with self._lock:
                 self.estado = "fallo"
                 self.mensaje = ("el intento se cerro antes de recibir el "
@@ -320,8 +323,9 @@ class Intento:
             return self.ver()
         marca = len(self._texto())
         try:
-            self.proceso.stdin.write((codigo + "\n").encode("utf-8"))
-            self.proceso.stdin.flush()
+            self._comprobar_activo(proceso)
+            proceso.stdin.write((codigo + "\n").encode("utf-8"))
+            proceso.stdin.flush()
         except OSError as fallo:
             with self._lock:
                 self.estado = "fallo"
@@ -341,18 +345,21 @@ class Intento:
         # un momento, es que lo esta volviendo a pedir.
         limite = time.time() + ESPERA_CODIGO_S
         dijo_algo = 0.0
-        while time.time() < limite and self.proceso.poll() is None:
+        while time.time() < limite and proceso.poll() is None:
+            self._comprobar_activo(proceso)
             if not dijo_algo and len(self._texto()) > marca:
                 dijo_algo = time.time()
             if dijo_algo and time.time() - dijo_algo > ASENTAR_S:
                 with self._lock:
+                    self._comprobar_activo(proceso)
                     self.estado = "enlace"          # el enlace sigue valiendo
                     self.mensaje = _ultima_linea(self._texto()[marca:]) or (
                         "ese codigo no le ha valido; copialo entero, incluido "
                         "todo lo que va detras de la almohadilla")
                 return self.ver()
             time.sleep(0.2)
-        if self.proceso.poll() is None:
+        self._comprobar_activo(proceso)
+        if proceso.poll() is None:
             self.matar()
             with self._lock:
                 self.estado = "fallo"
@@ -363,6 +370,7 @@ class Intento:
         # LA VERDAD SE PREGUNTA, NO SE LEE DE LO QUE IMPRIMIO. Ver la cabecera.
         ficha = situacion(self.carpeta)
         with self._lock:
+            self._comprobar_activo(proceso)
             self.ficha = ficha
             if ficha["conectada"]:
                 self.estado = "dentro"
@@ -375,8 +383,17 @@ class Intento:
                                 "enlace: cada codigo sirve una sola vez.")
         return self.ver()
 
+    def _comprobar_activo(self, proceso):
+        # Cancelar puede llegar desde otra peticion mientras pegar() espera.
+        # La peticion antigua no debe consultar ni confirmar ese acceso.
+        with self._lock:
+            if self.proceso is not proceso:
+                raise ErrorLogin("el intento de acceso se ha cancelado; "
+                                 "vuelve a darle a Entrar")
+
     def matar(self):
-        proceso, self.proceso = self.proceso, None
+        with self._lock:
+            proceso, self.proceso = self.proceso, None
         if proceso is None:
             return
         try:

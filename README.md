@@ -130,6 +130,35 @@ Short sin remontar el vídeo largo. Abrir la pantalla no descarta nada.
 | Una **clave de Cartesia** | la voz | no hay vídeo |
 | Las de **Jamendo** y **FreeSound** | música y efectos | el vídeo sale sin ellos; son las únicas prescindibles |
 
+#### Claude se queda en «comprobando el código» al entrar
+
+Mantén actualizado el CLI de Claude. En Windows se reprodujo con **2.1.123**
+un fallo por el que el CLI mostraba el enlace de acceso, pero no respondía al
+código enviado desde el Estudio: la comprobación agotaba los 120 segundos de
+espera. El usuario confirmó que el acceso funcionó tras actualizar y reiniciar.
+El contrato de este flujo está documentado como probado con **2.1.241**;
+no se ha determinado la versión mínima que lo resuelve.
+
+Si ocurre, detén el servidor con **Ctrl+C** y ejecuta:
+
+```powershell
+claude update
+claude --version
+.\.venv\Scripts\python.exe app.py --puerto 8020
+```
+
+El último comando usa el entorno virtual local; si arrancas sin él, usa
+`python app.py --puerto 8020`. Después pulsa **Entrar** de nuevo en la web y
+utiliza el enlace y el código del nuevo intento.
+
+También se corrigió un error del Estudio al pulsar **Dejar** durante la
+comprobación: la petición pendiente consultaba un proceso que la cancelación ya
+había eliminado (`AttributeError: 'NoneType' object has no attribute 'poll'`).
+Ahora esa cancelación devuelve un error de acceso controlado e impide confirmar
+la cuenta desde la petición cancelada.
+
+### Fuentes y motores locales
+
 En Linux local, las fuentes se resuelven con **Fontconfig** (`fc-match`) por la
 misma familia y peso que utiliza el navegador. `ESTUDIO_FUENTES` sigue teniendo
 prioridad para las instalaciones con una carpeta de fuentes preparada; si la
