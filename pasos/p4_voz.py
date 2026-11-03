@@ -854,6 +854,9 @@ def _toma_real(texto, cfg, progreso):
         if respuesta.status_code != 200:
             raise RuntimeError(f"Cartesia SSE HTTP {respuesta.status_code}: "
                                f"{respuesta.text[:300]}")
+        # SSE es UTF-8. Si text/event-stream llega sin charset, requests supone
+        # ISO-8859-1 por ser text/* y corrompe las marcas («ideó» -> «ideÃ³»).
+        respuesta.encoding = "utf-8"
         trozos, palabras = [], []
         ultimo_aviso = 0.0
         for linea in respuesta.iter_lines(decode_unicode=True):

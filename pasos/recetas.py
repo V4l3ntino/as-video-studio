@@ -48,6 +48,14 @@ FICHERO = os.environ.get("ESTUDIO_RECETAS") or os.path.join(RAIZ, "recetas.json"
 
 _LOCK = threading.RLock()
 
+# Derivado solicitado desde el MP4, no una tarea automática del vídeo largo.
+# Conserva los ocho ids persistidos del grafo y tiene su propio ejecutor.
+SHORTS = [
+    {"id": "seleccion", "nombre": "Escogiendo el fragmento con más gancho", "desde": 0.02},
+    {"id": "voz", "nombre": "Adaptando la apertura y el cierre", "desde": 0.2},
+    {"id": "montaje", "nombre": "Montando el Short vertical", "desde": 0.45},
+]
+
 
 class ErrorReceta(ValueError):
     """Lo que manda la pantalla no vale, y se dice por que."""

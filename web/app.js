@@ -5073,6 +5073,7 @@ const ICONOS_NAV = {
   guion: 'M6 3h12v18H6z M9 8h6 M9 12h6 M9 16h4',
   diapositivas: 'M3 6h18v12H3z M8 6v12 M16 6v12',
   video: 'M3 5h18v14H3z M10 9l5 3-5 3z',
+  shorts: 'M8 2h8v20H8z M10 8l4 3-4 3z',
 };
 
 
@@ -5139,6 +5140,9 @@ function navLight() {
     { id: 'video', texto: 'Vídeo', puede: hayVideo, activa: sub === 'video',
       porque: hayVideo ? 'el montaje y el repaso' : 'todavía no hay nada montado',
       ir: () => { pararPrevia(); v.vista = 'video'; pintarLight(); } },
+    { id: 'shorts', texto: 'Shorts', puede: dentro && hayMp4Light(), activa: sub === 'shorts',
+      porque: dentro && hayMp4Light() ? 'fragmentos verticales del vídeo completo' : 'primero monta el vídeo',
+      ir: () => { pararPrevia(); v.vista = 'shorts'; pintarLight(); } },
   ];
 
   const barra = h('nav', { clase: 'nav-light', 'aria-label': 'Pasos del vídeo' });
@@ -5316,6 +5320,7 @@ function pintarLightAhora() {
       } else if (APP.light.video.error) {
         contenido.appendChild(cajaError(APP.light.video.error));
       } else if (sub === 'video') contenido.appendChild(vistaVideoLight());
+      else if (sub === 'shorts') contenido.appendChild(vistaShortsLight());
       else if (sub === 'previa') contenido.appendChild(vistaPreviaLight());
       else if (sub === 'guion') contenido.appendChild(vistaGuionLight());
       else if (sub === 'encargo_video') contenido.appendChild(vistaEncargoVideoLight());
@@ -5765,6 +5770,7 @@ async function cargarVideoLight(pid) {
     v.guion = await leerGuionLight();
     v.audio = await leerAudioLight();
     await cargarYoutubeLight(pid);
+    await cargarShortsLight(pid);
     v.plan = null;
     v.planDe = '';
     // el coste es de ESTE vídeo: arrastrar el del anterior seria enseñar la
@@ -5907,6 +5913,11 @@ async function reengancharTandaLight(pid) {
      * El orden importa: 'render' se mira ANTES que 'video' porque su nombre
      * lleva las dos pestañas dentro. Y un montaje suelto ES el del MP4. */
     const nombre = String(vivo.nombre);
+    if (nombre === 'generar:shorts') {
+      APP.light.video.vista = 'shorts';
+      seguirShortLight(pid, vivo.id);
+      return;
+    }
     const suelto = !nombre.startsWith('generar:');
     const tanda = (suelto || nombre.includes('render')) ? 'render'
       : (nombre.includes('video') ? 'video'
@@ -8549,6 +8560,9 @@ function vistaVideoLight() {
        una frase suelta y descargar-- y no habia forma de leer los grupos. */
     h('span', { clase: 'crece' }),
     botonAplicarRepaso(),
+    hayMp4Light() ? h('button', { clase: 'mini', onclick: () => {
+      pararPrevia(); v.vista = 'shorts'; pintarLight();
+    } }, 'Generar shorts') : null,
     hayMp4Light() ? conAyuda(
       'Baja el MP4 tal y como esta ahora mismo.',
       h('a', {
@@ -8567,6 +8581,147 @@ function vistaVideoLight() {
 /* La publicación no es un param del render. Se edita una copia y se envían
    solo los campos tocados; las descargas siempre reflejan lo guardado. */
 const YOUTUBE_LIGHT = {};
+
+const SHORTS_LIGHT = {};
+
+function shortsDelVideo(pid) {
+  const id = pid || videoAbierto().pid;
+  if (!SHORTS_LIGHT[id]) SHORTS_LIGHT[id] = {
+    datos: null, minimo: 20, maximo: 60, error: '', pidiendo: false, reproductores: {},
+  };
+  return SHORTS_LIGHT[id];
+}
+
+async function cargarShortsLight(pid) {
+  const s = shortsDelVideo(pid);
+  try {
+    s.datos = await pedir(`${API.proyecto(pid)}/shorts`);
+    s.error = '';
+  } catch (err) { s.error = err.message; }
+}
+
+function seguirShortLight(pid, tid) {
+  seguirTrabajo(CLAVE_VIDEO_LIGHT, tid, async () => {
+    await cargarShortsLight(pid);
+    if (videoAbierto().pid === pid) repintarVideo();
+  }, () => refrescarVivosLight());
+}
+
+async function generarShortLight(reintentar, descartar = false) {
+  const pid = videoAbierto().pid;
+  const s = shortsDelVideo(pid);
+  const minimo = Number(s.minimo), maximo = Number(s.maximo);
+  if (!reintentar && (!Number.isFinite(minimo) || !Number.isFinite(maximo)
+      || minimo < 1 || maximo > 180 || maximo < minimo)) {
+    s.error = 'Elige un rango entre 1 y 180 segundos, con mínimo ≤ máximo.';
+    repintarVideo();
+    return;
+  }
+  s.pidiendo = true;
+  s.error = '';
+  repintarVideo();
+  try {
+    const datos = await pedir(`${API.proyecto(pid)}/shorts`, {
+      method: 'POST', cuerpo: reintentar ? { reintentar }
+        : { minimo, maximo, descartar_pendientes: descartar },
+    });
+    seguirShortLight(pid, datos.trabajo_id);
+    if (descartar && videoAbierto().pid === pid) {
+      await refrescarFichasLight();
+      videoAbierto().pedido = null;
+      videoAbierto().guion = await leerGuionLight();
+      videoAbierto().audio = await leerAudioLight();
+      PREVIA.ficha = null;
+      await cargarRepaso(true);
+    }
+    await cargarShortsLight(pid);
+  } catch (err) { s.error = err.message; }
+  s.pidiendo = false;
+  if (videoAbierto().pid === pid) repintarVideo();
+}
+
+function vistaShortsLight() {
+  const pid = videoAbierto().pid;
+  const s = shortsDelVideo(pid);
+  const datos = s.datos || {};
+  const ocupado = s.pidiendo || !!trabajoVideoLight();
+  const precio = Number((datos.coste || {}).usd_voz_maximo) || 0;
+  const caja = h('section', { clase: 'shorts-light' },
+    h('div', { clase: 'light-cab' }, h('h2', {}, 'Shorts del vídeo'),
+      h('span', { clase: 'crece' }), costeLight()),
+    h('p', {}, 'Claude elige el fragmento con más gancho y adapta solo el inicio y el final. '
+      + 'Se reutilizan las imágenes y la narración central; el montaje vertical 9:16 lleva subtítulos propios.'),
+    h('p', { clase: 'meta' }, 'No genera imágenes nuevas. La apertura y el cierre usan la misma voz de Cartesia '
+      + `(hasta 550 caracteres nuevos${precio ? ` · ≈ ${precio.toFixed(3)} $ como máximo` : ''}). `
+      + 'El vídeo original se conserva.'));
+  if (s.error) caja.appendChild(cajaError(s.error));
+  if (!s.datos) {
+    caja.appendChild(h('button', { clase: 'mini', onclick: async () => {
+      await cargarShortsLight(pid); repintarVideo();
+    } }, 'Volver a cargar'));
+    return caja;
+  }
+  if (!datos.disponible) caja.appendChild(h('div', { clase: 'caja-info' }, datos.motivo));
+  if (datos.puede_descartar) caja.appendChild(h('p', { clase: 'meta' },
+    'Puedes descartar los cambios pendientes y usar el último vídeo montado. '
+    + 'Se restauran sus parámetros y se apartan las notas pendientes y el trabajo sin completar '
+    + 'en una copia recuperable; no se vuelve a montar el vídeo.'));
+  caja.appendChild(h('div', { clase: 'shorts-rango' },
+    ...[['minimo', 'Duración mínima (s)'], ['maximo', 'Duración máxima (s)']].map(([campo, nombre]) =>
+      h('label', {}, nombre, h('input', {
+        type: 'number', min: 1, max: 180, step: 1, value: s[campo], disabled: ocupado,
+        'aria-label': nombre, datos: { foco: `shorts:${campo}` },
+        oninput: ev => { s[campo] = ev.target.value; },
+      }))),
+    h('button', { clase: 'primario', disabled: ocupado || !datos.disponible,
+      onclick: () => generarShortLight(),
+    }, 'Generar short'),
+    datos.puede_descartar ? h('button', { clase: 'avisa', disabled: ocupado,
+      onclick: () => generarShortLight(null, true),
+    }, 'Descartar cambios pendientes y generar short') : null));
+  caja.appendChild(h('p', { clase: 'meta' }, 'Entre 1 y 180 segundos. Recomendado: 20–60 s. '
+    + 'El rango debe dejar espacio para el fragmento, el gancho y la invitación final; '
+    + 'no se cortan frases ni se rellena con negro para alcanzar la duración.'));
+  caja.appendChild(barraTandaLight(null));
+  if (trabajoVideoLight()) caja.appendChild(h('button', { clase: 'mini peligro',
+    onclick: () => cancelar(CLAVE_VIDEO_LIGHT),
+  }, 'Parar'));
+  const lista = datos.shorts || [];
+  if (!lista.length) caja.appendChild(h('div', { clase: 'vacio' }, 'Todavía no has generado ningún Short.'));
+  for (const corto of lista) {
+    const seleccion = corto.seleccion || {};
+    const tarjeta = h('article', { clase: 'shorts-tarjeta' },
+      h('div', { clase: 'fila' }, h('h3', {}, corto.titulo),
+        h('span', { clase: 'crece' }), h('span', { clase: 'pastilla' }, corto.estado)),
+      h('p', { clase: 'meta' }, `${corto.minimo}–${corto.maximo} s solicitados · `
+        + `versión ${corto.version_render} del vídeo original`));
+    if (seleccion.motivo) tarjeta.appendChild(h('p', {}, seleccion.motivo));
+    if (seleccion.inicio) tarjeta.appendChild(h('p', {}, h('b', {}, 'Gancho: '), seleccion.inicio));
+    if (seleccion.final) tarjeta.appendChild(h('p', {}, h('b', {}, 'Cierre: '), seleccion.final));
+    if (seleccion.desde) tarjeta.appendChild(h('p', { clase: 'meta' },
+      `Fragmento original: ${reloj(seleccion.origen_desde)}–${reloj(seleccion.origen_hasta)}`));
+    if (corto.error) tarjeta.appendChild(cajaError(corto.error));
+    if (corto.estado === 'listo' && corto.mp4) {
+      if (!s.reproductores[corto.id]) s.reproductores[corto.id] = registrarReproductor(h('video', {
+        clase: 'shorts-reproductor', controls: true, preload: 'metadata', playsinline: true,
+        src: API.archivo(pid, corto.mp4),
+      }));
+      tarjeta.appendChild(s.reproductores[corto.id]);
+      tarjeta.appendChild(h('div', { clase: 'fila' },
+        h('span', { clase: 'meta' }, `${Number(corto.duracion).toFixed(1)} s · 1080 × 1920`),
+        h('a', { clase: 'boton mini', href: API.archivo(pid, corto.mp4), download: 'short.mp4' },
+          'Descargar short')));
+    } else if (['error', 'cancelado', 'interrumpido'].includes(corto.estado)) {
+      tarjeta.appendChild(h('button', { clase: 'mini', disabled: ocupado,
+        onclick: () => generarShortLight(corto.id),
+      }, 'Reintentar short'));
+    }
+    caja.appendChild(tarjeta);
+  }
+  if (lista.length) caja.appendChild(h('p', { clase: 'meta' },
+    'Al subirlo a YouTube, vincula el vídeo completo como vídeo relacionado para que la invitación tenga destino.'));
+  return caja;
+}
 
 function youtubeDelVideo(pid) {
   const id = pid || videoAbierto().pid;

@@ -846,6 +846,10 @@ def instrumentar(pasos=None):
     if publicacion is not None:
         _envolver(publicacion, "_llamar_claude", _medir_claude("publicacion"),
                   informe, "publicacion.claude")
+    shorts = getattr(pasos, "shorts", None)
+    if shorts is not None:
+        _envolver(shorts, "_llamar_claude", _medir_claude("shorts"),
+                  informe, "shorts.claude")
     catalogo = getattr(pasos, "catalogo_visual", None)
     if catalogo is not None:
         _envolver(catalogo, "_llamar_claude", _medir_claude("catalogo_visual"),

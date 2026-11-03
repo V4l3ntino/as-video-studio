@@ -85,6 +85,38 @@ Si cambia el guion, los tiempos o el estilo, se avisa para revisarlos sin
 sobrescribir lo editado. Un fallo al preparar YouTube no invalida el vídeo y se
 puede reintentar por separado. La subida a YouTube sigue siendo manual.
 
+### Shorts del vídeo completo
+
+Con el MP4 montado, **Generar shorts** abre una fase independiente, accesible
+también desde **Shorts** en la barra inferior. Elige una duración mínima y una
+máxima en segundos (rango técnico 1–180; recomendado 20–60). YouTube admite
+Shorts verticales o cuadrados de hasta tres minutos. El rango tiene que permitir
+un fragmento central y una apertura y un cierre con sentido; no se cortan frases
+ni se añade negro para hacerlo encajar.
+
+Claude elige un fragmento continuo con gancho y adapta solo la primera y la
+última escena. El centro conserva su guion y su audio, y se reutilizan las
+ilustraciones existentes. Las dos frases nuevas se locutan con la misma voz
+de Cartesia (hasta 550 caracteres por selección; coste indicado antes de pulsar).
+No se llama al generador de imágenes. El montaje local produce un MP4
+**1080 × 1920**, con las ilustraciones completas sobre un fondo adaptado y
+subtítulos sincronizados para vertical.
+
+Cada Short queda guardado en `shorts/<id>/`, con el fragmento elegido, su motivo,
+la apertura, el cierre y una copia de las fuentes de esa versión del vídeo.
+Puedes reproducirlo, descargarlo, generar otros o reintentar uno interrumpido;
+la voz ya generada se cachea para no volver a pagarla al reintentar un montaje.
+El trabajo continúa con el navegador cerrado. No cambia las firmas, las versiones
+ni los archivos del vídeo largo. Al subirlo a YouTube, selecciona el vídeo
+completo como **vídeo relacionado** para dar destino a la invitación final.
+
+Si hay cambios pendientes, la fase ofrece **Descartar cambios pendientes y generar
+short**. Esta acción explícita recupera los parámetros y las versiones que
+corresponden al último MP4, descarta las notas pendientes del repaso y aparta el
+trabajo sin completar. Conserva una copia en `shorts/_descartados/<id>/` antes
+de restaurar, comprueba que las firmas coinciden con el montaje y genera el
+Short sin remontar el vídeo largo. Abrir la pantalla no descarta nada.
+
 ### Lo que hace falta tener
 
 | Qué | Para qué | Si falta |

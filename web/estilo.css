@@ -2035,6 +2035,16 @@ button.primario.grande { padding: 9px 18px; font-size: 14px; }
 .youtube-campo { display: flex; flex-direction: column; gap: 6px; }
 .youtube-campo textarea { width: 100%; box-sizing: border-box; }
 .youtube-miniatura { display: block; width: 100%; max-width: 640px; aspect-ratio: 16 / 9; object-fit: contain; }
+.shorts-light { display: flex; flex-direction: column; gap: 16px; }
+.shorts-light p, .shorts-light h3 { margin: 0; }
+.shorts-rango { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.shorts-rango label { display: flex; flex-direction: column; gap: 6px; }
+.shorts-rango input { width: 140px; }
+.shorts-tarjeta {
+  display: flex; flex-direction: column; gap: 12px; padding: 18px;
+  background: var(--panel); border: 1px solid var(--linea); border-radius: 12px;
+}
+.shorts-reproductor { display: block; width: 100%; max-width: 340px; aspect-ratio: 9 / 16; background: #000; }
 
 .previa-marco {
   position: relative; width: 100%; aspect-ratio: 16 / 9;
@@ -2151,7 +2161,7 @@ body.modo-light #panel > .contenido {
 
 .nav-light {
   position: sticky; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   background: var(--panel); border-top: 1px solid var(--linea);
   /* `auto` arriba la empuja al fondo cuando sobra sitio; de borde a borde a los
      lados, cancelando el relleno lateral del panel. Va TODO en la abreviada: el

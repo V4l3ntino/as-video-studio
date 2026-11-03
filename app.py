@@ -5745,6 +5745,90 @@ def guardar_ajustes(cuerpo: dict = Body(default=None)):
     return {"ajustes": guardados, "costes": AJUSTES.tabla_de_costes()}
 
 
+# --------------------------------------------------------- Shorts del montaje
+def _shorts():
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f"los pasos no están cargados: {ERROR_PASOS}")
+    return PASOS_MODULOS.shorts
+
+
+@app.get("/api/proyectos/{pid}/shorts")
+def leer_shorts(pid: str):
+    """Shorts derivados, límites de duración y disponibilidad del vídeo original."""
+    ctx = contexto(pid)
+    modulo = _shorts()
+    motivo = ""
+    puede_descartar = False
+    try:
+        modulo.fuentes(ctx.proyecto, ctx.estado)
+    except ValueError as fallo:
+        motivo = str(fallo)
+        if ctx.proyecto.version_activa("render") and not ctx.estado.al_dia("render"):
+            try:
+                modulo.preparar_descarte(ctx.proyecto, ctx.estado)
+                puede_descartar = True
+                motivo = "El vídeo tiene cambios pendientes respecto al último MP4."
+            except ValueError:
+                pass
+    fichas = modulo.leer(ctx.proyecto)
+    activos = {t["id"] for t in ctx.gestor.listar(activos=True)}
+    for ficha in fichas:
+        if ficha["estado"] in ("pendiente", "ejecutando") and ficha.get("trabajo_id") not in activos:
+            ficha["estado"] = "interrumpido"
+    return {"shorts": fichas, "disponible": not motivo, "motivo": motivo,
+            "puede_descartar": puede_descartar,
+            "limites": {"minimo": modulo.MIN_SEGUNDOS, "maximo": modulo.MAX_SEGUNDOS},
+            "coste": {"imagenes": 0, "caracteres_nuevos_maximo": 550,
+                      "usd_voz_maximo": round(550 * COSTE.tarifa_caracter(), 4)}}
+
+
+def _correr_short(avisar, ctx, sid):
+    with COSTE.contexto(ctx.proyecto, "render"):
+        return _shorts().ejecutar(ctx.proyecto, sid, PASOS_MODULOS.recetas.SHORTS,
+            lambda v, m="": avisar(v, m, m))
+
+
+@app.post("/api/proyectos/{pid}/shorts", status_code=202)
+def generar_short(pid: str, cuerpo: dict = Body(default=None)):
+    """Elige con IA un fragmento y monta un Short vertical sin alterar el original."""
+    ctx = contexto(pid)
+    modulo = _shorts()
+    datos = _cuerpo(cuerpo)
+    descartar = datos.get("descartar_pendientes", False)
+    if not isinstance(descartar, bool) or (descartar and datos.get("reintentar")):
+        raise ErrorApi(400, "descartar_pendientes debe ser booleano y solo se admite para un Short nuevo")
+    with _cerrojo_de_cadena(ctx.id), _CERROJO_MONTAJE:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "ya hay un trabajo en marcha en este vídeo")
+        _exigir_sin_otro_montaje(ctx)
+        try:
+            sid = datos.get("reintentar")
+            if sid:
+                ficha = next((f for f in modulo.leer(ctx.proyecto) if f["id"] == sid), None)
+                if not ficha:
+                    raise ErrorApi(404, "Short desconocido")
+                if ficha["estado"] == "listo":
+                    raise ErrorApi(409, "ese Short ya está terminado; puedes descargarlo o generar otro")
+                cambios = {"estado": "pendiente", "error": ""}
+                if ficha.get("revisar_seleccion"):
+                    cambios["seleccion"] = None
+                modulo.guardar(ctx.proyecto, sid, cambios)
+            else:
+                modulo.validar_rango(datos.get("minimo", 20), datos.get("maximo", 60))
+                if descartar:
+                    descarte = modulo.descartar_cambios(ctx.proyecto, ctx.estado)
+                    ctx.bitacora.anotar("cambios_descartados_para_short", "render", descarte)
+                sid = modulo.crear(ctx.proyecto, ctx.estado, datos.get("minimo", 20), datos.get("maximo", 60))
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo))
+        tid = ctx.gestor.lanzar("generar:shorts", _correr_short, ctx, sid)
+        modulo.guardar(ctx.proyecto, sid, {"trabajo_id": tid})
+        _registrar_trabajo(tid, ctx.id)
+        _anotar_montaje(tid, ctx.id)
+    return {"short_id": sid, "trabajo_id": tid, "trabajo": ctx.gestor.estado(tid),
+            "eventos": f"/api/trabajos/{tid}/eventos"}
+
+
 # ------------------------------------------------------- publicación YouTube
 def _publicacion():
     if PASOS_MODULOS is None:

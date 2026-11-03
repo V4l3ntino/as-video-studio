@@ -1113,6 +1113,59 @@ class Estado:
             self.proyecto.fijar_version_activa(paso_id, elegida.get("n"))
             self._guardar()
 
+    def restaurar_versiones(self, versiones, comprobar, aplicar=False):
+        """Restaura un conjunto coherente sin re-sellar firmas ni borrar histórico.
+
+        Primero se cargan TODOS los manifiestos y se verifica en memoria que el
+        paso objetivo coincide con la firma que produjo su versión. Si falta
+        algo o no coincide, no se escribe nada. El modo seco sirve a la interfaz
+        para comprobar si puede descartar cambios de una cadena completa.
+        """
+        self._validar(comprobar)
+        with self._lock:
+            self._sincronizar()
+            original = self._doc
+            candidato = copy.deepcopy(original)
+            cambios = []
+            for paso_id, numero in versiones.items():
+                self._validar(paso_id)
+                datos = candidato["pasos"][paso_id]
+                elegida = next((v for v in datos.get("versiones", []) if v["n"] == numero), None)
+                if elegida is None:
+                    raise ValueError(f"{paso_id} no tiene versión v{numero}")
+                mapa = self.manifiesto_version(paso_id, elegida)
+                if (datos.get("params") != elegida.get("params", {})
+                        or datos.get("activa") != numero or datos.get("invalidadas") or datos.get("marca")):
+                    cambios.append(paso_id)
+                datos.update({"params": copy.deepcopy(elegida.get("params", {})),
+                    "activa": numero, "firma": elegida.get("firma"),
+                    "firma_propia": elegida.get("firma_propia"),
+                    "salidas": copy.deepcopy(elegida.get("salidas", {})),
+                    CLAVE_UNIDADES: mapa, "invalidadas": [], "marca": None})
+            prueba = copy.copy(self)
+            prueba._doc, prueba._cache = candidato, {}
+            if not prueba.al_dia(comprobar):
+                raise ValueError("no se ha podido recuperar una combinación de versiones que "
+                                 "coincida con el montaje; no se ha descartado ningún cambio")
+            resultado = {"versiones": dict(versiones), "pasos": cambios}
+            if not aplicar:
+                return resultado
+            self._doc, self._cache = candidato, {}
+            try:
+                self._guardar()
+                for paso_id, numero in versiones.items():
+                    if original["pasos"][paso_id].get("activa") != numero:
+                        self.proyecto.fijar_version_activa(paso_id, numero)
+                return resultado
+            except Exception:
+                self._doc, self._cache = original, {}
+                self._guardar()
+                for paso_id in versiones:
+                    anterior = original["pasos"][paso_id].get("activa")
+                    if anterior is not None and self.proyecto.version_activa(paso_id) != anterior:
+                        self.proyecto.fijar_version_activa(paso_id, anterior)
+                raise
+
     # --------------------------------------------------------------- interno
 
     def _recoger_trabajo(self, paso_id, destino):

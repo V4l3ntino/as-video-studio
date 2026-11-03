@@ -5202,6 +5202,111 @@ def probar_publicacion_youtube(cliente):
     cliente.delete(f"/api/proyectos/{pid}")
 
 
+def probar_shorts_del_montaje(cliente):
+    """Short real con IA/TTS simulados, sin tocar el grafo del vídeo largo."""
+    seccion("SHORTS: DERIVADO VERTICAL CON EL CENTRO ORIGINAL")
+    import wave
+    from PIL import Image
+    from nucleo.proyecto import Proyecto, escribir_json
+    from nucleo.estado import Estado
+    from pasos import p4_voz
+    respuesta, creado = cliente.post("/api/proyectos", {"nombre": "Shorts del montaje"})
+    pid = creado["proyecto"]["id"]
+    raiz = os.path.join(cliente.carpeta, pid)
+    ruta = f"/api/proyectos/{pid}/shorts"
+    respuesta, datos = cliente.get(ruta)
+    igual(respuesta.status_code, 200, "los Shorts se pueden consultar antes de montar")
+    ok(not datos["disponible"], "la fase exige un vídeo montado")
+    respuesta, _ = cliente.post(ruta, {"minimo": 5, "maximo": 15})
+    igual(respuesta.status_code, 400, "sin MP4 no se genera ningún derivado")
+    proyecto = sembrar(raiz)
+    estado = Estado(proyecto)
+    cfg = p4_voz.resolver_params({"velocidad": "normal", "hueco_minimo": 0})
+    for paso in ("voz", "revision_audio"):
+        carpeta = proyecto.ruta_trabajo(paso)
+        with wave.open(os.path.join(carpeta, "narracion.wav"), "wb") as fh:
+            fh.setnchannels(1)
+            fh.setsampwidth(2)
+            fh.setframerate(44100)
+            fh.writeframes(b"\0\0" * (6 * 44100))
+        escribir_json(os.path.join(carpeta, "audio_meta.json"), {"controles": cfg})
+        estado.completar(paso, {"archivo": "narracion.wav", "meta": "audio_meta.json"})
+    escenas = []
+    carpeta = proyecto.ruta_trabajo("assets")
+    os.makedirs(os.path.join(carpeta, "escenas"), exist_ok=True)
+    for i, texto in enumerate(["Una curiosa mañana.", "La isla despertó.", "Todos huyeron enseguida."]):
+        sid = f"S00{i + 1}"
+        escenas.append({"id": sid, "t_in": i * 2, "t_out": (i + 1) * 2,
+            "duracion": 2, "narracion": texto,
+            "marcas": [[i * 2 + j * 0.6, i * 2 + (j + 1) * 0.6] for j in range(3)]})
+        Image.new("RGB", (320, 180), "#9b7547").save(os.path.join(carpeta, "escenas", sid + ".png"))
+    escribir_json(os.path.join(carpeta, "plan.json"), {"escenas": escenas})
+    estado.completar("assets", {"plan": "plan.json"})
+    estado.completar("callouts", {})
+    with open(os.path.join(proyecto.ruta_trabajo("render"), "video.mp4"), "wb") as fh:
+        fh.write(b"original no modificado: se reutilizan las imagenes, no este archivo")
+    estado.completar("render", {"mp4": "video.mp4"})
+    estado_ruta = os.path.join(raiz, "estado.json")
+    antes = io.open(estado_ruta, encoding="utf-8").read()
+    respuesta, datos = cliente.get(ruta)
+    ok(datos["disponible"], f"con vídeo al día se permite crear Shorts ({datos['motivo']})")
+    igual(datos["limites"], {"minimo": 1, "maximo": 180}, "los límites viajan desde el servidor")
+    for rango in ({"minimo": 60, "maximo": 20}, {"minimo": 1, "maximo": 181}):
+        respuesta, _ = cliente.post(ruta, rango)
+        igual(respuesta.status_code, 400, "se rechaza un rango inválido sin empezar")
+    respuesta, trabajo = cliente.post(ruta, {"minimo": 5, "maximo": 15})
+    igual(respuesta.status_code, 202, "se genera en segundo plano")
+    final = esperar_trabajo(cliente, trabajo["trabajo_id"])
+    igual(final["estado"], "listo", f"el Short se monta con ffmpeg real: {final.get('error')}")
+    respuesta, datos = cliente.get(ruta)
+    corto = datos["shorts"][0]
+    if corto["estado"] == "listo":
+        ok(5 <= corto["duracion"] <= 15, "el MP4 cumple el rango real solicitado")
+        igual(corto["resolucion"], [1080, 1920], "el resultado es vertical 9:16")
+        respuesta, _ = cliente.get(f"/a/{pid}/{corto['mp4']}")
+        igual(respuesta.status_code, 200, "el Short se puede descargar")
+        respuesta, _ = cliente.post(ruta, {"reintentar": corto["id"]})
+        igual(respuesta.status_code, 409, "no se vuelve a generar un Short ya terminado por error")
+    igual(io.open(estado_ruta, encoding="utf-8").read(), antes,
+          "el derivado no escribe firmas, versiones ni params del vídeo largo")
+    # Un cambio aún no montado se puede descartar de forma explícita. Abrir la
+    # pantalla y las peticiones inválidas NO lo descartan por su cuenta.
+    cliente.put(f"/api/proyectos/{pid}/pasos/guion/params", {
+        "params": {"bloques": {"B001": {"texto": "Una corrección pendiente del guion."}}}})
+    from pasos import repaso
+    repaso.anadir(proyecto, "Cambiar el comienzo", 0, version_mp4=1)
+    trabajo_assets = proyecto.ruta_trabajo("assets")
+    escribir_json(os.path.join(trabajo_assets, "plan.json"), {"pendiente": "no se debe reutilizar"})
+    pendiente = io.open(estado_ruta, encoding="utf-8").read()
+    respuesta, datos = cliente.get(ruta)
+    ok(not datos["disponible"] and datos["puede_descartar"],
+       "con cambios pendientes se ofrece descartar y usar el MP4 montado")
+    igual(io.open(estado_ruta, encoding="utf-8").read(), pendiente,
+          "consultar la opción no escribe parámetros por defecto ni revierte nada")
+    respuesta, _ = cliente.post(ruta, {"minimo": 60, "maximo": 20, "descartar_pendientes": True})
+    igual(respuesta.status_code, 400, "se valida el rango antes de descartar")
+    igual(io.open(estado_ruta, encoding="utf-8").read(), pendiente,
+          "una petición inválida conserva los cambios pendientes")
+    respuesta, trabajo = cliente.post(ruta, {"minimo": 5, "maximo": 15, "descartar_pendientes": True})
+    igual(respuesta.status_code, 202, "descartar y generar es una sola acción")
+    final = esperar_trabajo(cliente, trabajo["trabajo_id"])
+    igual(final["estado"], "listo", f"el Short usa la versión recuperada: {final.get('error')}")
+    despues = json.loads(io.open(estado_ruta, encoding="utf-8").read())
+    igual(despues["pasos"], json.loads(antes)["pasos"],
+          "se restaura el grafo exacto del montaje sin volver a sellar firmas")
+    ok(not repaso.leer(proyecto)["notas"], "las notas pendientes también se apartan")
+    copias = os.listdir(proyecto.ruta("shorts", "_descartados"))
+    copia = proyecto.ruta("shorts", "_descartados", copias[0])
+    guardado = json.load(io.open(os.path.join(copia, "estado.json"), encoding="utf-8"))
+    igual(guardado, json.loads(pendiente), "la copia permite recuperar los parámetros descartados")
+    ok(os.path.isfile(os.path.join(copia, "repaso.json")), "también se conserva el repaso descartado")
+    ok(os.path.isfile(os.path.join(copia, "trabajo", "assets", "plan.json")),
+       "el trabajo sin completar se conserva fuera de la generación activa")
+    respuesta, datos = cliente.get(ruta)
+    ok(datos["disponible"] and not datos["puede_descartar"], "la fase queda habilitada normalmente")
+    cliente.delete(f"/api/proyectos/{pid}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prueba del servicio HTTP")
     parser.add_argument("--conservar", action="store_true",
@@ -5285,6 +5390,7 @@ def main():
         probar_el_video_nuevo_trae_lo_suyo(cliente)
         probar_cero_cartelas_tambien_es_decidir()
         probar_publicacion_youtube(cliente)
+        probar_shorts_del_montaje(cliente)
     finally:
         parar(proceso)
         if not argumentos.conservar:
