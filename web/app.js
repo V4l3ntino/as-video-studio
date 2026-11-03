@@ -7135,7 +7135,7 @@ function costeLightAhora() {
 
 function vistaGuionLight() {
   const v = APP.light.video;
-  const caja = h('div', { clase: 'light-guion' });
+  const caja = h('div', { clase: 'light-guion', inert: !!v.importandoGuion });
   caja.appendChild(h('div', { clase: 'light-cab' },
     h('h2', {}, (v.guion || {}).titulo || v.nombre || 'El guion'),
     h('span', { clase: 'meta' }, v.guion
@@ -7179,10 +7179,107 @@ function vistaGuionLight() {
      hacia que la PRIMERA pasada los marcara todos «editado» y solo se
      corrigiera al repintar. Va con freno, asi que no es una peticion mas. */
   refrescarPlanLight('voz');
+  caja.appendChild(intercambioGuionLight());
   caja.appendChild(promptGeneralLight());
   caja.appendChild(bloquesLight());
   BARRA_INFERIOR.nodo = pieLight();
   return caja;
+}
+
+/* Texto portátil: un párrafo por bloque, sin títulos ni ids que puedan acabar
+   locutándose. La posición conserva la correspondencia con las escenas. */
+function intercambioGuionLight() {
+  const v = APP.light.video;
+  return h('div', { clase: 'intercambio-guion' },
+    h('div', { clase: 'fila' },
+      h('button', { clase: 'mini', onclick: exportarGuionLight }, 'Exportar guion (.txt)'),
+      h('button', {
+        clase: 'mini', disabled: !!trabajoVideoLight(), onclick: importarGuionLight,
+      }, 'Importar guion (.txt)')),
+    h('p', { clase: 'meta' }, `Un párrafo por bloque del guion: ${v.guion.bloques.length} `
+      + 'párrafos en el mismo orden, separados por una línea en blanco. '
+      + 'Sin título ni numeración. Importar cambia el texto; el audio se genera después.'));
+}
+
+function exportarGuionLight() {
+  const v = APP.light.video;
+  const texto = v.guion.bloques.map(b => textoVisibleLight(textoDeBloqueLight(b))).join('\n\n');
+  const url = URL.createObjectURL(new Blob([texto + '\n'], { type: 'text/plain;charset=utf-8' }));
+  const nombre = (v.guion.titulo || v.nombre || 'guion').replace(/[\\/:*?\x22<>|\x00-\x1f]/g, '_');
+  const enlace = h('a', { href: url, download: `${nombre}.txt` });
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function parrafosImportadosGuion(texto, cantidad) {
+  const limpio = texto.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
+  const parrafos = limpio ? limpio.split(/\n[\t ]*\n(?:[\t ]*\n)*/)
+    .map(p => p.replace(/\s+/g, ' ').trim()) : [];
+  if (parrafos.length !== cantidad) {
+    throw new Error(`El archivo tiene ${parrafos.length} párrafos y el guion necesita ${cantidad}. `
+      + 'Debe haber un párrafo por bloque, en el mismo orden, separado por una línea en blanco. '
+      + 'No añadas títulos ni numeración.');
+  }
+  return parrafos;
+}
+
+function importarGuionLight() {
+  const v = APP.light.video;
+  const pid = v.pid;
+  const guion = v.guion;
+  const entrada = h('input', { type: 'file', accept: '.txt,text/plain',
+    onchange: async () => {
+      const archivo = entrada.files[0];
+      if (!archivo) return;
+      let guardadoPendiente = false;
+      try {
+        const parrafos = parrafosImportadosGuion(await archivo.text(), guion.bloques.length);
+        if (APP.light.video !== v || v.pid !== pid || v.guion !== guion) {
+          throw new Error('El vídeo o el guion ha cambiado. Abre de nuevo la importación.');
+        }
+        if (trabajoVideoLight() || v.importandoGuion) {
+          throw new Error('Espera a que termine el trabajo antes de importar el guion.');
+        }
+        const ficha = v.fichas.guion;
+        const bloques = Object.assign({}, (ficha.params || {}).bloques || {});
+        let cambios = 0;
+        guion.bloques.forEach((bloque, indice) => {
+          // Un viaje de ida y vuelta sin cambios conserva las marcas TTS y
+          // cualquier metadato de las correcciones guardadas anteriormente.
+          if (parrafos[indice] === textoVisibleLight(textoDeBloqueLight(bloque))) return;
+          bloques[bloque.id] = Object.assign({},
+            typeof bloques[bloque.id] === 'object' ? bloques[bloque.id] : {},
+            { texto: parrafos[indice] });
+          cambios++;
+        });
+        if (!cambios) { toast('El archivo coincide con el guion: no hay cambios.'); return; }
+        guardadoPendiente = !!_guardadoBloqueLight;
+        clearTimeout(_guardadoBloqueLight);
+        _guardadoBloqueLight = null;
+        v.importandoGuion = true;
+        pintarLight();
+        await pedir(API.params(pid, 'guion'), {
+          method: 'PUT', cuerpo: { params: { bloques } },
+        });
+        ficha.params = Object.assign({}, ficha.params, { bloques });
+        guardadoPendiente = false;
+        if (APP.light.video === v && v.pid === pid) await cargarVideoLight(pid);
+        toast(`Guion importado: ${cambios} bloques actualizados.`);
+      } catch (err) {
+        // Un fallo de importación tampoco debe perder el autoguardado manual.
+        if (guardadoPendiente) {
+          _guardadoBloqueLight = setTimeout(() => persistirBloquesLight(v, v.fichas.guion), 700);
+        }
+        toast(`No se ha podido importar: ${err.message}`, true);
+      } finally {
+        v.importandoGuion = false;
+        pintarLight();
+      }
+    },
+  });
+  entrada.click();
 }
 
 /* EL PROMPT GENERAL: una frase que reescribe el guion entero. Con audio hecho
@@ -7367,13 +7464,16 @@ function guardarBloqueLight(bid, texto, original) {
     ficha.params.bloques[bid] = { texto };
   }
   clearTimeout(_guardadoBloqueLight);
-  _guardadoBloqueLight = setTimeout(async () => {
-    try {
-      await pedir(API.params(v.pid, 'guion'), {
-        method: 'PUT', cuerpo: { params: { bloques: ficha.params.bloques } },
-      });
-    } catch (err) { toast(`no se ha podido guardar: ${err.message}`, true); }
-  }, 700);
+  _guardadoBloqueLight = setTimeout(() => persistirBloquesLight(v, ficha), 700);
+}
+
+async function persistirBloquesLight(v, ficha) {
+  _guardadoBloqueLight = null;
+  try {
+    await pedir(API.params(v.pid, 'guion'), {
+      method: 'PUT', cuerpo: { params: { bloques: ficha.params.bloques } },
+    });
+  } catch (err) { toast(`no se ha podido guardar: ${err.message}`, true); }
 }
 
 /* Los mandos de un bloque. Los DOS verbos de la casa, y el botón dice qué

@@ -105,6 +105,23 @@ Si cambia el guion, los tiempos o el estilo, se avisa para revisarlos sin
 sobrescribir lo editado. Un fallo al preparar YouTube no invalida el vídeo y se
 puede reintentar por separado. La subida a YouTube sigue siendo manual.
 
+### Importar y exportar el guion
+
+En la fase **Guion**, **Exportar guion (.txt)** descarga el texto actual,
+incluidas las correcciones manuales. Cada bloque ocupa un párrafo, separado del
+siguiente por una línea en blanco, sin título ni numeración.
+
+Para revisarlo fuera del Estudio, conserva **el mismo número de párrafos y su
+orden**: cada párrafo vuelve al bloque de escenas que ocupaba esa posición.
+**Importar guion (.txt)** comprueba esa estructura antes de guardar; si el número
+no coincide, muestra el error sin aplicar cambios. Los saltos de línea dentro de
+un párrafo se consideran espacios. Usa texto UTF-8.
+
+La importación sustituye solo los textos modificados y conserva los ids de los
+bloques. No genera contenido ni consume cuota: el audio se actualiza después
+desde los controles habituales. Exportar y volver a importar sin editar conserva
+también las pausas de locución originales.
+
 ### Shorts del vídeo completo
 
 Con el MP4 montado, **Generar shorts** abre una fase independiente, accesible

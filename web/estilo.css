@@ -1718,6 +1718,8 @@ input[type=range].ritmo {
 /* ---- el guion: un documento, no un formulario */
 
 .light-guion { max-width: 900px; padding-bottom: 76px; }
+.intercambio-guion { margin-bottom: 18px; }
+.intercambio-guion .meta { margin: 8px 0 0; line-height: 1.5; }
 
 .parrafo-guion {
   border: 1px solid transparent; border-radius: 10px;
