@@ -5440,7 +5440,8 @@ function vistaGaleriaLight() {
     h('h2', {}, 'Tus estilos'),
     h('span', { clase: 'meta' }, fichas.length
       ? `${fichas.length} estilo${fichas.length === 1 ? '' : 's'}`
-      : 'una estética, un tono, una voz y un idioma')));
+      : 'una estética, un tono, una voz y un idioma'),
+    h('button', { clase: 'mini', onclick: importarEstiloLight }, 'Importar estilo')));
 
   const rejilla = h('div', { clase: 'galeria-estilos' });
   fichas.forEach(ficha => rejilla.appendChild(tarjetaEstiloLight(ficha)));
@@ -5643,7 +5644,8 @@ async function descartarTallerLight(taller) {
 function menuDeEstilo(ficha) {
   const menu = h('div', { clase: 'menu-estilo plegado' },
     h('button', { clase: 'mini fantasma', onclick: () => editarEstiloLight(ficha) }, 'Editar'),
-    h('button', { clase: 'mini fantasma', onclick: () => duplicarEstiloLight(ficha) }, 'Duplicar'));
+    h('button', { clase: 'mini fantasma', onclick: () => duplicarEstiloLight(ficha) }, 'Duplicar'),
+    h('button', { clase: 'mini fantasma', onclick: () => exportarEstiloLight(ficha) }, 'Exportar'));
   const puntos = h('button', {
     clase: 'puntos', title: 'Más opciones',
     onclick: ev => {
@@ -5654,6 +5656,42 @@ function menuDeEstilo(ficha) {
     },
   }, '⋯');
   return h('div', { clase: 'esquina' }, puntos, menu);
+}
+
+async function exportarEstiloLight(ficha) {
+  toast(`preparando «${ficha.nombre}» para descargar…`);
+  try {
+    const respuesta = await fetch(`${API.presetLight(ficha.id)}/exportar`);
+    if (!respuesta.ok) {
+      const datos = await respuesta.json();
+      throw new Error(datos.error || datos.detail || 'no se ha podido preparar el ZIP');
+    }
+    const url = URL.createObjectURL(await respuesta.blob());
+    const enlace = h('a', { href: url, download: `${ficha.nombre || 'estilo'}.zip` });
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    toast('estilo exportado con sus referencias y taller');
+  } catch (e) { toast(`no se ha podido exportar: ${e.message}`, true); }
+}
+
+function importarEstiloLight() {
+  const entrada = h('input', { type: 'file', accept: '.zip,application/zip',
+    onchange: async () => {
+      const archivo = entrada.files[0];
+      if (!archivo) return;
+      const cuerpo = new FormData();
+      cuerpo.append('archivo', archivo);
+      toast('importando el estilo y su taller…');
+      try {
+        const datos = await pedir(`${API.presetsLight()}/importar`, { method: 'POST', cuerpo });
+        await cargarGaleriaLight(true);
+        irALight('galeria');
+        toast(`estilo «${datos.preset.nombre}» importado`);
+      } catch (e) { toast(`no se ha podido importar: ${e.message}`, true); }
+    } });
+  entrada.click();
 }
 
 function editarEstiloLight(ficha) {

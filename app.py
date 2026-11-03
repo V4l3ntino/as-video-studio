@@ -40,6 +40,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -50,7 +51,8 @@ RAIZ_ESTUDIO = os.path.dirname(os.path.abspath(__file__))
 if RAIZ_ESTUDIO not in sys.path:
     sys.path.insert(0, RAIZ_ESTUDIO)
 
-from fastapi import Body, FastAPI, Query, Request  # noqa: E402
+from fastapi import Body, FastAPI, Query, Request, UploadFile, File  # noqa: E402
+from starlette.background import BackgroundTask  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.responses import (FileResponse, HTMLResponse,  # noqa: E402
                                JSONResponse, PlainTextResponse, Response,
@@ -8624,6 +8626,45 @@ def previsualizar_voz_light(preset_id: str, cuerpo: dict = Body(default=None)):
             "voz_id": params["voz_id"],
             "trabajo": ctx.gestor.estado(trabajo_id),
             "eventos": f"/api/trabajos/{trabajo_id}/eventos"}
+
+
+@app.get("/api/presets-light/{preset_id}/exportar")
+def exportar_estilo_light(preset_id: str):
+    """Descarga un ZIP del estilo con referencias, muestras y taller editable."""
+    from pasos import paquete_estilo
+    presets = _presets()
+    ficha = _preset_o_400(lambda p: p.leer(preset_id))
+    tid = ((ficha.get("datos") or {}).get("origen") or {}).get("taller")
+    taller = None
+    if tid:
+        ctx = contexto(tid)
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine la generacion del estilo antes de exportarlo")
+        taller = ctx.proyecto.raiz
+    temporal = tempfile.TemporaryDirectory(prefix="descarga_estilo_")
+    ruta = os.path.join(temporal.name, "estilo.zip")
+    try:
+        paquete_estilo.exportar(presets, preset_id, taller, ruta)
+    except (paquete_estilo.ErrorPaquete, presets.ErrorPreset, OSError, ValueError) as fallo:
+        temporal.cleanup()
+        raise ErrorApi(400, str(fallo))
+    return FileResponse(ruta, media_type="application/zip",
+                        filename=f"{identificador(ficha.get('nombre') or 'estilo')}.zip",
+                        background=BackgroundTask(temporal.cleanup))
+
+
+@app.post("/api/presets-light/importar", status_code=201)
+def importar_estilo_light(archivo: UploadFile = File(...)):
+    """Importa un ZIP como estilo nuevo, conservando su taller y sus ficheros."""
+    from pasos import paquete_estilo
+    if archivo.size is not None and archivo.size > paquete_estilo.MAX_BYTES:
+        raise ErrorApi(400, "el ZIP supera el limite de 1 GB")
+    try:
+        ficha = paquete_estilo.importar(_presets(), archivo.file, raiz_proyectos())
+    except (paquete_estilo.ErrorPaquete, _presets().ErrorPreset, OSError, ValueError) as fallo:
+        raise ErrorApi(400, str(fallo))
+    anotar_global("estilo_importado", {"preset": ficha["id"]})
+    return {"preset": ficha}
 
 
 @app.post("/api/presets-light/{preset_id}/duplicar", status_code=201)

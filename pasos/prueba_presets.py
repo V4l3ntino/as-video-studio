@@ -434,6 +434,177 @@ def prueba_grafismo_guarda_el_subtitulo():
           "clave con la que estan guardados los presets del canal en disco")
 
 
+def prueba_paquetes():
+    """El estilo sigue usable y editable despues de quitar el servidor origen."""
+    import io
+    import json
+    import zipfile
+    from unittest.mock import patch
+    from nucleo.proyecto import Proyecto, escribir_json, leer_json
+    from nucleo.estado import Estado, PASOS
+    import paquete_estilo as paquetes
+
+    fichero, banco = presets.FICHERO, presets.BANCO
+    with tempfile.TemporaryDirectory(prefix="prueba_paquetes_") as raiz:
+        try:
+            origen = os.path.join(raiz, "origen")
+            presets.FICHERO = os.path.join(origen, "presets.json")
+            presets.BANCO = os.path.join(origen, "banco")
+            taller = Proyecto.crear(os.path.join(origen, "proyectos"), "taller")
+            taller.config[paquetes.CONFIG_TALLER] = True
+            taller.guardar_config()
+            referencias = []
+            for i in range(3):
+                ruta = taller.ruta("estilo", f"ref{i}.png")
+                os.makedirs(os.path.dirname(ruta), exist_ok=True)
+                with open(ruta, "wb") as fh:
+                    fh.write(b"imagen de prueba" + bytes([i]))
+                referencias.append(ruta)
+            externo = os.path.join(origen, "adjunto.png")
+            shutil.copyfile(referencias[0], externo)
+            estado = Estado(taller)
+            for paso in PASOS:
+                pid = paso["id"]
+                estado.actualizar_params(pid, {"entrada": externo})
+                if pid == "assets":
+                    estado.actualizar_params(pid, {"estilo": {"referencias": referencias}})
+                ruta = taller.ruta_paso(pid, 1, crear=True)
+                salida = os.path.join(ruta, "salida.txt")
+                with open(salida, "w", encoding="utf-8") as fh:
+                    fh.write("salida ya generada")
+                estado.completar(pid, {"archivo": salida},
+                                 unidades={"escena:S001": {"archivo": salida}}
+                                 if paso["unidades"] else None)
+            estado.completar("assets", estado.salidas("assets"),
+                             unidades={"escena:S001": estado.salidas("assets")})
+            # Una firma desparejada a proposito debe seguir desparejada.
+            doc = leer_json(taller.ruta("estado.json"))
+            doc["pasos"]["render"]["firma"] = "descuadrada-a-proposito"
+            escribir_json(taller.ruta("estado.json"), doc)
+            previos = {p["id"]: Estado(taller).estado_de(p["id"]) for p in PASOS}
+            with patch.object(presets, "_moodboard", side_effect=RuntimeError("sin red")):
+                ficha = presets.guardar("canal", "Estilo viajero", {
+                    "estilo": {"referencias": referencias, "min_s": 3, "max_s": 6},
+                    "guion": {"idioma_salida": "es", "instrucciones": "tono cercano"},
+                    "voz": {"voz_id": "voz-elegida", "velocidad": "fast"},
+                    "origen": {"taller": taller.id, "estilo_imagenes": ["aportada.png"],
+                               "muestras": ["muestra1.png"]},
+                }, miniatura=referencias[0])
+            carpeta = presets.carpeta_de(ficha["id"])
+            shutil.copyfile(referencias[1], os.path.join(carpeta, "muestra1.png"))
+            archivo = io.BytesIO()
+            paquetes.exportar(presets, ficha["id"], taller.raiz, archivo)
+            contenido = archivo.getvalue()
+            shutil.rmtree(origen)
+            destino = os.path.join(raiz, "destino")
+            presets.FICHERO = os.path.join(destino, "presets.json")
+            presets.BANCO = os.path.join(destino, "banco")
+            proyectos = os.path.join(destino, "proyectos")
+            nueva = paquetes.importar(presets, io.BytesIO(contenido), proyectos)
+            ok(nueva["id"] != ficha["id"], "importar crea otro estilo, sin sobrescribir")
+            igual(nueva["datos"]["voz"], ficha["datos"]["voz"], "la voz viaja intacta")
+            ok(all(os.path.isfile(r) for r in nueva["datos"]["estilo"]["referencias"]),
+               "las referencias existen sin el servidor original")
+            ok(os.path.isfile(nueva["miniatura"]), "la miniatura viaja")
+            ok(os.path.isfile(os.path.join(presets.carpeta_de(nueva["id"]), "muestra1.png")),
+               "las muestras viajan")
+            taller_nuevo = Proyecto(os.path.join(proyectos, nueva["datos"]["origen"]["taller"]))
+            ok(taller_nuevo.config.get(paquetes.CONFIG_TALLER), "el taller sigue oculto como taller")
+            actual = Estado(taller_nuevo)
+            igual({p["id"]: actual.estado_de(p["id"]) for p in PASOS}, previos,
+                  "la mudanza conserva los estados y las obsolescencias reales")
+            igual(actual._doc["pasos"]["render"]["firma"], "descuadrada-a-proposito",
+                  "no se arreglan firmas desparejadas a proposito")
+            for paso in PASOS:
+                p = paso["id"]
+                ok(os.path.isfile(actual.salidas(p)["archivo"]), f"la salida de {p} existe")
+            ok(os.path.isfile(actual.params("ingesta")["entrada"]), "los adjuntos externos viajan")
+            mapa = actual.manifiesto_version("assets", actual._doc["pasos"]["assets"]["versiones"][0])
+            ok(os.path.isfile(mapa["escena:S001"]["salidas"]["archivo"]),
+               "el manifiesto externo apunta al nuevo taller")
+            igual(len(actual._doc["pasos"]["assets"]["versiones"]), 2,
+                  "se conserva tambien el historico del taller")
+            segunda = paquetes.importar(presets, io.BytesIO(contenido), proyectos)
+            ok(segunda["id"] != nueva["id"], "importar dos veces no pisa la primera copia")
+            presets.cambios_para(nueva)
+            ok(True, "el estilo importado se puede aplicar a un video nuevo")
+
+            # Reescribimos un paquete como si viniera de Linux. Las firmas se
+            # sellan alli antes de importarlo en Windows, como haria el origen.
+            with tempfile.TemporaryDirectory(dir=raiz) as linux:
+                paquetes._extraer(io.BytesIO(contenido), linux)
+                manifiesto = leer_json(os.path.join(linux, "estilo.json"))
+                taller_linux = os.path.join(linux, "taller")
+                antes_linux = paquetes.mudanza._calculadas(Estado(Proyecto(taller_linux)))
+                reglas = [(r, f"/srv/estudio/{k}") for k, r in manifiesto["raices"].items()]
+                reglas += [(r, f"/srv/adjuntos/{i}.png")
+                           for i, r in enumerate(manifiesto["externos"])]
+                for ruta, tipo in list(paquetes.mudanza.ficheros_json(linux)):
+                    paquetes.mudanza.mudar_fichero(ruta, tipo, reglas, True)
+                manifiesto = leer_json(os.path.join(linux, "estilo.json"))
+                manifiesto["externos"] = {paquetes.mudanza.mudar_cadena(k, reglas)[0]: v
+                                          for k, v in manifiesto["externos"].items()}
+                escribir_json(os.path.join(linux, "estilo.json"), manifiesto)
+                paquetes.mudanza.resellar(taller_linux, antes_linux, True, [])
+                zip_linux = io.BytesIO()
+                with zipfile.ZipFile(zip_linux, "w") as z:
+                    for base, _, nombres in os.walk(linux):
+                        for nombre in nombres:
+                            ruta = os.path.join(base, nombre)
+                            z.write(ruta, os.path.relpath(ruta, linux).replace("\\", "/"))
+                desde_linux = paquetes.importar(presets, io.BytesIO(zip_linux.getvalue()), proyectos)
+                otro = Estado(Proyecto(os.path.join(proyectos, desde_linux["datos"]["origen"]["taller"])))
+                igual({p["id"]: otro.estado_de(p["id"]) for p in PASOS}, previos,
+                      "un paquete de Linux conserva sus estados en Windows")
+                ok(all(os.path.isfile(r) for r in desde_linux["datos"]["estilo"]["referencias"]),
+                   "las barras de las referencias se adaptan al sistema de destino")
+
+            incompleto = io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(contenido)) as fuente, zipfile.ZipFile(incompleto, "w") as salida_zip:
+                for entrada in fuente.infolist():
+                    if entrada.filename != "taller/pasos/assets/_versiones/v1.json":
+                        salida_zip.writestr(entrada, fuente.read(entrada))
+            try:
+                paquetes.importar(presets, io.BytesIO(incompleto.getvalue()), proyectos)
+                ok(False, "un manifiesto historico ausente se rechaza")
+            except (paquetes.ErrorPaquete, RuntimeError):
+                ok(True, "un manifiesto historico ausente se rechaza")
+
+            # Este fallo llega despues de copiar el taller: se deben retirar
+            # tambien sus carpetas, no solo evitar anadir la ficha al catalogo.
+            sin_referencia = io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(contenido)) as fuente, zipfile.ZipFile(sin_referencia, "w") as salida_zip:
+                for entrada in fuente.infolist():
+                    if not entrada.filename.startswith("banco/"):
+                        salida_zip.writestr(entrada, fuente.read(entrada))
+            carpetas_antes = (set(os.listdir(presets.BANCO)), set(os.listdir(proyectos)))
+            try:
+                paquetes.importar(presets, io.BytesIO(sin_referencia.getvalue()), proyectos)
+                ok(False, "un ZIP sin sus referencias se rechaza")
+            except paquetes.ErrorPaquete:
+                ok(True, "un ZIP sin sus referencias se rechaza")
+            igual((set(os.listdir(presets.BANCO)), set(os.listdir(proyectos))), carpetas_antes,
+                  "un fallo tardio retira el banco y el taller incompletos")
+
+            for nombre, transformar in (
+                    ("ruta fuera del ZIP", lambda z: z.writestr("../fuera.txt", "no")),
+                    ("ZIP incompleto", lambda z: None),
+                    ("version desconocida", lambda z: z.writestr("estilo.json", json.dumps({
+                        "formato": paquetes.FORMATO, "version": 999})))):
+                malo = io.BytesIO()
+                with zipfile.ZipFile(malo, "w") as z:
+                    transformar(z)
+                antes_total = presets.listar()["total"]
+                try:
+                    paquetes.importar(presets, io.BytesIO(malo.getvalue()), proyectos)
+                    ok(False, f"{nombre} se rechaza")
+                except paquetes.ErrorPaquete:
+                    ok(True, f"{nombre} se rechaza")
+                igual(presets.listar()["total"], antes_total, "un fallo no publica estilos a medias")
+        finally:
+            presets.FICHERO, presets.BANCO = fichero, banco
+
+
 def main():
     shutil.rmtree(CARPETA, ignore_errors=True)
     os.makedirs(CARPETA, exist_ok=True)
@@ -457,6 +628,7 @@ def main():
     prueba_renombrar_estilo(estilo)
     prueba_ids_no_chocan()
     prueba_grafismo_guarda_el_subtitulo()
+    prueba_paquetes()
 
     print("\n" + "=" * 70)
     if _fallos:

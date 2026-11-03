@@ -772,6 +772,31 @@ def probar_presets_canal(cliente):
         "/api/presets-canal/pr_inexistente/fichero/referencia.txt")
     igual(respuesta.status_code, 400, "pedir ficheros de un preset inexistente da 400")
 
+    # Traslado sin proveedores: un canal antiguo sin taller tambien viaja.
+    _, datos = cliente.post("/api/presets-canal", {
+        "tipo": "canal", "nombre": "Canal portable",
+        "datos": {"guion": {"idioma_salida": "es", "instrucciones": "cercano"}}})
+    canal_id = datos["preset"]["id"]
+    zip_estilo = cliente.sesion.get(
+        f"{cliente.base}/api/presets-light/{canal_id}/exportar", timeout=30)
+    igual(zip_estilo.status_code, 200, "exportar un estilo responde 200")
+    ok(zip_estilo.headers.get("content-type", "").startswith("application/zip"),
+       "la descarga es un ZIP")
+    ok("attachment" in zip_estilo.headers.get("content-disposition", ""),
+       "y el navegador lo descarga como archivo")
+    respuesta = cliente.sesion.post(
+        f"{cliente.base}/api/presets-light/importar",
+        files={"archivo": ("estilo.zip", zip_estilo.content, "application/zip")}, timeout=30)
+    igual(respuesta.status_code, 201, "importar un estilo responde 201")
+    importado = respuesta.json().get("preset") or {}
+    ok(importado.get("id") and importado["id"] != canal_id,
+       "el estilo importado tiene un id nuevo")
+    igual(importado.get("nombre"), "Canal portable", "conserva el nombre del estilo")
+    respuesta = cliente.sesion.post(
+        f"{cliente.base}/api/presets-light/importar",
+        files={"archivo": ("roto.zip", b"esto no es un zip", "application/zip")}, timeout=30)
+    igual(respuesta.status_code, 400, "un archivo que no es ZIP devuelve un error controlado")
+
 
 def probar_cartelas_y_transiciones(cliente, pid, raiz_proyecto=None):
     """Las dos pantallas nuevas: cartelas (assets) y transiciones (render)."""
@@ -4520,6 +4545,7 @@ function presetsLight() { return (APP.light.datos || {}).presets || []; }
 function videosLight() { return ((APP.light.datos || {}).videos || []).slice(); }
 function tarjetaEstiloLight() { return h('div', {}); }
 function tarjetaNuevoEstilo() { return h('button', {}, '+'); }
+function importarEstiloLight() {}
 function fechaCorta(x) { return String(x || ''); }
 function abrirVideoLight() {}
 function renombrarVideoLight() {}

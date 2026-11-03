@@ -205,11 +205,13 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/presets-light/imagenes` | Guarda las imagenes que acompanan a una descripcion de estilo. |
 | `DELETE` | `/api/presets-light/imagenes/{nombre}` | Quita una imagen de la carpeta de espera. Quitarla de la lista es esto. |
 | `GET` | `/api/presets-light/imagenes/{nombre}` | La miniatura de una imagen que espera en el buzon. |
+| `POST` | `/api/presets-light/importar` | Importa un ZIP como estilo nuevo, conservando su taller y sus ficheros. |
 | `POST` | `/api/presets-light/plan` | Lo que va a hacer, en orden y con sus tiempos. No lanza nada. |
 | `DELETE` | `/api/presets-light/talleres/{taller_id}` | Tira un intento a medias. A la papelera de proyectos, no al vacio. |
 | `DELETE` | `/api/presets-light/{preset_id}` | A la papelera de presets, y su taller con el. |
 | `PUT` | `/api/presets-light/{preset_id}` | El nombre, el idioma y la guia de tono: lo que se cambia a mano. |
 | `POST` | `/api/presets-light/{preset_id}/duplicar` | Una copia del estilo, con su taller. |
+| `GET` | `/api/presets-light/{preset_id}/exportar` | Descarga un ZIP del estilo con referencias, muestras y taller editable. |
 | `POST` | `/api/presets-light/{preset_id}/regenerar` | Rehace UNA de las tres partes con una frase de feedback. |
 | `POST` | `/api/presets-light/{preset_id}/video` | Un proyecto de video nuevo con ese estilo ya aplicado. -> la ficha. |
 | `POST` | `/api/presets-light/{preset_id}/voz/previsualizar` | Unos segundos con la voz de este estilo, para escucharla. |
@@ -273,4 +275,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**159 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**161 endpoints.** Escrito por `generar_api.py` desde `app.py`.

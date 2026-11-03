@@ -41,6 +41,26 @@ el estilo obligaba a acordarse de cambiarlas en cada encargo.
 
 ---
 
+## Llevar un estilo a otro servidor
+
+En **Tus estilos**, abre el menú **⋯** de la tarjeta y pulsa **Exportar**.
+Descargarás un ZIP con la configuración del estilo, sus imágenes de referencia,
+miniatura, muestras y el taller del que salió, si lo tiene. El taller conserva
+sus archivos e histórico para poder seguir editando el estilo en el destino.
+Espera a que termine cualquier generación del estilo antes de exportarlo.
+
+En el otro servidor, pulsa **Importar estilo**, junto al título **Tus estilos**,
+y selecciona ese ZIP. Se crea un estilo nuevo con el mismo nombre y sus rutas
+adaptadas al servidor de destino; los estilos y vídeos existentes se conservan.
+Puedes importar el mismo paquete varias veces: cada importación es una copia
+independiente. Ambos servidores deben tener esta función instalada.
+
+El traslado no genera contenido ni consume cuota de IA. Las credenciales no
+viajan: configura los proveedores en el destino para generar nuevos vídeos.
+El límite del paquete es **1 GB descomprimido y 20.000 archivos**. Si faltan
+referencias o el paquete está incompleto, se muestra un error sin publicar un
+estilo a medias.
+
 ## Ponerlo en un servidor (lo normal)
 
 Una línea en la consola del VPS, cinco minutos, y queda montado con su dirección,
