@@ -137,6 +137,15 @@ configuras, debe contener los ficheros esperados, no una carpeta vacía.
 Para el render se reconoce también el Chrome instalado por Playwright en Linux;
 `ESTUDIO_EDGE` permite elegir un ejecutable concreto.
 
+Para **Claude**, instala el CLI oficial:
+```bash
+npm install -g @anthropic-ai/claude-agent-sdk
+```
+Luego haz login con tu cuenta de Anthropic:
+```bash
+claude login
+```
+
 Para las imágenes, instala el CLI oficial con `npm install -g @openai/codex`
 (probado con **0.165.0**) y conecta ChatGPT en la guía de inicio o en
 **Configuración → ChatGPT / Codex — imágenes**. También reconoce una sesión

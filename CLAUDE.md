@@ -320,6 +320,46 @@ que nunca la fijaron, y regenerarlas se paga.
 
 ---
 
+## Instalación del CLI de Claude
+
+El asistente y el motor de generación de guiones necesitan el **Claude Agent SDK CLI**.
+Si lo intentas usar sin tenerlo, el error será `AttributeError: 'NoneType' object has no attribute 'poll'`,
+que significa que el subprocess no arrancó.
+
+**Instalación:**
+
+```bash
+npm install -g @anthropic-ai/claude-agent-sdk
+claude login
+```
+
+Verifica que funciona:
+
+```bash
+echo "hola" | claude -p
+```
+
+---
+
+## Debugging cuando el CLI falla
+
+| Error | Causa | Solución |
+|---|---|---|
+| `AttributeError: 'NoneType' object has no attribute 'poll'` | El CLI no está disponible o no arranca | `claude --version`; si no existe, instala con `npm install -g @anthropic-ai/claude-agent-sdk` |
+| `el CLI de claude no ha respondido en X s` | Timeout — el CLI está lento o atascado | Baja `esfuerzo` de la configuración (de `xhigh` a `high` o a `medium`) |
+| `se ha agotado el cupo` | La suscripción de Claude no tiene crédito | Comprueba `claude --subscription` o recarga tu cuenta en https://claude.ai |
+| `[Errno 2] No such file or directory: 'claude'` | El CLI no está en el PATH | Instala con `npm` en lugar de descargar manualmente, o añade su carpeta al PATH |
+
+**Para probar sin llamar a Claude** (en desarrollo):
+
+```bash
+ESTUDIO_SIMULAR=1 python app.py --puerto 8020
+```
+
+El asistente contesta con un doble que repite lo que recibió.
+
+---
+
 ## Antes de dar algo por terminado
 
 ```bash
