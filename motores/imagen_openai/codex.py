@@ -146,8 +146,14 @@ def _error_de(detalle, defecto="Codex no ha completado la imagen"):
     elif any(p in bajo for p in ("content_policy", "safety", "refusal", "can't help",
                                  "cannot help", "no puedo ayudar", "rechazo")):
         tipo, mensaje = "rechazo", "Codex ha rechazado este encargo de imagen. Revisa su descripción."
+    elif any(p in bajo for p in ("serveroverloaded", "at capacity", "overloaded")):
+        tipo, mensaje = "saturacion", "El servicio de imágenes está saturado temporalmente."
+    elif any(p in bajo for p in ("timeout", "timed out", "tiempo de espera")):
+        tipo, mensaje = "tiempo", "El servicio agotó el tiempo de espera de esta imagen."
+    elif any(p in bajo for p in ("service unavailable", "temporarily unavailable", "http 500", "http 502", "http 503", "http 504")):
+        tipo, mensaje = "servicio", "El servicio de imágenes no está disponible temporalmente."
     elif any(p in bajo for p in ("connection", "network", "stream disconnected", "transport")):
-        tipo, mensaje = "conexion", "Se interrumpió la conexión con Codex. No se repetirá la generación automáticamente."
+        tipo, mensaje = "conexion", "Se interrumpió la conexión con Codex. Lo ya generado se conserva."
     else:
         tipo, mensaje = "respuesta_incompleta", defecto + ". La causa no está confirmada; no se atribuye a la cuota."
     if isinstance(detalle, dict) and isinstance(detalle.get("resetsAt"), (int, float)):

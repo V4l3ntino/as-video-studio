@@ -263,6 +263,9 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | | Ruta | Qué hace |
 |---|---|---|
 | `GET` | `/` | La interfaz del Estudio. |
+| `GET` | `/api/avisos/correo` | Configuración de reintentos y avisos SMTP, sin devolver la contraseña. |
+| `PUT` | `/api/avisos/correo` | Guarda Gmail/SMTP y los intervalos de reintento fuera de los proyectos. |
+| `POST` | `/api/avisos/correo/probar` | Envía un correo de prueba real al destinatario configurado. |
 | `GET` | `/api/imagenes/codex` | Estado de la sesión de ChatGPT para imágenes, sin tokens ni claves. |
 | `POST` | `/api/imagenes/codex/activar` | Usa la suscripción de ChatGPT sin cambiar firmas ni regenerar imágenes. |
 | `POST` | `/api/imagenes/codex/login` | Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex. |
@@ -270,4 +273,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**156 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**159 endpoints.** Escrito por `generar_api.py` desde `app.py`.

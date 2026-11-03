@@ -3212,7 +3212,7 @@ def _adoptar(nombre, p, firma=None, subcarpetas=("", "escenas", "storyboard", "r
 
 
 def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
-                     tamano=None, prompt_seguro=None):
+                     tamano=None, prompt_seguro=None, recuperacion=None):
     """Arte adoptado -> cache -> API. Devuelve como se resolvio y el coste.
 
     'rehacer' es el boton de "esta no me gusta": salta el arte adoptado y la
@@ -3263,7 +3263,8 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
 
     imagen = medios.motor("imagen_openai/imagen.py")
     sin_cita = False
-    try:
+    def solicitar():
+        nonlocal sin_cita
         try:
             png, meta = imagen.generar(prompt, referencias, quality=p["calidad"],
                                        tamano=tamano)
@@ -3293,6 +3294,13 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
                     f"motivo) y vuelve a generar: lo demas no se repaga. "
                     f"{otra}") from otra
             sin_cita = True
+        return png, meta
+
+    try:
+        if recuperacion is None:
+            png, meta = solicitar()
+        else:
+            png, meta = recuperacion.ejecutar(solicitar, nombre)
     except SystemExit as fallo:
         # el motor esta escrito como CLI y aborta con SystemExit (por ejemplo si
         # falta la clave); dentro de un hilo eso no lo captura nadie y el paso
@@ -3505,7 +3513,7 @@ def _recolocar_escenas(carpeta, escenas):
     return informe
 
 def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
-                     forzar=False, notas_repaso=None, proyecto=None):
+                     forzar=False, notas_repaso=None, proyecto=None, recuperacion=None):
     """Genera los planos y devuelve el coste. En fila o en cadenas paralelas.
 
     Por que cadenas y no planos sueltos
@@ -3789,8 +3797,9 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                                         tamano=tamano_imagen,
                                         # solo si el filtro de seguridad
                                         # rechaza el de verdad
-                                        prompt_seguro=_prompt_sin_narracion(
-                                            prompt, escena_final))
+                                         prompt_seguro=_prompt_sin_narracion(
+                                             prompt, escena_final),
+                                         recuperacion=recuperacion)
                 # en la ficha, para que la pasada siguiente sepa si se le pide
                 # lo mismo aunque esta no llegue a sellarse
                 meta = dict(meta, peticion=peticion)
@@ -4678,6 +4687,11 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
     arranque_paso = time.time()
     p = _con_defectos(params)
     avisar = estadisticas.avisador(avisar)
+    try:
+        from .recuperacion_imagenes import Recuperacion
+    except ImportError:
+        from recuperacion_imagenes import Recuperacion
+    recuperacion = Recuperacion(proyecto, avisar)
     tipos = {str(t) for t in (tipos or [])} or None
     if tipos:
         solo_assets = True
@@ -4759,7 +4773,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
                     p, dirs["cache"], {"personajes": [ficha["nombre"]]})]
                 meta = _producir_imagen(ficha["nombre"], prompt, refs, destino, p,
                                         rehacer=((rehacer or unidades is not None)
-                                                 and os.path.exists(destino)))
+                                                 and os.path.exists(destino)),
+                                        recuperacion=recuperacion)
                 resultados[uid] = {"tipo": "reparto",
                                    "png": os.path.relpath(destino, trabajo), **meta}
             else:
@@ -4831,8 +4846,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
         return _salidas_parciales(plan, resultados, inventario, necesarios, avisar)
     coste = _generar_escenas(plan, dirs, p, trabajo, toca, unidades,
                              resultados, avisar, forzar=rehacer,
-                             notas_repaso=_notas_del_repaso(proyecto),
-                             proyecto=proyecto)
+                              notas_repaso=_notas_del_repaso(proyecto),
+                              proyecto=proyecto, recuperacion=recuperacion)
 
     avisar(0.96, "comprobando que no hay planos repetidos")
     # Los que comparten imagen A PROPOSITO salen del PLAN: la segunda mitad de

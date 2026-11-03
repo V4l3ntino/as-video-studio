@@ -2045,6 +2045,11 @@ button.primario.grande { padding: 9px 18px; font-size: 14px; }
   background: var(--panel); border: 1px solid var(--linea); border-radius: 12px;
 }
 .shorts-reproductor { display: block; width: 100%; max-width: 340px; aspect-ratio: 9 / 16; background: #000; }
+.avisos-config { display: flex; flex-direction: column; gap: 12px; margin: 20px 0; }
+.avisos-config h3, .avisos-config p { margin: 0; }
+.avisos-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.avisos-campos label { display: flex; flex-direction: column; gap: 5px; }
+.avisos-campos input, .avisos-campos select { width: 100%; box-sizing: border-box; }
 
 .previa-marco {
   position: relative; width: 100%; aspect-ratio: 16 / 9;

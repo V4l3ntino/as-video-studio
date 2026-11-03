@@ -175,6 +175,34 @@ el ejecutable. Usa la misma variable para un login manual y para el servicio.
 En instalaciones que ya tenían una clave se conserva el motor anterior hasta
 pulsar **Usar ChatGPT**; el cambio no modifica firmas ni regenera imágenes hechas.
 
+### Incidencias de imágenes: recuperación y correo
+
+Los fallos temporales de saturación, servicio, conexión o tiempo de espera se
+reintentan automáticamente **en la imagen pendiente**, conservando las ya
+resueltas. La espera predeterminada es 60, 120, 240 y luego 300 segundos entre
+intentos, hasta que se recupere el servicio o se pulse **Parar**. La barra
+enseña la espera. No se generan imágenes de prueba ni se cambia a un motor de
+pago. Los errores de cuota, sesión, referencias o rechazo y las respuestas
+incompletas sin una causa temporal identificable se notifican y se detienen.
+Los intervalos y la activación se pueden cambiar en **Configuración →
+Incidencias de imágenes · reintentos y correo**, sin modificar los proyectos.
+
+En ese mismo bloque se configuran los avisos de **Gmail**: cuenta, contraseña
+de aplicación de Google, remitente y destinatario. El servidor predeterminado
+es `smtp.gmail.com:465` con SSL; se puede usar otro SMTP con SSL o STARTTLS.
+**Enviar correo de prueba** guarda los datos y realiza un envío real. Las
+credenciales viven en `<ESTUDIO_SECRETOS>/avisos_correo.json`; la contraseña
+nunca se devuelve al navegador.
+
+Se envía un aviso por incidencia y otro al recuperarse, no uno por cada sondeo;
+si durante la espera aparece un error que exige intervención, se avisa de la detención.
+El correo incluye el proyecto, las imágenes afectadas, el progreso conservado,
+la fecha, los intentos fallidos, el próximo intento, el error y el diagnóstico
+técnico, sin credenciales. Un fallo del correo no impide reintentar las imágenes.
+El registro se conserva en `incidencias_imagenes/<id>.json` dentro del proyecto,
+incluido el resultado del envío. Funciona con el navegador cerrado mientras el
+servicio y el equipo sigan en marcha.
+
 Las claves de los otros servicios se ponen en **Configuración** (el engranaje de arriba a la derecha) y
 se guardan en `secretos/claves.json`, fuera del control de versiones. Ninguna
 clave baja entera al navegador: la pantalla ve la etiqueta, los cuatro últimos

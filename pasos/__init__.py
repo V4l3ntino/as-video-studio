@@ -54,6 +54,7 @@ from . import p1_ingesta, p2_brief, p3_guion  # noqa: E402,F401
 from . import p4_voz, p5_revision_audio, presets_voz  # noqa: E402,F401
 from . import presets_canal, recetas, tono  # noqa: E402,F401
 from . import medios, moodboard  # noqa: E402,F401
+from . import avisos, recuperacion_imagenes  # noqa: E402,F401
 # encuadres (que clase de plano es cada uno) lo
 # Wikimedia Commons; antes se llamaba commons.py, a un typo de comun.py) los
 from . import encuadres  # noqa: E402,F401
@@ -88,7 +89,7 @@ def modulo_de(paso_id):
     return MODULOS.get(str(paso_id))
 
 
-__all__ = ["catalogo_visual", "conservar", "repaso", "publicacion", "shorts",
+__all__ = ["catalogo_visual", "conservar", "repaso", "publicacion", "shorts", "avisos", "recuperacion_imagenes",
            "cartelas", "claves", "cli_claude", "comun", "direccion",
            "enrutar_estilo", "redactor",
            "login_cli", "asistente", "salud_cli", "comprobar_claves", "mcp_estudio",

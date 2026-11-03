@@ -369,6 +369,20 @@ def _motores_congelados():
 
 
 def _correr_paso(avisar, ctx, paso_id, unidades, opciones=None):
+    try:
+        return _ejecutar_paso(avisar, ctx, paso_id, unidades, opciones)
+    except Cancelado:
+        raise
+    except Exception as fallo:
+        if paso_id == "assets" and PASOS_MODULOS is not None:
+            try:
+                PASOS_MODULOS.recuperacion_imagenes.notificar_detencion(ctx.proyecto, fallo)
+            except Exception as error_aviso:
+                ctx.bitacora.anotar("aviso_no_disponible", paso_id, {"tipo": type(error_aviso).__name__})
+        raise
+
+
+def _ejecutar_paso(avisar, ctx, paso_id, unidades, opciones=None):
     """Ejecuta un paso y lo versiona. Es la funcion que corre en el hilo.
 
     'opciones' son ajustes de ESTA invocacion, no del paso: no se guardan en los
@@ -5745,6 +5759,39 @@ def guardar_ajustes(cuerpo: dict = Body(default=None)):
     return {"ajustes": guardados, "costes": AJUSTES.tabla_de_costes()}
 
 
+# ------------------------------------------------- recuperación y avisos SMTP
+def _avisos():
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f"los pasos no están cargados: {ERROR_PASOS}")
+    return PASOS_MODULOS.avisos
+
+
+@app.get("/api/avisos/correo")
+def leer_avisos_correo():
+    """Configuración de reintentos y avisos SMTP, sin devolver la contraseña."""
+    return _avisos().resumen()
+
+
+@app.put("/api/avisos/correo")
+def guardar_avisos_correo(cuerpo: dict = Body(default=None)):
+    """Guarda Gmail/SMTP y los intervalos de reintento fuera de los proyectos."""
+    try:
+        return _avisos().guardar(_cuerpo(cuerpo))
+    except ValueError as fallo:
+        raise ErrorApi(400, str(fallo))
+
+
+@app.post("/api/avisos/correo/probar")
+def probar_avisos_correo():
+    """Envía un correo de prueba real al destinatario configurado."""
+    if not _avisos().resumen()["configurado"]:
+        raise ErrorApi(409, "completa y guarda la configuración de correo antes de probar")
+    resultado = _avisos().probar()
+    if resultado["estado"] != "enviado":
+        raise ErrorApi(502, resultado.get("mensaje") or "no se pudo enviar el correo de prueba")
+    return resultado
+
+
 # --------------------------------------------------------- Shorts del montaje
 def _shorts():
     if PASOS_MODULOS is None:
@@ -6225,17 +6272,21 @@ def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
         # LA FRASE PUBLICA SE RECUERDA. Hay pasos que avisan sin fraccion
         # (`avisar(None, "AVISO: ...")`) y ahi lo correcto es no moverla:
         # recalcularla con un cero la mandaria al principio de la tarea.
-        ultimo = {"frase": recetas.publico_de(tarea["id"], 0.0)}
+        ultimo = {"frase": recetas.publico_de(tarea["id"], 0.0), "valor": 0.0}
 
         # EL CONTADOR DE VERDAD LLEGA HASTA AQUI. Los pasos que trabajan pieza a
         # pieza avisan con (hechas, total) --ver `comun.avisador`-- y esa cuenta
         # manda sobre la fase inventada: «34 de 216 planos» esta medido y
         # «rematando los detalles» solo significa «va por el ultimo tercio».
         def avisar_tarea(valor, mensaje="", unidades=None):
+            if (mensaje or "").startswith("Esperando al servicio de imágenes:"):
+                ultimo["frase"] = mensaje
+            if valor is not None:
+                ultimo["valor"] = min(1.0, max(0.0, float(valor)))
             if valor is not None or unidades:
                 ultimo["frase"] = recetas.publico_de(tarea["id"], valor,
                                                      unidades)
-            avisar(desde + ancho * min(1.0, max(0.0, float(valor or 0))),
+            avisar(desde + ancho * ultimo["valor"],
                    f"{indice} de {max(total, indice)} · {tarea['nombre']}"
                    + (f" — {mensaje}" if mensaje else ""),
                    f"{hechas_antes + indice}"

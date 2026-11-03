@@ -2244,6 +2244,7 @@ async function cargarClaves() {
   cargarCuentasCLI();
   cargarCodex();
   cargarAjustes();
+  cargarAvisosCorreo();
   return vista.ficha;
 }
 
@@ -2317,6 +2318,7 @@ function pintarConfig() {
   caja.appendChild(seccionCartesia(ficha));
   caja.appendChild(seccionCLI());
   caja.appendChild(seccionOtrasClaves(ficha));
+  caja.appendChild(seccionAvisosCorreo());
   caja.appendChild(h('div', { clase: 'fila' },
     h('button', {
       clase: 'mini fantasma',
@@ -2327,6 +2329,89 @@ function pintarConfig() {
     `Se guardan en ${ficha.fichero}, fuera del repositorio. No hace falta `
     + 'reiniciar: el motor de imagen recoge las cuentas nuevas solo, y el CLI '
     + 'lee la suya en cada llamada.'));
+}
+
+async function cargarAvisosCorreo() {
+  const vista = estadoConfig();
+  try {
+    vista.correo = await pedir(`${BASE}/api/avisos/correo`);
+    if (!vista.correoBorrador) vista.correoBorrador = Object.assign({}, vista.correo, { clave: '' });
+    vista.correoError = '';
+  } catch (err) { vista.correoError = err.message; }
+  repintarClaves();
+}
+
+async function guardarAvisosCorreo(probar = false) {
+  const vista = estadoConfig();
+  const cambios = Object.assign({}, vista.correoBorrador);
+  if (!cambios.clave && (vista.correo || {}).clave_guardada) cambios.clave = CONSERVAR_CLAVE;
+  vista.correoOcupado = true;
+  vista.correoError = '';
+  repintarClaves();
+  try {
+    vista.correo = await pedir(`${BASE}/api/avisos/correo`, { method: 'PUT', cuerpo: cambios });
+    vista.correoBorrador = Object.assign({}, vista.correo, { clave: '' });
+    if (probar) {
+      const resultado = await pedir(`${BASE}/api/avisos/correo/probar`, { method: 'POST' });
+      vista.correo.ultimo_envio = resultado;
+      toast(`Correo de prueba enviado a ${resultado.destinatario}`);
+    } else toast('Avisos y reintentos guardados');
+  } catch (err) { vista.correoError = err.message; }
+  vista.correoOcupado = false;
+  repintarClaves();
+}
+
+function seccionAvisosCorreo() {
+  const vista = estadoConfig();
+  const datos = vista.correoBorrador;
+  const caja = h('section', { clase: 'avisos-config' },
+    h('h3', {}, 'Incidencias de imágenes · reintentos y correo'),
+    h('p', { clase: 'meta' }, 'Si el servicio se satura o falla temporalmente, reintenta la imagen pendiente '
+      + 'sin repetir las ya generadas. La espera aumenta hasta el máximo configurado. '
+      + 'Puedes parar la tanda mientras espera. Las incidencias que requieren sesión, cuota o corrección del encargo se notifican y se detienen.'));
+  if (vista.correoError) caja.appendChild(cajaError(vista.correoError));
+  if (!datos) {
+    caja.appendChild(h('button', { clase: 'mini', onclick: cargarAvisosCorreo }, 'Cargar avisos'));
+    return caja;
+  }
+  const ocupado = !!vista.correoOcupado;
+  const casilla = (campo, nombre) => h('label', { clase: 'fila' }, h('input', {
+    type: 'checkbox', checked: datos[campo], disabled: ocupado,
+    onchange: ev => { datos[campo] = ev.target.checked; },
+  }), nombre);
+  const campo = (clave, nombre, tipo = 'text') => h('label', {}, nombre, h('input', {
+    type: tipo, value: datos[clave] || '', disabled: ocupado, 'aria-label': nombre,
+    autocomplete: clave === 'clave' ? 'new-password' : 'off',
+    placeholder: clave === 'clave' && (vista.correo || {}).clave_guardada ? 'Guardada; deja vacío para conservar' : '',
+    oninput: ev => { datos[clave] = tipo === 'number' ? Number(ev.target.value) : ev.target.value; },
+  }));
+  caja.appendChild(casilla('reintentos', 'Reintentar automáticamente los fallos temporales'));
+  caja.appendChild(h('div', { clase: 'avisos-campos' },
+    campo('intervalo', 'Espera inicial (segundos)', 'number'),
+    campo('intervalo_maximo', 'Espera máxima (segundos)', 'number')));
+  caja.appendChild(casilla('activo', 'Enviar avisos de incidencia y recuperación por correo'));
+  caja.appendChild(h('p', { clase: 'meta' }, 'Gmail: usa tu dirección y una contraseña de aplicación de Google, '
+    + 'no la contraseña habitual. El aviso incluye proyecto, imágenes afectadas, progreso, error, diagnóstico y reintento previsto.'));
+  caja.appendChild(h('a', { href: 'https://myaccount.google.com/apppasswords', target: '_blank', rel: 'noopener noreferrer' },
+    'Crear una contraseña de aplicación de Google'));
+  caja.appendChild(h('div', { clase: 'avisos-campos' },
+    campo('usuario', 'Cuenta de Gmail / usuario SMTP'),
+    campo('clave', 'Contraseña de aplicación', 'password'),
+    campo('remitente', 'Correo remitente', 'email'),
+    campo('destinatario', 'Correo destinatario', 'email')));
+  caja.appendChild(h('details', {}, h('summary', {}, 'Servidor SMTP (Gmail por defecto)'),
+    h('div', { clase: 'avisos-campos' }, campo('host', 'Servidor SMTP'), campo('puerto', 'Puerto SMTP', 'number'),
+      h('label', {}, 'Seguridad', h('select', { value: datos.seguridad, disabled: ocupado,
+        onchange: ev => { datos.seguridad = ev.target.value; },
+      }, h('option', { value: 'ssl' }, 'SSL'), h('option', { value: 'starttls' }, 'STARTTLS'))))));
+  caja.appendChild(h('div', { clase: 'fila' },
+    h('button', { clase: 'mini primario', disabled: ocupado, onclick: () => guardarAvisosCorreo() }, 'Guardar avisos'),
+    h('button', { clase: 'mini', disabled: ocupado, onclick: () => guardarAvisosCorreo(true) },
+      ocupado ? 'comprobando…' : 'Enviar correo de prueba')));
+  const ultimo = (vista.correo || {}).ultimo_envio;
+  if (ultimo) caja.appendChild(h('p', { clase: 'meta' },
+    `Último envío: ${ultimo.estado} · ${ultimo.fecha}` + (ultimo.mensaje ? ` · ${ultimo.mensaje}` : '')));
+  return caja;
 }
 
 async function cargarAjustes() {

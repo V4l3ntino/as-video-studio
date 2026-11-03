@@ -2265,6 +2265,9 @@ def probar_el_mensaje_publico_de_una_tanda():
     igual(sin_fraccion, a_mitad,
           "un aviso sin fraccion deja la frase donde estaba, no la manda al "
           "principio de la tarea")
+    fraccion_media = next(v for v, m, _p in dichos if "S035" in m)
+    fraccion_aviso = next(v for v, m, _p in dichos if "AVISO" in m)
+    igual(fraccion_aviso, fraccion_media, "esperar o avisar sin fracción no hace retroceder el progreso")
 
     # ---- LA TANDA ENTERA, que es la del modo light -------------------------
     # `_correr_cadena` recorre varias pestanas seguidas y reparte el tramo de la
@@ -5307,6 +5310,33 @@ def probar_shorts_del_montaje(cliente):
     cliente.delete(f"/api/proyectos/{pid}")
 
 
+def probar_configuracion_avisos(cliente):
+    seccion("AVISOS: GMAIL Y REINTENTOS SIN EXPONER CONTRASEÑAS")
+    ruta = "/api/avisos/correo"
+    respuesta, datos = cliente.get(ruta)
+    igual(respuesta.status_code, 200, "la configuración de avisos se consulta")
+    ok(datos["reintentos"] and datos["intervalo"] == 60 and datos["intervalo_maximo"] == 300,
+       "los reintentos empiezan activados con espera progresiva 60–300 s")
+    ok("clave" not in datos, "la API no devuelve la contraseña SMTP")
+    respuesta, _ = cliente.post(ruta + "/probar")
+    igual(respuesta.status_code, 409, "sin configurar no se intenta enviar correo")
+    clave = "clave-ficticia-de-aplicacion-no-real"
+    respuesta, datos = cliente.put(ruta, {"usuario": "cuenta@example.com", "clave": clave,
+        "remitente": "cuenta@example.com", "destinatario": "persona@example.com",
+        "activo": False, "intervalo": 30, "intervalo_maximo": 180})
+    igual(respuesta.status_code, 200, "se guarda SMTP de prueba sin activar envíos")
+    ok(datos["clave_guardada"] and datos["configurado"], "la API informa de que hay contraseña, sin devolverla")
+    ok(clave not in json.dumps(datos), "la respuesta de guardado no contiene el secreto")
+    respuesta, datos = cliente.put(ruta, {"clave": "__CONSERVAR__", "intervalo": 45})
+    ok(datos["clave_guardada"] and datos["intervalo"] == 45, "cambiar la espera conserva la contraseña")
+    respuesta, _ = cliente.put(ruta, {"destinatario": "persona@example.com\r\nBcc: otra@example.com"})
+    igual(respuesta.status_code, 400, "el destinatario no admite inyección de cabeceras")
+    respuesta, _ = cliente.put(ruta, {"intervalo": 0})
+    igual(respuesta.status_code, 400, "los reintentos no se pueden convertir en un bucle sin espera")
+    respuesta, datos = cliente.get(ruta)
+    ok(clave not in json.dumps(datos), "la consulta posterior tampoco expone la contraseña")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prueba del servicio HTTP")
     parser.add_argument("--conservar", action="store_true",
@@ -5391,6 +5421,7 @@ def main():
         probar_cero_cartelas_tambien_es_decidir()
         probar_publicacion_youtube(cliente)
         probar_shorts_del_montaje(cliente)
+        probar_configuracion_avisos(cliente)
     finally:
         parar(proceso)
         if not argumentos.conservar:
