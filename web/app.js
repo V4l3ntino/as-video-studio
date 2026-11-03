@@ -8079,7 +8079,15 @@ function vistaPreviaLight() {
       // ya ha llenado el prebuffer, así que la flecha derecha es instantánea
       src: `${API.archivo(v.pid, fondo)}?mini=1024`,
       alt: e.id,
+      onerror: () => {
+        vaciar(marco);
+        marco.appendChild(h('div', { clase: 'previa-sin-imagen' },
+          'No se ha podido cargar la imagen de esta escena.'));
+      },
     }));
+  } else {
+    marco.appendChild(h('div', { clase: 'previa-sin-imagen' },
+      'Esta escena todavía no tiene imagen generada.'));
   }
   /* NI SUBTITULO NI SELLO DE CARTELA: aqui se mira el DIBUJO y nada mas.
      Los dos se revisan -- y se corrigen -- en la pantalla del video, que es
@@ -8376,6 +8384,22 @@ async function guardarNotaEscena(escena) {
  * escena siguiente--; dos chevrones seguidos apuntando a sitios distintos se
  * leen como el mismo gesto. Aqui la etiqueta ya dice lo que hace. */
 function botonRenderizarLight() {
+  const pendientes = ((PREVIA.ficha || {}).escenas || []).filter(e => !e.imagen).length;
+  if (pendientes) {
+    refrescarPlanLight('video');
+    return conAyuda(unirAyuda(
+      'Continúa la tanda interrumpida. Conserva las imágenes ya generadas y '
+        + 'genera las pendientes antes de montar el vídeo.', textoDelPlan('video')),
+    h('button', {
+      clase: 'primario', disabled: !!trabajoVideoLight(),
+      onclick: () => {
+        pararPrevia();
+        videoAbierto().vista = 'video';
+        repintarVideo();
+        lanzarTandaLight('video', 'pendientes');
+      },
+    }, `Continuar imágenes (${pendientes} pendientes)`));
+  }
   if (hayMp4Light() && !videoObsoletoLight()) return null;
   const corriendo = (APP.trabajos[CLAVE_VIDEO_LIGHT] || {}).estado === 'ejecutando';
   /* CON NOTAS SIN APLICAR, ESTE BOTON HACE MENOS que el de al lado: «Aplicar»

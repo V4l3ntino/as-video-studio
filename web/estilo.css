@@ -2035,6 +2035,10 @@ button.primario.grande { padding: 9px 18px; font-size: 14px; }
 .previa-marco > img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
 }
+.previa-sin-imagen {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  padding: 24px; color: var(--texto); text-align: center;
+}
 /* EL FORMATO VERTICAL: el marco toma la proporción del vídeo y se centra; a
    todo el ancho un 9:16 se saldría de cualquier pantalla. */
 .previa-marco.vertical, .marco-video.vertical {

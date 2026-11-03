@@ -4669,6 +4669,7 @@ def leer_previsualizacion(pid: str):
     # lo mismo, y uno de los dos viejo.
     params_callouts = ctx.estado.params("callouts") or {}
     medir, banda = _medidor_de_subtitulo(ctx, plan)
+    hechos = PASOS_MODULOS.p6_assets.planos_hechos(ctx.proyecto)
     escenas = []
     for escena in escenas_plan:
         sid = str(escena.get("id") or "")
@@ -4696,6 +4697,15 @@ def leer_previsualizacion(pid: str):
                     params_callouts, f"escena:{sid}")) or []
         except Exception:                                     # noqa: BLE001
             trozos = []
+        imagen = _ruta_de_version(ctx, "assets", "escenas", f"{sid}.png")
+        # Una tanda interrumpida conserva los dibujos en trabajo/, sin sellar
+        # una versión nueva. Mostrarlos también aquí, como en la rejilla, pero
+        # solo si la ficha corresponde al texto del plan: los ids se reutilizan.
+        ficha = hechos.get(sid) or {}
+        p6 = PASOS_MODULOS.p6_assets
+        dibujada, dice = p6._texto_clave(ficha), p6._texto_clave(escena)
+        if dibujada and dice and p6._mismo_dicho(dibujada, dice):
+            imagen = ficha.get("ruta") or imagen
         escenas.append({
             "id": sid,
             "t_in": round(float(escena.get("t_in") or 0.0), 3),
@@ -4704,7 +4714,7 @@ def leer_previsualizacion(pid: str):
             "narracion": escena.get("narracion") or "",
             "bloque": (escena.get("origen") or {}).get("bloque") or "",
             "cartela": (escena.get("cartela") or {}).get("plantilla") or "",
-            "imagen": _ruta_de_version(ctx, "assets", "escenas", f"{sid}.png"),
+            "imagen": imagen,
             # y si el dibujo que hay ya no es de lo que aqui se dice. Va vacio
             # cuando esta al dia: es una excepcion, no un campo de todos.
             **_obsolescencia(ctx, escena),
