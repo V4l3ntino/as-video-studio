@@ -2389,9 +2389,10 @@ function seccionAvisosCorreo() {
   caja.appendChild(h('div', { clase: 'avisos-campos' },
     campo('intervalo', 'Espera inicial (segundos)', 'number'),
     campo('intervalo_maximo', 'Espera máxima (segundos)', 'number')));
-  caja.appendChild(casilla('activo', 'Enviar avisos de incidencia y recuperación por correo'));
+  caja.appendChild(casilla('activo', 'Enviar avisos de incidencia, recuperación y finalización por correo'));
   caja.appendChild(h('p', { clase: 'meta' }, 'Gmail: usa tu dirección y una contraseña de aplicación de Google, '
-    + 'no la contraseña habitual. El aviso incluye proyecto, imágenes afectadas, progreso, error, diagnóstico y reintento previsto.'));
+    + 'no la contraseña habitual. El aviso incluye proyecto, imágenes afectadas, progreso, error, diagnóstico y reintento previsto. '
+    + 'También avisa cuando las imágenes están listas para montar y cuando el MP4 está disponible.'));
   caja.appendChild(h('a', { href: 'https://myaccount.google.com/apppasswords', target: '_blank', rel: 'noopener noreferrer' },
     'Crear una contraseña de aplicación de Google'));
   caja.appendChild(h('div', { clase: 'avisos-campos' },

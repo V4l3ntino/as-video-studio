@@ -472,6 +472,12 @@ def _ejecutar_paso(avisar, ctx, paso_id, unidades, opciones=None):
         "retiradas": retiradas or [],
         "salidas_resumidas": recortadas,
     })
+    try:
+        _avisar_paso_listo(ctx, paso_id, version, salidas, unidades, opciones or {})
+    except Exception as fallo_aviso:
+        # El producto ya está versionado: un problema de SMTP o de su registro
+        # no puede convertirlo en un fallo de generación ni pedir regenerarlo.
+        ctx.bitacora.anotar("aviso_no_disponible", paso_id, {"tipo": type(fallo_aviso).__name__})
     return {
         "version": version,
         "resumen": str(salidas.get("resumen") or ""),
@@ -480,6 +486,31 @@ def _ejecutar_paso(avisar, ctx, paso_id, unidades, opciones=None):
         "retiradas": retiradas or [],
         "ruta": ctx.proyecto.ruta_paso(paso_id, version),
     }
+
+
+def _avisar_paso_listo(ctx, paso_id, version, salidas, unidades, opciones):
+    if paso_id == "assets":
+        if (opciones.get("solo_assets") or opciones.get("tipos")
+                or (unidades and not opciones.get("avisar_tanda_imagenes"))
+                or not salidas.get("n_escenas") or not ctx.estado.al_dia("assets")):
+            return
+        plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+        escenas = plan.get("escenas") or []
+        base = ctx.proyecto.ruta_paso("assets", version)
+        if not escenas or any(not PASOS_MODULOS.cartelas.sin_imagen(e) and not os.path.isfile(
+                os.path.join(base, "escenas", f"{e['id']}.png")) for e in escenas):
+            return
+        tipo, detalle = "imagenes", {"escenas": len(escenas)}
+    elif paso_id == "render":
+        nombre = salidas.get("mp4")
+        if not nombre or not os.path.isfile(os.path.join(ctx.proyecto.ruta_paso("render", version), nombre)):
+            return
+        tipo, detalle = "video", {"archivo": f"pasos/render/v{version}/{nombre}",
+                                  "duracion": float(salidas.get("duracion") or 0)}
+    else:
+        return
+    resultado = PASOS_MODULOS.avisos.notificar_finalizacion(ctx.proyecto, tipo, version, detalle)
+    ctx.bitacora.anotar("aviso_finalizacion", paso_id, resultado)
 
 
 def _trabajo_activo(ctx, paso_id):
@@ -6078,7 +6109,7 @@ def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False):
                         {"tipos": ["reparto", "mapa", "grafico", "cabecera"],
                          "replantear": False})
     if tarea_id == "assets":
-        return _un_paso(ctx, "assets", modo, {"replantear": False})
+        return _un_paso(ctx, "assets", modo, {"replantear": False, "avisar_tanda_imagenes": True})
     if tarea_id == "callouts":
         return _un_paso(ctx, "callouts", modo)
     if tarea_id in ("banda_sonora", "efectos") and _falta_clave_de_sonido(tarea_id):

@@ -7,7 +7,7 @@ import threading
 from email.message import EmailMessage
 from email.utils import parseaddr
 
-from nucleo.proyecto import ahora, escribir_json, leer_json
+from nucleo.proyecto import ahora, escribir_json, leer_json, lock_de
 
 _LOCK = threading.RLock()
 CONSERVAR = "__CONSERVAR__"
@@ -142,4 +142,42 @@ def probar():
     return enviar("AS Video Studio — prueba de avisos",
                   "Este correo confirma que los avisos de AS Video Studio llegan a esta dirección.\n"
                   "Las incidencias de imágenes incluirán el proyecto, la imagen afectada, el error, "
-                  "el diagnóstico, el progreso conservado y los reintentos previstos.", prueba=True)
+                  "el diagnóstico, el progreso conservado y los reintentos previstos.\n"
+                  "También recibirás un aviso cuando las imágenes estén listas para montar y "
+                  "cuando el vídeo esté disponible para verlo y descargarlo.", prueba=True)
+
+
+def notificar_finalizacion(proyecto, tipo, version, detalle):
+    """Un correo por fase y versión completada; no se dispara al abrir pantallas."""
+    nombre = (getattr(proyecto, "config", {}) or {}).get("nombre") or proyecto.id
+    if tipo == "imagenes":
+        asunto = f"AS Video Studio — imágenes listas para montar: {nombre}"
+        cuerpo = (f"Las imágenes de «{nombre}» ya están listas para montar el vídeo.\n\n"
+                  f"Proyecto: {proyecto.id}\nVersión de imágenes: {version}\n"
+                  f"Escenas preparadas: {detalle['escenas']}\nFinalizado: {ahora()}\n\n"
+                  "Abre el proyecto en el Estudio. Puedes revisar las imágenes y pulsar "
+                  "«Montar el vídeo» desde la fase Imágenes.\n")
+    elif tipo == "video":
+        asunto = f"AS Video Studio — vídeo disponible: {nombre}"
+        cuerpo = (f"El montaje de «{nombre}» ha terminado. El vídeo ya está disponible.\n\n"
+                  f"Proyecto: {proyecto.id}\nVersión del vídeo: {version}\n"
+                  f"Duración: {detalle.get('duracion', 0):.1f} segundos\n"
+                  f"Archivo: {detalle['archivo']}\nFinalizado: {ahora()}\n\n"
+                  "Abre el proyecto en el Estudio y entra en «Vídeo» para verlo y descargar el MP4.\n")
+    else:
+        raise ValueError("tipo de aviso de finalización desconocido")
+    ruta_registro = proyecto.ruta("avisos_finalizacion.json")
+    clave = f"{tipo}:v{version}"
+    with lock_de(ruta_registro):
+        registro = leer_json(ruta_registro, {}) or {}
+        anterior = registro.get(clave)
+        if anterior and anterior.get("estado") == "enviado":
+            return anterior
+        try:
+            resultado = enviar(asunto, cuerpo)
+        except Exception as fallo:
+            resultado = {"estado": "error", "fecha": ahora(), "mensaje": limpiar(fallo)}
+        resultado = {**resultado, "tipo": tipo, "version": version, "detalle": detalle}
+        registro[clave] = resultado
+        escribir_json(ruta_registro, registro)
+        return resultado

@@ -194,6 +194,63 @@ class RecuperacionImagenes(unittest.TestCase):
         ultimo.__context__ = ErrorServicio("el prompt original fue rechazado", "rechazo")
         self.assertTrue(recuperacion.clasificar(ultimo))
 
+    def test_correos_de_finalizacion_por_fase_y_version_sin_duplicados(self):
+        with patch.object(avisos, "enviar", return_value={"estado": "enviado"}) as correo:
+            for _ in range(2):
+                avisos.notificar_finalizacion(self.proyecto, "imagenes", 3, {"escenas": 211})
+            avisos.notificar_finalizacion(self.proyecto, "video", 1,
+                {"archivo": "pasos/render/v1/video.mp4", "duracion": 120})
+            self.assertEqual(correo.call_count, 2)
+            self.assertIn("listas para montar", correo.call_args_list[0].args[0])
+            self.assertIn("Escenas preparadas: 211", correo.call_args_list[0].args[1])
+            self.assertIn("vídeo disponible", correo.call_args_list[1].args[0])
+            self.assertIn("descargar el MP4", correo.call_args_list[1].args[1])
+            avisos.notificar_finalizacion(self.proyecto, "video", 2,
+                {"archivo": "pasos/render/v2/video.mp4", "duracion": 120})
+            self.assertEqual(correo.call_count, 3)
+
+    def test_avisa_solo_si_la_tanda_completa_y_el_mp4_estan_en_disco(self):
+        import app
+        self.proyecto.ruta_paso = lambda paso, version=None: self.proyecto.ruta("pasos", paso, f"v{version or 1}")
+        ctx = SimpleNamespace(proyecto=self.proyecto, estado=SimpleNamespace(al_dia=lambda _p: True),
+                              bitacora=SimpleNamespace(anotar=Mock()))
+        imagen = Path(self.proyecto.ruta_paso("assets", 1), "escenas", "S001.png")
+        imagen.parent.mkdir(parents=True)
+        imagen.write_bytes(b"imagen de prueba")
+        with patch.object(app.PASOS_MODULOS.p6_assets, "plan_actual", return_value={"escenas": [{"id": "S001"}]}), \
+             patch.object(app.PASOS_MODULOS.avisos, "notificar_finalizacion", return_value={"estado": "enviado"}) as aviso:
+            app._avisar_paso_listo(ctx, "assets", 1, {"n_escenas": 0}, None, {})
+            app._avisar_paso_listo(ctx, "assets", 1, {"n_escenas": 1}, None, {"solo_assets": True})
+            app._avisar_paso_listo(ctx, "assets", 1, {"n_escenas": 1}, ["escena:S001"], {})
+            aviso.assert_not_called()
+            app._avisar_paso_listo(ctx, "assets", 1, {"n_escenas": 1}, ["escena:S001"],
+                                  {"avisar_tanda_imagenes": True})
+            self.assertEqual(aviso.call_args.args[1], "imagenes")
+            imagen.unlink()
+            app._avisar_paso_listo(ctx, "assets", 1, {"n_escenas": 1}, None, {})
+            self.assertEqual(aviso.call_count, 1)
+            app._avisar_paso_listo(ctx, "render", 1, {"mp4": "video.mp4"}, None, {})
+            self.assertEqual(aviso.call_count, 1)
+            video = Path(self.proyecto.ruta_paso("render", 1), "video.mp4")
+            video.parent.mkdir(parents=True)
+            video.write_bytes(b"mp4 ya completado")
+            app._avisar_paso_listo(ctx, "render", 1, {"mp4": "video.mp4", "duracion": 60}, None, {})
+            self.assertEqual(aviso.call_count, 2)
+            self.assertEqual(aviso.call_args.args[1], "video")
+
+    def test_fallo_de_correo_no_invalida_el_video_completado(self):
+        import app
+        self.proyecto.ruta_paso = lambda paso, version=None: self.proyecto.ruta("pasos", paso, f"v{version or 1}")
+        estado = SimpleNamespace(params=lambda _p: {}, completar=Mock(return_value=1))
+        ctx = SimpleNamespace(proyecto=self.proyecto, estado=estado, bitacora=SimpleNamespace(anotar=Mock()))
+        modulo = SimpleNamespace(ejecutar=lambda _p, _params, _avisar: {"mp4": "video.mp4"})
+        with patch.object(app, "modulo_de", return_value=modulo), \
+             patch.object(app, "_avisar_paso_listo", side_effect=RuntimeError("SMTP no disponible")):
+            resultado = app._ejecutar_paso(lambda *_a: None, ctx, "render", None)
+        self.assertEqual(resultado["version"], 1)
+        estado.completar.assert_called_once()
+        self.assertIn("aviso_no_disponible", [c.args[0] for c in ctx.bitacora.anotar.call_args_list])
+
 
 if __name__ == "__main__":
     unittest.main()

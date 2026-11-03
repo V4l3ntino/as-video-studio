@@ -196,6 +196,12 @@ nunca se devuelve al navegador.
 
 Se envía un aviso por incidencia y otro al recuperarse, no uno por cada sondeo;
 si durante la espera aparece un error que exige intervención, se avisa de la detención.
+Con el mismo correo activado se envían también dos avisos de finalización:
+**imágenes listas para montar el vídeo**, cuando termina la tanda completa, y
+**vídeo disponible**, en cuanto se ha guardado el MP4, sin esperar a preparar
+los datos de YouTube. No se avisa por generar solo personajes o retocar una
+imagen aislada. Cada fase y versión se notifica una sola vez; el resultado se
+registra en `avisos_finalizacion.json` y un fallo SMTP no invalida el trabajo.
 El correo incluye el proyecto, las imágenes afectadas, el progreso conservado,
 la fecha, los intentos fallidos, el próximo intento, el error y el diagnóstico
 técnico, sin credenciales. Un fallo del correo no impide reintentar las imágenes.
