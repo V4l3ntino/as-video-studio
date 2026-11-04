@@ -225,6 +225,47 @@ class PruebaCodex(unittest.TestCase):
         self.assertEqual(fallo.exception.tipo, "cuota")
         self.assertFalse(any(c.args[0] == "turn/start" for c in self.conexion.pedir.call_args_list))
 
+    def test_cuota_renovable_espera_y_solo_genera_cuando_el_uso_vuelve(self):
+        from pasos import recuperacion_imagenes as recuperacion
+        from nucleo.trabajos import GestorTrabajos
+        proyecto = Proyecto.crear(self.carpeta.name, "Esperar uso incluido")
+        gestor = GestorTrabajos()
+        consultas, esperas, mensajes = [], [], []
+
+        def responder(metodo, params=None, **kwargs):
+            if metodo == "account/rateLimits/read":
+                consultas.append(metodo)
+                return {"ordinaryUsageAllowed": len(consultas) >= 3}
+            return self.responder(metodo, params, **kwargs)
+
+        def esperar(sesion, segundos, unidad):
+            esperas.append(segundos)
+            sesion.avisar_progreso(None)
+            # Ninguna solicitud de imagen en los dos sondeos bloqueados.
+            self.assertFalse(any(c.args[0] == "turn/start" for c in self.conexion.pedir.call_args_list))
+
+        def correr(avisar):
+            def progreso(valor, mensaje=""):
+                mensajes.append(mensaje)
+                avisar(valor, mensaje, mensaje)
+            sesion = recuperacion.Recuperacion(proyecto, progreso)
+            return sesion.ejecutar(self.generar, "S001")
+
+        self.conexion.pedir.side_effect = responder
+        with mock.patch.object(recuperacion.avisos, "leer", return_value={
+                "reintentos": True, "intervalo": 60, "intervalo_maximo": 300}), \
+                mock.patch.object(recuperacion.avisos, "enviar", return_value={}), \
+                mock.patch.object(recuperacion.Recuperacion, "_esperar", esperar):
+            tid = gestor.lanzar("generar:video", correr)
+            final = gestor.esperar(tid, 5)
+        self.assertEqual(final["estado"], "listo", final.get("error"))
+        self.assertEqual(len(consultas), 3)
+        self.assertEqual(len(esperas), 2)
+        self.assertTrue(any("Uso de ChatGPT no disponible" in m for m in mensajes))
+        self.assertTrue(any("Comprobando si vuelve" in m for m in mensajes))
+        self.assertEqual(sum(c.args[0] == "turn/start" for c in self.conexion.pedir.call_args_list), 1)
+        self.assertTrue(final["resultado"][0].startswith(b"\x89PNG"))
+
     def test_recupera_native_del_mismo_turno_sin_otra_generacion(self):
         item = self.eventos[0]["params"]["item"]
         self.historial = [{"turnId": "otro", "item": dict(item, id="ajena")},

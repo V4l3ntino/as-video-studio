@@ -13,20 +13,26 @@ except ImportError:
     import avisos
 
 
-def clasificar(fallo):
-    """Reintenta fallos de entrega, no rechazos explicitos ni errores de acceso."""
-    cadena, vistos = [], set()
+def _causas(fallo):
+    vistos = set()
     actual = fallo
     while actual is not None and id(actual) not in vistos:
         vistos.add(id(actual))
-        cadena.append(actual)
+        yield actual
         actual = actual.__cause__ or actual.__context__
+
+
+def clasificar(fallo):
+    """Reintenta entregas y cuota renovable, no rechazos ni errores de acceso."""
+    cadena = list(_causas(fallo))
     tipos = {str(getattr(f, "tipo", "")) for f in cadena}
     clases = {type(f).__name__.lower() for f in cadena}
     texto = " ".join(str(f) for f in cadena).lower()
     for error in cadena:
         tipo = str(getattr(error, "tipo", ""))
-        if tipo in {"cuota", "sesion", "referencias", "rechazo", "respuesta_ambigua", "modelo"}:
+        if tipo == "cuota":
+            return bool(getattr(error, "cuota_renovable", False))
+        if tipo in {"sesion", "referencias", "rechazo", "respuesta_ambigua", "modelo"}:
             return False
         if tipo in {"saturacion", "tiempo", "conexion", "servicio", "respuesta_incompleta", "interrumpido"}:
             return True
@@ -77,9 +83,14 @@ class Recuperacion:
         if esperas:
             unidad, datos = min(esperas, key=lambda par: par[1]["proximo"])
             faltan = max(0, int(datos["proximo"] - time.monotonic()))
-            accion = (f"Solicitando de nuevo la imagen (intento {datos['intento']})."
-                      if datos["solicitando"] else
-                      f"Nuevo intento automático en {faltan} s (intento {datos['intento']}).")
+            if datos.get("cuota"):
+                accion = ("Comprobando si vuelve a estar disponible el uso de ChatGPT."
+                          if datos["solicitando"] else
+                          f"Uso de ChatGPT no disponible. Nueva comprobación en {faltan} s.")
+            else:
+                accion = (f"Solicitando de nuevo la imagen (intento {datos['intento']})."
+                          if datos["solicitando"] else
+                          f"Nuevo intento automático en {faltan} s (intento {datos['intento']}).")
             mensaje = (f"Esperando al servicio de imágenes: {unidad}. Tanda activa; "
                        f"{accion} Las imágenes hechas se conservan; puedes parar la tanda.")
         if unidades is None:
@@ -147,7 +158,8 @@ class Recuperacion:
             self._esperando.add(unidad)
             if recuperable:
                 self._reintentos[unidad] = {"intento": intento + 1,
-                    "proximo": time.monotonic() + espera, "solicitando": False}
+                    "proximo": time.monotonic() + espera, "solicitando": False,
+                    "cuota": any(getattr(c, "cuota_renovable", False) for c in _causas(fallo))}
             self._guardar()
         if nuevo or detencion:
             resultado = self._correo(dict(datos))

@@ -35,6 +35,7 @@
 - El actualizador reemplaza el árbol del programa: guarda datos aprendidos fuera de él. Conserva el nombre `motores/reglas/reglas_casa.json`; instalaciones antiguas excluyen `reglas.json` al actualizar.
 - Imágenes nuevas sin clave usan Codex con sesión ChatGPT (`motores/imagen_openai/codex.py`, CLI probado: 0.165.0). No pases tokens OAuth a `/v1/images`, ni introduzcas respaldo de pago. `ESTUDIO_CODEX_HOME` aísla la sesión; `python pasos/prueba_codex_imagen.py` verifica el contrato sin consumir cuota. La preferencia vive en secretos, no en params de proyectos.
 - Codex admite cinco adjuntos: agrupa el exceso sin perder referencias ni su numeración lógica. No deduzcas falta de cuota de una imagen ausente: usa el diagnóstico de `secretos/codex_imagenes`. La concurrencia es interna a una tanda (máximo dos), con hilo nuevo por imagen; el contador avanza al resolver el plano, no al iniciarlo.
+- Los límites renovables de ChatGPT/Codex (`ErrorCodex.cuota_renovable`) mantienen la tanda activa en `recuperacion_imagenes`: se comprueban periódicamente con los intervalos configurados. Mientras `ordinaryUsageAllowed` sea falso, no abras `thread/start` ni `turn/start`; la generación continúa al volver el uso permitido. No extiendas esto a saldo/facturación de API. Mantén la barra y Parar durante la espera; no ofrezcas otra tanda hasta que el trabajo sea terminal. Contrato aislado en `pasos/prueba_codex_imagen.py` y cancelación en `pasos/prueba_recuperacion_imagenes.py`.
 
 ## Interfaz sin build
 

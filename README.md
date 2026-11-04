@@ -269,7 +269,9 @@ de tu cuenta de ChatGPT.
 
 Codex genera las imágenes con `gpt-image-2` y consume los límites de Codex de tu
 plan, sin cargos de la API de imágenes. No es una cuota ilimitada: si se agota,
-se detiene la generación y puedes retomar lo pendiente. No pasa automáticamente
+la tanda espera su renovación y vuelve a consultar periódicamente mientras los
+reintentos estén activados. Puedes detenerla con **Parar** y retomar después.
+No pasa automáticamente
 a una API de pago. Calidad y tamaño se solicitan al agente; el PNG se normaliza
 al tamaño que espera el motor de vídeo.
 
@@ -311,9 +313,15 @@ aparecen cuando la tanda ha terminado o se ha detenido de verdad; mientras está
 activa se ofrecen el progreso y **Parar**. Durante la incidencia no se muestra
 una cuenta atrás de finalización, porque no se sabe cuándo volverá el servicio.
 No se generan imágenes de prueba ni se cambia a un motor de pago. Los errores
-de cuota, sesión, referencias, modelo incompatible o rechazo explícito de
+de sesión, referencias, modelo incompatible o rechazo explícito de
 seguridad se notifican y se detienen para corregir su causa: el mismo encargo
 bloqueado no se vuelve a enviar indefinidamente.
+Los límites renovables de **ChatGPT/Codex** mantienen la tanda en espera: la barra
+indica «Uso de ChatGPT no disponible» y el tiempo hasta la siguiente comprobación.
+Si Codex indica que el uso general sigue bloqueado, solo se consultan sus límites,
+sin abrir un turno de generación. Cuando vuelve a estar permitido, se solicita la
+imagen pendiente y continúa la tanda. Esto no reintenta errores de saldo o
+facturación de una API de pago.
 Los intervalos y la activación se pueden cambiar en **Configuración →
 Incidencias de imágenes · reintentos y correo**, sin modificar los proyectos.
 

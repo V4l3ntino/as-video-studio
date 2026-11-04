@@ -118,6 +118,9 @@ class ErrorCodex(RuntimeError):
         super().__init__(mensaje)
         self.tipo = tipo
         self.diagnostico = diagnostico
+        # Los limites de la suscripcion pueden renovarse sin cambiar el encargo.
+        # Esto no convierte una cuota/facturacion de API en recuperable.
+        self.cuota_renovable = tipo == "cuota"
 
 
 def _limpiar(texto, limite=2000):

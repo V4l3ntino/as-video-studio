@@ -266,14 +266,32 @@ class RecuperacionImagenes(unittest.TestCase):
             resultado = avisos.probar()
         self.assertNotIn("contraseña-de-aplicación", json.dumps(resultado))
 
-    def test_red_y_timeout_son_recuperables_y_la_cuota_no(self):
+    def test_red_timeout_y_cuota_renovable_sin_reintentar_facturacion_api(self):
         import requests
         self.assertTrue(recuperacion.clasificar(requests.ConnectionError("offline")))
         self.assertTrue(recuperacion.clasificar(TimeoutError("sin respuesta")))
         self.assertFalse(recuperacion.clasificar(ErrorServicio("timeout pero cuota agotada", "cuota")))
+        renovable = ErrorServicio("uso incluido no disponible", "cuota")
+        renovable.cuota_renovable = True
+        self.assertTrue(recuperacion.clasificar(renovable))
+        envuelto = RuntimeError("fallo del plano")
+        envuelto.__cause__ = renovable
+        self.assertTrue(recuperacion.clasificar(envuelto))
         ultimo = ErrorServicio("la petición alternativa agotó el tiempo", "tiempo")
         ultimo.__context__ = ErrorServicio("el prompt original fue rechazado", "rechazo")
         self.assertTrue(recuperacion.clasificar(ultimo))
+
+    def test_cancelar_la_espera_de_cuota_no_hace_otra_solicitud(self):
+        error = ErrorServicio("uso incluido no disponible", "cuota")
+        error.cuota_renovable = True
+        pedir = Mock(side_effect=error)
+        sesion = recuperacion.Recuperacion(self.proyecto, Mock(side_effect=Cancelado("parar")))
+        with patch.object(avisos, "enviar", return_value={}):
+            with self.assertRaises(Cancelado):
+                sesion.ejecutar(pedir, "S001")
+        pedir.assert_called_once()
+        self.assertTrue(sesion._parar.is_set())
+        self.assertEqual(sesion._incidente["estado"], "cancelada")
 
     def test_correos_de_finalizacion_por_fase_y_version_sin_duplicados(self):
         with patch.object(avisos, "enviar", return_value={"estado": "enviado"}) as correo:
