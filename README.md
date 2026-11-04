@@ -117,6 +117,31 @@ Y abrir `http://127.0.0.1:8020/`. Con `--host 0.0.0.0` escucha en la red local;
 **no lo pongas a la vista de internet sin un login delante**: la API no
 autentica nada, a propósito (ver «Quién está dentro» más abajo).
 
+### Sustituir una escena por una imagen o un clip propio
+
+En **Imágenes**, pasa el cursor sobre el cuadro de la escena y pulsa
+**Sustituir**, en su parte inferior. En dispositivos táctiles el botón está
+siempre visible. Elige una imagen **PNG, JPG o WebP**, o un vídeo **MP4, MOV,
+WebM, MKV, M4V o AVI** (hasta 200 MiB por archivo).
+
+Los clips deben durar **al menos 2 segundos**. Si superan **6,5 segundos**, el
+Estudio conserva automáticamente solo el tramo **0–6,5 s**, sin pedir un recorte
+manual. El clip se puede reproducir en esa misma pantalla y volver a sustituir.
+Las imágenes y vídeos se adaptan al lienzo del proyecto, centrando y recortando
+lo que sobresale para cubrirlo sin deformaciones.
+
+Al **Montar el vídeo** se mezclan las imágenes y los clips elegidos, conservando
+la narración, sus tiempos, los subtítulos, las cartelas y las transiciones. El
+audio original del clip no se utiliza. La escena mantiene su duración: si el
+clip termina antes, permanece su último fotograma hasta el siguiente corte; si
+dura más que la escena, solo se reproduce lo que cabe en ella.
+
+Cada sustitución crea una versión de assets y deja pendientes las capas y el
+montaje afectados. Las demás imágenes y la voz se conservan; no se llama a un
+generador de IA. El material propio se guarda dentro del proyecto, viaja al
+exportarlo o duplicarlo y sigue seleccionado al retomar la generación. Espera
+a que termine el trabajo del vídeo o páralo antes de sustituir una escena.
+
 ### Listo para YouTube
 
 Al terminar la receta de montaje se preparan el **título**, la **descripción**

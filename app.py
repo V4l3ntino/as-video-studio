@@ -4833,6 +4833,73 @@ def aceptar_imagen_obsoleta(pid: str, sid: str):
     return {"ok": True, "id": sid}
 
 
+def _sustituir_medio_escena(avisar, ctx, sid, nombre, origen, carpeta):
+    from pasos import medios_escena
+    publicado = False
+    try:
+        avisar(.05, "comprobando el archivo", "Preparando el material de la escena")
+        plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+        if not any(e.get("id") == sid for e in plan.get("escenas") or []):
+            raise ValueError("esa escena ya no está en el plan")
+        medio = medios_escena.preparar(origen, nombre, carpeta, plan.get("generacion") or [1536, 1024])
+        avisar(.8, "guardando la sustitución", "Guardando la nueva imagen o clip")
+        resultado = medios_escena.sustituir(ctx.proyecto, ctx.estado, plan, sid, medio)
+        publicado = True
+        ctx.bitacora.anotar("medio_escena_sustituido", "assets", {"escena": sid,
+            "tipo": medio["tipo"], "duracion": medio.get("duracion"), "recortado": medio.get("recortado", False)})
+        return resultado
+    except BaseException:
+        if not publicado:
+            shutil.rmtree(carpeta, ignore_errors=True)
+        raise
+    finally:
+        try:
+            os.remove(origen)
+        except OSError:
+            pass
+
+
+@app.post("/api/proyectos/{pid}/escenas/{sid}/medio", status_code=202)
+def sustituir_medio_escena(pid: str, sid: str, archivo: UploadFile = File(...)):
+    """Sustituye un plano por imagen o clip propio de 2 a 6,5 s; recorta el exceso."""
+    from pasos import medios_escena
+    ctx = contexto(pid)
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
+        raise ErrorApi(400, "identificador de escena inválido")
+    nombre = archivo.filename or ""
+    if os.path.splitext(nombre)[1].lower() not in medios_escena.IMAGENES | medios_escena.VIDEOS:
+        raise ErrorApi(400, "elige una imagen o un archivo de vídeo compatible")
+    if archivo.size is not None and archivo.size > medios_escena.MAX_BYTES:
+        raise ErrorApi(400, "el archivo supera el límite de 200 MiB")
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine el trabajo del vídeo o páralo antes de sustituir una escena")
+        plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+        if not any(e.get("id") == sid for e in plan.get("escenas") or []):
+            raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+        carpeta = ctx.proyecto.ruta("medios_usuario", uuid.uuid4().hex)
+        os.makedirs(carpeta)
+        origen = os.path.join(carpeta, "subida" + os.path.splitext(nombre)[1].lower())
+        try:
+            cantidad = 0
+            with open(origen, "wb") as fh:
+                while True:
+                    bloque = archivo.file.read(1024 * 1024)
+                    if not bloque:
+                        break
+                    cantidad += len(bloque)
+                    if cantidad > medios_escena.MAX_BYTES:
+                        raise ErrorApi(400, "el archivo supera el límite de 200 MiB")
+                    fh.write(bloque)
+            tid = ctx.gestor.lanzar("sustituir_medio", _sustituir_medio_escena,
+                ctx, sid, nombre, origen, carpeta, unidad=sid)
+        except BaseException:
+            shutil.rmtree(carpeta, ignore_errors=True)
+            raise
+    _registrar_trabajo(tid, pid)
+    return {"trabajo_id": tid, "trabajo": ctx.gestor.estado(tid)}
+
+
 @app.get("/api/proyectos/{pid}/previsualizacion")
 def leer_previsualizacion(pid: str):
     """Las piezas para ver el video sin montarlo. -> {escenas, audio, ...}"""
@@ -4887,6 +4954,9 @@ def leer_previsualizacion(pid: str):
         dibujada, dice = p6._texto_clave(ficha), p6._texto_clave(escena)
         if dibujada and dice and p6._mismo_dicho(dibujada, dice):
             imagen = ficha.get("ruta") or imagen
+        medio_usuario = escena.get("medio_usuario") or {}
+        if medio_usuario:
+            imagen = medio_usuario.get("poster") or imagen
         escenas.append({
             "id": sid,
             "t_in": round(float(escena.get("t_in") or 0.0), 3),
@@ -4896,6 +4966,8 @@ def leer_previsualizacion(pid: str):
             "bloque": (escena.get("origen") or {}).get("bloque") or "",
             "cartela": (escena.get("cartela") or {}).get("plantilla") or "",
             "imagen": imagen,
+            "clip": medio_usuario.get("archivo") if medio_usuario.get("tipo") == "video" else None,
+            "medio_usuario": medio_usuario or None,
             # y si el dibujo que hay ya no es de lo que aqui se dice. Va vacio
             # cuando esta al dia: es una excepcion, no un campo de todos.
             **_obsolescencia(ctx, escena),

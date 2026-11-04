@@ -567,7 +567,7 @@ class Proyecto:
         # Las carpetas del PROYECTO, no de un paso: los fotogramas de estilo y
         # los videos de tono son entradas que el usuario eligio, y una copia sin
         # ellas no se puede regenerar sin volver a elegirlas.
-        for carpeta in ("estilo", "tono"):
+        for carpeta in ("estilo", "tono", "medios_usuario"):
             if os.path.isdir(self.ruta(carpeta)):
                 shutil.copytree(self.ruta(carpeta), copia.ruta(carpeta),
                                 dirs_exist_ok=True)

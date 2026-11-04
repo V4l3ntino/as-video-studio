@@ -252,7 +252,9 @@ class Navegador:
 
     def evaluar(self, expresion, esperar=False):
         resultado = self.llamar("Runtime.evaluate", expression=expresion,
-                                returnByValue=True, awaitPromise=bool(esperar))
+                                 returnByValue=True, awaitPromise=bool(esperar))
+        if resultado.get("exceptionDetails"):
+            raise RuntimeError("fallo al pintar el plano: " + str(resultado["exceptionDetails"])[:500])
         return (resultado.get("result") or {}).get("value")
 
     def pintar(self, t):
@@ -352,10 +354,9 @@ html,body{margin:0;padding:0;background:#0b0c09;overflow:hidden}
 // dos imagenes como TEXTURAS y de un div no se saca una textura.
 const MOV = __MOV__, W = __W__, H = __H__, HW = __HW__, HH = __HH__;
 const DUR = __DUR__, FPS = __FPS__;
-// AQUI VIVIA `FOTOGRAMAS`, la tira de imagenes de un plano de metraje grabado.
-// Se retiro entera con la pool de clips: todos los planos son una imagen quieta,
-// asi que el render vuelve a saber de una sola cosa -- una imagen y una ventana
-// que se mueve por encima.
+// En un clip propio se avanza por los frames decodificados con ffmpeg. La
+// promesa de decode hace que captura y subtitulos lean el mismo instante.
+const FOTOGRAMAS = __FOTOGRAMAS__;
 const camara = document.getElementById('camara');
 const fondo = document.getElementById('fondo');
 const svg = document.querySelector('#capa svg');
@@ -402,6 +403,11 @@ function pintar(t){
     'px) scale(' + s.toFixed(6) + ')';
   if (svg && svg.setCurrentTime) svg.setCurrentTime(t);
   if (svgFijo && svgFijo.setCurrentTime) svgFijo.setCurrentTime(t);
+  if (FOTOGRAMAS.length) {
+    const indice = Math.min(FOTOGRAMAS.length - 1, Math.max(0, Math.round(t * FPS)));
+    fondo.src = FOTOGRAMAS[indice];
+    return fondo.decode().then(() => 1);
+  }
   // Sigue devolviendo 1 y no undefined: quien llama hace
   // `Promise.resolve(pintar(t))`, asi que un valor pelado vale igual.
   return 1;
@@ -414,7 +420,7 @@ def _url_local(ruta):
     return "file:///" + os.path.abspath(ruta).replace("\\", "/")
 
 
-def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30):
+def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, fotogramas=()):
     ancho, alto = [int(v) for v in p["resolucion"]]
     hw, hh = mov.get("hyperframe_px") or [3072, 2048]
     duracion = float(escena["t_out"]) - float(escena["t_in"])
@@ -422,6 +428,7 @@ def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30):
             .replace("__W__", str(ancho)).replace("__H__", str(alto))
             .replace("__HW__", str(hw)).replace("__HH__", str(hh))
             .replace("__FONDO__", _url_local(hyper))
+            .replace("__FOTOGRAMAS__", json.dumps([_url_local(f) for f in fotogramas]))
             .replace("__CAPA__", capa_svg)
             .replace("__CAPAFIJA__", capa_fija or "")
             .replace("__MOV__", json.dumps({"ventana_ini": mov["ventana_ini"],
@@ -960,6 +967,29 @@ def _guardar_ultimo(origen, destino):
     return destino
 
 
+def _fotogramas_de_clip(ruta, carpeta, mov, total, fps):
+    """Decodifica la toma sin audio; rellena con el ultimo frame si falta tiempo.
+
+    No mueve cortes ni la pista narrada. Un clip mas largo que su escena usa
+    solo el tramo que cabe; uno mas corto conserva su ultimo fotograma.
+    """
+    destino = os.path.join(carpeta, "video")
+    os.makedirs(destino, exist_ok=True)
+    ancho, alto = mov.get("hyperframe_px") or [3072, 2048]
+    duracion = total / float(fps)
+    filtro = (f"fps={fps},scale={int(ancho)}:{int(alto)},setsar=1,"
+              f"tpad=stop_mode=clone:stop_duration={duracion}")
+    proceso = subprocess.run([medios.ffmpeg(), "-nostdin", "-y", "-v", "error",
+        "-i", ruta, "-an", "-vf", filtro, "-frames:v", str(total),
+        os.path.join(destino, "v%05d.png")], capture_output=True, timeout=180,
+        **medios.SIN_VENTANA)
+    rutas = [os.path.join(destino, f"v{i + 1:05d}.png") for i in range(total)]
+    if proceso.returncode or not all(os.path.isfile(r) for r in rutas):
+        raise RuntimeError("no se han podido decodificar los fotogramas del clip: "
+                           + proceso.stderr.decode("utf-8", errors="replace")[-400:])
+    return rutas
+
+
 def renderizar_plano(tarea, navegador=None):
     """Los fotogramas de UN plano, su transicion y su clip. -> ficha del plano.
 
@@ -984,10 +1014,12 @@ def renderizar_plano(tarea, navegador=None):
         print(f"[render] {sid}: {len(resisten)} fichero(s) de la pasada anterior "
               f"siguen bloqueados en {carpeta} ({os.path.basename(resisten[0])}…)",
               flush=True)
+    fotogramas = (_fotogramas_de_clip(tarea["video"], carpeta, tarea["mov"], total, fps)
+                  if tarea.get("video") else [])
     pagina = _pagina_de(tarea["escena"], tarea["mov"], tarea["capa"],
                         tarea["hyper"], {"resolucion": tarea["resolucion"]},
                         os.path.join(carpeta, "escena.html"),
-                        capa_fija=tarea.get("capa_fija") or "", fps=fps)
+                         capa_fija=tarea.get("capa_fija") or "", fps=fps, fotogramas=fotogramas)
 
     navegador.abrir(pagina)
     for numero in range(total):
@@ -1351,6 +1383,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                     "hyperframe_px": mov.get("hyperframe_px")},
             "capa": svg, "capa_fija": fija,
             "hyper": hyper, "frames": total, "fps": fps,
+            "video": ((escena.get("medio_usuario") or {}).get("archivo")
+                      if (escena.get("medio_usuario") or {}).get("tipo") == "video" else None),
             "resolucion": [ancho, alto], "calidad": p["calidad_video"],
             "carpeta": os.path.join(dir_frames, sid), "clip": clip,
             "ultimo": os.path.join(dir_ultimo, f"{sid}.png"),

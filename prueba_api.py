@@ -852,6 +852,61 @@ def probar_presets_canal(cliente):
     igual(respuesta.status_code, 400, "un archivo que no es ZIP devuelve un error controlado")
 
 
+def probar_sustitucion_de_escenas(cliente):
+    seccion("SUSTITUIR UNA ESCENA POR IMAGEN O CLIP PROPIO")
+    from PIL import Image
+    from nucleo.proyecto import Proyecto, escribir_json
+    from nucleo.estado import Estado
+    proyecto = Proyecto.crear(cliente.carpeta, "Medios propios")
+    estado = Estado(proyecto)
+    plan = {"generacion": [160, 90], "resolucion": [160, 90], "formato": "horizontal",
+            "escenas": [{"id": "S001", "t_in": 0, "t_out": 3, "duracion": 3,
+                         "narracion": "Una escena para sustituir", "personajes": []}]}
+    escribir_json(proyecto.ruta_trabajo("assets") + "/plan.json", plan)
+    estado.completar("assets", {"plan": "plan.json"})
+    png = io.BytesIO()
+    Image.new("RGB", (32, 32), "green").save(png, "PNG")
+    url = f"{cliente.base}/api/proyectos/{proyecto.id}/escenas/S001/medio"
+    respuesta = cliente.sesion.post(url, files={"archivo": ("foto.png", png.getvalue(), "image/png")}, timeout=30)
+    igual(respuesta.status_code, 202, "la sustitucion de imagen se procesa como trabajo")
+    if respuesta.status_code != 202:
+        return
+    ficha = esperar_trabajo(cliente, respuesta.json()["trabajo_id"])
+    igual(ficha["estado"], "listo", f"la imagen propia se guarda: {ficha.get('error')}")
+    _, previa = cliente.get(f"/api/proyectos/{proyecto.id}/previsualizacion")
+    escena = (previa.get("escenas") or [{}])[0]
+    ok(escena.get("imagen"), "la previsualizacion tiene la imagen sustituida")
+    igual((escena.get("medio_usuario") or {}).get("tipo"), "imagen", "se identifica como material propio")
+    respuesta = cliente.sesion.post(url, files={"archivo": ("foto.png", b"rota", "image/png")}, timeout=30)
+    final = esperar_trabajo(cliente, respuesta.json()["trabajo_id"])
+    igual(final["estado"], "error", "una imagen ilegible se rechaza")
+    _, despues = cliente.get(f"/api/proyectos/{proyecto.id}/previsualizacion")
+    igual(despues["escenas"][0]["imagen"], escena["imagen"], "un error no sustituye la imagen anterior")
+    respuesta = cliente.sesion.post(url.replace("S001", "NO_EXISTE"),
+        files={"archivo": ("foto.png", png.getvalue(), "image/png")}, timeout=30)
+    igual(respuesta.status_code, 404, "no se sube material a un plano inexistente")
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        return
+    for duracion in (1, 7):
+        ruta = proyecto.ruta(f"entrada_{duracion}.mp4")
+        subprocess.run([shutil.which("ffmpeg"), "-nostdin", "-y", "-v", "error", "-f", "lavfi",
+            "-i", "testsrc2=size=64x48:rate=30", "-t", str(duracion), "-c:v", "libx264", ruta],
+            check=True, capture_output=True, timeout=30)
+        with open(ruta, "rb") as fh:
+            respuesta = cliente.sesion.post(url, files={"archivo": ("clip.mp4", fh, "video/mp4")}, timeout=30)
+        final = esperar_trabajo(cliente, respuesta.json()["trabajo_id"])
+        if duracion < 2:
+            igual(final["estado"], "error", "el API rechaza un clip de menos de 2 segundos")
+            ok("mínimo" in (final.get("error") or ""), "explica el limite minimo")
+        else:
+            igual(final["estado"], "listo", f"el clip se normaliza: {final.get('error')}")
+            medio = (final.get("resultado") or {}).get("medio") or {}
+            ok(medio.get("recortado"), "un video de 7 s se recorta automaticamente")
+            igual(round(medio.get("duracion", 0), 2), 6.5, "el archivo final dura 6,5 segundos")
+            _, previa = cliente.get(f"/api/proyectos/{proyecto.id}/previsualizacion")
+            ok(previa["escenas"][0].get("clip"), "la previsualizacion publica el clip para reproducirlo")
+
+
 def probar_cartelas_y_transiciones(cliente, pid, raiz_proyecto=None):
     """Las dos pantallas nuevas: cartelas (assets) y transiciones (render)."""
     seccion("CARTELAS, TRANSICIONES Y SONIDO")
@@ -5505,6 +5560,7 @@ def main():
         probar_voz(cliente, pid)
         probar_bitacora(cliente, pid)
         probar_presets_canal(cliente)
+        probar_sustitucion_de_escenas(cliente)
         probar_modo_light(cliente)
         probar_video_light(cliente)
         probar_estimacion(cliente)

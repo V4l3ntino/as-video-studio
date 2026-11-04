@@ -6229,6 +6229,11 @@ async function reengancharTandaLight(pid) {
     const datos = await pedir(`${API.trabajosVivos()}?proyecto=`
       + `${encodeURIComponent(pid)}&activos=1`);
     const vivos = datos.trabajos || [];
+    const sustitucion = vivos.find(t => t.nombre === 'sustituir_medio');
+    if (sustitucion) {
+      seguirSustitucionEscena(pid, sustitucion.id, sustitucion.unidad);
+      return;
+    }
     /* Y SI NO HAY TANDA, EL MONTAJE LANZADO APARTE: el MP4 pedido como paso
        suelto, o «Aplicar el repaso». Sus trabajos no se llaman «generar:…» y
        esta pantalla los dejaba sin barra —«todavía no hay vídeo» con el montaje
@@ -8305,6 +8310,7 @@ function alSonarPrevia() {
   const e = escenaPrevia();
   if (!audio || !e) return;
   PREVIA.t = audio.currentTime;
+  sincronizarClipPrevia();
   if (!PREVIA.seguido) {
     if (audio.currentTime >= e.t_out - 0.02) {
       audio.pause();
@@ -8341,6 +8347,8 @@ function sonarEscenaPrevia() {
 
 function pararPrevia() {
   if (PREVIA.audio) PREVIA.audio.pause();
+  const clip = document.querySelector('.previa-clip');
+  if (clip) clip.pause();
   PREVIA.sonando = false;
   PREVIA.seguido = false;
   pararCamaPrevia();
@@ -8415,10 +8423,12 @@ function engancharSwipePrevia(nodo) {
   let y0 = 0;
   let t0 = 0;
   nodo.addEventListener('touchstart', ev => {
+    if (ev.target.closest('button,input,video')) { t0 = 0; return; }
     const dedo = ev.changedTouches[0];
     x0 = dedo.clientX; y0 = dedo.clientY; t0 = Date.now();
   }, { passive: true });
   nodo.addEventListener('touchend', ev => {
+    if (!t0) return;
     const dedo = ev.changedTouches[0];
     const dx = dedo.clientX - x0;
     const dy = dedo.clientY - y0;
@@ -8487,6 +8497,63 @@ function irAPrimeraObsoleta() {
   if (i >= 0) { PREVIA.i = i; PREVIA.t = 0; repintarVideo(); }
 }
 
+function sincronizarClipPrevia() {
+  const clip = document.querySelector('.previa-clip');
+  const escena = escenaPrevia();
+  if (!clip || !escena || !PREVIA.audio || !Number.isFinite(clip.duration)) return;
+  const t = Math.max(0, PREVIA.audio.currentTime - escena.t_in);
+  const destino = Math.min(t, Math.max(0, clip.duration - 1 / 30));
+  if (Math.abs(clip.currentTime - destino) > .2) clip.currentTime = destino;
+  if (!PREVIA.audio.paused && t < clip.duration && PREVIA.audio.currentTime < escena.t_out) {
+    clip.play().catch(() => {});
+  } else clip.pause();
+}
+
+function seguirSustitucionEscena(pid, tid, sid) {
+  APP.light.video.vista = 'previa';
+  seguirTrabajo(CLAVE_VIDEO_LIGHT, tid, async trabajo => {
+    if (videoAbierto().pid !== pid) return;
+    await cargarVideoLight(pid);
+    APP.light.video.vista = 'previa';
+    await cargarPreviaLight();
+    const indice = ((PREVIA.ficha || {}).escenas || []).findIndex(e => e.id === sid);
+    if (indice >= 0) PREVIA.i = indice;
+    repintarVideo();
+    const medio = ((trabajo.resultado || {}).medio || {});
+    if (trabajo.estado === 'listo') toast(medio.recortado
+      ? 'Clip sustituido y recortado automáticamente a 6,5 segundos'
+      : 'Escena sustituida; monta el vídeo para ver el cambio en el MP4');
+  });
+}
+
+async function sustituirMedioEscena(escena, archivo) {
+  if (!archivo || PREVIA.sustituyendo || trabajoVideoLight()) return;
+  if (archivo.size > 200 * 1024 * 1024) { toast('El archivo supera 200 MiB', true); return; }
+  const pid = videoAbierto().pid;
+  pararPrevia();
+  PREVIA.sustituyendo = true;
+  repintarVideo();
+  try {
+    const cuerpo = new FormData();
+    cuerpo.append('archivo', archivo);
+    const datos = await pedir(`${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/medio`,
+      { method: 'POST', cuerpo });
+    if (videoAbierto().pid === pid) seguirSustitucionEscena(pid, datos.trabajo_id, escena.id);
+  } catch (e) { toast(`No se ha podido sustituir: ${e.message}`, true); }
+  finally { PREVIA.sustituyendo = false; repintarVideo(); }
+}
+
+function botonSustituirEscena(escena) {
+  const entrada = h('input', {type: 'file', hidden: true,
+    accept: '.png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.m4v,.avi',
+    onchange: ev => sustituirMedioEscena(escena, ev.target.files[0]) });
+  return h('div', {clase: 'sustituir-medio'}, entrada,
+    h('button', {clase: 'primario', disabled: !!trabajoVideoLight() || !!PREVIA.sustituyendo,
+      title: 'Elige una imagen o clip de al menos 2 s. Si supera 6,5 s, se recorta desde el inicio.',
+      onclick: ev => { ev.stopPropagation(); entrada.click(); }},
+    PREVIA.sustituyendo ? 'Subiendo…' : 'Sustituir'));
+}
+
 function vistaPreviaLight() {
   const v = videoAbierto();
   const caja = h('div', { clase: 'light-previa' });
@@ -8537,15 +8604,21 @@ function vistaPreviaLight() {
      del dibujo o del texto de encima. */
   marco.classList.add(formatoDelVideo());
   const fondo = e.imagen;
-  if (fondo) {
+  if (e.clip) {
+    const clip = h('video', {clase: 'previa-clip', src: API.archivo(v.pid, e.clip),
+      poster: fondo ? API.archivo(v.pid, fondo) : '', controls: true, playsinline: true,
+      preload: 'metadata', onloadedmetadata: sincronizarClipPrevia });
+    clip.muted = true;
+    marco.appendChild(clip);
+  } else if (fondo) {
     marco.appendChild(h('img', {
       // en miniatura ancha: se ve igual en pantalla y entra en la caché que
       // ya ha llenado el prebuffer, así que la flecha derecha es instantánea
       src: `${API.archivo(v.pid, fondo)}?mini=1024`,
       alt: e.id,
-      onerror: () => {
-        vaciar(marco);
-        marco.appendChild(h('div', { clase: 'previa-sin-imagen' },
+      onerror: ev => {
+        ev.target.remove();
+        marco.prepend(h('div', { clase: 'previa-sin-imagen' },
           'No se ha podido cargar la imagen de esta escena.'));
       },
     }));
@@ -8553,6 +8626,7 @@ function vistaPreviaLight() {
     marco.appendChild(h('div', { clase: 'previa-sin-imagen' },
       'Esta escena todavía no tiene imagen generada.'));
   }
+  marco.appendChild(botonSustituirEscena(e));
   /* NI SUBTITULO NI SELLO DE CARTELA: aqui se mira el DIBUJO y nada mas.
      Los dos se revisan -- y se corrigen -- en la pantalla del video, que es
      donde se ven en movimiento y con su sonido. Tenerlos aqui mezclaba dos
@@ -8848,6 +8922,7 @@ async function guardarNotaEscena(escena) {
  * escena siguiente--; dos chevrones seguidos apuntando a sitios distintos se
  * leen como el mismo gesto. Aqui la etiqueta ya dice lo que hace. */
 function botonRenderizarLight() {
+  if (PREVIA.sustituyendo) return h('span', {clase: 'meta'}, 'Subiendo el material de la escena…');
   if (trabajoVideoLight()) {
     return h('div', { clase: 'fila crece' }, barraTandaLight('video'),
       h('button', { clase: 'mini peligro', onclick: () => cancelar(CLAVE_VIDEO_LIGHT) }, 'Parar'));

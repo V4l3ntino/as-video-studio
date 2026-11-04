@@ -35,6 +35,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/proyectos/{pid}` | Estado del proyecto: los ocho pasos, sus params, versiones y trabajos. |
 | `PUT` | `/api/proyectos/{pid}` | Cambia el nombre VISIBLE del proyecto. -> la ficha. |
 | `POST` | `/api/proyectos/{pid}/duplicar` | Copia un proyecto entero con lo que tiene puesto HOY. -> el nuevo. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 6,5 s; recorta el exceso. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |
 | `GET` | `/api/proyectos/{pid}/exportar` | Descarga el proyecto completo: fuentes, versiones y trabajo parcial en un ZIP. |
 | `POST` | `/api/proyectos/{pid}/exportar` | Prepara el ZIP en segundo plano; el trabajo informa de su progreso real. |
@@ -281,4 +282,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**167 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**168 endpoints.** Escrito por `generar_api.py` desde `app.py`.

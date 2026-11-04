@@ -71,6 +71,7 @@ import cta  # noqa: E402
 import encuadres  # noqa: E402
 import estadisticas  # noqa: E402
 import medios  # noqa: E402
+import medios_escena  # noqa: E402
 import moodboard  # noqa: E402
 # p2_brief por su tabla de nombres de idioma (la del generador de imagen va en
 # ingles) y p4_voz por idioma_de_salida, que es el accesor oficial del idioma
@@ -1402,6 +1403,7 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         "informe": informe,
     }
     plan["assets"] = _assets_necesarios(plan, catalogo, p)
+    medios_escena.aplicar_al_plan(plan, p)
     plan["dependencias"] = {f"escena:{e['id']}": _assets_de_escena(e)
                             for e in escenas}
     # Que ha sobrevivido del plan anterior. Va en el plan a proposito: es lo que
@@ -3707,6 +3709,14 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 hecho = bool(guardada_previa) and not guardada_previa.get("png")
             else:
                 hecho = os.path.exists(destino)
+            if escena.get("medio_usuario"):
+                ficha = medios_escena.materializar(proyecto, escena, trabajo)
+                previas[sid] = destino
+                orden_cadena.append(sid)
+                with cerrojo:
+                    resultados[uid] = ficha
+                anunciar(sid)
+                continue
             # UNA IMAGEN QUE YA EXISTE SE QUEDA. Solo se rehace si alguien la
             # ha pedido -- por su unidad, o con el «rehacer» de la pantalla.
             #
@@ -4051,7 +4061,7 @@ def _planos_repetidos(resultados, trabajo, copiados=()):
 
     LO QUE BUSCA ES UN FALLO CONCRETO: dos prompts que salieron identicos y una
     cache que devolvio el mismo fichero. Asi que lo que comparte imagen A
-    PROPOSITO no cuenta, y son dos casos:
+    PROPOSITO no cuenta:
 
       la cartela        no tiene prompt ni pasa por la cache; dos cartelas
                         iguales serian dos textos iguales, que se ve en la
@@ -4060,6 +4070,9 @@ def _planos_repetidos(resultados, trabajo, copiados=()):
                         imagen copiada: misma imagen, zoom partido, sin
                         transicion en medio. Es byte a byte identica porque
                         tiene que serlo.
+      material propio   una sustitucion explicita del usuario puede reutilizar
+                        la misma foto o el mismo poster de clip en varios planos;
+                        no es una coincidencia de prompts del generador.
 
     El segundo caso salio el 22-08 y es una leccion de las buenas: hasta
     entonces la continuacion se quedaba con su imagen VIEJA, o sea que NO
@@ -4078,6 +4091,8 @@ def _planos_repetidos(resultados, trabajo, copiados=()):
     porhash = {}
     for uid, ficha in resultados.items():
         if ficha.get("tipo") != "escena" or not ficha.get("png"):
+            continue
+        if ficha.get("origen") == "usuario" and ficha.get("medio_usuario"):
             continue
         sid = ficha.get("id") or str(uid).split(":", 1)[-1]
         if ficha.get("origen") in ("cartela", "sigue") \
