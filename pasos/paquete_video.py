@@ -17,6 +17,27 @@ MAX_ARCHIVO = 2 * 1024 ** 3
 MAX_BYTES = 20 * 1024 ** 3
 MAX_FICHEROS = 100000
 
+# Contratos de ficheros en estado, manifiestos, planes y fichas parciales.
+# No se sustituyen barras en texto libre: una narracion o un prompt puede
+# contenerlas sin representar una ruta.
+CLAVES_RUTA = frozenset((
+    "archivo", "png", "svg", "meta", "guion_fichero", "ruta", "fichero",
+    "pista", "audio_meta", "plan", "dependencias", "miniatura", "poster",
+    "clip", "wav", "mp3", "mp4", "srt", "ass", "referencias",
+))
+
+
+def _normalizar_relativas(dato, clave=None):
+    """Rutas relativas portables tambien en fichas de trabajo e historicos."""
+    if isinstance(dato, dict):
+        return {k: _normalizar_relativas(v, k) for k, v in dato.items()}
+    if isinstance(dato, list):
+        return [_normalizar_relativas(v, clave) for v in dato]
+    if (clave in CLAVES_RUTA and isinstance(dato, str)
+            and not comun._absoluta(dato)):
+        return dato.replace("\\", "/")
+    return dato
+
 
 def _huella(ruta, avanzar=None):
     sello = hashlib.sha256()
@@ -52,7 +73,10 @@ def _comprobar_salidas(estado, raiz_guardada):
                 if (clave in ("archivo", "png", "meta", "guion_fichero")
                         and isinstance(valor, str) and valor
                         and not comun._absoluta(valor)):
-                    ruta = ruta_contenida(proyecto.ruta_paso(paso, numero), valor)
+                    # ZIP usa '/', pero os.path.relpath en un origen Windows
+                    # pudo guardar '\\'. Se resuelve sin modificar el origen.
+                    ruta = ruta_contenida(proyecto.ruta_paso(paso, numero),
+                                          *valor.replace("\\", "/").split("/"))
                     if not os.path.isfile(ruta):
                         raise ErrorPaquete(f"falta una salida del video ({paso} v{numero}): {valor}")
                 comprobar(valor, paso, numero)
@@ -232,7 +256,11 @@ def importar(archivo, raiz_proyectos, avisar=None):
                        f"Adaptando rutas: {indice + 1} de {len(documentos)} archivos")
                 mudanza.mudar_fichero(ruta, tipo, reglas, True)
                 if tipo == "json":
-                    for valor in comun._cadenas(leer_json(ruta, estricto=True)):
+                    contenido = leer_json(ruta, estricto=True)
+                    portables = _normalizar_relativas(contenido)
+                    if portables != contenido:
+                        escribir_json(ruta, portables)
+                    for valor in comun._cadenas(portables):
                         if not comun._absoluta(valor):
                             continue
                         if not comun._contenido(valor, [final]):

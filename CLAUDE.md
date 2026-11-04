@@ -113,6 +113,13 @@ en `v<N>/`. Hay que resolverlos en **la versión que se está comprobando**,
 también para los manifiestos históricos, sin reescribir los metadatos ni las
 firmas. `pasos/paquete_video.py` comprueba además `archivo` y `png` relativos;
 un audio definitivo o una imagen que de verdad falta sigue siendo un error.
+También viajan rutas **relativas** con barras de Windows, por ejemplo
+`assets\reparto\ali_baba.png`. Normalízalas por contrato de fichero en estado,
+manifiestos y fichas de `trabajo/`, no solo al comprobar que existen: si quedan
+sin adaptar, retomar la tanda o revertir vuelve a perderlas. Hazlo después de
+fotografiar las firmas originales y antes del sellado selectivo, sin sustituir
+barras en narraciones ni prompts. Un proyecto interrumpido conserva las imágenes
+pagadas en `trabajo/` y las unidades pendientes siguen pendientes.
 
 ---
 

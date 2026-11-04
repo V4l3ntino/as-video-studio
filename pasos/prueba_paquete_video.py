@@ -252,6 +252,63 @@ class Transferencia(unittest.TestCase):
         with self.assertRaises(paquete.ErrorPaquete):
             paquete.exportar(self.proyecto, self.zip)
 
+    def test_reparto_windows_y_tanda_de_imagenes_interrumpida(self):
+        estado = Estado(self.proyecto)
+        doc = estado._doc
+        png = r"assets\reparto\ali_baba.png"
+        for version in doc["pasos"]["assets"]["versiones"]:
+            n = version["n"]
+            ruta = self.proyecto.ruta("pasos", "assets", f"v{n}", "assets", "reparto", "ali_baba.png")
+            os.makedirs(os.path.dirname(ruta), exist_ok=True)
+            with open(ruta, "wb") as f:
+                f.write(b"reparto generado")
+            mapa = estado.manifiesto_version("assets", version)
+            mapa["asset:ali_baba"] = {"firma": "firma-del-reparto", "salidas": {"png": png}}
+            estado._guardar_manifiesto("assets", n, mapa)
+            version["n_unidades"] = len(mapa)
+        doc["pasos"]["assets"]["unidades"]["asset:ali_baba"] = copy.deepcopy(mapa["asset:ali_baba"])
+        escribir_json(self.proyecto.ruta("estado.json"), doc)
+        estado = Estado(self.proyecto)
+        estado.actualizar_params("assets", {"unidades": {
+            f"escena:S{i:03}": {} for i in range(1, 152)}})
+        estado.marcar_error("assets", "tanda interrumpida: quedan imagenes pendientes")
+        parcial = self.proyecto.ruta("pasos", "assets", "trabajo", "escenas")
+        os.makedirs(parcial, exist_ok=True)
+        with open(os.path.join(parcial, "S002.png"), "wb") as f:
+            f.write(b"imagen pagada antes de la incidencia")
+        escribir_json(os.path.join(parcial, "S002.json"), {
+            "png": r"escenas\S002.png", "texto": r"No cambiar este texto: uno\dos"})
+        pendientes = estado.unidades_sin_hacer("assets")
+        self.assertEqual(len(pendientes), 150)
+        paquete.exportar(self.proyecto, self.zip)
+        # Trasladar no debe alterar las rutas ni las firmas del origen.
+        self.assertEqual(Estado(self.proyecto)._doc["pasos"]["assets"]["unidades"]["asset:ali_baba"]["salidas"]["png"], png)
+        shutil.rmtree(self.origen)
+        nuevo = self.importar()
+        actual = Estado(nuevo)
+        self.assertEqual(actual.unidades_sin_hacer("assets"), pendientes)
+        relativa = actual._doc["pasos"]["assets"]["unidades"]["asset:ali_baba"]["salidas"]["png"]
+        self.assertEqual(relativa, "assets/reparto/ali_baba.png")
+        self.assertTrue(os.path.isfile(os.path.join(nuevo.ruta_paso("assets"), relativa)))
+        for version in actual._doc["pasos"]["assets"]["versiones"]:
+            mapa = actual.manifiesto_version("assets", version)
+            self.assertEqual(mapa["asset:ali_baba"]["salidas"]["png"], relativa)
+            self.assertTrue(os.path.isfile(os.path.join(nuevo.ruta_paso("assets", version["n"]), relativa)))
+        ficha = leer_json(nuevo.ruta("pasos", "assets", "trabajo", "escenas", "S002.json"))
+        self.assertEqual(ficha["png"], "escenas/S002.png")
+        self.assertEqual(ficha["texto"], r"No cambiar este texto: uno\dos")
+        self.assertTrue(os.path.isfile(nuevo.ruta("pasos", "assets", "trabajo", ficha["png"])))
+        self.assertEqual(actual._doc["pasos"]["guion"]["firma"], "edicion-manual-intencionada")
+        os.remove(nuevo.ruta("pasos", "assets", "v1", "assets", "reparto", "ali_baba.png"))
+        with self.assertRaises(paquete.ErrorPaquete):
+            paquete.exportar(nuevo, self.zip)
+
+    def test_relativa_windows_no_puede_escapar_de_la_version(self):
+        estado = Estado(self.proyecto)
+        estado._doc["pasos"]["assets"]["salidas"]["png"] = r"..\..\..\proyecto.json"
+        with self.assertRaises(ValueError):
+            paquete._comprobar_salidas(estado, self.proyecto.raiz)
+
 
 if __name__ == "__main__":
     unittest.main()
