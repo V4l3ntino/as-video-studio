@@ -313,9 +313,8 @@ aparecen cuando la tanda ha terminado o se ha detenido de verdad; mientras está
 activa se ofrecen el progreso y **Parar**. Durante la incidencia no se muestra
 una cuenta atrás de finalización, porque no se sabe cuándo volverá el servicio.
 No se generan imágenes de prueba ni se cambia a un motor de pago. Los errores
-de sesión, referencias, modelo incompatible o rechazo explícito de
-seguridad se notifican y se detienen para corregir su causa: el mismo encargo
-bloqueado no se vuelve a enviar indefinidamente.
+de sesión, referencias o modelo incompatible se notifican y se detienen para
+corregir su causa.
 Los límites renovables de **ChatGPT/Codex** mantienen la tanda en espera: la barra
 indica «Uso de ChatGPT no disponible» y el tiempo hasta la siguiente comprobación.
 Si Codex indica que el uso general sigue bloqueado, solo se consultan sus límites,
@@ -324,6 +323,26 @@ imagen pendiente y continúa la tanda. Esto no reintenta errores de saldo o
 facturación de una API de pago.
 Los intervalos y la activación se pueden cambiar en **Configuración →
 Incidencias de imágenes · reintentos y correo**, sin modificar los proyectos.
+
+Ante un **rechazo de seguridad de Codex en un plano**, el Estudio pide a Claude
+una única **alternativa visual segura**: sustituye realmente la acción por otra
+inocua que comunique la misma intención general. Por ejemplo, mirar las manos
+con asombro en lugar de pellizcarse. No se buscan variantes del mismo contenido
+bloqueado para superar el filtro. La barra indica que se está preparando la
+alternativa y se solicita una imagen con su nuevo prompt.
+
+Se guardan el motivo, la dirección o **guion visual** y el prompt efectivo junto
+a la imagen y en el plan del vídeo. La decisión se conserva también si después
+hay un timeout, falta de cuota o se reinicia el servicio; al continuar no se
+vuelve al prompt rechazado ni se reescribe el plano otra vez. La caché conserva
+la descripción efectiva junto a la imagen. Las demás imágenes se mantienen.
+
+El **texto narrado, la voz y los tiempos no se cambian** automáticamente. Si no
+existe una alternativa coherente sin modificarlos, o también se rechaza la nueva
+imagen, el plano requiere revisión y la tanda se detiene. No hay un bucle de
+reformulaciones. Cambiar la dirección del plano permite partir de un encargo
+nuevo. La preparación de la alternativa usa la sesión de Claude y la petición
+de imagen usa la cuota de ChatGPT del modo habitual.
 
 En ese mismo bloque se configuran los avisos de **Gmail**: cuenta, contraseña
 de aplicación de Google, remitente y destinatario. El servidor predeterminado

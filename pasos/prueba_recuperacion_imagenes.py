@@ -351,5 +351,184 @@ class RecuperacionImagenes(unittest.TestCase):
         self.assertIn("aviso_no_disponible", [c.args[0] for c in ctx.bitacora.anotar.call_args_list])
 
 
+class AlternativaVisual(unittest.TestCase):
+    def setUp(self):
+        import copy
+        from PIL import Image
+        self.tmp = tempfile.TemporaryDirectory(prefix="alternativa_visual_")
+        self.addCleanup(self.tmp.cleanup)
+        self.ref = os.path.join(self.tmp.name, "estilo.png")
+        Image.new("RGB", (16, 16), "blue").save(self.ref)
+        self.p = p6_assets._con_defectos({"banco_imagenes": os.path.join(self.tmp.name, "banco")})
+        self.escena = {"id": "S001", "set": "casa", "direccion": "He pinches his arm.",
+            "prompt": "He pinches his arm.", "narracion": "No podía creer lo que veía.",
+            "personajes": [], "luz": "daylight", "encuadre": "medium shot", "t_in": 0, "t_out": 3}
+        self.original = copy.deepcopy(self.escena)
+        self.nueva = {"direccion": "He looks at his hands, eyes wide with wonder.",
+                      "porque": "Sustituye el pellizco por un gesto de asombro sin daño."}
+        self.adaptacion = dict(self.nueva, entrada=p6_assets._entrada_visual(self.escena),
+            prompt_enviado="safe scene: " + self.nueva["direccion"])
+        self.destino = os.path.join(self.tmp.name, "escenas", "S001.png")
+        self.motor = Mock()
+        self.motor.proveedor_imagen.return_value = "codex"
+        self.motor.codex.return_value.concurrencia.return_value = 2
+        self.motor.generar.side_effect = [self.rechazo(), (b"png seguro", {"coste": 0, "segundos": 1})]
+        motor_original = p6_assets.medios.motor
+        doble = patch.object(p6_assets.medios, "motor", side_effect=lambda ruta:
+            self.motor if ruta == "imagen_openai/imagen.py" else motor_original(ruta))
+        doble.start()
+        self.addCleanup(doble.stop)
+
+    def rechazo(self):
+        return ErrorServicio("image_gen rechazó la solicitud por su filtro de seguridad: self-harm", "rechazo")
+
+    def producir(self, adaptar, recuperacion=None):
+        return p6_assets._producir_imagen("S001", "He pinches his arm.", [self.ref],
+            self.destino, self.p, alternativa_visual=adaptar, recuperacion=recuperacion)
+
+    def test_una_sustitucion_real_se_guarda_y_la_cache_conserva_su_descripcion(self):
+        adaptar = Mock(return_value=self.adaptacion)
+        ficha = self.producir(adaptar)
+        adaptar.assert_called_once()
+        self.assertEqual(self.motor.generar.call_count, 2)
+        self.assertEqual(self.motor.generar.call_args.args[0], self.adaptacion["prompt_enviado"])
+        self.assertNotIn("pinches", self.motor.generar.call_args.args[0])
+        self.assertEqual(ficha["alternativa_visual"]["direccion"], self.nueva["direccion"])
+        p6_assets._aplicar_alternativa_visual(self.escena, ficha)
+        self.assertEqual(self.escena["direccion"], self.nueva["direccion"])
+        for clave in ("narracion", "t_in", "t_out", "personajes", "set"):
+            self.assertEqual(self.escena[clave], self.original[clave])
+        conservada = self.producir(adaptar)
+        self.assertEqual(conservada["origen"], "cache")
+        self.assertEqual(conservada["alternativa_visual"], ficha["alternativa_visual"])
+        self.assertEqual(self.motor.generar.call_count, 2)
+        adaptar.assert_called_once()
+
+    def test_timeout_de_alternativa_no_vuelve_al_original_ni_reescribe_otra_vez(self):
+        adaptar = Mock(return_value=self.adaptacion)
+        self.motor.generar.side_effect = [self.rechazo(), ErrorServicio("timeout", "tiempo"),
+                                         (b"png seguro", {"coste": 0, "segundos": 1})]
+        with self.assertRaises(ErrorServicio):
+            self.producir(adaptar)
+        # Otra invocacion, como tras reiniciar el servicio.
+        self.producir(adaptar)
+        self.assertEqual([c.args[0] for c in self.motor.generar.call_args_list],
+                         ["He pinches his arm.", self.adaptacion["prompt_enviado"],
+                          self.adaptacion["prompt_enviado"]])
+        adaptar.assert_called_once()
+
+    def test_cuota_despues_de_adaptar_conserva_el_nuevo_prompt_en_la_espera(self):
+        proyecto = SimpleNamespace(raiz=self.tmp.name, id="video", config={},
+            ruta=lambda *p: os.path.join(self.tmp.name, *p),
+            ruta_trabajo=lambda *_a, **_k: os.path.join(self.tmp.name, "trabajo"))
+        cuota = ErrorServicio("uso incluido no disponible", "cuota")
+        cuota.cuota_renovable = True
+        self.motor.generar.side_effect = [self.rechazo(), cuota,
+                                         (b"png seguro", {"coste": 0, "segundos": 1})]
+        adaptar = Mock(return_value=self.adaptacion)
+        sesion = recuperacion.Recuperacion(proyecto, Mock())
+        with patch.object(sesion, "_esperar"), patch.object(avisos, "enviar", return_value={}), \
+                patch.object(avisos, "leer", return_value={
+                    "reintentos": True, "intervalo": 60, "intervalo_maximo": 300}):
+            self.producir(adaptar, sesion)
+        self.assertEqual(self.motor.generar.call_count, 3)
+        self.assertEqual([c.args[0] for c in self.motor.generar.call_args_list][1:],
+                         [self.adaptacion["prompt_enviado"]] * 2)
+        adaptar.assert_called_once()
+
+    def test_cancelar_al_preparar_alternativa_no_se_convierte_en_error_de_rechazo(self):
+        with self.assertRaises(Cancelado):
+            self.producir(Mock(side_effect=Cancelado("parar")))
+        self.assertEqual(self.motor.generar.call_count, 1)
+
+    def test_cambiar_la_direccion_descarta_el_bloqueo_guardado(self):
+        adaptar = Mock(return_value=self.adaptacion)
+        self.motor.generar.side_effect = [self.rechazo(), self.rechazo()]
+        with self.assertRaises(RuntimeError):
+            self.producir(adaptar)
+        self.motor.generar.side_effect = None
+        self.motor.generar.return_value = (b"imagen nueva", {"coste": 0, "segundos": 1})
+        nueva = p6_assets._producir_imagen("S001", "A peaceful courtyard.", [self.ref],
+                                         self.destino, self.p, alternativa_visual=adaptar)
+        self.assertEqual(nueva["origen"], "generada")
+        self.assertEqual(self.motor.generar.call_args.args[0], "A peaceful courtyard.")
+        self.assertNotIn("alternativa_visual", nueva)
+
+    def test_segundo_rechazo_no_genera_mas_variantes_ni_al_retomar(self):
+        adaptar = Mock(return_value=self.adaptacion)
+        self.motor.generar.side_effect = [self.rechazo(), self.rechazo()]
+        with self.assertRaisesRegex(RuntimeError, "alternativa visual"):
+            self.producir(adaptar)
+        with self.assertRaisesRegex(RuntimeError, "no se reenvía"):
+            self.producir(adaptar)
+        self.assertFalse(os.path.exists(self.destino))
+        self.assertEqual(self.motor.generar.call_count, 2)
+        adaptar.assert_called_once()
+
+    def test_sin_alternativa_coherente_no_hay_otra_solicitud_de_imagen(self):
+        adaptar = Mock(side_effect=RuntimeError("la narracion requiere revisión"))
+        with self.assertRaisesRegex(RuntimeError, "no se puede sustituir"):
+            self.producir(adaptar)
+        with self.assertRaisesRegex(RuntimeError, "ya se intentó"):
+            self.producir(adaptar)
+        adaptar.assert_called_once()
+        # Ni otra llamada al agente ni otro envio del original bloqueado.
+        self.assertEqual(self.motor.generar.call_count, 1)
+
+    def test_generar_escenas_persiste_prompt_y_guion_visual_efectivos(self):
+        import copy
+        trabajo = os.path.join(self.tmp.name, "trabajo")
+        dirs = {"escenas": os.path.join(trabajo, "escenas"),
+                "componentes": os.path.join(trabajo, "componentes"), "cache": os.path.join(trabajo, "refs")}
+        for ruta in dirs.values():
+            os.makedirs(ruta)
+        plan = {"escenas": [self.escena], "dependencias": {}, "assets": {}, "idioma": "es"}
+        resultados = {}
+        with patch.object(p6_assets, "_referencias_escena", return_value=[]), \
+                patch.object(p6_assets.corrector, "alternativa_visual", return_value=self.nueva) as agente:
+            p6_assets._generar_escenas(plan, dirs, self.p, trabajo, lambda _u: True,
+                                      None, resultados, lambda *_a: None)
+        ficha = medios.leer_json(os.path.join(dirs["escenas"], "S001.json"))
+        self.assertEqual(ficha["prompt"], self.motor.generar.call_args.args[0])
+        self.assertIn(self.nueva["direccion"], ficha["prompt"])
+        self.assertEqual(plan["escenas"][0]["direccion"], self.nueva["direccion"])
+        self.assertEqual(ficha["narracion"], self.original["narracion"])
+        agente.assert_called_once()
+        # Replanificar en otra pasada devuelve la direccion original; la ficha
+        # de la imagen conservada repone la alternativa sin pagar de nuevo.
+        plan["escenas"] = [copy.deepcopy(self.original)]
+        p6_assets._generar_escenas(plan, dirs, self.p, trabajo, lambda _u: True,
+                                  None, {}, lambda *_a: None)
+        self.assertEqual(plan["escenas"][0]["direccion"], self.nueva["direccion"])
+        self.assertEqual(self.motor.generar.call_count, 2)
+
+    def test_agente_no_puede_cambiar_la_narracion(self):
+        corrector = p6_assets.corrector
+        for resultado in ({"apta": True, **self.nueva, "narracion": "texto distinto"},
+                          {"apta": False, "porque": "Hay que cambiar el texto narrado"},
+                          {"apta": True, "direccion": self.escena["direccion"], "porque": "igual"}):
+            with self.subTest(resultado=resultado), patch.object(corrector.cli_claude, "ejecutar",
+                    return_value=(json.dumps(resultado), {})):
+                with self.assertRaises(RuntimeError):
+                    corrector.alternativa_visual(self.escena, self.rechazo())
+
+    def test_agente_propone_sustitucion_con_herramientas_vetadas(self):
+        corrector = p6_assets.corrector
+        with patch.object(corrector.cli_claude, "ejecutar",
+                return_value=(json.dumps(dict(self.nueva, apta=True)), {})) as cli:
+            resultado = corrector.alternativa_visual(self.escena, self.rechazo())
+        self.assertEqual(resultado, self.nueva)
+        self.assertIn("Sustituye de verdad esa acción", cli.call_args.args[0])
+        self.assertIn("NO puedes reescribir el texto narrado", cli.call_args.args[0])
+        self.assertIn("Read", cli.call_args.kwargs["herramientas_vetadas"])
+        self.assertIn("Write", cli.call_args.kwargs["herramientas_vetadas"])
+        cli.assert_called_once()
+
+    def test_alternativa_conservada_no_sobrescribe_una_direccion_editada(self):
+        self.escena["direccion"] = "A new action explicitly requested by the user."
+        p6_assets._aplicar_alternativa_visual(self.escena, {"alternativa_visual": self.adaptacion})
+        self.assertEqual(self.escena["direccion"], "A new action explicitly requested by the user.")
+
+
 if __name__ == "__main__":
     unittest.main()

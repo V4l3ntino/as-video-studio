@@ -79,6 +79,7 @@ import p2_brief  # noqa: E402
 import p4_voz  # noqa: E402
 
 from nucleo.proyecto import ahora  # noqa: E402
+from nucleo.trabajos import Cancelado  # noqa: E402
 
 #: Por debajo de esta duracion un plano no admite rotulo. No es una manía: un
 #: rotulo necesita entrar, leerse y salir, y en menos de tres segundos eso son
@@ -2209,7 +2210,53 @@ def _prompt_sin_narracion(prompt, escena):
 def _rechazo_de_seguridad(fallo):
     """Si un error del motor de imagen es el filtro de seguridad de OpenAI."""
     texto = str(fallo).lower()
-    return "safety system" in texto or "moderation_blocked" in texto
+    return (getattr(fallo, "tipo", None) == "rechazo"
+            or "safety system" in texto or "moderation_blocked" in texto
+            or "filtro de seguridad" in texto)
+
+
+def _entrada_visual(escena):
+    return {k: copy.deepcopy(escena.get(k)) for k in (
+        "narracion", "direccion", "prompt", "set", "personajes", "luz", "encuadre")}
+
+
+def _aplicar_alternativa_visual(escena, ficha):
+    """El plan efectivo dice lo que se dibujo, sin editar el guion narrado."""
+    adaptacion = ficha.get("alternativa_visual") or {}
+    entrada = adaptacion.get("entrada")
+    if not entrada or entrada != _entrada_visual(escena):
+        return
+    escena.update(direccion=adaptacion["direccion"],
+                  prompt=adaptacion.get("descripcion") or adaptacion["direccion"],
+                  alternativa_visual=copy.deepcopy(adaptacion))
+    if "personajes" in adaptacion:
+        escena["personajes"] = copy.deepcopy(adaptacion["personajes"])
+
+
+def _preparar_alternativa_visual(escena, referencias, plan, p, fallo, avisar, original=None):
+    mensaje = (f"Esperando al servicio de imágenes: {escena['id']}. "
+               "Preparando una alternativa visual segura; las imágenes hechas se conservan.")
+    avance = estadisticas.Avance(lambda _v, _m: avisar(None, mensaje),
+                                0, 1, {"segundos": 60}, mensaje)
+    avisar(None, mensaje)
+    avance.arrancar()
+    try:
+        alternativa = corrector.alternativa_visual(escena, fallo, avance=avance)
+    except Exception:
+        if avance.cancelado:
+            raise Cancelado("alternativa visual cancelada")
+        raise
+    finally:
+        avance.parar()
+    descripcion = alternativa["direccion"]
+    if escena.get("encuadre"):
+        descripcion += f". SHOT TYPE: {escena['encuadre']}."
+    nueva = dict(escena, direccion=alternativa["direccion"], prompt=descripcion)
+    prompt = _prompt_completo(nueva, referencias, p["estilo"],
+        idioma=plan.get("idioma") or "", formato=plan.get("formato") or "",
+        fichas_reparto=plan.get("assets"))
+    return dict(alternativa, entrada=_entrada_visual(original or escena), descripcion=descripcion,
+                personajes=copy.deepcopy(escena.get("personajes") or []), prompt_enviado=prompt)
 
 
 def _unir(base, trozo):
@@ -3212,7 +3259,8 @@ def _adoptar(nombre, p, firma=None, subcarpetas=("", "escenas", "storyboard", "r
 
 
 def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
-                     tamano=None, prompt_seguro=None, recuperacion=None):
+                     tamano=None, prompt_seguro=None, recuperacion=None,
+                     alternativa_visual=None):
     """Arte adoptado -> cache -> API. Devuelve como se resolvio y el coste.
 
     'rehacer' es el boton de "esta no me gusta": salta el arte adoptado y la
@@ -3222,6 +3270,13 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
     `tamano` es el del motor de imagen ('apaisado' | 'vertical'). Los planos lo
     traen del formato del plan; las hojas de personaje y las piezas van siempre
     apaisadas, que es como se leen mejor como referencia.
+
+    `alternativa_visual`, usado por escenas de Codex, sustituye una accion
+    rechazada por otra inocua UNA sola vez. La decision y el prompt efectivo se
+    persisten antes de pedirla. Un fallo temporal reutiliza esa decision y un
+    segundo rechazo requiere revision; nunca dispara un bucle de reformulacion.
+    La firma sigue identificando la peticion original para conservar la imagen
+    al retomar; los metadatos de cache declaran que se dibujo otra puesta en escena.
 
     `prompt_seguro` es el MISMO plano sin la cita de la narracion
     (`_prompt_sin_narracion`), y solo se usa si OpenAI rechaza el prompt con su
@@ -3240,6 +3295,19 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
                            "tamano": tamano if tamano != "apaisado" else None,
                            "refs": [medios.huella_fichero(r) for r in referencias]})
     cacheada = os.path.join(p["banco_imagenes"], f"{firma}.png")
+    # La decision se escribe antes de pedir la alternativa: un timeout/cuota o
+    # reinicio no vuelve a enviar el original ni a reescribir en bucle el plano.
+    ruta_decision = os.path.splitext(destino)[0] + ".alternativa.json"
+    decision = medios.leer_json(ruta_decision, {}) or {}
+    adaptacion = (decision.get("alternativa_visual")
+                  if decision.get("firma") == firma else None)
+    prompt_actual = (adaptacion or {}).get("prompt_enviado") or prompt
+    if decision.get("firma") == firma and decision.get("rechazada"):
+        raise RuntimeError(f"{nombre}: la alternativa visual fue rechazada por el filtro de seguridad. "
+                           "Revisa la dirección del plano; no se reenvía automáticamente.")
+    if decision.get("firma") == firma and decision.get("intentada") and not adaptacion:
+        raise RuntimeError(f"{nombre}: ya se intentó preparar una alternativa segura. "
+                           "Revisa el plano antes de volver a solicitarla.")
     # En el modo explicito 'adoptar' el objetivo es no gastar, asi que se acepta
     # arte que solo coincide en nombre. El guardian de planos repetidos sigue
     # vigilando la salida, que es donde se nota si el arte adoptado no vale.
@@ -3256,21 +3324,58 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
         if previa:
             medios.copiar(previa, destino)
             return {"origen": "adoptada", "firma": firma, "coste": 0.0,
-                    "fuente": previa}
+                    "fuente": previa,
+                    **{k: v for k, v in (medios.leer_json(os.path.splitext(previa)[0] + ".json", {}) or {}).items()
+                       if k == "alternativa_visual"}}
         if os.path.exists(cacheada):
             medios.copiar(cacheada, destino)
-            return {"origen": "cache", "firma": firma, "coste": 0.0}
+            guardada = medios.leer_json(cacheada + ".json", {}) or {}
+            return {"origen": "cache", "firma": firma, "coste": 0.0,
+                    **{k: v for k, v in guardada.items() if k == "alternativa_visual"}}
 
     imagen = medios.motor("imagen_openai/imagen.py")
     sin_cita = False
-    def solicitar():
-        nonlocal sin_cita
+
+    def generar_actual():
         try:
-            png, meta = imagen.generar(prompt, referencias, quality=p["calidad"],
-                                       tamano=tamano)
+            return imagen.generar(prompt_actual, referencias, quality=p["calidad"], tamano=tamano)
+        except RuntimeError as fallo:
+            if adaptacion and _rechazo_de_seguridad(fallo):
+                medios.escribir_json(ruta_decision, {"firma": firma, "intentada": True,
+                    "alternativa_visual": adaptacion, "rechazada": True})
+                raise RuntimeError(f"{nombre}: la alternativa visual también fue rechazada por el "
+                                   f"filtro de seguridad. Revisa el plano. {fallo}") from fallo
+            raise
+
+    def solicitar():
+        nonlocal sin_cita, adaptacion, prompt_actual
+        try:
+            png, meta = generar_actual()
         except RuntimeError as rechazo:
             if not _rechazo_de_seguridad(rechazo):
                 raise
+            if alternativa_visual is not None:
+                if adaptacion is not None:
+                    raise RuntimeError(f"{nombre}: la alternativa visual también fue rechazada. "
+                                       f"Revisa este plano; no se reformula en bucle. {rechazo}") from rechazo
+                decision = medios.leer_json(ruta_decision, {}) or {}
+                if decision.get("firma") == firma and decision.get("intentada"):
+                    raise RuntimeError(f"{nombre}: ya se intentó preparar una alternativa segura. "
+                                       "Revisa el plano antes de volver a solicitarla.") from rechazo
+                medios.escribir_json(ruta_decision, {"firma": firma, "intentada": True})
+                try:
+                    adaptacion = alternativa_visual(rechazo)
+                    if not isinstance(adaptacion, dict) or not adaptacion.get("prompt_enviado"):
+                        raise RuntimeError("no se ha obtenido una alternativa visual válida")
+                except Cancelado:
+                    raise
+                except Exception as fallo_alternativa:
+                    raise RuntimeError(f"{nombre}: no se puede sustituir la escena de forma segura. "
+                                       f"{fallo_alternativa}") from rechazo
+                prompt_actual = adaptacion["prompt_enviado"]
+                medios.escribir_json(ruta_decision, {"firma": firma, "intentada": True,
+                                                   "alternativa_visual": adaptacion})
+                return generar_actual()
             if not prompt_seguro or prompt_seguro == prompt:
                 raise RuntimeError(
                     f"{nombre}: OpenAI rechaza este plano con su filtro de "
@@ -3309,9 +3414,15 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
     os.makedirs(os.path.dirname(destino), exist_ok=True)
     with open(destino, "wb") as fh:
         fh.write(png)
-    medios.copiar(destino, cacheada)
     hecho = {"origen": "generada", "firma": firma, "coste": meta["coste"],
-             "segundos": meta["segundos"]}
+              "segundos": meta["segundos"]}
+    if adaptacion:
+        hecho["alternativa_visual"] = adaptacion
+        hecho["prompt_enviado"] = prompt_actual
+    if adaptacion or os.path.isfile(cacheada + ".json"):
+        medios.escribir_json(cacheada + ".json", {k: v for k, v in hecho.items()
+                                                 if k == "alternativa_visual"})
+    medios.copiar(destino, cacheada)
     if sin_cita:
         hecho["sin_cita_narracion"] = True
         hecho["prompt_enviado"] = prompt_seguro
@@ -3635,6 +3746,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                     "tipo": "escena", "png": os.path.relpath(destino, trabajo),
                     "origen": "conservado"}
                 ficha["origen"] = "conservado"
+                _aplicar_alternativa_visual(escena, ficha)
                 # OBSOLETA NO ES PENDIENTE. Si lo que hay dibujado no es de
                 # lo que se dice aqui, la imagen se queda igualmente: no se
                 # tira, no se rehace sola y no se cobra. Se DICE, y la
@@ -3731,6 +3843,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 previa = ((medios.leer_json(ficha_json, {}) or {})
                           if hecho and not forzar else {})
                 if previa.get("peticion") == peticion:
+                    _aplicar_alternativa_visual(escena, previa)
                     print(f"[assets] {sid}: ya estaba dibujado con esta misma "
                           f"peticion en una pasada sin sellar; se queda sin "
                           f"pagarlo otra vez", flush=True)
@@ -3799,7 +3912,14 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                                         # rechaza el de verdad
                                          prompt_seguro=_prompt_sin_narracion(
                                              prompt, escena_final),
-                                         recuperacion=recuperacion)
+                                         recuperacion=recuperacion,
+                                         alternativa_visual=(lambda fallo: _preparar_alternativa_visual(
+                                             escena_final, referencias, plan, p, fallo, avisar, original=escena))
+                                         if getattr(imagen, "proveedor_imagen", lambda: "api")() == "codex"
+                                         else None)
+                _aplicar_alternativa_visual(escena, meta)
+                if meta.get("alternativa_visual"):
+                    prompt = meta["alternativa_visual"]["prompt_enviado"]
                 # en la ficha, para que la pasada siguiente sepa si se le pide
                 # lo mismo aunque esta no llegue a sellarse
                 meta = dict(meta, peticion=peticion)
