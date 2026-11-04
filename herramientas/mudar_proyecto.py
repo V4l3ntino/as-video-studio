@@ -175,7 +175,8 @@ def mudar_fichero(ruta, tipo, reglas, aplicar):
     """Devuelve cuantas rutas se mudaron en ese fichero."""
     if tipo == "json":
         try:
-            doc = json.load(open(ruta, encoding="utf-8"))
+            with open(ruta, encoding="utf-8") as fuente:
+                doc = json.load(fuente)
         except (ValueError, UnicodeDecodeError):
             return 0
         nuevo, n = mudar_dato(doc, reglas)
@@ -188,7 +189,9 @@ def mudar_fichero(ruta, tipo, reglas, aplicar):
 
     if tipo == "jsonl":
         n, lineas, cambio = 0, [], False
-        for linea in open(ruta, encoding="utf-8"):
+        with open(ruta, encoding="utf-8") as fuente:
+            originales = fuente.readlines()
+        for linea in originales:
             linea = linea.rstrip("\n")
             if not linea.strip():
                 lineas.append(linea)
@@ -214,7 +217,9 @@ def mudar_fichero(ruta, tipo, reglas, aplicar):
     # el texto --no es JSON, no hay barras escapadas-- y la ruta va entera en su
     # linea, asi que se normaliza la linea completa.
     n, lineas = 0, []
-    for linea in open(ruta, encoding="utf-8", errors="replace").read().splitlines():
+    with open(ruta, encoding="utf-8", errors="replace") as fuente:
+        originales = fuente.read().splitlines()
+    for linea in originales:
         nueva = linea
         for desde, hasta in reglas:
             barra = _barra_de(hasta)

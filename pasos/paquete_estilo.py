@@ -64,7 +64,7 @@ def _contenido(ruta, raices):
     return False
 
 
-def _copiar_arbol(origen, destino):
+def _copiar_arbol(origen, destino, avisar=None):
     if not os.path.isdir(origen):
         return
     for base, dirs, nombres in os.walk(origen):
@@ -77,6 +77,8 @@ def _copiar_arbol(origen, destino):
             final = os.path.join(destino, os.path.relpath(fuente, origen))
             os.makedirs(os.path.dirname(final), exist_ok=True)
             shutil.copyfile(fuente, final)
+            if avisar:
+                avisar(os.path.getsize(final))
 
 
 def _comprobar_manifiestos(carpeta):
@@ -90,14 +92,15 @@ def _comprobar_manifiestos(carpeta):
     return estado
 
 
-def _comprobar_salidas(estado):
+def _comprobar_salidas(estado, resolver=None):
     for paso, datos in estado._doc["pasos"].items():
         salidas = [datos.get("salidas"), datos.get("unidades")]
         for version in datos.get("versiones") or []:
             salidas.extend([version.get("salidas"),
                             estado.manifiesto_version(paso, version)])
         for valor in _cadenas(salidas):
-            if _absoluta(valor) and not os.path.exists(valor):
+            ruta = resolver(valor) if resolver else valor
+            if _absoluta(valor) and not os.path.exists(ruta):
                 raise ErrorPaquete(f"falta una salida del taller ({paso}): {valor}")
 
 
@@ -171,19 +174,22 @@ def exportar(presets, pid, taller, destino):
                         salida.write(ruta, os.path.relpath(ruta, temporal).replace("\\", "/"))
 
 
-def _extraer(archivo, carpeta):
+def _extraer(archivo, carpeta, *, max_bytes=MAX_BYTES, max_ficheros=MAX_FICHEROS,
+             permitidos=("estilo.json", "banco", "taller", "extras"), avisar=None):
     try:
         with zipfile.ZipFile(archivo) as paquete:
             entradas = paquete.infolist()
-            if len(entradas) > MAX_FICHEROS or sum(e.file_size for e in entradas) > MAX_BYTES:
-                raise ErrorPaquete("el ZIP supera el limite de 1 GB o 20000 ficheros")
+            if len(entradas) > max_ficheros or sum(e.file_size for e in entradas) > max_bytes:
+                raise ErrorPaquete("el ZIP supera el limite de tamaño o de ficheros")
             vistos = set()
-            for entrada in entradas:
+            total = sum(e.file_size for e in entradas)
+            extraidos = 0
+            for indice, entrada in enumerate(entradas):
                 nombre = entrada.filename
                 partes = nombre.rstrip("/").split("/")
                 if (not nombre or "\\" in nombre or ":" in nombre
                         or any(p in ("", ".", "..") for p in partes)
-                        or partes[0] not in ("estilo.json", "banco", "taller", "extras")
+                        or partes[0] not in permitidos
                         or stat.S_ISLNK(entrada.external_attr >> 16)
                         or nombre.lower() in vistos):
                     raise ErrorPaquete("el ZIP contiene una ruta no valida")
@@ -194,9 +200,13 @@ def _extraer(archivo, carpeta):
                     continue
                 os.makedirs(os.path.dirname(destino), exist_ok=True)
                 with paquete.open(entrada) as fuente, open(destino, "wb") as salida:
-                    shutil.copyfileobj(fuente, salida)
+                    for bloque in iter(lambda: fuente.read(1024 * 1024), b""):
+                        salida.write(bloque)
+                        extraidos += len(bloque)
+                        if avisar:
+                            avisar(extraidos, total, indice + 1, len(entradas))
     except (zipfile.BadZipFile, RuntimeError, EOFError) as fallo:
-        raise ErrorPaquete("el archivo no es un ZIP de estilo valido") from fallo
+        raise ErrorPaquete("el archivo no es un ZIP valido") from fallo
 
 
 def importar(presets, archivo, raiz_proyectos):

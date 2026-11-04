@@ -61,6 +61,38 @@ El límite del paquete es **1 GB descomprimido y 20.000 archivos**. Si faltan
 referencias o el paquete está incompleto, se muestra un error sin publicar un
 estilo a medias.
 
+## Llevar un vídeo a otro ordenador o servidor
+
+En **Tus vídeos**, pulsa **Exportar** junto al vídeo. Se descarga un archivo
+`.video.zip` con el proyecto completo: encargo, guion y correcciones, voz,
+imágenes y referencias de estilo, montaje, archivos de publicación y shorts si
+los tiene, historial de versiones y trabajo parcial guardado. Espera a que
+termine la generación o detenla antes de exportar.
+La preparación muestra un panel persistente con porcentaje, archivos procesados
+y tiempo transcurrido. Después indica los MiB descargados y el progreso de la
+descarga; cualquier error queda visible en el panel. El ZIP preparado se conserva
+una hora para poder volver a descargarlo si se interrumpe la conexión.
+
+En la otra instalación, pulsa **Importar vídeo**, junto a **Tus vídeos**, y
+selecciona el ZIP. El vídeo se abre como una copia independiente para continuar
+desde la fase alcanzada: por ejemplo, montar usando las imágenes y el audio ya
+generados. Las rutas y firmas se adaptan al destino, conservando también los
+cambios pendientes reales. No se sobrescriben vídeos existentes, aunque se
+importe varias veces el mismo paquete.
+La importación muestra el mismo panel: primero el porcentaje y los MiB de la
+subida; después la descompresión, la comprobación de integridad y la adaptación
+de rutas y versiones. El panel permanece visible con el tiempo transcurrido
+hasta confirmar el resultado o mostrar el error.
+
+El traslado no genera contenido ni consume cuota de IA. No incluye credenciales
+ni ajustes globales del servidor: configura los proveedores en el destino si
+vas a generar contenido nuevo. Las referencias del estilo viajan con el vídeo;
+para añadir también ese estilo a **Tus estilos**, expórtalo por separado.
+Ambas instalaciones deben disponer de esta función y de una versión compatible
+del Estudio. El límite es **2 GB de ZIP, 20 GB descomprimidos y 100.000 archivos**.
+Se comprueban el inventario y las huellas de los archivos antes de publicar el
+proyecto; un paquete incompleto o alterado se rechaza sin dejar un vídeo a medias.
+
 ## Ponerlo en un servidor (lo normal)
 
 Una línea en la consola del VPS, cinco minutos, y queda montado con su dirección,

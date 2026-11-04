@@ -772,6 +772,60 @@ def probar_presets_canal(cliente):
         "/api/presets-canal/pr_inexistente/fichero/referencia.txt")
     igual(respuesta.status_code, 400, "pedir ficheros de un preset inexistente da 400")
 
+    # Video portable: la importacion publica una copia y sirve sus rutas HTTP.
+    _, creado = cliente.post("/api/proyectos", {"nombre": "Video portable"})
+    video_id = creado["proyecto"]["id"]
+    zip_video = cliente.sesion.get(
+        f"{cliente.base}/api/proyectos/{video_id}/exportar", timeout=30)
+    igual(zip_video.status_code, 200, "exportar un video responde 200")
+    ok("attachment" in zip_video.headers.get("content-disposition", ""),
+       "el video se descarga como archivo")
+    respuesta = cliente.sesion.post(
+        f"{cliente.base}/api/proyectos/importar",
+        files={"archivo": ("video.zip", zip_video.content, "application/zip")}, timeout=30)
+    igual(respuesta.status_code, 201, "importar un video responde 201")
+    video_importado = respuesta.json().get("proyecto") or {}
+    ok(video_importado.get("id") and video_importado["id"] != video_id,
+       "el video importado tiene un id independiente")
+    igual(video_importado.get("nombre"), "Video portable", "el nombre del video viaja")
+    respuesta, preparacion = cliente.post(f"/api/proyectos/{video_id}/exportar")
+    igual(respuesta.status_code, 202, "la exportacion con progreso arranca en segundo plano")
+    preparado = esperar_trabajo(cliente, preparacion["trabajo_id"])
+    igual(preparado.get("estado"), "listo", "la preparacion del ZIP termina correctamente")
+    igual(preparado.get("progreso"), 1.0, "el ZIP preparado alcanza el 100 por ciento")
+    zip_preparado = cliente.sesion.get(
+        f"{cliente.base}{preparado['resultado']['descarga']}", timeout=30)
+    igual(zip_preparado.status_code, 200, "el ZIP preparado se descarga por separado")
+    igual(len(zip_preparado.content), preparado["resultado"]["bytes"],
+          "el tamaño anunciado coincide con los bytes de la descarga")
+    respuesta, _ = cliente.get(f"/api/proyectos/{video_id}/exportar/token_inexistente")
+    igual(respuesta.status_code, 404, "una descarga caducada devuelve un error explicativo")
+    for contenido, esperado in ((zip_video.content, "listo"), (b"ZIP invalido", "error")):
+        respuesta = cliente.sesion.post(
+            f"{cliente.base}/api/proyectos/importar/seguir",
+            files={"archivo": ("video.zip", contenido, "application/zip")}, timeout=30)
+        igual(respuesta.status_code, 202, "la importacion con progreso devuelve un trabajo")
+        seguimiento = respuesta.json()["seguimiento"]
+        importacion = {}
+        for _ in range(200):
+            _, importacion = cliente.get(seguimiento)
+            if importacion.get("estado") in ("listo", "error", "cancelado"):
+                break
+            time.sleep(.05)
+        igual(importacion.get("estado"), esperado, "el seguimiento informa del resultado de importar")
+        if esperado == "listo":
+            igual(importacion.get("progreso"), 1.0, "la importacion alcanza el 100 al publicar")
+            nuevo = (importacion.get("resultado") or {}).get("proyecto") or {}
+            ok(nuevo.get("id") and nuevo["id"] != video_id, "el resultado permite abrir el video importado")
+        else:
+            ok(bool(importacion.get("error")), "el error del paquete permanece en el seguimiento")
+    respuesta, _ = cliente.get("/api/proyectos/importaciones/no_existe")
+    igual(respuesta.status_code, 404, "una importacion inexistente devuelve 404")
+    respuesta = cliente.sesion.post(
+        f"{cliente.base}/api/proyectos/importar",
+        files={"archivo": ("roto.zip", b"no es ZIP", "application/zip")}, timeout=30)
+    igual(respuesta.status_code, 400, "un ZIP de video invalido da un error controlado")
+
     # Traslado sin proveedores: un canal antiguo sin taller tambien viaja.
     _, datos = cliente.post("/api/presets-canal", {
         "tipo": "canal", "nombre": "Canal portable",
@@ -4604,6 +4658,8 @@ function videosLight() { return ((APP.light.datos || {}).videos || []).slice(); 
 function tarjetaEstiloLight() { return h('div', {}); }
 function tarjetaNuevoEstilo() { return h('button', {}, '+'); }
 function importarEstiloLight() {}
+function importarVideoLight() {}
+function exportarVideoLight() {}
 function fechaCorta(x) { return String(x || ''); }
 function abrirVideoLight() {}
 function renombrarVideoLight() {}

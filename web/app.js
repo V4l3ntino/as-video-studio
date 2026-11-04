@@ -5462,6 +5462,7 @@ function vistaGaleriaLight() {
     h('span', { clase: 'meta' }, videos.length
       ? `${videos.length} vídeo${videos.length === 1 ? '' : 's'}`
       : 'todavía ninguno'),
+    h('button', { clase: 'mini', onclick: importarVideoLight }, 'Importar vídeo'),
     h('button', {
       clase: 'mini fantasma ir-papelera',
       title: 'Los vídeos y estilos que has apartado: se devuelven desde aquí',
@@ -5485,6 +5486,10 @@ function vistaGaleriaLight() {
         'aria-label': `Cambiar el nombre de ${video.nombre || video.id}`,
         onclick: () => renombrarVideoLight(video),
       }, '✏️'),
+      h('button', {
+        clase: 'mini fantasma', title: 'Descargar el proyecto completo para continuar en otro servidor',
+        onclick: ev => exportarVideoLight(video, ev.currentTarget),
+      }, 'Exportar'),
       h('button', {
         clase: 'mini fantasma peligro', title: 'A la papelera de proyectos',
         onclick: () => apartarVideoLight(video),
@@ -5605,6 +5610,226 @@ async function renombrarVideoLight(video) {
     await cargarGaleriaLight(true);
     toast(`ahora se llama «${ahora}»`);
   } catch (e) { toast(`no se ha podido renombrar: ${e.message}`, true); }
+}
+
+const EXPORTACIONES_VIDEO = new Map();
+
+function descargarZipConProgreso(url, avisar) {
+  return new Promise((resolver, rechazar) => {
+    const peticion = new XMLHttpRequest();
+    peticion.open('GET', url);
+    peticion.responseType = 'blob';
+    peticion.timeout = 3600000;
+    peticion.onprogress = ev => avisar(ev.loaded, ev.lengthComputable ? ev.total : 0);
+    peticion.onerror = () => rechazar(new Error('Se ha interrumpido la conexión durante la descarga.'));
+    peticion.ontimeout = () => rechazar(new Error('La descarga ha agotado el tiempo de espera.'));
+    peticion.onload = async () => {
+      if (peticion.status === 200) resolver(peticion.response);
+      else {
+        let mensaje = `No se ha podido descargar el ZIP (HTTP ${peticion.status}).`;
+        try {
+          const datos = JSON.parse(await peticion.response.text());
+          mensaje = datos.error || mensaje;
+        } catch (_) { /* Una respuesta del proxy puede no ser JSON. */ }
+        rechazar(new Error(mensaje));
+      }
+    };
+    peticion.send();
+  });
+}
+
+function panelTransferenciaVideo(nombre, operacion, alCerrar) {
+  let contenedor = $('.exportaciones-video');
+  if (!contenedor) {
+    contenedor = h('div', { clase: 'exportaciones-video' });
+    document.body.appendChild(contenedor);
+  }
+  const fase = h('b', {}, `${operacion}…`);
+  const barra = h('progress', { max: 100, 'aria-label': `Progreso de la ${operacion.toLowerCase()}` });
+  const detalle = h('div', { clase: 'meta', role: 'status' }, 'Conectando con el servidor…');
+  const tiempo = h('span', { clase: 'meta' }, 'Tiempo transcurrido: 0 s');
+  const cerrar = h('button', { clase: 'mini fantasma', disabled: true,
+    onclick: () => {
+      nodo.remove();
+      if (alCerrar) alCerrar();
+    } }, 'Cerrar');
+  const acciones = h('div', { clase: 'exportacion-acciones' }, tiempo, cerrar);
+  const nodo = h('section', { clase: 'exportacion-video', tabindex: -1,
+    'aria-label': `${operacion} de ${nombre}` },
+    h('div', { clase: 'exportacion-nombre' }, nombre),
+    fase, barra, detalle, acciones);
+  contenedor.appendChild(nodo);
+  const inicio = Date.now();
+  const relojTransferencia = setInterval(() => {
+    tiempo.textContent = `Tiempo transcurrido: ${mmss((Date.now() - inicio) / 1000)}`;
+  }, 1000);
+  return { nodo, fase, barra, detalle, acciones, finalizar: () => {
+    clearInterval(relojTransferencia);
+    cerrar.disabled = false;
+  } };
+}
+
+async function esperarTransferenciaVideo(url, panel, etiqueta) {
+  let fallosConexion = 0;
+  for (;;) {
+    let trabajo;
+    try {
+      trabajo = await pedir(url, { signal: window.AbortSignal.timeout(15000) });
+      fallosConexion = 0;
+    } catch (e) {
+      fallosConexion += 1;
+      panel.detalle.textContent = `No se recibe el estado del servidor; reintentando (${fallosConexion}/3)…`;
+      if (fallosConexion >= 3) throw e;
+      await new Promise(r => setTimeout(r, 1500));
+      continue;
+    }
+    panel.barra.value = Math.round((trabajo.progreso || 0) * 100);
+    panel.fase.textContent = `${etiqueta} · ${panel.barra.value}%`;
+    panel.detalle.textContent = trabajo.mensaje || 'Esperando a que empiece la preparación…';
+    if (trabajo.estado === 'listo') return trabajo.resultado;
+    if (trabajo.estado === 'error' || trabajo.estado === 'cancelado') {
+      throw new Error(trabajo.error || trabajo.mensaje || 'La transferencia se ha detenido.');
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+async function exportarVideoLight(video, boton) {
+  const anterior = EXPORTACIONES_VIDEO.get(video.id);
+  if (anterior && anterior.activa) {
+    anterior.nodo.focus();
+    return;
+  }
+  if (anterior) anterior.nodo.remove();
+  const panel = panelTransferenciaVideo(video.nombre || video.id, 'Exportación', () => {
+    if (EXPORTACIONES_VIDEO.get(video.id) === registro) EXPORTACIONES_VIDEO.delete(video.id);
+  });
+  const { nodo, fase, barra, detalle, acciones } = panel;
+  const registro = { nodo, activa: true };
+  EXPORTACIONES_VIDEO.set(video.id, registro);
+  if (boton) { boton.disabled = true; boton.textContent = 'Exportando…'; }
+  let descarga = '';
+  try {
+    const inicioTrabajo = await pedir(`${API.proyecto(video.id)}/exportar`, { method: 'POST' });
+    const resultado = await esperarTransferenciaVideo(API.trabajo(inicioTrabajo.trabajo_id), panel, 'Preparando ZIP');
+    descarga = `${BASE}${resultado.descarga}`;
+    barra.value = 0;
+    fase.textContent = 'Descargando ZIP · 0%';
+    detalle.textContent = 'ZIP preparado. Empezando la descarga…';
+    const archivo = await descargarZipConProgreso(descarga, (recibidos, tamano) => {
+      const total = tamano || resultado.bytes;
+      if (total) barra.value = Math.min(100, Math.floor(recibidos / total * 100));
+      else barra.removeAttribute('value');
+      fase.textContent = `Descargando ZIP${total ? ` · ${barra.value}%` : ''}`;
+      detalle.textContent = `${(recibidos / 1024 ** 2).toFixed(1)} MiB recibidos`
+        + (total ? ` de ${(total / 1024 ** 2).toFixed(1)} MiB` : '');
+    });
+    const url = URL.createObjectURL(archivo);
+    const enlace = h('a', { href: url, download: `${video.nombre || 'video'}.video.zip` });
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    barra.value = 100;
+    fase.textContent = 'Exportación completada';
+    detalle.textContent = 'El ZIP se ha descargado y se ha enviado al navegador para guardarlo.';
+    nodo.classList.add('completada');
+  } catch (e) {
+    fase.textContent = 'No se ha podido completar la exportación';
+    detalle.textContent = e.message;
+    nodo.classList.add('fallida');
+  } finally {
+    panel.finalizar();
+    registro.activa = false;
+    if (descarga) acciones.appendChild(h('a', { href: descarga, clase: 'mini', download: '' },
+      'Volver a descargar'));
+    if (boton) { boton.disabled = false; boton.textContent = 'Exportar'; }
+  }
+}
+
+let IMPORTACION_VIDEO_ACTIVA = null;
+
+function subirZipConProgreso(archivo, opciones) {
+  return new Promise((resolver, rechazar) => {
+    const peticion = new XMLHttpRequest();
+    peticion.open('POST', `${API.proyectos()}/importar/seguir`);
+    peticion.responseType = 'json';
+    peticion.timeout = 3600000;
+    peticion.upload.onprogress = ev => opciones.avisar(ev.loaded, ev.lengthComputable ? ev.total : archivo.size);
+    peticion.upload.onload = () => opciones.recibido();
+    peticion.onerror = () => rechazar(new Error('Se ha interrumpido la conexión durante la subida.'));
+    peticion.ontimeout = () => rechazar(new Error('La subida ha agotado el tiempo de espera.'));
+    peticion.onload = () => {
+      const datos = peticion.response;
+      if (peticion.status === 202 && datos && datos.seguimiento) resolver(datos);
+      else rechazar(new Error((datos && (datos.error || datos.detail))
+        || `No se ha podido recibir el ZIP (HTTP ${peticion.status}).`));
+    };
+    const cuerpo = new FormData();
+    cuerpo.append('archivo', archivo);
+    peticion.send(cuerpo);
+  });
+}
+
+async function importarArchivoVideoLight(archivo) {
+  if (IMPORTACION_VIDEO_ACTIVA) {
+    IMPORTACION_VIDEO_ACTIVA.nodo.focus();
+    return;
+  }
+  const panel = panelTransferenciaVideo(archivo.name, 'Importación');
+  IMPORTACION_VIDEO_ACTIVA = panel;
+  const { nodo, fase, barra, detalle } = panel;
+  barra.value = 0;
+  fase.textContent = 'Subiendo ZIP · 0%';
+  detalle.textContent = `0 MiB enviados de ${(archivo.size / 1024 ** 2).toFixed(1)} MiB`;
+  try {
+    const subida = await subirZipConProgreso(archivo, {
+      avisar: (enviados, total) => {
+        barra.value = Math.min(100, Math.floor(enviados / Math.max(1, total) * 100));
+        fase.textContent = `Subiendo ZIP · ${barra.value}%`;
+        detalle.textContent = `${(enviados / 1024 ** 2).toFixed(1)} MiB enviados de ${(total / 1024 ** 2).toFixed(1)} MiB`;
+      },
+      recibido: () => {
+        barra.removeAttribute('value');
+        fase.textContent = 'Subida completada · esperando al servidor';
+        detalle.textContent = 'El ZIP se ha enviado. Esperando la confirmación para comprobarlo…';
+      },
+    });
+    const resultado = await esperarTransferenciaVideo(`${BASE}${subida.seguimiento}`, panel, 'Importando vídeo');
+    barra.value = 100;
+    fase.textContent = 'Importación completada';
+    detalle.textContent = `Vídeo «${resultado.proyecto.nombre}» importado; puedes continuar.`;
+    nodo.classList.add('completada');
+    try {
+      await cargarGaleriaLight(true);
+      await abrirVideoLight(resultado.proyecto.id);
+    } catch (e) {
+      detalle.textContent += ` No se ha podido abrir automáticamente: ${e.message}`;
+      panel.acciones.appendChild(h('button', { clase: 'mini',
+        onclick: () => abrirVideoLight(resultado.proyecto.id) }, 'Abrir vídeo'));
+    }
+  } catch (e) {
+    fase.textContent = 'No se ha podido completar la importación';
+    detalle.textContent = e.message;
+    nodo.classList.add('fallida');
+  } finally {
+    panel.finalizar();
+    IMPORTACION_VIDEO_ACTIVA = null;
+  }
+}
+
+function importarVideoLight() {
+  if (IMPORTACION_VIDEO_ACTIVA) {
+    IMPORTACION_VIDEO_ACTIVA.nodo.focus();
+    return;
+  }
+  const entrada = h('input', { type: 'file', accept: '.zip,application/zip',
+    onchange: async () => {
+      const archivo = entrada.files[0];
+      if (!archivo) return;
+      await importarArchivoVideoLight(archivo);
+    } });
+  entrada.click();
 }
 
 async function apartarVideoLight(video) {

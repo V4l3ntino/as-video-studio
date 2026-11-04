@@ -1021,6 +1021,140 @@ def crear_proyecto(cuerpo: dict = Body(default=None)):
             "pasos": [ficha_paso(ctx, p["id"]) for p in PASOS]}
 
 
+def _importar_video_archivo(archivo, raiz, avisar=None):
+    from pasos import paquete_video
+    proyecto = paquete_video.importar(archivo, raiz, avisar=avisar)
+    ctx = contexto(proyecto.id)
+    ctx.bitacora.anotar("video_importado", None, {"id": proyecto.id})
+    return {"proyecto": ficha_proyecto(ctx)}
+
+
+_IMPORTACIONES_VIDEO = GestorTrabajos()
+
+
+def _procesar_importacion_video(avisar, temporal, raiz):
+    try:
+        with open(os.path.join(temporal.name, "video.zip"), "rb") as archivo:
+            return _importar_video_archivo(archivo, raiz, avisar=avisar)
+    finally:
+        temporal.cleanup()
+
+
+@app.post("/api/proyectos/importar/seguir", status_code=202)
+def importar_video_con_progreso(archivo: UploadFile = File(...)):
+    """Recibe el ZIP y arranca una importacion con progreso consultable."""
+    from pasos import paquete_video
+    if archivo.size is not None and archivo.size > paquete_video.MAX_ARCHIVO:
+        raise ErrorApi(400, "el ZIP supera el limite de 2 GB")
+    temporal = tempfile.TemporaryDirectory(prefix="subida_video_")
+    try:
+        # UploadFile se cierra al terminar la peticion: el trabajo debe poseer
+        # su propia copia y retirarla tambien cuando el paquete sea invalido.
+        with open(os.path.join(temporal.name, "video.zip"), "wb") as destino:
+            shutil.copyfileobj(archivo.file, destino, length=1024 * 1024)
+        tid = _IMPORTACIONES_VIDEO.lanzar(
+            "importar:video", _procesar_importacion_video, temporal, raiz_proyectos())
+    except BaseException:
+        temporal.cleanup()
+        raise
+    return {"trabajo_id": tid, "seguimiento": f"/api/proyectos/importaciones/{tid}"}
+
+
+@app.get("/api/proyectos/importaciones/{tid}")
+def estado_importacion_video(tid: str):
+    """Progreso y resultado de una importacion, antes de que exista su proyecto."""
+    try:
+        return _IMPORTACIONES_VIDEO.estado(tid)
+    except KeyError:
+        raise ErrorApi(404, "importacion desconocida o ya olvidada")
+
+
+@app.post("/api/proyectos/importar", status_code=201)
+def importar_video(archivo: UploadFile = File(...)):
+    """Importa un ZIP de video como proyecto independiente para continuar su trabajo."""
+    from pasos import paquete_video
+    if archivo.size is not None and archivo.size > paquete_video.MAX_ARCHIVO:
+        raise ErrorApi(400, "el ZIP supera el limite de 2 GB")
+    try:
+        return _importar_video_archivo(archivo.file, raiz_proyectos())
+    except (paquete_video.ErrorPaquete, OSError, ValueError) as fallo:
+        raise ErrorApi(400, str(fallo))
+
+
+_EXPORTACIONES_VIDEO = {}
+
+
+def _liberar_exportacion_video(token):
+    with _LOCK:
+        ficha = _EXPORTACIONES_VIDEO.pop(token, None)
+    if ficha:
+        ficha["temporal"].cleanup()
+
+
+def _preparar_exportacion_video(avisar, ctx, token):
+    from pasos import paquete_video
+    temporal = tempfile.TemporaryDirectory(prefix="descarga_video_")
+    ruta = os.path.join(temporal.name, "video.zip")
+    try:
+        paquete_video.exportar(ctx.proyecto, ruta, avisar=avisar)
+        ficha = {"pid": ctx.id, "temporal": temporal, "ruta": ruta,
+                 "nombre": f"{identificador(ctx.proyecto.config.get('nombre') or ctx.id)}.video.zip"}
+        with _LOCK:
+            _EXPORTACIONES_VIDEO[token] = ficha
+        # Se conserva una hora para poder reintentar una descarga interrumpida.
+        limpieza = threading.Timer(3600, _liberar_exportacion_video, args=(token,))
+        limpieza.daemon = True
+        limpieza.start()
+        return {"descarga": f"/api/proyectos/{ctx.id}/exportar/{token}",
+                "bytes": os.path.getsize(ruta)}
+    except BaseException:
+        _liberar_exportacion_video(token)
+        temporal.cleanup()
+        raise
+
+
+@app.post("/api/proyectos/{pid}/exportar", status_code=202)
+def preparar_exportacion_video(pid: str):
+    """Prepara el ZIP en segundo plano; el trabajo informa de su progreso real."""
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine el trabajo o detenlo antes de exportar el video")
+        token = uuid.uuid4().hex
+        tid = ctx.gestor.lanzar("exportar:video", _preparar_exportacion_video, ctx, token)
+        _registrar_trabajo(tid, ctx.id)
+    return {"trabajo_id": tid}
+
+
+@app.get("/api/proyectos/{pid}/exportar/{token}")
+def descargar_exportacion_video(pid: str, token: str):
+    """Descarga un ZIP ya preparado, disponible durante una hora."""
+    with _LOCK:
+        ficha = _EXPORTACIONES_VIDEO.get(token)
+    if not ficha or ficha["pid"] != pid or not os.path.isfile(ficha["ruta"]):
+        raise ErrorApi(404, "la exportacion ha caducado; vuelve a pulsar Exportar")
+    return FileResponse(ficha["ruta"], media_type="application/zip", filename=ficha["nombre"])
+
+
+@app.get("/api/proyectos/{pid}/exportar")
+def exportar_video(pid: str):
+    """Descarga el proyecto completo: fuentes, versiones y trabajo parcial en un ZIP."""
+    from pasos import paquete_video
+    ctx = contexto(pid)
+    if ctx.gestor.listar(activos=True):
+        raise ErrorApi(409, "espera a que termine el trabajo o detenlo antes de exportar el video")
+    temporal = tempfile.TemporaryDirectory(prefix="descarga_video_")
+    ruta = os.path.join(temporal.name, "video.zip")
+    try:
+        paquete_video.exportar(ctx.proyecto, ruta)
+    except (paquete_video.ErrorPaquete, OSError, ValueError, RuntimeError) as fallo:
+        temporal.cleanup()
+        raise ErrorApi(400, str(fallo))
+    return FileResponse(ruta, media_type="application/zip",
+                        filename=f"{identificador(ctx.proyecto.config.get('nombre') or pid)}.video.zip",
+                        background=BackgroundTask(temporal.cleanup))
+
+
 @app.post("/api/proyectos/{pid}/duplicar", status_code=201)
 def duplicar_proyecto(pid: str, cuerpo: dict = Body(default=None)):
     """Copia un proyecto entero con lo que tiene puesto HOY. -> el nuevo.

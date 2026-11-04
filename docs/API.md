@@ -23,6 +23,9 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 |---|---|---|
 | `GET` | `/api/proyectos` | Proyectos disponibles, del mas reciente al mas antiguo. |
 | `POST` | `/api/proyectos` | Crea un proyecto nuevo a partir de {"nombre"}. |
+| `GET` | `/api/proyectos/importaciones/{tid}` | Progreso y resultado de una importacion, antes de que exista su proyecto. |
+| `POST` | `/api/proyectos/importar` | Importa un ZIP de video como proyecto independiente para continuar su trabajo. |
+| `POST` | `/api/proyectos/importar/seguir` | Recibe el ZIP y arranca una importacion con progreso consultable. |
 | `DELETE` | `/api/proyectos/papelera` | Vacia la papelera entera. Tampoco tiene vuelta atras. |
 | `GET` | `/api/proyectos/papelera` | Proyectos apartados, del mas recientemente apartado al mas antiguo. |
 | `DELETE` | `/api/proyectos/papelera/{carpeta}` | Borra DE VERDAD un proyecto apartado. No hay vuelta atras. |
@@ -33,6 +36,9 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `PUT` | `/api/proyectos/{pid}` | Cambia el nombre VISIBLE del proyecto. -> la ficha. |
 | `POST` | `/api/proyectos/{pid}/duplicar` | Copia un proyecto entero con lo que tiene puesto HOY. -> el nuevo. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |
+| `GET` | `/api/proyectos/{pid}/exportar` | Descarga el proyecto completo: fuentes, versiones y trabajo parcial en un ZIP. |
+| `POST` | `/api/proyectos/{pid}/exportar` | Prepara el ZIP en segundo plano; el trabajo informa de su progreso real. |
+| `GET` | `/api/proyectos/{pid}/exportar/{token}` | Descarga un ZIP ya preparado, disponible durante una hora. |
 | `POST` | `/api/proyectos/{pid}/feedback` | Feedback general o sobre una unidad; rehace SOLO lo que apunta. |
 | `POST` | `/api/proyectos/{pid}/presets-canal/{preset_id}/aplicar` | Copia los valores del preset a los params de los pasos que toque. |
 | `GET` | `/api/proyectos/{pid}/previsualizacion` | Las piezas para ver el video sin montarlo. -> {escenas, audio, ...} |
@@ -275,4 +281,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**161 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**167 endpoints.** Escrito por `generar_api.py` desde `app.py`.

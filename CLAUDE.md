@@ -106,6 +106,14 @@ ficheros que el estado dice haber producido están de verdad en disco**, en las
 dos máquinas, y comparar. Una mudanza a medias no da ningún error al abrir el
 proyecto; se ve al pedir una miniatura.
 
+Al validar un paquete de vídeo, no compruebes literalmente todas las rutas de
+`salidas`: voz conserva `pista=.../trabajo/narracion.wav` y las escenas sus
+referencias `trabajo/_refs`, aunque `completar()` ya haya recogido esos ficheros
+en `v<N>/`. Hay que resolverlos en **la versión que se está comprobando**,
+también para los manifiestos históricos, sin reescribir los metadatos ni las
+firmas. `pasos/paquete_video.py` comprueba además `archivo` y `png` relativos;
+un audio definitivo o una imagen que de verdad falta sigue siendo un error.
+
 ---
 
 ## La interfaz: una pantalla, y sin dependencias
