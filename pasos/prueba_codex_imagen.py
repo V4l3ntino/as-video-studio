@@ -270,6 +270,55 @@ class PruebaCodex(unittest.TestCase):
         self.assertNotIn("sk-no-publicar", texto)
         self.assertNotIn("Un paisaje", texto)
 
+    def test_rechazo_de_seguridad_en_castellano_sin_failure_estructurado(self):
+        # El CLI puede terminar el turno con exito aunque image_gen haya fallado.
+        # El item no lleva failure: la explicacion viene en el mensaje del agente.
+        self.eventos = [
+            {"method": "item/completed", "params": {"item": {
+                "id": "aviso", "type": "agentMessage",
+                "text": "Generaré una sola imagen usando las tres referencias en el orden indicado."}}},
+            {"method": "item/completed", "params": {"item": {
+                "id": "img", "type": "imageGeneration", "status": "failed", "failure": None}}},
+            {"method": "item/completed", "params": {"item": {
+                "id": "explicacion", "type": "agentMessage",
+                "text": "No se pudo generar la imagen: image_gen rechazó la solicitud por su "
+                        "filtro de seguridad («self-harm»), aparentemente por el gesto de "
+                        "pellizcarse el antebrazo. No he realizado llamadas adicionales."}}},
+            {"method": "turn/completed", "params": {"turn": {"id": "turno", "status": "completed"}}},
+        ]
+        with self.assertRaises(codex.ErrorCodex) as fallo:
+            self.generar([self.png] * 3)
+        self.assertEqual(fallo.exception.tipo, "rechazo")
+        self.assertIn("self-harm", str(fallo.exception))
+        self.assertNotIn("La causa no está confirmada", str(fallo.exception))
+        self.assertEqual(sum(c.args[0] == "turn/start" for c in self.conexion.pedir.call_args_list), 1)
+        ruta = os.path.join(os.environ["ESTUDIO_SECRETOS"], "codex_imagenes",
+                            fallo.exception.diagnostico + ".json")
+        with open(ruta, encoding="utf-8") as fh:
+            diagnostico = json.load(fh)
+        self.assertEqual(diagnostico["tipo_error"], "rechazo")
+
+    def test_bloqueo_de_moderacion_estructurado_es_rechazo(self):
+        self.eventos[0]["params"]["item"].update(
+            status="failed", failure={"code": "moderation_blocked"})
+        with self.assertRaises(codex.ErrorCodex) as fallo:
+            self.generar()
+        self.assertEqual(fallo.exception.tipo, "rechazo")
+
+    def test_modelo_no_compatible_no_es_entrega_incompleta_reintentable(self):
+        error = codex._error_de({"message": json.dumps({"error": {
+            "message": "The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+            "code": "model_not_found"}})})
+        self.assertEqual(error.tipo, "modelo")
+        self.assertIn("modelo no compatible", str(error))
+
+    def test_mencionar_el_gesto_sin_rechazo_no_prueba_bloqueo(self):
+        self.eventos[0]["params"]["item"] = {"type": "agentMessage",
+            "text": "Generaré la imagen del personaje pellizcándose el antebrazo."}
+        with self.assertRaises(codex.ErrorCodex) as fallo:
+            self.generar()
+        self.assertEqual(fallo.exception.tipo, "respuesta_incompleta")
+
     def test_seis_referencias_se_envian_en_cinco_adjuntos_sin_descartar(self):
         ultima = os.path.join(self.carpeta.name, "sexta.png")
         Image.new("RGB", (60, 40), "red").save(ultima)

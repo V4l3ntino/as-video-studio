@@ -136,6 +136,8 @@ def _error_de(detalle, defecto="Codex no ha completado la imagen"):
     bajo = texto.lower()
     if ("referenc" in bajo and re.search(r"(?:máximo|max(?:imum)?|at most)\D{0,15}\d", bajo)):
         tipo, mensaje = "referencias", "El encargo supera el límite de referencias de la herramienta de imágenes."
+    elif "model_not_found" in bajo or ("model" in bajo and "not supported" in bajo):
+        tipo, mensaje = "modelo", "Codex ha solicitado un modelo no compatible con esta cuenta. Revisa su configuración y reinicia el servicio."
     elif any(p in bajo for p in ("usagelimitexceeded", "usage_limit", "quota_exceeded",
                                "quota exceeded", "usage limit", "rate_limit_reached",
                                "rate limit", "limit reached", "cuota agotada")):
@@ -143,8 +145,10 @@ def _error_de(detalle, defecto="Codex no ha completado la imagen"):
     elif any(p in bajo for p in ("unauthorized", "token_expired", "not authenticated",
                                  "not logged in", "authentication", "sesión caducada")):
         tipo, mensaje = "sesion", "La sesión de ChatGPT no es válida. Conéctala de nuevo en Configuración."
-    elif any(p in bajo for p in ("content_policy", "safety", "refusal", "can't help",
-                                 "cannot help", "no puedo ayudar", "rechazo")):
+    elif any(p in bajo for p in ("content_policy", "content_filter", "moderation_blocked",
+                                 "safety", "refusal", "can't help", "cannot help",
+                                 "no puedo ayudar", "rechazo", "filtro de seguridad",
+                                 "política de contenido", "politica de contenido")):
         tipo, mensaje = "rechazo", "Codex ha rechazado este encargo de imagen. Revisa su descripción."
     elif any(p in bajo for p in ("serveroverloaded", "at capacity", "overloaded")):
         tipo, mensaje = "saturacion", "El servicio de imágenes está saturado temporalmente."

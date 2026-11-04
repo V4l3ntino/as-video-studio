@@ -267,13 +267,21 @@ pulsar **Usar ChatGPT**; el cambio no modifica firmas ni regenera imágenes hech
 
 ### Incidencias de imágenes: recuperación y correo
 
-Los fallos temporales de saturación, servicio, conexión o tiempo de espera se
-reintentan automáticamente **en la imagen pendiente**, conservando las ya
+Los fallos temporales de saturación, servicio, conexión o tiempo de espera, y
+las entregas incompletas o interrumpidas de Codex, se reintentan automáticamente
+**en la imagen pendiente**, conservando las ya
 resueltas. La espera predeterminada es 60, 120, 240 y luego 300 segundos entre
 intentos, hasta que se recupere el servicio o se pulse **Parar**. La barra
-enseña la espera. No se generan imágenes de prueba ni se cambia a un motor de
-pago. Los errores de cuota, sesión, referencias o rechazo y las respuestas
-incompletas sin una causa temporal identificable se notifican y se detienen.
+enseña la espera y el nuevo intento sin avanzar el contador de imágenes por
+reintentar. El trabajo permanece activo, también entre peticiones, aunque otra
+cadena siga generando planos. **Generar imágenes** y **Continuar imágenes** solo
+aparecen cuando la tanda ha terminado o se ha detenido de verdad; mientras está
+activa se ofrecen el progreso y **Parar**. Durante la incidencia no se muestra
+una cuenta atrás de finalización, porque no se sabe cuándo volverá el servicio.
+No se generan imágenes de prueba ni se cambia a un motor de pago. Los errores
+de cuota, sesión, referencias, modelo incompatible o rechazo explícito de
+seguridad se notifican y se detienen para corregir su causa: el mismo encargo
+bloqueado no se vuelve a enviar indefinidamente.
 Los intervalos y la activación se pueden cambiar en **Configuración →
 Incidencias de imágenes · reintentos y correo**, sin modificar los proyectos.
 

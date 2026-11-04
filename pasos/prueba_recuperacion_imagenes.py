@@ -83,7 +83,7 @@ class RecuperacionImagenes(unittest.TestCase):
         self.assertEqual(datos["unidades"], ["S002"])
 
     def test_fallos_no_recuperables_no_se_repiten(self):
-        for tipo in ("cuota", "sesion", "rechazo", "referencias", "respuesta_incompleta"):
+        for tipo in ("cuota", "sesion", "rechazo", "referencias", "modelo", "respuesta_ambigua"):
             fallo = ErrorServicio("no se ha entregado imagen", tipo)
             with self.subTest(tipo=tipo), patch.object(avisos, "enviar", return_value={"estado": "desactivado"}):
                 funcion = Mock(side_effect=fallo)
@@ -91,6 +91,87 @@ class RecuperacionImagenes(unittest.TestCase):
                 with self.assertRaises(ErrorServicio):
                     sesion.ejecutar(funcion, "S001")
                 funcion.assert_called_once()
+
+    def test_entrega_incompleta_e_interrupcion_reintentan_hasta_recuperar(self):
+        self.reloj()
+        for tipo in ("respuesta_incompleta", "interrumpido"):
+            with self.subTest(tipo=tipo), patch.object(avisos, "enviar", return_value={}) as correo:
+                progreso = Mock()
+                sesion = recuperacion.Recuperacion(self.proyecto, progreso)
+                funcion = Mock(side_effect=[ErrorServicio("sin imagen", tipo)] * 12 + [b"imagen"])
+                self.assertEqual(sesion.ejecutar(funcion, "S001"), b"imagen")
+                self.assertEqual(funcion.call_count, 13)
+                self.assertEqual(correo.call_count, 2)
+                self.assertFalse(sesion._reintentos)
+                mensajes = [c.args[1] for c in progreso.call_args_list]
+                self.assertTrue(any("Nuevo intento automático" in m for m in mensajes))
+                self.assertTrue(any("Solicitando de nuevo la imagen" in m for m in mensajes))
+                self.assertTrue(all(c.args[0] is None for c in progreso.call_args_list))
+
+    def test_el_avance_de_otra_cadena_no_oculta_la_espera(self):
+        self.reloj()
+        progreso = Mock()
+        sesion = recuperacion.Recuperacion(self.proyecto, progreso)
+        with patch.object(avisos, "enviar", return_value={}):
+            sesion._registrar(ErrorServicio(), "S001", True, 1, 10)
+        sesion.avisar_progreso(.6, "S002 resuelto", (20, 100))
+        args = progreso.call_args.args
+        self.assertEqual(args[0], .6)
+        self.assertEqual(args[2], (20, 100))
+        self.assertIn("Esperando al servicio de imágenes:", args[1])
+        self.assertIn("S001", args[1])
+        self.assertIn("Tanda activa", args[1])
+        with patch.object(avisos, "enviar", return_value={}):
+            self.assertEqual(sesion.ejecutar(lambda: b"imagen", "S001"), b"imagen")
+        sesion.avisar_progreso(.7, "S001 resuelto", (21, 100))
+        self.assertEqual(progreso.call_args.args, (.7, "S001 resuelto", (21, 100)))
+
+    def test_desactivar_reintentos_detiene_sin_hacer_otra_peticion(self):
+        self.reloj()
+        progreso = Mock(side_effect=lambda *_a: avisos.guardar({"reintentos": False}))
+        sesion = recuperacion.Recuperacion(self.proyecto, progreso)
+        funcion = Mock(side_effect=ErrorServicio())
+        with patch.object(avisos, "enviar", return_value={}):
+            with self.assertRaisesRegex(RuntimeError, "desactivado"):
+                sesion.ejecutar(funcion, "S001")
+        funcion.assert_called_once()
+        self.assertTrue(sesion._parar.is_set())
+
+    def test_trabajo_sigue_activo_en_espera_y_solo_termina_al_recuperarse(self):
+        from nucleo.trabajos import GestorTrabajos
+        esperando, continuar = threading.Event(), threading.Event()
+        gestor = GestorTrabajos()
+        funcion = Mock(side_effect=[ErrorServicio("entrega incompleta", "respuesta_incompleta"), b"png"])
+
+        def correr(avisar):
+            sesion = recuperacion.Recuperacion(self.proyecto,
+                lambda valor, mensaje="": avisar(valor, mensaje, mensaje))
+            sesion.avisar_progreso(.42, "42 de 100 imagenes")
+            return sesion.ejecutar(funcion, "S043")
+
+        def esperar(sesion, *_a):
+            sesion.avisar_progreso(None)
+            esperando.set()
+            self.assertTrue(continuar.wait(3))
+
+        with patch.object(recuperacion.Recuperacion, "_esperar", esperar), \
+                patch.object(avisos, "enviar", return_value={}):
+            tid = gestor.lanzar("generar:video", correr)
+            try:
+                self.assertTrue(esperando.wait(3))
+                ficha = gestor.estado(tid)
+                self.assertEqual(ficha["estado"], "ejecutando")
+                self.assertEqual(ficha["progreso"], .42)
+                self.assertIn("Nuevo intento automático", ficha["publico"])
+                self.assertEqual(len(gestor.listar(activos=True)), 1)
+                funcion.assert_called_once()
+            finally:
+                continuar.set()
+            final = gestor.esperar(tid, 3)
+        self.assertEqual(final["estado"], "listo")
+        self.assertEqual(final["resultado"], b"png")
+        self.assertEqual(funcion.call_count, 2)
+        self.assertFalse(gestor.listar(activos=True))
 
     def test_cancelar_durante_espera_detiene_las_otras_cadenas(self):
         with patch.object(avisos, "enviar", return_value={"estado": "enviado"}):

@@ -14,7 +14,7 @@ except ImportError:
 
 
 def clasificar(fallo):
-    """Solo evidencias de fallos transitorios: una imagen ausente no es una cuota."""
+    """Reintenta fallos de entrega, no rechazos explicitos ni errores de acceso."""
     cadena, vistos = [], set()
     actual = fallo
     while actual is not None and id(actual) not in vistos:
@@ -26,9 +26,9 @@ def clasificar(fallo):
     texto = " ".join(str(f) for f in cadena).lower()
     for error in cadena:
         tipo = str(getattr(error, "tipo", ""))
-        if tipo in {"cuota", "sesion", "referencias", "rechazo", "respuesta_ambigua", "interrumpido"}:
+        if tipo in {"cuota", "sesion", "referencias", "rechazo", "respuesta_ambigua", "modelo"}:
             return False
-        if tipo in {"saturacion", "tiempo", "conexion", "servicio"}:
+        if tipo in {"saturacion", "tiempo", "conexion", "servicio", "respuesta_incompleta", "interrumpido"}:
             return True
     if any(t in texto for t in ("quota_exceeded", "usage_limit", "insufficient_quota", "unauthorized",
                                "authentication", "token_expired", "content_policy", "invalid api key")):
@@ -64,6 +64,27 @@ class Recuperacion:
         self._error = None
         self._incidente = None
         self._esperando = set()
+        self._reintentos = {}
+
+    def avisar_progreso(self, valor, mensaje="", unidades=None):
+        """Mantiene visible la incidencia aunque otra cadena siga resolviendo planos.
+
+        La fraccion y el recuento siguen siendo los reales: esperar o volver a
+        pedir la misma imagen no cuenta como una imagen resuelta.
+        """
+        with self._lock:
+            esperas = list(self._reintentos.items())
+        if esperas:
+            unidad, datos = min(esperas, key=lambda par: par[1]["proximo"])
+            faltan = max(0, int(datos["proximo"] - time.monotonic()))
+            accion = (f"Solicitando de nuevo la imagen (intento {datos['intento']})."
+                      if datos["solicitando"] else
+                      f"Nuevo intento automático en {faltan} s (intento {datos['intento']}).")
+            mensaje = (f"Esperando al servicio de imágenes: {unidad}. Tanda activa; "
+                       f"{accion} Las imágenes hechas se conservan; puedes parar la tanda.")
+        if unidades is None:
+            return self.avisar(valor, mensaje)
+        return self.avisar(valor, mensaje, unidades)
 
     def _guardar(self, datos=None):
         datos = datos if datos is not None else self._incidente
@@ -124,6 +145,9 @@ class Recuperacion:
                 "ultimo_intento_unidad": intento,
                 "proximo": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() + espera)) if recuperable else None})
             self._esperando.add(unidad)
+            if recuperable:
+                self._reintentos[unidad] = {"intento": intento + 1,
+                    "proximo": time.monotonic() + espera, "solicitando": False}
             self._guardar()
         if nuevo or detencion:
             resultado = self._correo(dict(datos))
@@ -152,7 +176,7 @@ class Recuperacion:
                         self._incidente["estado"] = "detenida"
                         self._guardar()
                     raise self._error
-                self.avisar(None, f"Esperando al servicio de imágenes: {unidad}. Nuevo intento en {max(0, int(faltan))} s.")
+                self.avisar_progreso(None)
                 aviso = ahora_mono + 5
             if faltan <= 0:
                 return
@@ -166,6 +190,9 @@ class Recuperacion:
                 if intento:
                     with self._sondeo:
                         self._comprobar()
+                        with self._lock:
+                            self._reintentos[unidad]["solicitando"] = True
+                        self.avisar_progreso(None)
                         resultado = funcion()
                 else:
                     resultado = funcion()
@@ -200,6 +227,7 @@ class Recuperacion:
             else:
                 with self._lock:
                     self._esperando.discard(unidad)
+                    self._reintentos.pop(unidad, None)
                     recuperado = bool(self._incidente and not self._esperando)
                     if recuperado:
                         self._incidente.update(estado="recuperada", fin=ahora(), proximo=None)

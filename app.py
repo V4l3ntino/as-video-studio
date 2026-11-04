@@ -6312,13 +6312,15 @@ def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
         # manda sobre la fase inventada: «34 de 216 planos» esta medido y
         # «rematando los detalles» solo significa «va por el ultimo tercio».
         def avisar_tarea(valor, mensaje="", unidades=None):
-            if (mensaje or "").startswith("Esperando al servicio de imágenes:"):
-                ultimo["frase"] = mensaje
             if valor is not None:
                 ultimo["valor"] = min(1.0, max(0.0, float(valor)))
             if valor is not None or unidades:
                 ultimo["frase"] = recetas.publico_de(tarea["id"], valor,
                                                      unidades)
+            # La incidencia no puede desaparecer cuando otra cadena de imagenes
+            # resuelve un plano y manda fraccion/recuento junto a la espera.
+            if (mensaje or "").startswith("Esperando al servicio de imágenes:"):
+                ultimo["frase"] = mensaje
             avisar(desde + ancho * ultimo["valor"],
                    f"{indice} de {max(total, indice)} · {tarea['nombre']}"
                    + (f" — {mensaje}" if mensaje else ""),

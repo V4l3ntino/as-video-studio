@@ -6867,7 +6867,7 @@ async function refrescarPlanosLight() {
 
 function trabajoVideoLight() {
   const trabajo = APP.trabajos[CLAVE_VIDEO_LIGHT] || {};
-  return trabajo.estado === 'ejecutando' ? trabajo : null;
+  return ['pendiente', 'ejecutando'].includes(trabajo.estado) ? trabajo : null;
 }
 
 /* La barra: a la derecha del botón y ocupando el resto de la franja. Dice por
@@ -6903,7 +6903,7 @@ function barraTandaLight(tanda) {
 
 function barraTandaLightAhora(tanda) {
   const trabajo = APP.trabajos[CLAVE_VIDEO_LIGHT] || {};
-  const corriendo = trabajo.estado === 'ejecutando';
+  const corriendo = !!trabajoVideoLight();
   if (!corriendo) {
     if (tanda) refrescarPlanLight(tanda);
     return null;
@@ -6932,6 +6932,7 @@ function barraTandaLightAhora(tanda) {
    Se calla cuando se pasa del previsto: decir "quedan 0 s" durante diez minutos
    es peor que no decir nada. */
 function restanteTandaLight(trabajo, avance) {
+  if (avancePublico(trabajo).includes('Esperando al servicio de imágenes:')) return '';
   const v = APP.light.video;
   /* EL MONTAJE SUELTO SE PROYECTA CON SU PROPIO RITMO. No tiene previsto de
      ninguna tanda (ver MONTAJES_SUELTOS), y el del historial no sirve: decía
@@ -7753,7 +7754,7 @@ function pieLight() {
       h('button', {
         clase: 'mini peligro', onclick: () => cancelar(CLAVE_VIDEO_LIGHT),
       }, 'Parar')) : null,
-    conAyuda(!hayAudio
+    corriendo ? null : conAyuda(!hayAudio
       ? 'Primero hace falta el audio: los subtitulos se colocan con sus '
         + 'tiempos, asi que sin voz no hay donde ponerlos.'
       : unirAyuda(ayudaDiapositivas(hayVideo, obsoleto, quedaVideo),
@@ -8622,6 +8623,10 @@ async function guardarNotaEscena(escena) {
  * escena siguiente--; dos chevrones seguidos apuntando a sitios distintos se
  * leen como el mismo gesto. Aqui la etiqueta ya dice lo que hace. */
 function botonRenderizarLight() {
+  if (trabajoVideoLight()) {
+    return h('div', { clase: 'fila crece' }, barraTandaLight('video'),
+      h('button', { clase: 'mini peligro', onclick: () => cancelar(CLAVE_VIDEO_LIGHT) }, 'Parar'));
+  }
   const pendientes = ((PREVIA.ficha || {}).escenas || []).filter(e => !e.imagen).length;
   if (pendientes) {
     refrescarPlanLight('video');

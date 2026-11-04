@@ -4692,6 +4692,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
     except ImportError:
         from recuperacion_imagenes import Recuperacion
     recuperacion = Recuperacion(proyecto, avisar)
+    avisar = recuperacion.avisar_progreso
     tipos = {str(t) for t in (tipos or [])} or None
     if tipos:
         solo_assets = True

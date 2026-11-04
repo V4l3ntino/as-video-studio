@@ -2450,6 +2450,63 @@ def probar_que_la_barra_light_no_ensena_la_cocina():
     ok("tarea.publico || tarea.nombre" in cuerpo_de("function vistaGenerandoLight()"),
        "y la lista de tareas del estilo dice el nombre publico")
 
+    # La espera conserva barra y Parar; no debe ofrecer otra tanda por tener
+    # imagenes pendientes. Se ejecutan las funciones reales con un DOM minimo.
+    guion = r"""
+const APP = { trabajos: {}, light: { video: {guion: true, audio: true, planes: {}} } };
+const CLAVE_VIDEO_LIGHT = 'video';
+const PREVIA = { ficha: { escenas: [{imagen: null}] } };
+const MONTAJES_SUELTOS = [];
+function h(tag, props, ...hijos) {return {tag, props: props || {}, hijos, style: {}};}
+function enVivo(fn) {return fn();}
+function refrescarPlanLight() {}
+function hayMp4Light() {return false;}
+function videoObsoletoLight() {return false;}
+function quedaTandaLight() {return true;}
+function unirAyuda() {return '';}
+function ayudaAudio() {return '';}
+function ayudaDiapositivas() {return '';}
+function textoDelPlan() {return '';}
+function conAyuda(_texto, boton) {return boton;}
+function pastillaObsoletoLight() {return null;}
+function reproductorLight() {return h('audio', {});}
+function cancelar() {}
+function textos(n) {
+  if (typeof n === 'string') return n;
+  return n && typeof n === 'object' ? (n.hijos || []).flat().map(textos).join(' ') : '';
+}
+function barraTandaLight(tanda) {return barraTandaLightAhora(tanda);}
+""" + "\n".join(cuerpo_de(firma) for firma in (
+        "function trabajoVideoLight()", "function avancePublico(trabajo)",
+        "function barraTandaLightAhora(", "function restanteTandaLight(",
+        "function botonRenderizarLight()", "function pieLight()")) + r"""
+const resultados = {};
+for (const estado of ['pendiente', 'ejecutando']) {
+  APP.trabajos.video = {estado, progreso: .42, publico:
+    'Esperando al servicio de imágenes: S001. Tanda activa; Nuevo intento automático en 10 s.'};
+  const barra = barraTandaLightAhora('video');
+  const pie = textos(pieLight());
+  const previa = textos(botonRenderizarLight());
+  resultados[estado] = !!trabajoVideoLight() && !!barra
+    && textos(barra).includes('42 %') && textos(barra).includes('Nuevo intento automático')
+    && pie.includes('Parar') && !pie.includes('Generar imágenes')
+    && previa.includes('Parar') && !previa.includes('Continuar imágenes')
+    && restanteTandaLight(APP.trabajos.video, .42) === '';
+}
+for (const estado of ['error', 'cancelado', 'listo']) {
+  APP.trabajos.video = {estado};
+  resultados[estado] = !trabajoVideoLight() && !barraTandaLightAhora('video')
+    && textos(pieLight()).includes('Generar imágenes')
+    && textos(botonRenderizarLight()).includes('Continuar imágenes');
+}
+console.log(JSON.stringify(resultados));
+"""
+    resultado = _correr_node("prueba_barra_reintentos.js", guion)
+    if resultado is None:
+        return
+    for estado in ("pendiente", "ejecutando", "error", "cancelado", "listo"):
+        ok(bool(resultado.get(estado)), f"barra y botones coherentes con trabajo {estado}")
+
 
 def probar_value_de_los_textarea():
     """Un <textarea> NO tiene atributo `value`, y eso vaciaba la pantalla.
@@ -4074,6 +4131,7 @@ def probar_que_el_mp4_suelto_tiene_barra():
         ("const MONTAJES_SUELTOS", "APP.light.video = {"),
         ("async function reengancharTandaLight(", "async function leerGuionLight("),
         ("function restanteTandaLight(", "/* Lo que va a hacer la próxima tanda"),
+        ("function avancePublico(", "/* ---------------------------------------------------- proyeccion del restante"),
         ("function arranqueDe(", "function trabajando("))
     if trozos is None:
         return
