@@ -594,6 +594,66 @@ def prueba_retencion(carpeta):
           f"y del ajuste usado se guardan las ultimas {estadisticas.MUESTRAS_POR_AJUSTE}")
 
 
+def prueba_entrega_a_fichero():
+    seccion("entrega del agente: rutas completas y errores con su motivo")
+    from unittest.mock import patch
+
+    # Simula TEMP con un alias 8.3 en cualquier sistema operativo. La carpeta
+    # real existe; el alias solo lo devuelve mkdtemp, como ocurria en Windows.
+    with tempfile.TemporaryDirectory(prefix="prueba_entrega_") as raiz:
+        larga = os.path.join(os.path.realpath(raiz), "carpeta con nombre completo")
+        corta = os.path.join(raiz, "CARPET~1")
+        os.makedirs(larga)
+        realpath = os.path.realpath
+        observadas = []
+
+        def resolver(ruta, *args, **kwargs):
+            return larga if ruta == corta else realpath(ruta, *args, **kwargs)
+
+        def ejecutar_falso(instruccion, **kwargs):
+            observadas.append(kwargs)
+            igual(kwargs["cwd"], larga, "cwd usa el nombre largo, no el alias 8.3")
+            comprobar(os.path.join(larga, "salida.json") in instruccion,
+                      "el encargo indica la ruta completa del fichero de entrega")
+            with open(os.path.join(kwargs["cwd"], "salida.json"), "w", encoding="utf-8") as fh:
+                json.dump({"cartelas": {}}, fh)
+            return "LISTO", {"permission_denials": []}
+
+        with patch("tempfile.mkdtemp", return_value=corta), \
+                patch.object(cli_claude.os.path, "realpath", side_effect=resolver), \
+                patch.object(cli_claude, "ejecutar", side_effect=ejecutar_falso):
+            igual(cli_claude.escribiendo("Elige las cartelas", carpetas=(raiz,)), {"cartelas": {}},
+                  "una decision sin cartelas tambien se entrega por fichero")
+        comprobar(not os.path.exists(larga), "la carpeta temporal se limpia al terminar")
+        igual(observadas[0]["permisos"], "acceptEdits", "se conservan los permisos de edicion normales")
+        comprobar("Bash" in observadas[0]["herramientas_vetadas"],
+                  "resolver la ruta no habilita Bash")
+        extra = observadas[0]["extra"]
+        igual(extra[extra.index("--add-dir") + 1], realpath(raiz),
+              "los directorios de lectura tambien usan la ruta real")
+
+    def denegar(*args, **kwargs):
+        return "No puedo escribir porque esta ruta necesita aprobacion manual", {
+            "permission_denials": [{"tool_name": "Write", "tool_input": {"content": "NO EXPONER"}}]}
+
+    with patch.object(cli_claude, "ejecutar", side_effect=denegar):
+        try:
+            cli_claude.escribiendo("Escribe el JSON", para="el plan de cartelas")
+            comprobar(False, "una entrega ausente debe fallar")
+        except RuntimeError as fallo:
+            texto = str(fallo)
+            comprobar("Write" in texto and "aprobacion manual" in texto,
+                      "si se deniega Write, se muestra la herramienta y la explicacion del CLI")
+            comprobar("NO EXPONER" not in texto, "el error no vuelca el contenido de tool_input")
+
+    def no_escribir(*args, **kwargs):
+        return "LISTO", {"permission_denials": None}
+
+    with patch.object(cli_claude, "ejecutar", side_effect=no_escribir):
+        falla(lambda: cli_claude.escribiendo("Escribe el JSON"), "no ha escrito",
+              "decir LISTO sin fichero no se acepta como una entrega valida")
+
+
 def main():
     # ESTA SUITE NO CORRIA NADA: al separar esta version de la grande se quedo
     # sin su `main`, y `pruebas.ps1` la daba por buena con la salida vacia. Son
@@ -609,6 +669,7 @@ def main():
         prueba_limite()
         prueba_cadena()
         prueba_login()
+        prueba_entrega_a_fichero()
         prueba_historico(carpeta)
         prueba_recomendacion(carpeta)
         prueba_retencion(carpeta)

@@ -26,6 +26,7 @@
 
 ## Estado y generación: los errores cuestan dinero
 
+- En Windows, `TEMP` puede contener el alias 8.3 `VALENT~1`. Claude CLI 2.1.317 deniega `Write` en esas rutas incluso con `acceptEdits`; en headless termina sin `salida.json`. Usa `os.path.realpath` para el directorio temporal, `cwd` y `--add-dir`, y da la ruta completa de entrega. No desactives los permisos. `cli_claude.escribiendo` conserva el motivo del agente y los nombres de `permission_denials` si falta el fichero; no vuelques `tool_input`. Regresión aislada en `pasos/prueba_ajustes.py`.
 - Nunca persistas params por defecto al abrir una pantalla: las firmas usan los params guardados. Edita una copia y guarda solo cambios del usuario. Los valores iniciales de vídeos nuevos no deben aplicarse retroactivamente.
 - Las tandas de imágenes van de una en una. Conserva el orden de recetas: cartelas antes de planos, rótulos después. No relajes `p6_assets._planos_repetidos` para esconder un fallo; sus excepciones están documentadas en la función.
 - En `nucleo/estado.py`, los manifiestos viven en `pasos/<paso>/_versiones/v<N>.json`, fuera de `v<N>/` y de `estado.json`. Conserva la lectura del formato antiguo; un manifiesto ausente o incompleto debe lanzar, nunca convertirse en `{}`. `completar()` debe escribirlo antes de mutar `datos`; no lo caches dentro del documento.

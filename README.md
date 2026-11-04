@@ -194,6 +194,21 @@ había eliminado (`AttributeError: 'NoneType' object has no attribute 'poll'`).
 Ahora esa cancelación devuelve un error de acceso controlado e impide confirmar
 la cuenta desde la petición cancelada.
 
+#### Un agente termina sin escribir `salida.json`
+
+En Windows, la carpeta temporal puede usar el nombre abreviado del usuario
+(`C:\Users\VALENT~1\...`). Se comprobó con Claude CLI **2.1.317** que su
+comprobación de permisos bloqueaba `Write` en esa ruta, aunque el proceso usara
+`acceptEdits`. El agente terminaba pidiendo aprobación manual y el Estudio solo
+mostraba «no ha escrito salida.json (no dejó nada)». Esto podía detener las
+cartelas antes de generar ninguna imagen, independientemente del número de planos.
+
+El Estudio resuelve ahora las rutas completas antes de lanzar el agente y le
+indica la ruta absoluta de entrega. Si aun así falta el fichero, el error incluye
+la explicación del agente y las herramientas cuyo permiso se denegó. Actualiza
+el Estudio y reinicia el servicio para aplicar la corrección; no hace falta
+desactivar los permisos del CLI ni volver a generar el guion o la voz.
+
 ### Fuentes y motores locales
 
 En Linux local, las fuentes se resuelven con **Fontconfig** (`fc-match`) por la

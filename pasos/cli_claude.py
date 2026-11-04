@@ -746,7 +746,8 @@ def _una_pasada_cruda(instruccion, modelo, esfuerzo, cwd, tiempo_max_s, base_tie
         proceso = subprocess.Popen(orden, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
-                                   cwd=cwd, env=entorno(cuenta), **SIN_VENTANA,
+                                   cwd=os.path.realpath(cwd) if cwd else None,
+                                   env=entorno(cuenta), **SIN_VENTANA,
                                    **grupo)
     except OSError as fallo:
         raise RuntimeError(
@@ -865,7 +866,7 @@ CIERRE = """
 COMO ENTREGARLO
 =====================================================================
 
-ESCRIBE EL RESULTADO EN EL FICHERO `{fichero}` de este directorio, con la forma
+ESCRIBE EL RESULTADO EN EL FICHERO `{fichero}`, con la forma
 exacta que se pide arriba. Escribelo en varias pasadas si te resulta mas comodo
 (Write y despues Edit para ir anadiendo); lo unico que importa es que al
 terminar sea un JSON valido y completo.
@@ -908,21 +909,30 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
     extra = ["--no-session-persistence"]
     for ruta in dict.fromkeys(str(c) for c in (carpetas or ()) if c):
         if os.path.isdir(ruta):
-            extra += ["--add-dir", os.path.abspath(ruta)]
-    carpeta = tempfile.mkdtemp(prefix="cli_salida_")
+            extra += ["--add-dir", os.path.realpath(ruta)]
+    # En Windows TEMP puede usar el alias 8.3 (C:\Users\VALENT~1\...).
+    # Claude rechaza Write en esas rutas aunque se use acceptEdits: en headless
+    # pide una aprobacion que nadie puede contestar y termina sin el fichero.
+    # realpath expande el alias y resuelve enlaces ANTES de pasar cwd al CLI.
+    carpeta = os.path.realpath(tempfile.mkdtemp(prefix="cli_salida_"))
     try:
-        ejecutar(instruccion + CIERRE.format(fichero=FICHERO_SALIDA),
+        ruta = os.path.join(carpeta, FICHERO_SALIDA)
+        texto, sobre = ejecutar(instruccion + CIERRE.format(fichero=ruta),
                  modelo=modelo, esfuerzo=esfuerzo, cwd=carpeta,
                  tiempo_max_s=tiempo_max_s, base_tiempo_s=base_tiempo_s,
                  herramientas_vetadas=vetadas, permisos="acceptEdits",
                  extra=extra, avance=avance, para=para,
                  herramientas_permitidas=herramientas_permitidas)
-        ruta = os.path.join(carpeta, FICHERO_SALIDA)
         if not os.path.exists(ruta):
             hay = sorted(os.listdir(carpeta))[:8]
+            denegadas = sorted({str(d.get("tool_name") or "herramienta")
+                                for d in (sobre.get("permission_denials") or [])
+                                if isinstance(d, dict)})
             raise RuntimeError(
                 f"el agente de {para} no ha escrito {FICHERO_SALIDA}"
-                + (f" (dejo: {', '.join(hay)})" if hay else " (no dejo nada)"))
+                + (f" (dejo: {', '.join(hay)})" if hay else " (no dejo nada)")
+                + (f". El CLI denego permiso a: {', '.join(denegadas)}" if denegadas else "")
+                + f". Respuesta del agente: {texto.strip()[:600]}")
         with open(ruta, "r", encoding="utf-8-sig") as fh:
             crudo = fh.read()
     finally:
