@@ -30,6 +30,8 @@ Como lo llama el orquestador:
 Salidas: {"mp4", "duracion", "clips": {escena: ruta}, "fps", "resolucion"}.
 """
 import base64
+import functools
+import struct
 import json
 import math
 import os
@@ -109,6 +111,14 @@ CALIDADES = {
     "baja": {"crf": "26", "preset": "veryfast"},
 }
 
+# CQ y los presets de NVENC tienen su propia escala; no son argumentos CRF
+# de x264 ni una garantia de archivos iguales entre codificadores.
+CALIDADES_NVENC = {
+    "alta": {"cq": "16", "preset": "p5"},
+    "media": {"cq": "20", "preset": "p4"},
+    "baja": {"cq": "26", "preset": "p3"},
+}
+
 
 def describir(params):
     """Frase corta con lo que hara el paso con estos parametros."""
@@ -146,10 +156,18 @@ class Navegador:
         # dentro del perfil, que es temporal y se borra en `cerrar`.
         self.registro = os.path.join(self.perfil, "edge.log")
         self._registro = open(self.registro, "w", encoding="utf-8", errors="replace")
+        gpu = os.environ.get("ESTUDIO_RENDER_GPU", "auto").lower()
+        desactivar_gpu = gpu in ("0", "false", "no") or (gpu == "auto" and os.name != "nt")
         self.proceso = subprocess.Popen(
-            [medios.edge(), "--headless=new", "--disable-gpu", "--no-first-run",
+            [medios.edge(), "--headless=new"]
+            + (["--disable-gpu"] if desactivar_gpu else []) + ["--no-first-run",
              "--disable-extensions", "--hide-scrollbars", "--mute-audio",
-             "--force-device-scale-factor=1", "--disable-lcd-text",
+              "--force-device-scale-factor=1", "--disable-lcd-text",
+              # El raster y la composicion GPU varian segun el historial de
+              # capas (cartelas S010/S011 y zoom de alta frecuencia en pruebas).
+              # Se conservan deterministas; WebGL y NVENC si usan la GPU.
+              "--disable-gpu-rasterization",
+              "--disable-gpu-compositing",
              f"--user-data-dir={self.perfil}",
              # sin esto el navegador rechaza el websocket con 403: desde la
              # version 111 exige declarar el origen de quien lo pilota
@@ -167,7 +185,11 @@ class Navegador:
             stdout=subprocess.DEVNULL, stderr=self._registro,
             **medios.SIN_VENTANA)
         try:
-            self.ws = websocket.create_connection(self._url_pestana(), timeout=60)
+            # CDP local devuelve JSON; json.loads ya decodifica UTF-8. La
+            # validacion byte a byte de websocket-client sobre cada PNG en
+            # base64 era trabajo Python redundante en el camino mas caliente.
+            self.ws = websocket.create_connection(self._url_pestana(), timeout=60,
+                                                   skip_utf8_validation=True)
             self._id = 0
             self.rAF = True
             self.llamar("Page.enable")
@@ -244,8 +266,11 @@ class Navegador:
         limite = time.time() + 30
         while time.time() < limite:
             listo = self.evaluar("document.readyState === 'complete' && "
+                                 f"location.href === new URL({json.dumps(url)}).href && "
                                  "typeof pintar === 'function'")
             if listo:
+                self.evaluar("Promise.all([document.fonts.ready, ...Array.from("
+                             "document.images, img => img.decode())]).then(() => 1)", esperar=True)
                 return
             time.sleep(0.1)
         raise RuntimeError(f"la pagina no acabo de cargar: {ruta_html}")
@@ -278,12 +303,27 @@ class Navegador:
             # captureScreenshot fuerza un frame, asi que se sigue sin esperar
             self.rAF = False
 
-    def capturar(self, destino):
+    def capturar(self, destino=None):
         datos = self.llamar("Page.captureScreenshot", format="png",
-                            captureBeyondViewport=False)
+                            captureBeyondViewport=False, optimizeForSpeed=True)
+        png = base64.b64decode(datos["data"])
+        if destino is None:
+            return png
         with open(destino, "wb") as fh:
-            fh.write(base64.b64decode(datos["data"]))
+            fh.write(png)
         return destino
+
+    def renderizador(self):
+        """El dispositivo WebGL efectivo: activar GPU no garantiza usarla."""
+        return self.evaluar("""(() => {
+            const gl = document.createElement('canvas').getContext('webgl');
+            if (!gl) return 'WebGL no disponible';
+            const ext = gl.getExtension('WEBGL_debug_renderer_info');
+            const nombre = gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
+            const soltar = gl.getExtension('WEBGL_lose_context');
+            if (soltar) soltar.loseContext();
+            return nombre;
+        })()""")
 
     def cerrar(self):
         try:
@@ -440,16 +480,106 @@ def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, f
 
 # ------------------------------------------------------------------ ffmpeg
 
-def _codificar(dir_frames, destino, fps, calidad):
+
+@functools.lru_cache(maxsize=1)
+def _nvenc_disponible():
+    """Comprueba una codificacion real, no solo que ffmpeg anuncie el codec."""
+    try:
+        prueba = subprocess.run(
+            [medios.ffmpeg(), "-v", "error", "-f", "lavfi", "-i",
+             "color=black:s=320x240:r=1", "-frames:v", "1", "-c:v",
+             "h264_nvenc", "-f", "null", "-"], capture_output=True,
+            timeout=20, **medios.SIN_VENTANA)
+        return prueba.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _ajustes_codec(calidad, codec):
     ajustes = CALIDADES.get(calidad) or CALIDADES["media"]
+    if codec == "h264_nvenc":
+        nvenc = CALIDADES_NVENC.get(calidad) or CALIDADES_NVENC["media"]
+        return ["-c:v", "h264_nvenc", "-preset", nvenc["preset"], "-rc", "vbr",
+                "-cq", nvenc["cq"], "-b:v", "0", "-bf", "2"]
+    return ["-c:v", "libx264", "-preset", ajustes["preset"], "-crf", ajustes["crf"]]
+
+
+def _elegir_codec(trabajo, clips, pendientes):
+    """Conserva el codec de los clips reutilizados, incluso tras un fallo.
+
+    Cada clip nuevo declara el suyo junto al MP4. El marcador global permite
+    leer versiones antiguas de esta optimizacion; sin marcador eran x264.
+    """
+    anterior = (medios.leer_json(os.path.join(trabajo, "codec_render.json"), {}) or {}).get(
+        "codec", "libx264")
+    codecs = set()
+    for clip in clips:
+        if clip not in pendientes and os.path.isfile(clip):
+            codecs.add((medios.leer_json(clip + ".codec.json", {}) or {}).get("codec", anterior))
+    if len(codecs) > 1:
+        raise RuntimeError("Hay clips de codificadores distintos tras un montaje interrumpido; "
+                           "vuelve a montar todos los planos para unificarlos")
+    codec = next(iter(codecs)) if codecs else (
+        "h264_nvenc" if _nvenc_disponible() else "libx264")
+    if codec not in ("libx264", "h264_nvenc"):
+        raise RuntimeError("codificador de render desconocido")
+    if pendientes and codec == "h264_nvenc" and not _nvenc_disponible():
+        raise RuntimeError("Este video usa NVENC, pero no esta disponible para rehacer sus planos; "
+                           "vuelve a montar todos los planos para usar el codificador disponible")
+    return codec
+
+
+def _codificar(dir_frames, destino, fps, calidad, codec="libx264"):
     orden = [medios.ffmpeg(), "-y", "-loglevel", "error",
-             "-framerate", str(fps), "-i", os.path.join(dir_frames, "f%05d.png"),
-             "-c:v", "libx264", "-preset", ajustes["preset"], "-crf", ajustes["crf"],
-             "-pix_fmt", "yuv420p", "-r", str(fps), destino]
+             "-framerate", str(fps), "-i", os.path.join(dir_frames, "f%05d.png")]
+    orden += _ajustes_codec(calidad, codec) + ["-pix_fmt", "yuv420p", "-r", str(fps), destino]
     proceso = subprocess.run(orden, capture_output=True, text=True, timeout=3600,
                              **medios.SIN_VENTANA)
     if proceso.returncode != 0 or not os.path.exists(destino):
         raise RuntimeError(f"ffmpeg fallo con {destino}: {proceso.stderr[-400:]}")
+    return destino
+
+
+def _codificar_flujo(fotogramas, destino, fps, calidad, codec):
+    """PNG por stdin, con stderr drenado y publicacion solo al terminar bien.
+
+    La secuencia no reside en RAM: el productor entrega un fotograma cada vez.
+    El temporizador tambien corta un write bloqueado si ffmpeg deja de leer.
+    """
+    temporal = destino + ".parcial.mp4"
+    orden = [medios.ffmpeg(), "-y", "-loglevel", "error", "-f", "image2pipe",
+             "-framerate", str(fps), "-c:v", "png", "-i", "pipe:0"]
+    orden += _ajustes_codec(calidad, codec) + ["-pix_fmt", "yuv420p", "-r", str(fps), temporal]
+    with tempfile.TemporaryFile() as errores:
+        proceso = subprocess.Popen(orden, stdin=subprocess.PIPE,
+                                   stdout=subprocess.DEVNULL, stderr=errores,
+                                   **medios.SIN_VENTANA)
+        limite = threading.Timer(3600, proceso.kill)
+        limite.daemon = True
+        limite.start()
+        try:
+            try:
+                for png in fotogramas:
+                    proceso.stdin.write(png)
+                proceso.stdin.close()
+                proceso.wait(timeout=3600)
+            except BrokenPipeError:
+                proceso.wait(timeout=10)
+            if proceso.returncode != 0 or not os.path.isfile(temporal):
+                errores.seek(0)
+                error = errores.read().decode("utf-8", errors="replace")[-600:]
+                raise RuntimeError(f"ffmpeg fallo con {destino}: {error}")
+            medios.reemplazar(temporal, destino)
+        finally:
+            limite.cancel()
+            if proceso.poll() is None:
+                proceso.kill()
+            proceso.wait(timeout=10)
+            try:
+                proceso.stdin.close()
+            except OSError:
+                pass
+            medios.borrar(temporal)
     return destino
 
 
@@ -508,7 +638,7 @@ COLA_NEGRO_S = 3.0
 ENTRADA_NEGRO_S = 0.8
 
 
-def _cola_negra(clips, trabajo, fps, calidad, segundos=COLA_NEGRO_S):
+def _cola_negra(clips, trabajo, fps, calidad, segundos=COLA_NEGRO_S, codec="libx264"):
     """Anade al final un clip de negro. -> [rutas]
 
     SE ANADE, NO SE FUNDE. La primera version fundia a negro los ultimos tres
@@ -527,11 +657,15 @@ def _cola_negra(clips, trabajo, fps, calidad, segundos=COLA_NEGRO_S):
     """
     if not clips or segundos <= 0:
         return clips
+    # Un proyecto exportado puede remontarse en un servidor sin NVIDIA. La
+    # cola se crea de nuevo, no es un clip conservado: H.264/yuv420p admite su
+    # codificacion por CPU sin recodificar las escenas NVENC que ya existen.
+    if codec == "h264_nvenc" and not _nvenc_disponible():
+        codec = "libx264"
     carpeta = os.path.join(trabajo, "_cola")
     os.makedirs(carpeta, exist_ok=True)
     ultimo, fotograma = clips[-1], os.path.join(carpeta, "ultimo.png")
     negro = os.path.join(carpeta, "cola.mp4")
-    ajustes = CALIDADES.get(calidad) or CALIDADES["media"]
     entrada = min(ENTRADA_NEGRO_S, segundos)
     try:
         # el ultimo fotograma del ultimo clip
@@ -544,9 +678,8 @@ def _cola_negra(clips, trabajo, fps, calidad, segundos=COLA_NEGRO_S):
         hacer = subprocess.run(
             [medios.ffmpeg(), "-y", "-loglevel", "error", "-loop", "1",
              "-framerate", str(fps), "-t", f"{segundos:g}", "-i", fotograma,
-             "-vf", f"fade=t=out:st=0:d={entrada:g}:color=black",
-             "-c:v", "libx264", "-preset", ajustes["preset"],
-             "-crf", ajustes["crf"], "-pix_fmt", "yuv420p", "-r", str(fps),
+             "-vf", f"fade=t=out:st=0:d={entrada:g}:color=black"]
+            + _ajustes_codec(calidad, codec) + ["-pix_fmt", "yuv420p", "-r", str(fps),
              "-an", negro],
             capture_output=True, text=True, timeout=300, **medios.SIN_VENTANA)
         if hacer.returncode != 0 or not os.path.exists(negro):
@@ -557,7 +690,8 @@ def _cola_negra(clips, trabajo, fps, calidad, segundos=COLA_NEGRO_S):
 
 def _concatenar(clips, destino, audio, desfase, trabajo, musica=None,
                 efectos=None, duracion=0.0, lufs=None, cama=False,
-                ajuste_db=0.0, fps=12, calidad="media", efectos_db=0.0):
+                ajuste_db=0.0, fps=12, calidad="media", efectos_db=0.0,
+                codec="libx264"):
     """Une los clips sin recodificar y mezcla la banda sonora.
 
     La banda son tres pistas: la locucion, el tema de fondo agachado bajo ella
@@ -572,7 +706,7 @@ def _concatenar(clips, destino, audio, desfase, trabajo, musica=None,
     # LA COLA DE NEGRO. Se hace aqui y no en el clip de cada plano porque
     # depende del ORDEN: es el final del VIDEO, no el de una escena, y hasta
     # que no estan todos no se sabe cual es el ultimo.
-    clips = _cola_negra(clips, trabajo, fps, calidad)
+    clips = _cola_negra(clips, trabajo, fps, calidad, codec=codec)
     lista = os.path.join(trabajo, "clips.txt")
     with open(lista, "w", encoding="utf-8") as fh:
         for clip in clips:
@@ -990,6 +1124,75 @@ def _fotogramas_de_clip(ruta, carpeta, mov, total, fps):
     return rutas
 
 
+def _transicion_del_plano(tarea, navegador):
+    corte = tarea.get("corte") or {}
+    anterior = tarea.get("anterior")
+    if not anterior or not transiciones.cuece_el_anterior(corte):
+        return 0
+    if tarea.get("esperar_anterior") and not _esperar(anterior, tarea["desde"]):
+        print(f"[render] {tarea['id']}: el plano anterior ({tarea['previo']}) "
+              f"no ha dejado su ultimo fotograma en {ESPERA_ANTERIOR_S:.0f} s; "
+              "este corte va sin transicion", flush=True)
+        return 0
+    if not os.path.exists(anterior):
+        return 0
+    return _cocer_transicion(navegador, tarea["pagina_trans"], anterior,
+                            tarea["carpeta"], int(tarea["frames"]),
+                            int(tarea["fps"]), corte)
+
+
+def _renderizar_flujo(tarea, navegador):
+    """Solo la cabecera que necesita WebGL lleva PNG individuales.
+
+    Sin transicion se codifica mientras se captura. Con transicion se conserva
+    la cola limpia en UN archivo temporal secuencial, no en miles de PNG ni en
+    una lista en memoria. Se publica el ultimo frame limpio antes de esperar al
+    anterior, igual que en el camino de diagnostico que conserva los frames.
+    """
+    total, fps = int(tarea["frames"]), int(tarea["fps"])
+    corte = tarea.get("corte") or {}
+    cabecera = (min(total, int(round(fps * float(corte.get("duracion") or 0))))
+                if tarea.get("anterior") and transiciones.cuece_el_anterior(corte) else 0)
+
+    def capturar(numero):
+        navegador.pintar(numero / float(fps))
+        png = navegador.capturar()
+        if numero == total - 1:
+            parcial = tarea["ultimo"] + ".parcial"
+            with open(parcial, "wb") as fh:
+                fh.write(png)
+            medios.reemplazar(parcial, tarea["ultimo"])
+        return png
+
+    if not cabecera:
+        _codificar_flujo((capturar(n) for n in range(total)), tarea["clip"],
+                        fps, tarea["calidad"], tarea.get("codec", "libx264"))
+        return 0
+    with tempfile.TemporaryFile() as cola:
+        for numero in range(total):
+            png = capturar(numero)
+            if numero < cabecera:
+                with open(os.path.join(tarea["carpeta"], f"f{numero + 1:05d}.png"), "wb") as fh:
+                    fh.write(png)
+            else:
+                cola.write(struct.pack("<I", len(png)))
+                cola.write(png)
+        pintados = _transicion_del_plano(tarea, navegador)
+        cola.seek(0)
+
+        def fotogramas():
+            for numero in range(cabecera):
+                with open(os.path.join(tarea["carpeta"], f"f{numero + 1:05d}.png"), "rb") as fh:
+                    yield fh.read()
+            for _ in range(total - cabecera):
+                tamano = struct.unpack("<I", cola.read(4))[0]
+                yield cola.read(tamano)
+
+        _codificar_flujo(fotogramas(), tarea["clip"], fps, tarea["calidad"],
+                        tarea.get("codec", "libx264"))
+    return pintados
+
+
 def renderizar_plano(tarea, navegador=None):
     """Los fotogramas de UN plano, su transicion y su clip. -> ficha del plano.
 
@@ -997,6 +1200,7 @@ def renderizar_plano(tarea, navegador=None):
     para que lo pueda usar igual el camino en fila y el proceso de un lote. Un
     solo cuerpo: si hubiera dos, uno de los dos se quedaria viejo.
     """
+    inicio_plano = time.perf_counter()
     sid = tarea["id"]
     fps = int(tarea["fps"])
     total = int(tarea["frames"])
@@ -1022,38 +1226,17 @@ def renderizar_plano(tarea, navegador=None):
                          capa_fija=tarea.get("capa_fija") or "", fps=fps, fotogramas=fotogramas)
 
     navegador.abrir(pagina)
-    for numero in range(total):
-        navegador.pintar(numero / float(fps))
-        navegador.capturar(os.path.join(carpeta, f"f{numero + 1:05d}.png"))
-    # El ultimo fotograma se guarda ANTES de la transicion: es el que mira el
-    # plano siguiente, y lo que tiene que mirar es este plano limpio, no este
-    # plano mezclado con el anterior.
-    _guardar_ultimo(os.path.join(carpeta, f"f{total:05d}.png"), tarea["ultimo"])
-
     corte = tarea.get("corte") or {}
-    pintados = 0
-    anterior = tarea.get("anterior")
-    if anterior and transiciones.cuece_el_anterior(corte):
-        # el plano de antes puede estar renderizandose en otro proceso: su
-        # ultimo fotograma es la senal de que ya se puede mezclar con el
-        listo = True
-        if tarea.get("esperar_anterior"):
-            listo = _esperar(anterior, tarea["desde"])
-            if not listo:
-                # SE DICE, no se calla. Antes daba igual porque la espera nunca
-                # fallaba (bastaba con que el fichero existiera); ahora un lote
-                # caido deja a su sucesor sin transicion, y un corte seco que
-                # aparece sin motivo es media hora buscando en el sitio que no
-                # es. El plano sale igual, con corte.
-                print(f"[render] {tarea['id']}: el plano anterior "
-                      f"({tarea['previo']}) no ha dejado su ultimo fotograma en "
-                      f"{ESPERA_ANTERIOR_S:.0f} s; este corte va sin transicion",
-                      flush=True)
-        if listo and os.path.exists(anterior):
-            pintados = _cocer_transicion(navegador, tarea["pagina_trans"],
-                                         anterior, carpeta, total, fps, corte)
-
-    _codificar(carpeta, tarea["clip"], fps, tarea["calidad"])
+    if tarea.get("conservar_frames"):
+        for numero in range(total):
+            navegador.pintar(numero / float(fps))
+            navegador.capturar(os.path.join(carpeta, f"f{numero + 1:05d}.png"))
+        _guardar_ultimo(os.path.join(carpeta, f"f{total:05d}.png"), tarea["ultimo"])
+        pintados = _transicion_del_plano(tarea, navegador)
+        _codificar(carpeta, tarea["clip"], fps, tarea["calidad"], tarea.get("codec", "libx264"))
+    else:
+        pintados = _renderizar_flujo(tarea, navegador)
+    medios.escribir_json(tarea["clip"] + ".codec.json", {"codec": tarea.get("codec", "libx264")})
     medios.borrar(pagina)
     if not tarea.get("conservar_frames"):
         shutil.rmtree(carpeta, ignore_errors=True)
@@ -1062,6 +1245,8 @@ def renderizar_plano(tarea, navegador=None):
             "transicion": corte.get("tipo") or "corte",
             "ranura": corte.get("ranura") or "corte",
             "frames_transicion": pintados,
+            "segundos_render": round(time.perf_counter() - inicio_plano, 3),
+            "codec": tarea.get("codec", "libx264"),
             "origen": "renderizado"}
 
 
@@ -1417,6 +1602,14 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                 and not os.path.exists(tarea["anterior"])):
             tarea["anterior"] = None
 
+    # Todos los clips de un montaje deben mantener el codificador: al rehacer
+    # un plano se conservan los demas y se concatenan sin recodificar. Los
+    # proyectos anteriores al marcador siempre se codificaron con libx264.
+    ruta_codec = os.path.join(trabajo, "codec_render.json")
+    codec = _elegir_codec(trabajo, clips, {t["clip"] for t in tareas})
+    for tarea in tareas:
+        tarea["codec"] = codec
+
     if tareas:
         lotes = _repartir_lotes(tareas, _cuantos_lotes(p, len(tareas)))
         if len(lotes) <= 1:
@@ -1436,6 +1629,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         if faltan:
             raise RuntimeError(f"no se renderizaron {len(faltan)} plano(s): "
                                f"{', '.join(faltan[:6])}")
+        medios.escribir_json(ruta_codec, {"codec": codec})
 
     if not p["conservar_frames"]:
         shutil.rmtree(dir_frames, ignore_errors=True)
@@ -1489,8 +1683,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     _concatenar(clips, destino, audio, desfase, trabajo, musica=pista_musica,
                 efectos=pista_efectos, duracion=largo_con_cola,
                 lufs=p.get("musica_lufs"), cama=cama, ajuste_db=ajuste_musica,
-                fps=fps, calidad=p.get("calidad") or "media",
-                efectos_db=ajuste_efectos)
+                fps=fps, calidad=p["calidad_video"],
+                efectos_db=ajuste_efectos, codec=codec)
     duracion = medios.duracion_media(destino)
 
     # los assets son unidades heredadas: no se renderizan, pero se sellan igual

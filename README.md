@@ -266,6 +266,37 @@ la explicación del agente y las herramientas cuyo permiso se denegó. Actualiza
 el Estudio y reinicia el servicio para aplicar la corrección; no hace falta
 desactivar los permisos del CLI ni volver a generar el guion o la voz.
 
+### Aceleración del montaje local
+
+El montaje detecta **H.264 NVENC** con una codificación real y lo utiliza si está
+disponible; en las demás máquinas utiliza x264 por CPU. En Windows permite la
+aceleración gráfica de Edge para WebGL. El rasterizado de SVG y la composición
+de las capas se mantienen por software para que las cartelas y el zoom salgan
+iguales en serie y en paralelo.
+
+Las capturas PNG siguen siendo sin pérdida, con compresión rápida y sin una
+validación redundante de los datos base64 en la conexión local con el navegador.
+Normalmente se entregan a FFmpeg por una tubería: en cortes secos se codifica
+mientras se captura; en transiciones solo se guardan los PNG que necesita WebGL
+y el resto va a un archivo temporal secuencial. `conservar_frames` mantiene el
+camino de diagnóstico con todos los PNG.
+
+El codificador se conserva al rehacer planos sueltos. Un montaje completo puede
+elegir NVENC; los planos que se reutilizan de un montaje anterior mantienen su
+codificador. Estas mejoras se aplican después de reiniciar el servicio, sin
+cambiar los parámetros guardados ni regenerar voz o imágenes.
+
+Para medir con un hyperframe real, sin modificar proyectos ni llamar a IA:
+
+```powershell
+python pasos/medir_render.py --fotogramas 60 --reparto --procesos 6,8
+```
+
+El informe identifica el dispositivo WebGL efectivo y el codificador. Compara
+solo cantidades de procesos que quepan en la memoria libre; el montaje sigue
+limitando automáticamente su paralelismo según la RAM. Las mediciones cortas
+incluyen arranque de procesos y no son una promesa del tiempo del vídeo entero.
+
 ### Fuentes y motores locales
 
 En Linux local, las fuentes se resuelven con **Fontconfig** (`fc-match`) por la
@@ -526,6 +557,7 @@ aislamiento por proceso:
 | `ESTUDIO_MOTORES`, `ESTUDIO_FUENTES` | los motores y las tipografías |
 | `ESTUDIO_EDGE`, `ESTUDIO_FFMPEG`, `ESTUDIO_FFPROBE` | los ejecutables |
 | `ESTUDIO_LOTES` | cuántos planos se renderizan a la vez |
+| `ESTUDIO_RENDER_GPU` | `auto`: GPU en Windows; `0`: desactivarla; `1`: permitirla también en otros sistemas |
 | `ESTUDIO_SIMULAR=1` | no sale a ninguna API de pago: lo usan las pruebas |
 
 **`ESTUDIO_ESTADISTICAS` importa más de lo que parece.** El histórico guarda 30

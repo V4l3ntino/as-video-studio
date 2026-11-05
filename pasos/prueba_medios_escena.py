@@ -181,7 +181,7 @@ class ClipsReales(unittest.TestCase):
         video = os.path.join(self.tmp.name, "clip.mp4")
         p8_render._codificar(moviles, video, 30, "media")
         salida = os.path.join(self.tmp.name, "mixto.mp4")
-        with patch.object(p8_render, "_cola_negra", side_effect=lambda clips, *_a: clips):
+        with patch.object(p8_render, "_cola_negra", side_effect=lambda clips, *_a, **_kw: clips):
             p8_render._concatenar([imagen, video], salida, None, 0, self.tmp.name, fps=30)
         self.assertAlmostEqual(propios.informacion_video(salida)["duracion"], 1, places=2)
 

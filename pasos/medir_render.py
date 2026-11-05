@@ -144,7 +144,8 @@ def _hyperframe_y_capa(hyper=None, capa=None):
 
 
 def medir(fotogramas=FOTOGRAMAS, resolucion=(1920, 1080), fps=30,
-          calidad="alta", hyper=None, capa=None, con_transicion=True):
+          calidad="alta", hyper=None, capa=None, con_transicion=True,
+          codec="libx264"):
     """El reparto del tiempo de render, en segundos por casilla.
 
     Devuelve tambien el coste POR FOTOGRAMA de cada casilla, que es lo unico
@@ -175,6 +176,7 @@ def medir(fotogramas=FOTOGRAMAS, resolucion=(1920, 1080), fps=30,
         inicio = time.perf_counter()
         navegador = p8_render.Navegador(ancho, alto)
         tiempos["arrancar"] = time.perf_counter() - inicio
+        renderizador = navegador.renderizador()
 
         tiempos["abrir"] = _cronometrar(lambda: navegador.abrir(pagina))
 
@@ -192,7 +194,7 @@ def medir(fotogramas=FOTOGRAMAS, resolucion=(1920, 1080), fps=30,
 
         clip = os.path.join(trabajo, "clip.mp4")
         tiempos["codificar"] = _cronometrar(
-            lambda: p8_render._codificar(carpeta, clip, fps, calidad))
+            lambda: p8_render._codificar(carpeta, clip, fps, calidad, codec))
 
         tiempos["transicion"] = 0.0
         cuantos = 0
@@ -215,7 +217,7 @@ def medir(fotogramas=FOTOGRAMAS, resolucion=(1920, 1080), fps=30,
         destino = os.path.join(trabajo, "video.mp4")
         tiempos["montar"] = _cronometrar(
             lambda: p8_render._concatenar([clip, clip_b], destino, None, 0.0,
-                                          trabajo))
+                                          trabajo, fps=fps, calidad=calidad, codec=codec))
     finally:
         if navegador:
             navegador.cerrar()
@@ -237,6 +239,8 @@ def medir(fotogramas=FOTOGRAMAS, resolucion=(1920, 1080), fps=30,
         "resolucion": [ancho, alto],
         "fps": fps,
         "calidad": calidad,
+        "codec": codec,
+        "renderizador": renderizador,
         "hyperframe": os.path.basename(hyper),
         "condiciones": condiciones(),
         "capa_bytes": len(svg),
@@ -269,7 +273,7 @@ def reparto(ficha):
 
 
 def medir_reparto(procesos=(1, 4, 8, 16), fotogramas=30, resolucion=(1920, 1080),
-                  fps=30, hyper=None, capa=None):
+                  fps=30, hyper=None, capa=None, codec="libx264"):
     """Cuantos fotogramas por segundo dan N procesos de captura a la vez.
 
     Es la medida que decidio el arreglo del 21-08-2026 y por eso se queda: el
@@ -289,7 +293,9 @@ def medir_reparto(procesos=(1, 4, 8, 16), fotogramas=30, resolucion=(1920, 1080)
         for cuantos in procesos:
             tareas = []
             for numero in range(cuantos):
-                carpeta = os.path.join(trabajo, f"p{cuantos}_{numero}")
+                salida = os.path.join(trabajo, f"p{cuantos}_{numero}")
+                os.makedirs(salida, exist_ok=True)
+                carpeta = os.path.join(salida, "frames")
                 tareas.append([{
                     "id": f"M{numero:03d}",
                     "escena": {"id": f"M{numero:03d}", "t_in": 0.0,
@@ -298,10 +304,10 @@ def medir_reparto(procesos=(1, 4, 8, 16), fotogramas=30, resolucion=(1920, 1080)
                             "ventana_fin": [0.0263, 0.0263, 0.9474, 0.9474],
                             "hyperframe_px": hyper_px},
                     "capa": svg, "hyper": hyper, "frames": fotogramas,
-                    "fps": fps, "resolucion": [ancho, alto], "calidad": "alta",
+                    "fps": fps, "resolucion": [ancho, alto], "calidad": "alta", "codec": codec,
                     "carpeta": carpeta,
-                    "clip": os.path.join(carpeta, "clip.mp4"),
-                    "ultimo": os.path.join(carpeta, "ultimo.png"),
+                    "clip": os.path.join(salida, "clip.mp4"),
+                    "ultimo": os.path.join(salida, "ultimo.png"),
                     "anterior": None, "esperar_anterior": False,
                     "corte": {}, "pagina_trans": "",
                     "conservar_frames": False}])
@@ -327,20 +333,37 @@ def _main(argv=None):
     aparcador.add_argument("--capa", default=None)
     aparcador.add_argument("--sin-transicion", action="store_true")
     aparcador.add_argument("--reparto", action="store_true",
-                           help="ademas, la curva de N procesos a la vez")
+                            help="ademas, la curva de N procesos a la vez")
+    aparcador.add_argument("--procesos", default="1,4,8",
+                            help="procesos a comparar con --reparto (p. ej. 6,8)")
+    aparcador.add_argument("--codec", default="auto", choices=("auto", "libx264", "h264_nvenc"))
     aparcador.add_argument("--json", default=None)
     args = aparcador.parse_args(argv)
+    if args.fotogramas < 1 or args.fps < 1:
+        aparcador.error("fotogramas y fps deben ser positivos")
+    try:
+        procesos = tuple(int(n) for n in args.procesos.split(","))
+        if not procesos or min(procesos) < 1:
+            raise ValueError()
+    except ValueError:
+        aparcador.error("procesos debe ser una lista de enteros positivos")
+    codec = args.codec
+    if codec == "auto":
+        codec = "h264_nvenc" if p8_render._nvenc_disponible() else "libx264"
+    if args.reparto and max(procesos) > min(p8_render.MAX_LOTES, p8_render._tope_por_memoria()):
+        aparcador.error("no hay memoria libre suficiente para el reparto solicitado")
 
     ficha = medir(fotogramas=args.fotogramas,
                   resolucion=(args.ancho, args.alto), fps=args.fps,
                   calidad=args.calidad, hyper=args.hyper, capa=args.capa,
-                  con_transicion=not args.sin_transicion)
+                  con_transicion=not args.sin_transicion, codec=codec)
     tabla = reparto(ficha)
     print(f"MEDIDO sobre {ficha['fotogramas']} fotogramas de "
           f"{ficha['resolucion'][0]}x{ficha['resolucion'][1]} a {ficha['fps']} fps, "
-          f"calidad {ficha['calidad']}")
+          f"calidad {ficha['calidad']}, {codec}")
     print(f"  hyperframe {ficha['hyperframe']}, capa de {ficha['capa_bytes']} bytes")
     print(f"  condiciones: {ficha['condiciones']}")
+    print(f"  WebGL: {ficha['renderizador']}")
     print()
     for nombre, valor in ficha["segundos"].items():
         print(f"  {nombre:<18} {valor:8.2f} s")
@@ -355,8 +378,9 @@ def _main(argv=None):
     if args.reparto:
         print()
         print("  CON N PROCESOS A LA VEZ (que es como corre p8 desde el 21-08):")
-        curva = medir_reparto(hyper=args.hyper, capa=args.capa,
-                              resolucion=(args.ancho, args.alto), fps=args.fps)
+        curva = medir_reparto(procesos=procesos, fotogramas=args.fotogramas,
+                               hyper=args.hyper, capa=args.capa,
+                               resolucion=(args.ancho, args.alto), fps=args.fps, codec=codec)
         for cuantos, velocidad in curva.items():
             print(f"    {cuantos:>3} proceso(s): {velocidad:6.2f} fotogramas/s"
                   f"   -> 2:28 en {148 * args.fps / velocidad / 60:5.1f} min")
