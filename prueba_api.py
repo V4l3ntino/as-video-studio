@@ -887,7 +887,7 @@ def probar_sustitucion_de_escenas(cliente):
     igual(respuesta.status_code, 404, "no se sube material a un plano inexistente")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         return
-    for duracion in (1, 7):
+    for duracion in (1, 8, 15, 16):
         ruta = proyecto.ruta(f"entrada_{duracion}.mp4")
         subprocess.run([shutil.which("ffmpeg"), "-nostdin", "-y", "-v", "error", "-f", "lavfi",
             "-i", "testsrc2=size=64x48:rate=30", "-t", str(duracion), "-c:v", "libx264", ruta],
@@ -901,8 +901,10 @@ def probar_sustitucion_de_escenas(cliente):
         else:
             igual(final["estado"], "listo", f"el clip se normaliza: {final.get('error')}")
             medio = (final.get("resultado") or {}).get("medio") or {}
-            ok(medio.get("recortado"), "un video de 7 s se recorta automaticamente")
-            igual(round(medio.get("duracion", 0), 2), 6.5, "el archivo final dura 6,5 segundos")
+            igual(medio.get("recortado"), duracion > 15,
+                  f"el clip de {duracion} s solo se recorta si supera 15 s")
+            igual(round(medio.get("duracion", 0), 2), min(duracion, 15),
+                  f"el archivo de {duracion} s conserva hasta 15 segundos")
             _, previa = cliente.get(f"/api/proyectos/{proyecto.id}/previsualizacion")
             ok(previa["escenas"][0].get("clip"), "la previsualizacion publica el clip para reproducirlo")
 
@@ -4466,6 +4468,120 @@ def probar_regrabar_un_tramo(cliente):
     cliente.delete(f"/api/proyectos/{pid}")
 
 
+def probar_clip_en_imagenes():
+    """El audio parado no congela el clip y repintar no reinicia su reproductor."""
+    seccion("CLIPS EN IMAGENES: REPRODUCCION Y RELOJ DE LA NARRACION")
+    trozos = _trozos_de_app(("function sincronizarClipPrevia()", "function seguirSustitucionEscena("))
+    if trozos is None:
+        return
+    guion = """
+const PREVIA = {clip: null, sonando: false, audio: {currentTime: 100, paused: true}};
+let escena = {id: 'S001', clip: 'uno.mp4', t_in: 10, t_out: 20};
+function videoAbierto() { return {pid: 'video'}; }
+function escenaPrevia() { return escena; }
+const API = {archivo: (pid, ruta) => pid + '/' + ruta};
+const document = {querySelector: () => PREVIA.clip};
+function h(_tag, attrs) {
+  return {...attrs, dataset: attrs.datos, currentTime: 0, duration: 8, paused: false,
+    play() { this.paused = false; return Promise.resolve(); },
+    pause() { this.paused = true; }};
+}
+""" + trozos[0] + """
+const clip = clipPrevia(escena, 'poster.png');
+const r = {automatico: clip.autoplay && clip.loop && clip.muted};
+clip.currentTime = 2;
+sincronizarClipPrevia();
+r.audio_parado_no_congela = clip.currentTime === 2 && !clip.paused;
+r.reutiliza = clipPrevia(escena, 'poster.png') === clip && clip.currentTime === 2;
+PREVIA.sonando = true;
+PREVIA.audio = {currentTime: 11, paused: false};
+sincronizarClipPrevia();
+r.sincronizado = clip.currentTime === 1 && !clip.paused && !clip.loop;
+PREVIA.audio.currentTime = 19;
+sincronizarClipPrevia();
+r.congela_final = clip.paused && Math.abs(clip.currentTime - (8 - 1/30)) < .001;
+PREVIA.sonando = false;
+sincronizarClipPrevia();
+r.respeta_pausa = clip.paused;
+escena = {...escena, clip: 'sustitucion.mp4'};
+const nuevo = clipPrevia(escena, 'otro.png');
+r.sustituido_nuevo = nuevo !== clip && clip.paused && nuevo.src.endsWith('sustitucion.mp4');
+console.log(JSON.stringify(r));
+"""
+    resultado = _correr_node("prueba_clip_previa.js", guion)
+    if resultado is None:
+        return
+    for clave, mensaje in (
+        ("automatico", "el clip se previsualiza automaticamente, en bucle y sin sonido"),
+        ("audio_parado_no_congela", "una narracion parada no congela la vista previa"),
+        ("reutiliza", "repintar conserva el reproductor y su posicion"),
+        ("sincronizado", "al escuchar la narracion el clip sigue su reloj sin bucle"),
+        ("congela_final", "un clip corto conserva el ultimo fotograma durante la narracion"),
+        ("respeta_pausa", "los controles conservan la pausa del clip"),
+        ("sustituido_nuevo", "sustituir el archivo cambia el reproductor y detiene el anterior"),
+    ):
+        ok(resultado[clave], mensaje)
+
+
+def probar_audio_actual_en_imagenes():
+    """La revision vieja no tapa una voz nueva; sus escenas usan el mismo reloj."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    servidor = _servicio()
+    seccion("IMAGENES REPRODUCE LA TOMA NUEVA Y SUS TIEMPOS")
+    estado = MagicMock()
+    estado.estado_de.return_value = "obsoleto"
+    voz = [{"n": 1, "activa": False, "fecha": "2026-01-01T10:00:00"},
+           {"n": 3, "activa": True, "fecha": "2026-01-01T12:00:00"}]
+    revision = [{"n": 1, "activa": True, "fecha": "2026-01-01T11:00:00"}]
+    estado.versiones_resumen.side_effect = lambda paso: voz if paso == "voz" else revision
+    estado.params.return_value = {}
+    rutas = {"voz": "pasos/voz/v3/narracion.wav",
+             "revision_audio": "pasos/revision_audio/v1/narracion.wav"}
+    with tempfile.TemporaryDirectory(prefix="previa_audio_") as carpeta:
+        proyecto = SimpleNamespace(ruta=lambda *p: os.path.join(carpeta, *p),
+                                   version_activa=lambda _paso: None)
+        ctx = SimpleNamespace(estado=estado, proyecto=proyecto)
+        with patch.object(servidor, "_ruta_de_version", side_effect=lambda _c, paso, *_p: rutas.get(paso)):
+            igual(servidor._audio_de_la_toma(ctx), rutas["voz"],
+                  "una revision anterior no tapa la voz recien regrabada")
+            revision[0]["fecha"] = "2026-01-01T13:00:00"
+            igual(servidor._audio_de_la_toma(ctx), rutas["revision_audio"],
+                  "editar notas no descarta una revision mas reciente que la voz")
+            voz[0]["activa"], voz[1]["activa"] = True, False
+            igual(servidor._audio_de_la_toma(ctx), rutas["voz"],
+                  "restaurar una voz anterior no reproduce una revision de otra toma")
+            voz[0]["activa"], voz[1]["activa"] = False, True
+            revision[0]["fecha"] = "2026-01-01T11:00:00"
+            estado.estado_de.return_value = "listo"
+            igual(servidor._audio_de_la_toma(ctx), rutas["revision_audio"],
+                  "una revision al dia mantiene la prioridad")
+            estado.estado_de.return_value = "obsoleto"
+            meta = proyecto.ruta("pasos", "voz", "v3", "audio_meta.json")
+            os.makedirs(os.path.dirname(meta))
+            with open(meta, "w", encoding="utf-8") as fh:
+                json.dump({}, fh)
+            viejo = {"escenas": [{"id": "S001", "narracion": "Antes", "t_in": 0, "t_out": 4}],
+                     "duracion_total": 4}
+            nuevo = {"escenas": [{"id": "S001", "narracion": "Ahora", "t_in": 0, "t_out": 7}],
+                     "duracion_total": 7}
+            p6 = servidor.PASOS_MODULOS.p6_assets
+            with patch.object(servidor, "contexto", return_value=ctx), \
+                    patch.object(p6, "plan_actual", return_value=copy.deepcopy(viejo)), \
+                    patch.object(p6, "planificar", return_value=nuevo) as planificar, \
+                    patch.object(p6, "planos_hechos", return_value={}), \
+                    patch.object(servidor, "_medidor_de_subtitulo", return_value=(None, None)), \
+                    patch.object(servidor, "_obsolescencia", return_value={}):
+                previa = servidor.leer_previsualizacion("prueba")
+            igual(previa["audio"], rutas["voz"], "Imágenes publica el WAV nuevo")
+            igual(previa["escenas"][0]["t_out"], 7, "la escucha acaba en el tiempo nuevo")
+            igual(previa["escenas"][0]["narracion"], "Ahora", "la escena describe lo que suena ahora")
+            igual(os.path.normpath(planificar.call_args.args[1]["audio_meta"]), meta,
+                  "el corte usa las marcas de la misma toma que el WAV")
+            ok(not estado.actualizar_params.called and not estado.completar.called,
+               "abrir Imágenes no guarda parametros ni versiona ningun paso")
+
+
 def probar_que_la_voz_regrabada_queda_al_dia():
     """Las dos salvaguardas de sellar lo regrabado, por dentro.
 
@@ -5608,6 +5724,8 @@ def main():
         probar_que_el_mp4_suelto_tiene_barra()
         probar_que_un_plano_con_nota_no_cuenta_como_hecho()
         probar_que_la_voz_regrabada_queda_al_dia()
+        probar_audio_actual_en_imagenes()
+        probar_clip_en_imagenes()
         # los arreglos de octubre (1)
         probar_el_sonido_sin_claves(cliente, pid)
         probar_que_montar_no_redibuja(cliente)

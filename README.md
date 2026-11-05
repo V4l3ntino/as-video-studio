@@ -124,9 +124,11 @@ En **Imágenes**, pasa el cursor sobre el cuadro de la escena y pulsa
 siempre visible. Elige una imagen **PNG, JPG o WebP**, o un vídeo **MP4, MOV,
 WebM, MKV, M4V o AVI** (hasta 200 MiB por archivo).
 
-Los clips deben durar **al menos 2 segundos**. Si superan **6,5 segundos**, el
-Estudio conserva automáticamente solo el tramo **0–6,5 s**, sin pedir un recorte
-manual. El clip se puede reproducir en esa misma pantalla y volver a sustituir.
+Los clips deben durar **al menos 2 segundos**. Si superan **15 segundos**, el
+Estudio conserva automáticamente solo el tramo **0–15 s**, sin pedir un recorte
+manual. El clip se previsualiza automáticamente en movimiento, en bucle y sin
+sonido. Al pulsar **Oírla**, sigue el reloj de la narración y congela el último
+fotograma si termina antes que la escena. Se puede volver a sustituir.
 Las imágenes y vídeos se adaptan al lienzo del proyecto, centrando y recortando
 lo que sobresale para cubrirlo sin deformaciones.
 

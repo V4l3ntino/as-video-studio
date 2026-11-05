@@ -8,7 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 _aislado = tempfile.TemporaryDirectory(prefix="prueba_medios_config_")
@@ -118,6 +119,37 @@ class Sustituciones(unittest.TestCase):
             with self.assertRaises(ValueError):
                 propios.preparar(ruta, nombre, self.proyecto.ruta("intento"), (160, 90))
 
+    @unittest.skipUnless(shutil.which("ffmpeg"), "requiere ffmpeg")
+    def test_clip_tras_editar_guion_se_ancla_al_plano_visible_y_no_desaparece(self):
+        import app as servidor
+        plan_visible = copy.deepcopy(self.plan)
+        plan_visible["escenas"][0]["narracion"] = "Primera escena con el texto nuevo"
+        self.estado.actualizar_params("voz", {"velocidad": "otra"})
+        meta = self.proyecto.ruta_paso("voz") + "/audio_meta.json"
+        escribir_json(meta, {})
+        origen = self.proyecto.ruta("entrada.mp4")
+        subprocess.run([shutil.which("ffmpeg"), "-nostdin", "-y", "-v", "error",
+            "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=30", "-t", "2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", origen],
+            check=True, capture_output=True, timeout=30)
+        ctx = SimpleNamespace(proyecto=self.proyecto, estado=self.estado, bitacora=MagicMock())
+
+        def planificar(_proyecto, params, previo=None):
+            return propios.aplicar_al_plan(copy.deepcopy(plan_visible), params)
+
+        with patch.object(servidor, "contexto", return_value=ctx), \
+                patch.object(servidor, "_audio_de_la_toma", return_value="pasos/voz/v1/narracion.wav"), \
+                patch.object(servidor.PASOS_MODULOS.p6_assets, "planificar", side_effect=planificar):
+            resultado = servidor._sustituir_medio_escena(lambda *_a: None, ctx, "S001", "clip.mp4",
+                origen, self.proyecto.ruta("medios_usuario", "clip_nuevo"))
+            previa = servidor.leer_previsualizacion(self.proyecto.id)
+        self.assertEqual(resultado["medio"]["ancla"], plan_visible["escenas"][0]["narracion"])
+        escena = next(e for e in previa["escenas"] if e["id"] == "S001")
+        self.assertEqual(escena["clip"], resultado["medio"]["archivo"])
+        self.assertEqual(escena["medio_usuario"]["tipo"], "video")
+        self.assertTrue(Path(escena["clip"]).is_file())
+        self.assertNotIn("obsoleta", escena)
+
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requiere ffmpeg y ffprobe")
 class ClipsReales(unittest.TestCase):
@@ -134,13 +166,13 @@ class ClipsReales(unittest.TestCase):
             check=True, capture_output=True, timeout=30)
         return ruta
 
-    def test_limites_dos_y_seis_y_medio_con_recorte_real_y_sin_audio(self):
-        for duracion in (2, 4, 8):
+    def test_limites_dos_y_quince_con_recorte_real_y_sin_audio(self):
+        for duracion in (2, 8, 15, 16):
             with self.subTest(duracion=duracion):
                 medio = propios.preparar(self.clip(duracion), "clip.mp4",
                     os.path.join(self.tmp.name, "normalizado" + str(duracion)), (160, 90))
-                self.assertAlmostEqual(medio["duracion"], min(duracion, 6.5), places=2)
-                self.assertEqual(medio["recortado"], duracion > 6.5)
+                self.assertAlmostEqual(medio["duracion"], min(duracion, 15), places=2)
+                self.assertEqual(medio["recortado"], duracion > 15)
                 datos = json.loads(subprocess.check_output([shutil.which("ffprobe"), "-v", "error",
                     "-show_entries", "stream=codec_type", "-of", "json", medio["archivo"]]))
                 self.assertEqual([s["codec_type"] for s in datos["streams"]], ["video"])

@@ -4747,17 +4747,26 @@ def _obsolescencia(ctx, escena):
     return {"obsoleta": True, "dibujada_para": ficha.get("narracion") or ""}
 
 def _audio_de_la_toma(ctx):
-    """El wav que se oye: el de la revision si la hay, y si no el de la voz.
+    """La toma vigente, sin anteponer una revision anterior a la voz nueva.
 
-    En ese orden y no al reves: `revision_audio` es el paso que puede haber
-    regrabado una seccion, asi que su toma es la que de verdad va a sonar en el
-    MP4. Coger la de `voz` daria a escuchar algo que ya no existe.
+    Una revision obsoleta puede seguir siendo la ultima toma grabada (solo se
+    han editado notas o el guion). Se conserva en ese caso, pero nunca tapa una
+    nueva version de voz ni una restauracion de voz con la que ya no coincide.
     """
-    for paso in ("revision_audio", "voz"):
-        ruta = _ruta_de_version(ctx, paso, "narracion.wav")
-        if ruta:
-            return ruta
-    return None
+    revision = _ruta_de_version(ctx, "revision_audio", "narracion.wav")
+    voz = _ruta_de_version(ctx, "voz", "narracion.wav")
+    if not revision or not voz:
+        return revision or voz
+    if ctx.estado.estado_de("revision_audio") == "listo":
+        return revision
+    voces = ctx.estado.versiones_resumen("voz")
+    revisiones = ctx.estado.versiones_resumen("revision_audio")
+    actual = next((v for v in voces if v.get("activa")), {})
+    revisada = next((v for v in revisiones if v.get("activa")), {})
+    restaurada = actual.get("n", 0) < max((v.get("n", 0) for v in voces), default=0)
+    if restaurada or str(actual.get("fecha") or "") >= str(revisada.get("fecha") or ""):
+        return voz
+    return revision
 
 
 def _medidor_de_subtitulo(ctx, plan):
@@ -4838,7 +4847,7 @@ def _sustituir_medio_escena(avisar, ctx, sid, nombre, origen, carpeta):
     publicado = False
     try:
         avisar(.05, "comprobando el archivo", "Preparando el material de la escena")
-        plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+        plan = _plan_de_previsualizacion(ctx)
         if not any(e.get("id") == sid for e in plan.get("escenas") or []):
             raise ValueError("esa escena ya no está en el plan")
         medio = medios_escena.preparar(origen, nombre, carpeta, plan.get("generacion") or [1536, 1024])
@@ -4861,7 +4870,7 @@ def _sustituir_medio_escena(avisar, ctx, sid, nombre, origen, carpeta):
 
 @app.post("/api/proyectos/{pid}/escenas/{sid}/medio", status_code=202)
 def sustituir_medio_escena(pid: str, sid: str, archivo: UploadFile = File(...)):
-    """Sustituye un plano por imagen o clip propio de 2 a 6,5 s; recorta el exceso."""
+    """Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso."""
     from pasos import medios_escena
     ctx = contexto(pid)
     if not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
@@ -4874,7 +4883,7 @@ def sustituir_medio_escena(pid: str, sid: str, archivo: UploadFile = File(...)):
     with _LOCK:
         if ctx.gestor.listar(activos=True):
             raise ErrorApi(409, "espera a que termine el trabajo del vídeo o páralo antes de sustituir una escena")
-        plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+        plan = _plan_de_previsualizacion(ctx)
         if not any(e.get("id") == sid for e in plan.get("escenas") or []):
             raise ErrorApi(404, "esa escena no está en el plan del vídeo")
         carpeta = ctx.proyecto.ruta("medios_usuario", uuid.uuid4().hex)
@@ -4900,11 +4909,33 @@ def sustituir_medio_escena(pid: str, sid: str, archivo: UploadFile = File(...)):
     return {"trabajo_id": tid, "trabajo": ctx.gestor.estado(tid)}
 
 
+def _plan_de_previsualizacion(ctx):
+    """El mismo plano y texto al mirar, validar y guardar una sustitucion.
+
+    Tras regrabar la voz, el plan versionado puede describir el texto anterior.
+    Anclar un clip a ese texto lo hace desaparecer al volver a la vista previa:
+    aplicar_al_plan lo descarta correctamente por pertenecer a otra frase.
+    """
+    plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+    audio = _audio_de_la_toma(ctx)
+    # El dibujo se conserva, pero sus tiempos no pueden seguir siendo los de
+    # otra toma. Replanificar aqui es una lectura pura: no guarda parametros,
+    # no versiona assets y no llama a generadores. Las marcas deben pertenecer
+    # precisamente al WAV que se va a reproducir.
+    if audio and plan.get("escenas") and ctx.estado.estado_de("assets") != "listo":
+        ruta_meta = ctx.proyecto.ruta(os.path.dirname(audio), "audio_meta.json")
+        if os.path.isfile(ruta_meta):
+            params = dict(ctx.estado.params("assets") or {}, audio_meta=ruta_meta)
+            plan = PASOS_MODULOS.p6_assets.planificar(ctx.proyecto, params, previo=plan) or plan
+    return plan
+
+
 @app.get("/api/proyectos/{pid}/previsualizacion")
 def leer_previsualizacion(pid: str):
     """Las piezas para ver el video sin montarlo. -> {escenas, audio, ...}"""
     ctx = contexto(pid)
-    plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
+    plan = _plan_de_previsualizacion(ctx)
+    audio = _audio_de_la_toma(ctx)
     escenas_plan = plan.get("escenas") or []
     if not escenas_plan:
         raise ErrorApi(409, "todavia no hay plan de planos: genera el video "
@@ -5000,7 +5031,7 @@ def leer_previsualizacion(pid: str):
     render = ctx.estado.params("render") or {}
     return {
         "escenas": escenas,
-        "audio": _audio_de_la_toma(ctx),
+        "audio": audio,
         # LA MUSICA Y LOS EFECTOS SOLO PARA EL PLAY SEGUIDO. Escena a escena se
         # oye la VOZ y nada mas: lo que se esta juzgando ahi es si la imagen
         # cuadra con lo que se dice, y una cama de musica debajo es justo lo que

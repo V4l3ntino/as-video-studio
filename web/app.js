@@ -6128,6 +6128,7 @@ async function cargarVideoLight(pid) {
     // y las escenas del previsualizador, por lo mismo: son las de otro vídeo
     pararPrevia();
     PREVIA.ficha = null;
+    PREVIA.clip = null;
     await reengancharTandaLight(pid);
     // y su cola de imágenes sigue donde la dejó (ver `reanudarColaLight`)
     reanudarColaLight(pid);
@@ -8083,6 +8084,7 @@ const PREVIA = {
   cargando: false,
   error: '',
   audio: null,        // <audio> de la narración, reutilizado
+  clip: null,         // <video> propio, reutilizado mientras no cambie la escena
   musica: null,       // <audio> de la cama, solo para el play seguido
   efectos: null,
   seguido: false,     // ¿está sonando el play de todo?
@@ -8341,7 +8343,7 @@ function sonarEscenaPrevia() {
   pararCamaPrevia();
   audio.currentTime = e.t_in;
   PREVIA.t = e.t_in;
-  audio.play().then(() => { PREVIA.sonando = true; repintarVideo(); })
+  audio.play().then(() => { PREVIA.sonando = true; sincronizarClipPrevia(); repintarVideo(); })
     .catch(() => { PREVIA.sonando = false; });
 }
 
@@ -8384,7 +8386,7 @@ function reproducirTodoPrevia() {
     const pista = camaPrevia(clave);
     if (pista) { pista.currentTime = e.t_in; pista.play().catch(() => {}); }
   }
-  audio.play().then(() => { PREVIA.sonando = true; repintarVideo(); })
+  audio.play().then(() => { PREVIA.sonando = true; sincronizarClipPrevia(); repintarVideo(); })
     .catch(() => { PREVIA.sonando = false; });
 }
 
@@ -8500,13 +8502,33 @@ function irAPrimeraObsoleta() {
 function sincronizarClipPrevia() {
   const clip = document.querySelector('.previa-clip');
   const escena = escenaPrevia();
-  if (!clip || !escena || !PREVIA.audio || !Number.isFinite(clip.duration)) return;
+  // Sin escucha de la narracion, el clip tiene su propio reloj y controles.
+  // Un audio pausado de otra escena no debe arrastrarlo al ultimo fotograma.
+  if (!clip || !escena || !PREVIA.sonando || !PREVIA.audio || !Number.isFinite(clip.duration)) return;
+  clip.loop = false;
   const t = Math.max(0, PREVIA.audio.currentTime - escena.t_in);
   const destino = Math.min(t, Math.max(0, clip.duration - 1 / 30));
   if (Math.abs(clip.currentTime - destino) > .2) clip.currentTime = destino;
   if (!PREVIA.audio.paused && t < clip.duration && PREVIA.audio.currentTime < escena.t_out) {
     clip.play().catch(() => {});
   } else clip.pause();
+}
+
+function clipPrevia(escena, poster) {
+  const pid = videoAbierto().pid;
+  const url = API.archivo(pid, escena.clip);
+  const clave = `${pid}:${escena.id}:${url}`;
+  if (!PREVIA.clip || PREVIA.clip.dataset.clave !== clave) {
+    if (PREVIA.clip) PREVIA.clip.pause();
+    PREVIA.clip = h('video', {clase: 'previa-clip', src: url,
+      controls: true, playsinline: true, autoplay: true, loop: true, muted: true,
+      preload: 'auto', datos: {clave}, onloadedmetadata: sincronizarClipPrevia,
+      title: 'Clip propio: vista previa sin sonido. Oírla lo sincroniza con la narración.'});
+    PREVIA.clip.muted = true;
+    PREVIA.clip.defaultMuted = true;
+  }
+  PREVIA.clip.poster = poster ? API.archivo(pid, poster) : '';
+  return PREVIA.clip;
 }
 
 function seguirSustitucionEscena(pid, tid, sid) {
@@ -8521,7 +8543,7 @@ function seguirSustitucionEscena(pid, tid, sid) {
     repintarVideo();
     const medio = ((trabajo.resultado || {}).medio || {});
     if (trabajo.estado === 'listo') toast(medio.recortado
-      ? 'Clip sustituido y recortado automáticamente a 6,5 segundos'
+      ? 'Clip sustituido y recortado automáticamente a 15 segundos'
       : 'Escena sustituida; monta el vídeo para ver el cambio en el MP4');
   });
 }
@@ -8549,7 +8571,7 @@ function botonSustituirEscena(escena) {
     onchange: ev => sustituirMedioEscena(escena, ev.target.files[0]) });
   return h('div', {clase: 'sustituir-medio'}, entrada,
     h('button', {clase: 'primario', disabled: !!trabajoVideoLight() || !!PREVIA.sustituyendo,
-      title: 'Elige una imagen o clip de al menos 2 s. Si supera 6,5 s, se recorta desde el inicio.',
+      title: 'Elige una imagen o clip de al menos 2 s. Si supera 15 s, se recorta desde el inicio.',
       onclick: ev => { ev.stopPropagation(); entrada.click(); }},
     PREVIA.sustituyendo ? 'Subiendo…' : 'Sustituir'));
 }
@@ -8605,11 +8627,7 @@ function vistaPreviaLight() {
   marco.classList.add(formatoDelVideo());
   const fondo = e.imagen;
   if (e.clip) {
-    const clip = h('video', {clase: 'previa-clip', src: API.archivo(v.pid, e.clip),
-      poster: fondo ? API.archivo(v.pid, fondo) : '', controls: true, playsinline: true,
-      preload: 'metadata', onloadedmetadata: sincronizarClipPrevia });
-    clip.muted = true;
-    marco.appendChild(clip);
+    marco.appendChild(clipPrevia(e, fondo));
   } else if (fondo) {
     marco.appendChild(h('img', {
       // en miniatura ancha: se ve igual en pantalla y entra en la caché que

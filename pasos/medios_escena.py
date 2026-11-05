@@ -13,7 +13,7 @@ except ImportError:
     import medios
 
 MIN_VIDEO_S = 2.0
-MAX_VIDEO_S = 6.5
+MAX_VIDEO_S = 15.0
 MAX_BYTES = 200 * 1024 * 1024
 IMAGENES = {".png", ".jpg", ".jpeg", ".webp"}
 VIDEOS = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi"}
@@ -44,7 +44,7 @@ def informacion_video(ruta):
 
 
 def preparar(origen, nombre, carpeta, tamano):
-    """Normaliza la imagen o los primeros 6,5 s de un clip; descarta su audio."""
+    """Normaliza la imagen o los primeros 15 s de un clip; descarta su audio."""
     extension = os.path.splitext(nombre or "")[1].lower()
     os.makedirs(carpeta, exist_ok=True)
     ancho, alto = map(int, tamano)
