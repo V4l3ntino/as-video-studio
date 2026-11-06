@@ -1000,6 +1000,11 @@ def probar_cartelas_y_transiciones(cliente, pid, raiz_proyecto=None):
     igual(respuesta.status_code, 400, "un PUT sin nada que guardar da 400")
 
     # --- transiciones
+    respuesta, catalogo = cliente.get("/api/transiciones")
+    igual(respuesta.status_code, 200, "el encargo nuevo puede leer efectos sin proyecto")
+    igual(len(catalogo["transiciones"]), 15, "el encargo ofrece los quince efectos")
+    igual(sum(t["defecto"] for t in catalogo["transiciones"]), 6,
+          "con seis efectos seleccionados de fabrica")
     respuesta, datos = cliente.get(f"/api/proyectos/{pid}/transiciones")
     igual(respuesta.status_code, 200, "el catalogo de transiciones responde 200")
     lista = datos.get("transiciones") or []
@@ -1059,7 +1064,17 @@ def probar_cartelas_y_transiciones(cliente, pid, raiz_proyecto=None):
     ok(reparto.get("S002", {}).get("tipo") not in (None, "corte"),
        f"el resto si: {reparto.get('S002')}")
     ok(float(reparto.get("S002", {}).get("duracion") or 0) > 0,
-       "con su duracion, que es la que el repaso tiene que recorrer")
+        "con su duracion, que es la que el repaso tiene que recorrer")
+    respuesta, _ = cliente.put(f"/api/proyectos/{pid}/pasos/render/params",
+                               {"transiciones": [], "transiciones_personalizadas": True})
+    igual(respuesta.status_code, 200, "se puede desmarcar todos los efectos")
+    _, datos = cliente.get(f"/api/proyectos/{pid}/transiciones")
+    ok(not any(t["puesta"] for t in datos["transiciones"]), "ningun checkbox queda marcado")
+    ok(not datos["todas_de_fabrica"], "ninguna no se confunde con las de fabrica")
+    ok(all(c["tipo"] == "corte" and c["duracion"] == 0 for c in datos["reparto"].values()),
+       "el reparto del montaje tambien queda sin efectos")
+    cliente.put(f"/api/proyectos/{pid}/pasos/render/params",
+                {"transiciones": ["glitch", "sdf-iris"], "transiciones_personalizadas": False})
     ok("shader" not in (reparto.get("S002") or {}),
        "y SIN el GLSL: el frag de cada transicion ya viaja una vez en el "
        "catalogo, repetirlo por plano serian doscientas copias")
@@ -3171,6 +3186,7 @@ def probar_video_light(cliente):
         "material": "La empresa reconoció el acceso en 2025.\n\n"
                     "El informe se publicó tres meses después.",
         "indicaciones": "Céntrate en el mecanismo, no en las personas.",
+        "transiciones": [], "transiciones_personalizadas": True,
         # LAS LLAMADAS A LA ACCION SE DECIDEN POR VIDEO, no en el estilo
         "cta": {"cta_final": {"puesto": True,
                               "texto": "que se suscriba y vea otro vídeo"}}})
@@ -3190,6 +3206,9 @@ def probar_video_light(cliente):
     respuesta, brief = cliente.get(f"/api/proyectos/{vid}/pasos/brief")
     igual((brief.get("params") or {}).get("duracion_objetivo_s"), 240,
           "la duración va al brief")
+    _, efectos = cliente.get(f"/api/proyectos/{vid}/transiciones")
+    ok(not any(t["puesta"] for t in efectos["transiciones"]),
+       "el video nuevo conserva la seleccion sin efectos del encargo")
     # EL MATERIAL VA AL PASO «ORIGEN», que es donde vive con su version y su
     # firma: cambiarlo deja obsoleto el guion y todo lo que cuelga.
     respuesta, origen = cliente.get(f"/api/proyectos/{vid}/pasos/ingesta")

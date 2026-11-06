@@ -144,6 +144,18 @@ generador de IA. El material propio se guarda dentro del proyecto, viaja al
 exportarlo o duplicarlo y sigue seleccionado al retomar la generación. Espera
 a que termine el trabajo del vídeo o páralo antes de sustituir una escena.
 
+### Elegir las transiciones del vídeo
+
+En **Encargo → Efectos**, marca los tipos de transición que puede usar el montaje.
+La lista incluye los quince efectos, con su nombre y descripción. Los vídeos
+nuevos parten de seis: fundido, destello blanco, fuga de luz, iris, zoom
+desenfocado y latigazo. Puedes desmarcarlos y elegir cualquier combinación.
+
+Si desmarcas todos, las imágenes se muestran secuencialmente con cortes directos,
+sin transiciones. La selección se guarda por vídeo; cambiarla solo deja pendiente
+el montaje, sin regenerar el guion, la voz ni las imágenes. En los vídeos existentes
+se guarda automáticamente al modificar las casillas.
+
 ### Listo para YouTube
 
 Al terminar la receta de montaje se preparan el **título**, la **descripción**

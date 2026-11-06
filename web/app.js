@@ -431,6 +431,7 @@ const API = {
   calloutVista: (pid, plano) => `${BASE}/api/proyectos/${encodeURIComponent(pid)}`
     + `/callouts/vista?plano=${encodeURIComponent(plano)}`,
   transiciones: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/transiciones`,
+  catalogoTransiciones: `${BASE}/api/transiciones`,
   sonido: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/sonido`,
   efectos: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/sonido/efectos`,
   sonidoArco: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/sonido/arco`,
@@ -6047,6 +6048,8 @@ function encargoVideoLight() {
       // estilo, porque un video puede querer mandar a la web y el siguiente
       // solo pedir un comentario.
       cta: ctaPorDefecto(),
+      transiciones: [],
+      transiciones_personalizadas: false,
     };
   }
   return v.encargo;
@@ -6475,6 +6478,8 @@ function vistaElegidoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  caja.appendChild(efectosDelEncargo(e));
+
   /* LAS INDICACIONES, detrás del material y en su propio bloque: los hechos son
      una cosa y CÓMO contarlos es otra. Cuando iban en la misma caja, lo escrito
      detrás del material lo leía el documentalista y no el guionista: salía un
@@ -6523,6 +6528,52 @@ function selectorFormato(valor, alCambiar) {
     }, (f.id === 'vertical' ? '▯ ' : '▭ ') + f.nombre));
   });
   return h('div', { clase: 'campo' }, h('label', {}, 'Formato'), tira);
+}
+
+/* El catálogo viene del motor: nombres, descripciones y las seis de fábrica.
+   La marca distingue «ninguna» del [] histórico que significa «por defecto». */
+let CATALOGO_EFECTOS = null;
+function efectosDelEncargo(e) {
+  const lista = h('div', { clase: 'efectos-encargo' });
+  const resumen = h('p', { clase: 'pista', role: 'status' }, 'Cargando efectos…');
+  const caja = bloqueLight('Efectos', 'transiciones entre imágenes', resumen, lista);
+  const cargar = async () => {
+    try {
+      if (!CATALOGO_EFECTOS) CATALOGO_EFECTOS = pedir(API.catalogoTransiciones)
+        .catch(err => { CATALOGO_EFECTOS = null; throw err; });
+      const datos = await CATALOGO_EFECTOS;
+      const catalogo = datos.transiciones;
+      const elegidas = new Set(e.transiciones_personalizadas || (e.transiciones || []).length
+        ? e.transiciones : catalogo.filter(t => t.defecto).map(t => t.id));
+      const actualizarResumen = () => {
+        resumen.textContent = elegidas.size
+          ? `${elegidas.size} efectos habilitados. Se alternan al montar el vídeo. `
+            + 'Cambiar esta selección solo afecta al montaje.'
+          : 'Sin transiciones: las imágenes se muestran una detrás de otra, con cortes directos.';
+      };
+      vaciar(lista);
+      catalogo.forEach(t => {
+        const check = h('input', {
+          type: 'checkbox', checked: elegidas.has(t.id),
+          'data-foco': `encargo-efecto-${t.id}`,
+          onchange: ev => {
+            if (ev.target.checked) elegidas.add(t.id); else elegidas.delete(t.id);
+            e.transiciones = catalogo.filter(f => elegidas.has(f.id)).map(f => f.id);
+            e.transiciones_personalizadas = true;
+            actualizarResumen();
+          },
+        });
+        lista.appendChild(h('label', { clase: 'efecto-encargo' }, check,
+          h('span', {}, h('b', {}, t.nombre), h('span', { clase: 'meta' }, t.descripcion))));
+      });
+      actualizarResumen();
+    } catch (err) {
+      resumen.textContent = `No se han podido cargar los efectos: ${err.message}`;
+      vaciar(lista).appendChild(h('button', { clase: 'mini', onclick: cargar }, 'Reintentar'));
+    }
+  };
+  cargar();
+  return caja;
 }
 
 /* El formato del vídeo abierto, para que los marcos de la previa y del vídeo
@@ -6715,6 +6766,8 @@ async function crearYGenerarLight(estilo) {
         guion_propio: !!e.guion_propio,
         indicaciones: e.indicaciones,
         cta: e.cta,
+        transiciones: e.transiciones,
+        transiciones_personalizadas: e.transiciones_personalizadas,
       },
     });
     const pid = (datos.proyecto || {}).id;
@@ -6776,6 +6829,8 @@ const CAMPOS_ENCARGO = [
   { clave: 'guion_propio', paso: 'guion', param: 'guion_propio' },
   { clave: 'indicaciones', paso: 'guion', param: 'prompt_general' },
   { clave: 'cta', paso: 'guion', param: 'cta' },
+  { clave: 'transiciones', paso: 'render', param: 'transiciones' },
+  { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
 ];
 
 /* Las tres ranuras completas a partir de lo guardado, que puede faltar entero
@@ -6809,6 +6864,8 @@ function pedidoDelVideoLight() {
     guion_propio: !!params('guion').guion_propio,
     indicaciones: String(params('guion').prompt_general || ''),
     cta: ctaLeida(params('guion').cta),
+    transiciones: [...(params('render').transiciones || [])],
+    transiciones_personalizadas: !!params('render').transiciones_personalizadas,
   };
   v.pedido = {
     pid: v.pid,
@@ -6839,7 +6896,8 @@ function vistaEncargoVideoLight() {
       + 'Lo que cambies se guarda solo y deja el guion obsoleto: el pie ofrece '
       + 'regenerarlo, y con él se rehacen después la voz y las imágenes que ya '
       + 'no cuadren; lo que siga valiendo no se vuelve a pagar. El nombre se '
-      + 'cambia sin regenerar nada. El formato rehace TODAS las imágenes.'
+      + 'cambia sin regenerar nada. El formato rehace TODAS las imágenes. '
+      + 'Los efectos solo cambian el montaje, sin rehacer el guion, la voz ni las imágenes.'
     : 'Lo que se le va a pedir al redactor. Se guarda solo; cuando esté, '
       + '«Generar el guion» abajo.'));
 
@@ -6864,6 +6922,8 @@ function vistaEncargoVideoLight() {
   caja.appendChild(bloqueLight('El material',
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
+
+  caja.appendChild(efectosDelEncargo(e));
 
   caja.appendChild(bloqueLight('Las indicaciones',
     'cómo quieres que se cuente (opcional)',
@@ -6964,13 +7024,13 @@ async function volcarEncargoLight(pedido) {
   const renombrar = !!nombre && nombre !== guardado.nombre;
   if (!Object.keys(porPaso).length && !renombrar) return;
   try {
-    for (const paso of ['ingesta', 'brief', 'guion']) {
+    for (const paso of ['ingesta', 'brief', 'guion', 'render']) {
       if (!porPaso[paso]) continue;
       await pedir(API.params(pid, paso),
         { method: 'PUT', cuerpo: { params: porPaso[paso] } });
       for (const campo of CAMPOS_ENCARGO) {
         if (campo.paso === paso && campo.param in porPaso[paso]) {
-          guardado[campo.clave] = JSON.parse(JSON.stringify(copia[campo.clave]));
+          guardado[campo.clave] = JSON.parse(JSON.stringify(porPaso[paso][campo.param]));
         }
       }
     }

@@ -3932,11 +3932,16 @@ def prueba_transiciones():
           "y 'deslizar', retirada en agosto, tambien: un plan viejo tiene que "
           "poder renderizarse")
 
-    titulo("transiciones: la seleccion se respeta, y nunca deja una ranura vacia")
+    titulo("transiciones: solo se usan efectos habilitados, incluso en ranuras suaves")
     solo = transiciones.resolver(escenas, {"transiciones": ["glitch"]})
     usadas = {c["tipo"] for c in solo.values() if c["tipo"] != "corte"}
-    ok(usadas <= {"glitch", "fundido"},
-       f"con una sola elegida se usa esa (y el fundido de respaldo): {usadas}")
+    igual(usadas, {"glitch"}, "el fundido desmarcado no se introduce como respaldo")
+    sin = transiciones.resolver(escenas, {"transiciones": [],
+                                         "transiciones_personalizadas": True})
+    ok(all(c["tipo"] == "corte" and c["shader"] is None and c["duracion"] == 0
+           for c in sin.values()), "sin seleccion todas las imagenes van con corte directo")
+    igual(transiciones.elegidas_de({"transiciones": []}),
+          transiciones.elegidas_de({}), "el vacio de proyectos antiguos conserva las de fabrica")
     inventadas = transiciones.elegidas_de({"transiciones": ["no_existe"]})
     igual(sorted(inventadas), sorted(t for t in transiciones.POR_DEFECTO if t != "corte"),
           "un nombre inventado no deja el video sin transiciones: caen las de fabrica")

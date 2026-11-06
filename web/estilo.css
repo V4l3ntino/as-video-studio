@@ -554,6 +554,14 @@ button.pastilla { cursor: pointer; }
 .tarjeta.cartela.apagado, .tarjeta.transicion.apagado { opacity: .42; }
 .tarjeta.cartela.apagado .muestra { filter: grayscale(1); }
 .tarjeta.transicion.apagado canvas { filter: grayscale(1); }
+
+.efectos-encargo { display: flex; flex-direction: column; gap: 8px; }
+.efecto-encargo { display: flex; align-items: flex-start; gap: 10px; padding: 10px;
+  border: 1px solid var(--linea); border-radius: 8px; cursor: pointer;
+  font-size: 14px; text-transform: none; letter-spacing: normal;
+  color: var(--texto); margin: 0; }
+.efecto-encargo input { flex: 0 0 auto; margin-top: 4px; }
+.efecto-encargo > span { display: flex; flex-direction: column; gap: 3px; }
 .efecto-sfx .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .efecto-sfx .icono {
   border: 1px solid var(--borde); border-radius: 6px;

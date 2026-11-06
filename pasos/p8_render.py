@@ -63,7 +63,8 @@ PARAMS_POR_DEFECTO = {
     # latigazo es corto por definicion, una fuga de luz necesita respirar) y
     # ninguna puede comerse mas de una fraccion del plano que entra.
     "duracion_transicion": 0.4,
-    # QUE transiciones entran en este video. Vacio = las de fabrica.
+    # QUE transiciones entran en este video. Vacio = las de fabrica, salvo con
+    # transiciones_personalizadas=True: entonces vacio significa ninguna.
     #
     # Es un parametro del RENDER y no del plan a proposito: el plan decide DONDE
     # va un acento -- eso pertenece al corte y se decide con el guion delante --

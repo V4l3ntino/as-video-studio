@@ -218,25 +218,25 @@ def frag_de(nombre):
 def elegidas_de(params):
     """Las transiciones que entran en este video, validadas contra el catalogo.
 
-    Vacio = las de fabrica, que es como funcionan los arquetipos de rotulo: una
-    lista vacia significa «no lo he tocado», no «ninguna».
+    Los proyectos antiguos usan vacio para las de fabrica. Una seleccion
+    personalizada vacia significa ninguna, sin cambiar esos proyectos al abrirlos.
     """
     pedidas = [str(t) for t in ((params or {}).get("transiciones") or [])]
     validas = [t for t in pedidas if t in CATALOGO and t != "corte"]
+    if (params or {}).get("transiciones_personalizadas"):
+        return validas
     return validas or [t for t in POR_DEFECTO if t != "corte"]
 
 
 def _bolsas(elegidas):
     """Las dos bolsas de donde sale cada ranura, en el orden del catalogo.
 
-    'fundido' es el respaldo de las suaves y esta siempre disponible aunque
-    nadie lo marque: una ranura suave sin nada que poner tendria que degradar a
-    corte, y entonces el ritmo del corte -- que se decidio con el guion delante
-    -- se perderia por una casilla desmarcada en otra pantalla.
+    Si una bolsa queda vacia se usa la otra: nunca se introduce un efecto
+    desmarcado. Si no hay elegidas, resolver deja todos los cambios sin efecto.
     """
     suaves = [t for t in CATALOGO if t in elegidas and 1 <= CATALOGO[t]["fuerza"] <= 2]
     acentos = [t for t in CATALOGO if t in elegidas and CATALOGO[t]["fuerza"] >= 2]
-    return suaves or ["fundido"], acentos or suaves or ["fundido"]
+    return suaves or acentos, acentos or suaves
 
 
 def _sin_repetir_familia(bolsa, arranque, familias_recientes):
@@ -285,7 +285,7 @@ def resolver(escenas, params=None, semilla=0):
             if isinstance(escena.get("cartela"), dict) else False)
         # El primer plano si es un corte, y no por gusto: no hay nada de lo que
         # venir. Eso no es una transicion retirada, es la ausencia de una.
-        if indice == 0 or sigue:
+        if indice == 0 or sigue or not elegidas:
             salida[sid] = {"tipo": "corte", "shader": None, "duracion": 0.0,
                            "ranura": "corte"}
             continue

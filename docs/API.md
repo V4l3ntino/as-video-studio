@@ -174,6 +174,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/sonido/musica` | Temas de Jamendo que pegan con el tono. Devuelve candidatos, no elige. |
 | `POST` | `/api/proyectos/{pid}/sonido/vetados` | Prohíbe un efecto en TODO el canal, o levanta el veto con `quitar`. |
 | `GET` | `/api/proyectos/{pid}/transiciones` | Las transiciones que existen, con su GLSL, y cuales entran en este video. |
+| `GET` | `/api/transiciones` | Efectos disponibles para el encargo, con nombre, descripcion y seleccion inicial. |
 
 ## Render y montaje
 
@@ -282,4 +283,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**168 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**169 endpoints.** Escrito por `generar_api.py` desde `app.py`.

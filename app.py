@@ -1571,6 +1571,11 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if "transiciones_personalizadas" in nuevos and not isinstance(
+                nuevos["transiciones_personalizadas"], bool):
+            raise ErrorApi(400, "transiciones_personalizadas debe ser un booleano")
+        if "transiciones" in nuevos and not isinstance(nuevos["transiciones"], list):
+            raise ErrorApi(400, "transiciones debe ser una lista")
         listas = (("transiciones", PASOS_MODULOS.transiciones.CATALOGO,
                    "transiciones"),
                   ("plantillas_cartela", PASOS_MODULOS.cartelas.PLANTILLAS,
@@ -5656,6 +5661,17 @@ def guardar_notas_montaje(pid: str, cuerpo: dict = Body(default=None)):
 # El catalogo de shaders de hyperframes, elegido MIRANDOLO: la pantalla corre el
 # mismo GLSL que el render, asi que la muestra no puede ensenar otra cosa.
 
+@app.get("/api/transiciones")
+def catalogo_transiciones():
+    """Efectos disponibles para el encargo, con nombre, descripcion y seleccion inicial."""
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f"los pasos no se han podido cargar: {ERROR_PASOS}")
+    trans = PASOS_MODULOS.transiciones
+    return {"transiciones": [dict(id=tid, nombre=f["nombre"],
+                                  descripcion=f["descripcion"], defecto=f["defecto"])
+                              for tid, f in trans.CATALOGO.items() if tid != "corte"]}
+
+
 @app.get("/api/proyectos/{pid}/transiciones")
 def leer_transiciones(pid: str):
     """Las transiciones que existen, con su GLSL, y cuales entran en este video."""
@@ -5664,11 +5680,12 @@ def leer_transiciones(pid: str):
         raise ErrorApi(503, f"los pasos no se han podido cargar: {ERROR_PASOS}")
     trans = PASOS_MODULOS.transiciones
     render = ctx.estado.params("render") or {}
-    elegidas = render.get("transiciones") or []
-    ficha = trans.catalogo_para_pantalla(elegidas or None)
+    elegidas = trans.elegidas_de(render)
+    ficha = trans.catalogo_para_pantalla(elegidas)
     ficha["duracion"] = render.get(
         "duracion_transicion", PASOS_MODULOS.p8_render.PARAMS_POR_DEFECTO["duracion_transicion"])
-    ficha["todas_de_fabrica"] = not elegidas
+    ficha["todas_de_fabrica"] = (not render.get("transiciones")
+                                and not render.get("transiciones_personalizadas"))
     # Los tres colores de acento con los que se pintan, para que la muestra de
     # la pantalla salga del color de ESTE video y no de un naranja de catalogo.
     ficha["acento"] = trans.acentos(_paleta_del_video(ctx))
@@ -10304,6 +10321,11 @@ def _sembrar_video_light(ctx, datos):
     if guion:
         _validar_params("guion", guion, ctx)
         ctx.estado.actualizar_params("guion", guion)
+    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas")
+              if k in datos}
+    if render:
+        _validar_params("render", render, ctx)
+        ctx.estado.actualizar_params("render", render)
     return avisos
 
 
