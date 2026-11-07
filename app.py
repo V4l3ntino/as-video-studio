@@ -1703,7 +1703,7 @@ def fijar_params(pid: str, paso: str, cuerpo: dict = Body(default=None)):
 
 @app.post("/api/proyectos/{pid}/pasos/{paso}/ejecutar", status_code=202)
 def ejecutar_paso(pid: str, paso: str, cuerpo: dict = Body(default=None)):
-    """Lanza el paso en segundo plano y devuelve el id del trabajo.
+    """Lanza el paso; notas_imagen confirma sus apuntes al completar assets.
 
     Si el cuerpo trae 'params' se guardan ANTES de decidir el plan: la interfaz
     manda lo que hay escrito en la pestana al pulsar ejecutar, y ejecutar con
@@ -1751,15 +1751,18 @@ def ejecutar_paso(pid: str, paso: str, cuerpo: dict = Body(default=None)):
                 or not isinstance(pedidas, list) or len(pedidas) != len(unidades)):
             raise ErrorApi(400, "notas_imagen requiere rehacer esas escenas de assets")
         por_id = {n["id"]: n for n in _repaso().leer(ctx.proyecto)["notas"]}
+        vistas = set()
         for pedido in pedidas:
-            if not isinstance(pedido, dict):
-                raise ErrorApi(400, "cada nota de imagen debe ser un objeto")
-            nota = por_id.get(pedido.get("id"))
-            if (not nota or nota.get("pantalla") != "imagenes"
+            if (not isinstance(pedido, dict)
+                    or any(not isinstance(pedido.get(k), str) for k in ("id", "plano", "texto"))):
+                raise ErrorApi(400, "cada nota de imagen necesita id, plano y texto")
+            nota = por_id.get(pedido["id"])
+            if (pedido["id"] in vistas or not nota or nota.get("pantalla") != "imagenes"
                     or nota.get("plano") != pedido.get("plano")
                     or nota.get("texto") != pedido.get("texto")
                     or f"escena:{nota['plano']}" not in unidades):
                 raise ErrorApi(400, "la nota ya no corresponde a la escena que se va a regenerar")
+            vistas.add(pedido["id"])
         opciones["notas_imagen"] = pedidas
     trabajo_id = lanzar_paso(ctx, paso_id, unidades, opciones=opciones)
     return {"trabajo_id": trabajo_id, "paso": paso_id, "opciones": opciones,

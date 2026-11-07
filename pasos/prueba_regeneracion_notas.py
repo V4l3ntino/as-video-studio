@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 _datos = tempfile.TemporaryDirectory(prefix="prueba_notas_imagen_")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,6 +41,23 @@ class RegeneracionNotas(unittest.TestCase):
         self.assertEqual(app._confirmar_notas_imagen(self.ctx, [self.pedido],
                          {"escena:S001": {"png": "escenas/S001.png"}}), [])
         self.assertEqual(repaso.leer(self.proyecto)["notas"][0]["estado"], "pendiente")
+
+    def test_api_ancla_la_nota_al_trabajo_sin_marcarla_antes_de_terminar(self):
+        self.ctx.gestor = SimpleNamespace(estado=lambda tid: {"id": tid})
+        with patch.object(app, "contexto", return_value=self.ctx), patch.object(
+                app, "_plan_de_ejecucion", return_value=["escena:S001"]), patch.object(
+                app, "lanzar_paso", return_value="trabajo-1") as lanzar:
+            respuesta = app.ejecutar_paso(self.proyecto.id, "assets", {
+                "unidades": ["escena:S001"], "rehacer": True,
+                "notas_imagen": [self.pedido]})
+            self.assertEqual(respuesta["opciones"]["notas_imagen"], [self.pedido])
+            self.assertEqual(lanzar.call_args.kwargs["opciones"]["notas_imagen"], [self.pedido])
+            self.assertEqual(repaso.leer(self.proyecto)["notas"][0]["estado"], "pendiente")
+            with self.assertRaises(app.ErrorApi):
+                app.ejecutar_paso(self.proyecto.id, "assets", {
+                    "unidades": ["escena:S001"], "rehacer": True,
+                    "notas_imagen": [dict(self.pedido, texto="nota anterior")]})
+            self.assertEqual(lanzar.call_count, 1)
 
 
 if __name__ == "__main__":

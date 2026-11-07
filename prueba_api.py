@@ -1457,14 +1457,14 @@ def probar_repaso(cliente, pid):
           "editar despues la nota devuelve el cambio a pendiente")
 
     respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{segunda}",
-                                   {"regenerado": "la musica esta alta"})
+                                   {"regenerado": "la musica sigue demasiado alta"})
     igual(respuesta.status_code, 200, "confirmar una regeneracion actualiza el apunte")
     nota_regenerada = next(n for n in datos["notas"] if n["id"] == segunda)
     igual(nota_regenerada.get("estado"), "aplicado",
           "el apunte pasa a aplicado contra el texto que realmente se regenero")
     igual(datos.get("pendientes"), 1, "el contador descuenta el apunte aplicado")
     respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{segunda}",
-                                   {"texto": "la musica sigue demasiado alta"})
+                                   {"texto": "baja aun mas la musica"})
     igual((next(n for n in datos["notas"] if n["id"] == segunda)).get("estado"), "pendiente",
           "editar un apunte aplicado vuelve a dejarlo pendiente")
 

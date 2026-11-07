@@ -65,7 +65,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 |---|---|---|
 | `GET` | `/api/proyectos/{pid}/pasos` | Resumen del DAG con el estado de cada paso. |
 | `GET` | `/api/proyectos/{pid}/pasos/{paso}` | Detalle de un paso: params, salidas, unidades y versiones. |
-| `POST` | `/api/proyectos/{pid}/pasos/{paso}/ejecutar` | Lanza el paso en segundo plano y devuelve el id del trabajo. |
+| `POST` | `/api/proyectos/{pid}/pasos/{paso}/ejecutar` | Lanza el paso; notas_imagen confirma sus apuntes al completar assets. |
 | `PUT` | `/api/proyectos/{pid}/pasos/{paso}/params` | Actualiza los parametros del paso; la obsolescencia cae en cascada sola. |
 | `POST` | `/api/proyectos/{pid}/pasos/{paso}/revertir` | Activa una version anterior del paso; nada se borra. |
 | `GET` | `/api/proyectos/{pid}/pasos/{paso}/versiones` | Historico de versiones del paso. |
