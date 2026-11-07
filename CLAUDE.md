@@ -345,8 +345,17 @@ movidas con `setCurrentTime` como el subtítulo. Lo que no se deduce del código
   de antes sale byte a byte igual. No escribas `[]` por defecto al abrir una
   pantalla: mueve la firma del render (regla 1). La pantalla solo guarda al tocar.
 - **Qué animación lleva cada escena lo decide `repartir` mirando la narración**
-  (cifra, año, nombre propio, frase corta), con reglas deterministas y sin modelo.
-  Solo entran las elegidas, con aire entre dos animadas, y nunca sobre cartelas.
+  (cifra, año, contraste, nombre propio, frase corta), con reglas deterministas y
+  sin modelo. Solo entran las elegidas, con aire entre dos animadas, y nunca sobre
+  cartelas. Varias comparten señal (`termino`): rotan por semilla.
+- **`collage-titulo` y `comparacion-tarjetas` enseñan la imagen del plano SIGUIENTE**
+  (`requiere_imagenes`): `p8` pasa `imagenes` = URL del hyperframe de cada plano y
+  la pagina las PRECARGA en `#precarga` (un `<image>` dentro de un SVG no lo espera
+  `Navegador.abrir`: sin eso la primera captura sale con la tarjeta vacía).
+- **Atenuar/desenfocar el plano no lo hace el SVG**: `capas` devuelve `fondo` y la
+  página lo aplica con `animaciones.JS_FONDO` (misma función en p8 y en el GIF).
+  Un contorno de texto que se «escribe» se enciende letra a letra (`_tecleo(trazo=)`)
+  o se ve fantasma.
 - **Las tarjetas de la pantalla son GIF** (`web/anim_<id>.gif`, planos a propósito:
   `fichero_web` no sirve subcarpetas). Si cambias un dibujo, regenéralos con
   `python herramientas/gifs_animaciones.py` (lanzarlo por PowerShell: Edge headless).

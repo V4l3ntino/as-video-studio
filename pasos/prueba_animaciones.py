@@ -63,8 +63,8 @@ for aid, ficha in animaciones.CATALOGO.items():
     comprobar(f"{aid}: ninguna entra de fabrica", ficha["defecto"] is False)
     comprobar(f"{aid}: tiene su GIF para la tarjeta",
               os.path.isfile(os.path.join(RAIZ, "web", f"anim_{aid}.gif")))
-igual("una senal por animacion, sin repetirse",
-      sorted(f["senal"] for f in animaciones.CATALOGO.values()), sorted(animaciones.PRIORIDAD))
+igual("cada senal tiene al menos una animacion, y ninguna pide una que no existe",
+      sorted({f["senal"] for f in animaciones.CATALOGO.values()}), sorted(animaciones.PRIORIDAD))
 igual("la pantalla recibe todas, marcando las elegidas",
       [f["id"] for f in animaciones.catalogo_para_pantalla(["ficha-ui"]) if f["elegida"]],
       ["ficha-ui"])
@@ -107,13 +107,18 @@ escenas = [escena(1, "El 45% de los barcos nunca llegó a puerto.", 0),
 reparto = animaciones.repartir(escenas, TODAS, "es")
 igual("la cifra se anima", reparto.get("S001", {}).get("animacion"), "infografia-cifra")
 comprobar("la escena siguiente descansa", "S002" not in reparto)
-igual("el nombre propio, a su ficha", reparto.get("S003", {}).get("animacion"), "ficha-ui")
+comprobar("el nombre propio, a una de las que lo ensenan SIN otra imagen",
+          reparto.get("S003", {}).get("animacion") in ("ficha-ui", "ficha-cristal", "etiqueta-escrita"),
+          str(reparto.get("S003", {}).get("animacion")))
 ids = [e["id"] for e in escenas]
 comprobar("nunca dos animadas seguidas",
           all(not (a in reparto and b in reparto) for a, b in zip(ids, ids[1:])))
 igual("es determinista", animaciones.repartir(escenas, TODAS, "es"), reparto)
 solo = animaciones.repartir(escenas, {"animaciones": ["ficha-ui"]}, "es")
 igual("solo cuentan las elegidas", {v["animacion"] for v in solo.values()}, {"ficha-ui"})
+comprobar("sin imagenes de los vecinos no entra ninguna que las necesite",
+          all(not animaciones.CATALOGO[v["animacion"]].get("requiere_imagenes")
+              for v in reparto.values()))
 cartela = dict(escenas[0], cartela={"plantilla": "titulo"})
 igual("una cartela ya es texto animado: no se le pone otra",
       animaciones.repartir([cartela], TODAS, "es"), {})
@@ -122,6 +127,51 @@ igual("un plano demasiado corto se queda como esta",
 tarde = escena(1, "Habia una vez mucha gente en el puerto esperando el 45%", 0, duracion=5.2)
 igual("una senal dicha al final no llega a leerse: sin animacion",
       animaciones.repartir([tarde], TODAS, "es"), {})
+
+print("\n== contraste: dos cosas que se oponen ==")
+cont = animaciones.senales(escena(1, "Las raíces sanas crecen profundas mientras que las raíces atrofiadas apenas avanzan.", 0), "es")
+igual("«mientras que» parte la frase en dos etiquetas",
+      (cont.get("contraste") or {}).get("izquierda"), "RAÍCES SANAS")
+igual("y la otra mitad", (cont.get("contraste") or {}).get("derecha"), "RAÍCES ATROFIADAS")
+comprobar("una frase sin conector no es contraste",
+          "contraste" not in animaciones.senales(escena(1, "Las raíces sanas crecen profundas hacia abajo.", 0), "es"))
+comprobar("«pero» no basta: esta en media frase del mundo",
+          "contraste" not in animaciones.senales(escena(1, "Era sano pero estaba cansado de todo.", 0), "es"))
+
+print("\n== las que ensenan la imagen del plano siguiente ==")
+vecinas = [escena(1, "Las raíces sanas crecen profundas mientras que las raíces atrofiadas apenas avanzan.", 0, duracion=6.0),
+           escena(2, "Y despues vino la calma de siempre.", 6, duracion=4.0)]
+urls = {"S001": "file:///a.png", "S002": "file:///b.png"}
+con = animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls)
+igual("con la imagen del vecino, la comparacion entra", con.get("S001", {}).get("animacion"), "comparacion-tarjetas")
+igual("y lleva las dos imagenes", sorted((con.get("S001") or {}).get("imagenes", {})), ["propia", "siguiente"])
+igual("sin imagenes no entra",
+      animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es"), {})
+igual("al ultimo plano le falta vecino: tampoco",
+      animaciones.repartir(vecinas[1:], {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls), {})
+cartela_vecina = [vecinas[0], dict(vecinas[1], cartela={"plantilla": "titulo"})]
+igual("si el vecino es una cartela, tampoco",
+      animaciones.repartir(cartela_vecina, {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls), {})
+nombre_vecinas = [escena(1, "Entonces llegó Cristóbal Colón con tres naves hacia el oeste.", 0, duracion=6.0),
+                  escena(2, "Y despues vino la calma de siempre.", 6, duracion=4.0)]
+collage = animaciones.capas(nombre_vecinas, {"animaciones": ["collage-titulo"]}, "es", None,
+                            (1920, 1080), imagenes=urls)
+igual("el collage se dibuja con las dos imagenes", sorted(collage.get("S001", {}).get("imagenes", [])),
+      ["file:///a.png", "file:///b.png"])
+comprobar("y atenua el plano de debajo", bool((collage.get("S001") or {}).get("fondo")), str(collage))
+comprobar("las dos fotos estan en el SVG", (collage.get("S001") or {}).get("svg", "").count("<image") == 2)
+comprobar("el titulo se escribe letra a letra",
+          (collage.get("S001") or {}).get("svg", "").count("<tspan") == len("CRISTÓBAL COLÓN"))
+comprobar("y el contorno del titulo tambien (sin fantasma de las que faltan)",
+          'stroke-opacity="0"' in (collage.get("S001") or {}).get("svg", ""))
+etiqueta = animaciones.capas(nombre_vecinas, {"animaciones": ["etiqueta-escrita"]}, "es")
+fondo = (etiqueta.get("S001") or {}).get("fondo") or {}
+comprobar("la etiqueta desenfoca el fondo y lo devuelve",
+          fondo.get("blur", 0) > 0 and fondo["t"] == sorted(fondo["t"]), str(fondo))
+cristal = animaciones.capas(nombre_vecinas, {"animaciones": ["ficha-cristal"]}, "es")
+igual("la ficha de cristal no toca el fondo", (cristal.get("S001") or {}).get("fondo"), None)
+igual("y sin animacion tampoco hay capa", animaciones.capas(nombre_vecinas, {}, "es"), {})
+comprobar("el fondo se aplica con una funcion de t", "function aplicarFondo" in animaciones.JS_FONDO)
 
 print("\n== lo que se dibuja ==")
 capas = animaciones.capas(escenas, TODAS, "es", None, (1920, 1080))
@@ -146,6 +196,7 @@ igual("el texto se escapa", animaciones._esc('a<b & "c"'), "a&lt;b &amp; &quot;c
 
 print("\n== la pagina de render las lleva ==")
 comprobar("la pagina tiene su capa", 'id="capaanim"' in p8_render.PAGINA)
+comprobar("y aplica el fondo con el mismo reloj", "aplicarFondo(camara, FONDOANIM, t)" in p8_render.PAGINA)
 comprobar("y la mueve con el mismo reloj", "svgAnim.setCurrentTime(t)" in p8_render.PAGINA)
 with tempfile.TemporaryDirectory() as carpeta:
     mov = {"ventana_ini": [0, 0, 1, 1], "ventana_fin": [0, 0, 1, 1]}
@@ -156,7 +207,17 @@ with tempfile.TemporaryDirectory() as carpeta:
     with open(destino, encoding="utf-8") as fh:
         html = fh.read()
     comprobar("la capa de animacion llega a la pagina", svg in html)
-    comprobar("no queda ningun marcador sin sustituir", "__CAPAANIM__" not in html)
+    comprobar("no queda ningun marcador sin sustituir",
+              not re.search(r"__(CAPAANIM|FONDOANIM|JSFONDO|PRECARGA)__", html))
+    comprobar("sin fondo que aplicar, la pagina no toca el plano", "const FONDOANIM = null;" in html)
+    p8_render._pagina_de({"t_in": 0, "t_out": 5}, mov, "", "fondo.png",
+                         {"resolucion": [1920, 1080]}, destino, capa_anim=svg,
+                         fondo_anim={"t": [0, 1, 4, 5], "blur": 6, "luz": 0.5},
+                         precarga=["file:///x.png"])
+    with open(destino, encoding="utf-8") as fh:
+        html2 = fh.read()
+    comprobar("con fondo, lo lleva", '"blur": 6' in html2)
+    comprobar("y precarga las imagenes de las tarjetas", '<img src="file:///x.png">' in html2)
     p8_render._pagina_de({"t_in": 0, "t_out": 5}, mov, "", "fondo.png",
                          {"resolucion": [1920, 1080]}, destino)
     with open(destino, encoding="utf-8") as fh:

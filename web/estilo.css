@@ -2527,13 +2527,19 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 /* ------------------------------------------- Motion animation (dos recuadros)
    Izquierda: lo que hay. Derecha: lo que entra al montar. Pulsar una tarjeta la
    cambia de lado. En pantallas estrechas se apilan. */
-.anim-recuadros { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.anim-recuadro { border: 1px solid var(--linea); border-radius: 10px; padding: 10px;
-  background: var(--hueco); min-width: 0; min-height: 120px; }
-.anim-recuadro h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--tenue);
-  text-transform: uppercase; letter-spacing: .06em; }
+.anim-recuadros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+/* SIEMPRE LA MISMA ALTURA (506 px, la que se ve bien con las ocho tarjetas): si
+   hay mas tarjetas de las que caben, el recuadro hace scroll por dentro en vez
+   de crecer, y asi los dos lados no se descuadran al mover una tarjeta. */
+.anim-recuadro { display: flex; flex-direction: column; height: 506px; box-sizing: border-box;
+  border: 1px solid var(--linea); border-radius: 10px; padding: 10px;
+  background: var(--hueco); min-width: 0; }
+.anim-recuadro h4 { flex: 0 0 auto; margin: 0 0 8px; font-size: 12px; font-weight: 600;
+  color: var(--tenue); text-transform: uppercase; letter-spacing: .06em; }
 .anim-elegidas { border-color: var(--acento); }
-.anim-tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.anim-tarjetas { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  align-content: start; padding-right: 4px; scrollbar-width: thin;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .anim-tarjeta { display: flex; flex-direction: column; gap: 6px; padding: 6px; margin: 0;
   border: 1px solid var(--linea); border-radius: 8px; background: var(--panel);
   color: var(--texto); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }

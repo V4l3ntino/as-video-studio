@@ -399,6 +399,7 @@ html,body{margin:0;padding:0;background:#0b0c09;overflow:hidden}
   <div id="capafija">__CAPAFIJA__</div>
   <div id="capaanim">__CAPAANIM__</div>
 </div>
+<div id="precarga" style="display:none">__PRECARGA__</div>
 <script>
 // Esta pagina pinta el plano LIMPIO: su zoom y su capa animada, y nada mas. La
 // transicion con el plano anterior se pinta despues, sobre los PNG ya escritos
@@ -425,6 +426,10 @@ const svgAnim = document.querySelector('#capaanim svg');
 if (svgAnim && svgAnim.pauseAnimations) svgAnim.pauseAnimations();
 
 function suavizar(u){ return u*u*(3-2*u); }
+// Atenuar o desenfocar el PLANO (no la capa) lo piden algunas animaciones de
+// motion graphics: es una funcion de t, como todo lo demas (pasos/animaciones.py).
+const FONDOANIM = __FONDOANIM__;
+__JSFONDO__
 
 // La ventana que da el motor de movimiento es cuadrada en normalizado; el video
 // es 16:9, asi que se respeta el ancho y se recorta el alto sobre el mismo
@@ -461,6 +466,7 @@ function pintar(t){
   if (svg && svg.setCurrentTime) svg.setCurrentTime(t);
   if (svgFijo && svgFijo.setCurrentTime) svgFijo.setCurrentTime(t);
   if (svgAnim && svgAnim.setCurrentTime) svgAnim.setCurrentTime(t);
+  aplicarFondo(camara, FONDOANIM, t);
   if (FOTOGRAMAS.length) {
     const indice = Math.min(FOTOGRAMAS.length - 1, Math.max(0, Math.round(t * FPS)));
     fondo.src = FOTOGRAMAS[indice];
@@ -479,7 +485,7 @@ def _url_local(ruta):
 
 
 def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, fotogramas=(),
-               capa_anim=""):
+               capa_anim="", fondo_anim=None, precarga=()):
     ancho, alto = [int(v) for v in p["resolucion"]]
     hw, hh = mov.get("hyperframe_px") or [3072, 2048]
     duracion = float(escena["t_out"]) - float(escena["t_in"])
@@ -491,6 +497,9 @@ def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, f
             .replace("__CAPA__", capa_svg)
             .replace("__CAPAFIJA__", capa_fija or "")
             .replace("__CAPAANIM__", capa_anim or "")
+            .replace("__FONDOANIM__", json.dumps(fondo_anim))
+            .replace("__JSFONDO__", animaciones.JS_FONDO)
+            .replace("__PRECARGA__", "".join(f'<img src="{u}">' for u in precarga or ()))
             .replace("__MOV__", json.dumps({"ventana_ini": mov["ventana_ini"],
                                             "ventana_fin": mov["ventana_fin"]}))
             .replace("__FPS__", str(int(fps)))
@@ -1244,7 +1253,9 @@ def renderizar_plano(tarea, navegador=None):
                         tarea["hyper"], {"resolucion": tarea["resolucion"]},
                         os.path.join(carpeta, "escena.html"),
                          capa_fija=tarea.get("capa_fija") or "", fps=fps, fotogramas=fotogramas,
-                         capa_anim=tarea.get("capa_anim") or "")
+                         capa_anim=tarea.get("capa_anim") or "",
+                         fondo_anim=tarea.get("fondo_anim"),
+                         precarga=tarea.get("precarga") or ())
 
     navegador.abrir(pagina)
     corte = tarea.get("corte") or {}
@@ -1536,8 +1547,16 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     # LAS ANIMACIONES, repartidas UNA vez con todas las escenas delante: el
     # hueco entre dos animadas depende de las vecinas, y rehacer un plano suelto
     # no puede cambiarle la animacion a otro (misma razon que las transiciones).
-    animadas = animaciones.capas(escenas, p, idioma=plan.get("idioma"),
-                                 paleta=paleta, salida=(ancho, alto))
+    imagenes = {}
+    for sid_, mov_ in movimientos.items():
+        ruta_ = mov_.get("hyperframe")
+        if ruta_:
+            ruta_ = ruta_ if os.path.isabs(ruta_) else os.path.join(base_callouts, ruta_)
+            if os.path.exists(ruta_):
+                imagenes[sid_] = _url_local(ruta_)
+    animadas = animaciones.capas(escenas, p, idioma=plan.get("idioma"), paleta=paleta,
+                                 salida=(ancho, alto), imagenes=imagenes,
+                                 semilla=(plan.get("semilla") or 0))
     pagina_trans = transiciones.pagina(
         os.path.join(trabajo, "transicion.html"), ancho, alto, paleta)
     resultados = {}
@@ -1596,6 +1615,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             "capa": svg, "capa_fija": fija,
             "capa_anim": (animadas.get(sid) or {}).get("svg", ""),
             "animacion": (animadas.get(sid) or {}).get("animacion", ""),
+            "fondo_anim": (animadas.get(sid) or {}).get("fondo"),
+            "precarga": (animadas.get(sid) or {}).get("imagenes") or [],
             "hyper": hyper, "frames": total, "fps": fps,
             "video": ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
                       if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None),

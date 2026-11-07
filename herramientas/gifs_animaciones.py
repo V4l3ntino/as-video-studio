@@ -4,14 +4,17 @@
     python herramientas/gifs_animaciones.py ficha-ui   # solo esa
 
 Cada GIF sale del MISMO dibujo que el render (`pasos/animaciones.svg_de`) puesto
-sobre un fondo de muestra y movido con `setCurrentTime`, como hace p8: lo que
-enseña la tarjeta es lo que luego se monta, no una maqueta aparte. Salen a
-`web/anim_<id>.gif`, que es plano a proposito (ver `fichero_web` en app.py).
-No usa ffmpeg: el GIF lo escribe Pillow.
+sobre un fondo de muestra y movido con `setCurrentTime`, como hace p8, y con el
+mismo efecto de fondo (`animaciones.JS_FONDO`): lo que enseña la tarjeta es lo
+que luego se monta, no una maqueta aparte. Salen a `web/anim_<id>.gif`, que es
+plano a proposito (ver `fichero_web` en app.py).
 
-Hay que volver a correrlo si cambia el dibujo de alguna animacion. No gasta nada:
-ni modelo ni imagenes de pago, solo el navegador del render.
+No usa ffmpeg: el GIF lo escribe Pillow. Hay que volver a correrlo si cambia el
+dibujo de alguna animacion. No gasta nada: ni modelo ni imagenes de pago, solo el
+navegador del render. Lanzarlo por PowerShell (Edge headless desde un shell
+sandboxeado devuelve 0 sin escribir el PNG).
 """
+import json
 import os
 import shutil
 import sys
@@ -28,7 +31,7 @@ import p8_render  # noqa: E402
 
 ANCHO, ALTO = 1280, 720
 FPS = 12
-DURACION = 5.0
+DURACION = 6.0
 ANCHO_GIF = 360
 
 PALETA = {"texto": "#f4f1ea", "tenue": "#cfc8ba", "linea": "#d8a657",
@@ -40,56 +43,68 @@ MUESTRAS = {
     "editorial-fecha": "Todo cambió en 1923, cuando cayó el muro.",
     "ficha-ui": "Entonces llegó Cristóbal Colón con tres naves.",
     "tipografia-cinetica": "Nadie volvió a verlos jamás.",
+    "ficha-cristal": "Entonces llegó Cristóbal Colón con tres naves.",
+    "etiqueta-escrita": "Se conoce como Fertilizante Potásico en todo el sector.",
+    "collage-titulo": "Allí nació la Revolución Industrial en Inglaterra.",
+    "comparacion-tarjetas": "Las raíces sanas crecen profundas mientras que las raíces atrofiadas apenas avanzan.",
 }
 
 
-def _fondo(destino):
+def _paisaje(destino, cielo=(38, 52, 92), sol=(238, 196, 120), lomas=((30, 40, 52), (16, 22, 30))):
     """Un paisaje de muestra: cielo en degradado, sol y dos lomas. Neutro y libre."""
     img = Image.new("RGB", (ANCHO, ALTO))
     d = ImageDraw.Draw(img)
     for y in range(ALTO):
         k = y / ALTO
-        d.line([(0, y), (ANCHO, y)], fill=(int(38 + 150 * k), int(52 + 70 * k), int(92 + 20 * k)))
-    d.ellipse([ANCHO * 0.68, ALTO * 0.42, ANCHO * 0.68 + 150, ALTO * 0.42 + 150], fill=(238, 196, 120))
+        d.line([(0, y), (ANCHO, y)], fill=(int(cielo[0] + 150 * k), int(cielo[1] + 70 * k),
+                                           int(cielo[2] + 20 * k)))
+    d.ellipse([ANCHO * 0.68, ALTO * 0.42, ANCHO * 0.68 + 150, ALTO * 0.42 + 150], fill=sol)
     d.polygon([(0, ALTO), (0, ALTO * 0.72), (ANCHO * 0.35, ALTO * 0.6), (ANCHO * 0.7, ALTO * 0.78),
-               (ANCHO, ALTO * 0.66), (ANCHO, ALTO)], fill=(30, 40, 52))
+               (ANCHO, ALTO * 0.66), (ANCHO, ALTO)], fill=lomas[0])
     d.polygon([(0, ALTO), (0, ALTO * 0.86), (ANCHO * 0.5, ALTO * 0.74), (ANCHO, ALTO * 0.88),
-               (ANCHO, ALTO)], fill=(16, 22, 30))
+               (ANCHO, ALTO)], fill=lomas[1])
     img.save(destino)
     return destino
 
 
-def _escena(texto):
-    palabras, marcas, t = texto.split(), [], 0.5
+def _escena(sid, texto, t0=0.0):
+    palabras, marcas, t = texto.split(), [], t0 + 0.5
     for _ in palabras:
         marcas.append([t, t + 0.38])
         t += 0.42
-    return {"id": "S001", "narracion": texto, "marcas": marcas,
-            "t_in": 0.0, "t_out": DURACION}
+    return {"id": sid, "narracion": texto, "marcas": marcas,
+            "t_in": t0, "t_out": t0 + DURACION}
 
 
-def _pagina(destino, fondo, svg):
+def _pagina(destino, fondo, svg, fondo_anim, precarga):
     html = (f'<!doctype html><html><head><meta charset="utf-8"><style>'
             f'html,body{{margin:0;background:#000;overflow:hidden}}'
-            f'#l{{position:relative;width:{ANCHO}px;height:{ALTO}px}}'
-            f'#l img,#l svg{{position:absolute;left:0;top:0;width:{ANCHO}px;height:{ALTO}px}}'
-            f'</style></head><body><div id="l"><img src="{p8_render._url_local(fondo)}">{svg}</div>'
-            f'<script>const s=document.querySelector("svg");s.pauseAnimations();'
-            f'function pintar(t){{s.setCurrentTime(t);return 1;}}pintar(0);</script>'
-            f'</body></html>')
+            f'#l{{position:relative;width:{ANCHO}px;height:{ALTO}px;overflow:hidden}}'
+            f'#l img.f,#l svg{{position:absolute;left:0;top:0;width:{ANCHO}px;height:{ALTO}px}}'
+            f'</style></head><body><div id="l"><img class="f" id="f" src="{p8_render._url_local(fondo)}">'
+            f'{svg}</div><div style="display:none">'
+            + "".join(f'<img src="{u}">' for u in precarga) +
+            f'</div><script>const s=document.querySelector("svg");s.pauseAnimations();'
+            f'const FONDO={json.dumps(fondo_anim)};{animaciones.JS_FONDO}'
+            f'function pintar(t){{s.setCurrentTime(t);aplicarFondo(document.getElementById("f"),FONDO,t);return 1;}}'
+            f'pintar(0);</script></body></html>')
     return medios.escribir_texto(destino, html)
 
 
 def generar(aid, carpeta, navegador):
-    escena = _escena(MUESTRAS[aid])
-    reparto = animaciones.repartir([escena], {"animaciones": [aid]}, "es")
-    if "S001" not in reparto:
-        raise RuntimeError(f"{aid}: la muestra no dispara su senal")
-    svg = animaciones.svg_de(reparto["S001"], DURACION, (ANCHO, ALTO), PALETA)
-    if not svg:
-        raise RuntimeError(f"{aid}: no se pudo dibujar")
-    fondo = _fondo(os.path.join(carpeta, "fondo.png"))
-    pagina = _pagina(os.path.join(carpeta, f"{aid}.html"), fondo, svg)
+    primera = _escena("S001", MUESTRAS[aid])
+    segunda = _escena("S002", "Y despues vino la calma.", DURACION)
+    fondo = _paisaje(os.path.join(carpeta, "fondo.png"))
+    vecina = _paisaje(os.path.join(carpeta, "vecina.png"), cielo=(70, 40, 60), sol=(250, 235, 200),
+                      lomas=((50, 30, 40), (24, 14, 20)))
+    imagenes = {"S001": p8_render._url_local(fondo), "S002": p8_render._url_local(vecina)}
+    capas = animaciones.capas([primera, segunda], {"animaciones": [aid]}, "es", PALETA,
+                              (ANCHO, ALTO), imagenes=imagenes)
+    if "S001" not in capas:
+        raise RuntimeError(f"{aid}: la muestra no dispara su animacion")
+    capa = capas["S001"]
+    pagina = _pagina(os.path.join(carpeta, f"{aid}.html"), fondo, capa["svg"], capa["fondo"],
+                     capa["imagenes"])
     marcos = os.path.join(carpeta, aid)
     os.makedirs(marcos, exist_ok=True)
     navegador.abrir(pagina)
@@ -98,8 +113,6 @@ def generar(aid, carpeta, navegador):
         navegador.pintar(n / FPS)
         navegador.capturar(os.path.join(marcos, f"f{n:04d}.png"))
     destino = os.path.join(RAIZ, "web", f"anim_{aid}.gif")
-    # Pillow y no ffmpeg: un GIF de muestra no necesita mas, y asi la herramienta
-    # corre en un equipo sin ffmpeg en el PATH.
     alto_gif = round(ANCHO_GIF * ALTO / ANCHO)
     cuadros = []
     for n in range(total):
