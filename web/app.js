@@ -2215,7 +2215,9 @@ function estadoConfig() {
          DOM porque `pintarConfig()` vacía y reconstruye la pantalla entera
          después de CADA guardado: sin esto, guardar una etiqueta borraría el
          código a medio pegar de otra cuenta. */
-      codigos: {}, latiendo: false, codex: null, codexOcupado: false, codexLatido: false };
+       codigos: {}, latiendo: false, codex: null, codexOcupado: false, codexLatido: false,
+       clavesBorrador: {}, guardandoConfig: false, guardandoClaves: false,
+       mensajeGuardado: '', correoPendiente: false };
   }
   return APP.vista.config;
 }
@@ -2303,6 +2305,16 @@ function repintarClaves() {
 function pintarConfig() {
   const caja = vaciar($('#cuerpo-config'));
   const vista = estadoConfig();
+  vaciar($('#pie-config')).append(
+    h('button', { id: 'guardar-config', clase: 'primario',
+      disabled: !vista.ficha || !!vista.error || vista.guardandoConfig || vista.guardandoClaves
+        || !!vista.correoOcupado,
+      onclick: guardarConfiguracion,
+    }, vista.guardandoConfig ? 'Guardando…' : 'Guardar configuración'),
+    h('span', { id: 'estado-guardado-config', clase: 'meta', role: 'status' },
+      vista.mensajeGuardado || 'Guarda las claves y los ajustes que hayas introducido.'));
+  caja.oninput = marcarConfiguracionPendiente;
+  caja.onchange = marcarConfiguracionPendiente;
   if (vista.error) {
     caja.appendChild(h('div', { clase: 'vacio' },
       'esta parte necesita una versión más nueva del servidor'));
@@ -2332,6 +2344,41 @@ function pintarConfig() {
     + 'lee la suya en cada llamada.'));
 }
 
+function marcarConfiguracionPendiente() {
+  const vista = estadoConfig();
+  vista.mensajeGuardado = 'Cambios pendientes de guardar';
+  const estado = $('#estado-guardado-config');
+  if (estado) estado.textContent = vista.mensajeGuardado;
+}
+
+async function guardarConfiguracion() {
+  const vista = estadoConfig();
+  if (vista.guardandoConfig || vista.guardandoClaves || vista.correoOcupado) return;
+  const cambios = {};
+  for (const [proveedor, clave] of Object.entries(vista.clavesBorrador)) {
+    if (clave.trim()) cambios[proveedor] = { clave: clave.trim() };
+  }
+  vista.guardandoConfig = true;
+  vista.mensajeGuardado = 'Guardando…';
+  repintarClaves();
+  try {
+    if (!await guardarClaves(cambios, false)) {
+      throw new Error(vista.mensajeGuardado || 'No se han podido guardar las claves.');
+    }
+    if (vista.correoPendiente && !await guardarAvisosCorreo()) {
+      throw new Error(vista.correoError || 'No se han podido guardar los ajustes de correo.');
+    }
+    vista.mensajeGuardado = 'Configuración guardada correctamente';
+    toast(vista.mensajeGuardado);
+  } catch (err) {
+    vista.mensajeGuardado = `No se ha guardado toda la configuración: ${err.message}`;
+    toast(vista.mensajeGuardado, true);
+  } finally {
+    vista.guardandoConfig = false;
+    repintarClaves();
+  }
+}
+
 async function cargarAvisosCorreo() {
   const vista = estadoConfig();
   try {
@@ -2352,6 +2399,7 @@ async function guardarAvisosCorreo(probar = false) {
   try {
     vista.correo = await pedir(`${BASE}/api/avisos/correo`, { method: 'PUT', cuerpo: cambios });
     vista.correoBorrador = Object.assign({}, vista.correo, { clave: '' });
+    vista.correoPendiente = false;
     if (probar) {
       const resultado = await pedir(`${BASE}/api/avisos/correo/probar`, { method: 'POST' });
       vista.correo.ultimo_envio = resultado;
@@ -2359,7 +2407,13 @@ async function guardarAvisosCorreo(probar = false) {
     } else toast('Avisos y reintentos guardados');
   } catch (err) { vista.correoError = err.message; }
   vista.correoOcupado = false;
+  if (!vista.guardandoConfig) {
+    vista.mensajeGuardado = vista.correoError ? `No se han guardado los ajustes: ${vista.correoError}`
+      : Object.values(vista.clavesBorrador).some(c => c.trim()) ? 'Cambios pendientes de guardar'
+        : 'Ajustes guardados correctamente';
+  }
   repintarClaves();
+  return !vista.correoError;
 }
 
 function seccionAvisosCorreo() {
@@ -2378,13 +2432,16 @@ function seccionAvisosCorreo() {
   const ocupado = !!vista.correoOcupado;
   const casilla = (campo, nombre) => h('label', { clase: 'fila' }, h('input', {
     type: 'checkbox', checked: datos[campo], disabled: ocupado,
-    onchange: ev => { datos[campo] = ev.target.checked; },
+    onchange: ev => { datos[campo] = ev.target.checked; vista.correoPendiente = true; },
   }), nombre);
   const campo = (clave, nombre, tipo = 'text') => h('label', {}, nombre, h('input', {
     type: tipo, value: datos[clave] || '', disabled: ocupado, 'aria-label': nombre,
     autocomplete: clave === 'clave' ? 'new-password' : 'off',
     placeholder: clave === 'clave' && (vista.correo || {}).clave_guardada ? 'Guardada; deja vacío para conservar' : '',
-    oninput: ev => { datos[clave] = tipo === 'number' ? Number(ev.target.value) : ev.target.value; },
+    oninput: ev => {
+      datos[clave] = tipo === 'number' ? Number(ev.target.value) : ev.target.value;
+      vista.correoPendiente = true;
+    },
   }));
   caja.appendChild(casilla('reintentos', 'Reintentar automáticamente los fallos temporales'));
   caja.appendChild(h('div', { clase: 'avisos-campos' },
@@ -2404,7 +2461,7 @@ function seccionAvisosCorreo() {
   caja.appendChild(h('details', {}, h('summary', {}, 'Servidor SMTP (Gmail por defecto)'),
     h('div', { clase: 'avisos-campos' }, campo('host', 'Servidor SMTP'), campo('puerto', 'Puerto SMTP', 'number'),
       h('label', {}, 'Seguridad', h('select', { value: datos.seguridad, disabled: ocupado,
-        onchange: ev => { datos.seguridad = ev.target.value; },
+        onchange: ev => { datos.seguridad = ev.target.value; vista.correoPendiente = true; },
       }, h('option', { value: 'ssl' }, 'SSL'), h('option', { value: 'starttls' }, 'STARTTLS'))))));
   caja.appendChild(h('div', { clase: 'fila' },
     h('button', { clase: 'mini primario', disabled: ocupado, onclick: () => guardarAvisosCorreo() }, 'Guardar avisos'),
@@ -2591,10 +2648,7 @@ function seccionOpenAI(ficha) {
 }
 
 function seccionCartesia(ficha) {
-  const campo = h('input', {
-    type: 'password',
-    placeholder: ficha.cartesia.puesta ? `puesta (${ficha.cartesia.cola})` : 'sin poner',
-  });
+  const campo = campoClaveConfig('cartesia', ficha.cartesia.puesta ? `puesta (${ficha.cartesia.cola})` : 'sin poner');
   return h('section', { clase: 'bloque-config' },
     h('div', { clase: 'fila' },
       h('h3', {}, 'Cartesia — voz'),
@@ -2609,7 +2663,6 @@ function seccionCartesia(ficha) {
         onclick: () => {
           if (!campo.value.trim()) { toast('escribe la clave', true); return; }
           guardarClaves({ cartesia: { clave: campo.value.trim() } });
-          campo.value = '';
         },
       }, 'Cambiar')));
 }
@@ -3000,20 +3053,18 @@ async function salirCuentaCLI(cuenta) {
  * sin que nada se pare. */
 function seccionOtrasClaves(ficha) {
   const caja = h('section', { clase: 'bloque-config' },
-    h('h3', {}, 'Música y efectos'),
+    h('h3', {}, 'Bibliotecas, música y efectos'),
     h('div', { clase: 'pista' },
-      'Dos catálogos con licencia libre. Sin ellas el vídeo se monta igual, '
-      + 'pero sin banda sonora ni efectos.'));
+      'Configura las claves de los catálogos que quieras utilizar.'));
   [['jamendo', 'Jamendo — música', 'el Client ID de tu aplicación en '
     + 'developer.jamendo.com'],
    ['freesound', 'FreeSound — efectos', 'la API key de tu cuenta en '
-    + 'freesound.org/apiv2/apply']].forEach(([id, titulo, pista]) => {
+     + 'freesound.org/apiv2/apply'],
+   ['pixabay', 'Pixabay — imágenes y vídeo', 'la API key de pixabay.com/api/docs/'],
+   ['pexels', 'Pexels — imágenes y vídeo', 'la API key de pexels.com/api/']].forEach(([id, titulo, pista]) => {
     const puesta = ((ficha[id] || {}).puesta) || false;
     const cola = (ficha[id] || {}).cola || '';
-    const campo = h('input', {
-      type: 'password',
-      placeholder: puesta ? `puesta (${cola})` : 'sin poner',
-    });
+    const campo = campoClaveConfig(id, puesta ? `puesta (${cola})` : 'sin poner');
     caja.appendChild(h('div', { clase: 'fila' },
       h('b', {}, titulo),
       h('span', { clase: 'crece' }),
@@ -3025,7 +3076,6 @@ function seccionOtrasClaves(ficha) {
         onclick: () => {
           if (!campo.value.trim()) { toast('escribe la clave', true); return; }
           guardarClaves({ [id]: { clave: campo.value.trim() } });
-          campo.value = '';
         },
       }, 'Cambiar'),
       (puesta ? h('button', {
@@ -3036,15 +3086,58 @@ function seccionOtrasClaves(ficha) {
   return caja;
 }
 
-async function guardarClaves(cambios) {
+function campoClaveConfig(proveedor, placeholder) {
+  const vista = estadoConfig();
+  return h('input', {
+    type: 'password', placeholder, autocomplete: 'new-password',
+    'aria-label': `API key de ${proveedor === 'cartesia' ? 'Cartesia'
+      : proveedor === 'freesound' ? 'FreeSound' : proveedor === 'pexels' ? 'Pexels'
+        : proveedor === 'pixabay' ? 'Pixabay' : 'Jamendo'}`,
+    value: vista.clavesBorrador[proveedor] || '',
+    disabled: vista.guardandoConfig || vista.guardandoClaves,
+    oninput: ev => { vista.clavesBorrador[proveedor] = ev.target.value; },
+  });
+}
+
+async function guardarClaves(cambios, notificar = true) {
+  const vista = estadoConfig();
+  vista.guardandoClaves = true;
+  const boton = $('#guardar-config');
+  if (boton) boton.disabled = true;
   try {
-    estadoConfig().ficha = await pedir(API.claves(), {
+    const guardada = await pedir(API.claves(), {
       method: 'PUT', cuerpo: cambios,
     });
-    repintarClaves();
-    toast('claves guardadas');
+    for (const proveedor of ['cartesia', 'jamendo', 'freesound', 'pixabay', 'pexels']) {
+      if (!(proveedor in cambios)) continue;
+      const confirmacion = guardada[proveedor];
+      if (!confirmacion || typeof confirmacion.puesta !== 'boolean') {
+        throw new Error(`El servidor no reconoce las claves de ${proveedor}. `
+          + 'Reinicia el servidor para cargar la versión actualizada y vuelve a guardar.');
+      }
+      const clave = cambios[proveedor].clave;
+      if (clave !== CONSERVAR_CLAVE && confirmacion.puesta !== !!String(clave || '').trim()) {
+        throw new Error(`El servidor no ha confirmado el guardado de ${proveedor}. Vuelve a intentarlo.`);
+      }
+    }
+    vista.ficha = guardada;
+    for (const [proveedor, datos] of Object.entries(cambios)) {
+      const borrador = vista.clavesBorrador[proveedor] || '';
+      if (!datos.clave || borrador.trim() === datos.clave) delete vista.clavesBorrador[proveedor];
+    }
+    if (notificar) {
+      vista.mensajeGuardado = Object.values(vista.clavesBorrador).some(c => c.trim()) || vista.correoPendiente
+        ? 'Cambios pendientes de guardar' : 'Claves guardadas correctamente';
+      toast('claves guardadas');
+    }
+    return true;
   } catch (e) {
+    vista.mensajeGuardado = `No se han guardado las claves: ${e.message}`;
     toast(e.message, true);
+    return false;
+  } finally {
+    vista.guardandoClaves = false;
+    repintarClaves();
   }
 }
 
@@ -4937,7 +5030,8 @@ function encargoLight() {
       // agente por la descripción
       voz_id: '',
       ritmo: '',            // lo pone el servidor al cargar la galería
-      montaje: { subtitulos: true, transiciones: [], transiciones_personalizadas: false },
+      montaje: { subtitulos: true, transiciones: [], transiciones_personalizadas: false,
+        bibliotecas: bibliotecasPorDefectoLight() },
     };
   }
   return APP.light.encargo;
@@ -5543,6 +5637,8 @@ function retomarTallerLight(taller) {
       actual[clave] = guardado[clave];
     }
   });
+  actual.montaje = JSON.parse(JSON.stringify(actual.montaje));
+  actual.montaje.bibliotecas = bibliotecasPorDefectoLight(actual.montaje.bibliotecas);
   actual.estilo_imagenes = [];
   irALight('crear', { taller: taller.id,
     imagenesDelTaller: Number(taller.imagenes) || 0 });
@@ -5963,7 +6059,13 @@ function montajeDelEstiloLight(ficha) {
     subtitulos: montaje.subtitulos !== false,
     transiciones: [...(montaje.transiciones || [])],
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
+    bibliotecas: bibliotecasPorDefectoLight(montaje.bibliotecas),
   };
+}
+
+function bibliotecasPorDefectoLight(crudo) {
+  return Object.assign({ proveedores: [], imagenes: true, video: true,
+    audio: false, ia_cada: 5 }, JSON.parse(JSON.stringify(crudo || {})));
 }
 
 /* ============================================ EL VÍDEO DEL MODO LIGHT
@@ -6489,6 +6591,7 @@ function vistaElegidoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
 
@@ -6540,6 +6643,69 @@ function selectorFormato(valor, alCambiar) {
     }, (f.id === 'vertical' ? '▯ ' : '▭ ') + f.nombre));
   });
   return h('div', { clase: 'campo' }, h('label', {}, 'Formato'), tira);
+}
+
+function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
+  const opciones = e.bibliotecas;
+  const cambiar = () => { if (alCambiar) alCambiar(); };
+  const proveedores = h('div', { clase: 'tira-modos' });
+  [['pixabay', 'Pixabay'], ['pexels', 'Pexels']].forEach(([id, nombre]) => {
+    const boton = h('button', {
+      type: 'button', clase: 'mini' + (opciones.proveedores.includes(id) ? ' activo' : ''),
+      'aria-pressed': opciones.proveedores.includes(id) ? 'true' : 'false',
+      onclick: () => {
+        const puesta = !opciones.proveedores.includes(id);
+        opciones.proveedores = puesta ? [...opciones.proveedores, id]
+          : opciones.proveedores.filter(p => p !== id);
+        boton.classList.toggle('activo', puesta);
+        boton.setAttribute('aria-pressed', String(puesta));
+        actualizarDisponibilidad();
+        cambiar();
+        boton.dispatchEvent(new Event('change', { bubbles: true }));
+      },
+    }, nombre);
+    proveedores.appendChild(boton);
+  });
+  const tipos = h('div', { clase: 'fila' });
+  [['imagenes', 'Imágenes'], ['video', 'Vídeo'], ['audio', 'Audio']].forEach(([id, nombre]) => {
+    tipos.appendChild(h('label', { clase: 'efecto-encargo' }, h('input', {
+      type: 'checkbox', checked: opciones[id], 'data-foco': `bibliotecas-${id}`,
+      onchange: ev => { opciones[id] = ev.target.checked; cambiar(); },
+    }), h('span', {}, nombre)));
+  });
+  const frecuencia = h('div', { clase: 'campo' }, h('label', {},
+    'Una imagen con IA cada N escenas'), h('input', {
+    type: 'number', min: 1, max: 1000, step: 1, value: opciones.ia_cada,
+    'aria-label': 'Una imagen con IA cada N escenas', 'data-foco': 'bibliotecas-ia-cada',
+    onchange: ev => {
+      opciones.ia_cada = Math.max(1, Math.min(1000, Math.round(Number(ev.target.value) || 5)));
+      ev.target.value = opciones.ia_cada;
+      cambiar();
+    },
+  }));
+  const parametros = h('fieldset', {
+    clase: 'bibliotecas-parametros', 'aria-label': 'Parámetros de las bibliotecas',
+  }, tipos, frecuencia);
+  const aviso = h('p', { clase: 'pista' },
+    'Selecciona Pixabay o Pexels para configurar los tipos de recurso y la frecuencia de IA.');
+  const actualizarDisponibilidad = () => {
+    parametros.disabled = opciones.proveedores.length === 0;
+    aviso.hidden = !parametros.disabled;
+  };
+  actualizarDisponibilidad();
+  return bloqueLight('Obtener recursos de bibliotecas', 'combina recursos de stock e imágenes de IA',
+    proveedores, parametros, aviso,
+    h('p', { clase: 'pista' }, 'Puedes seleccionar ambas bibliotecas. Las escenas N, 2N, 3N… '
+      + 'se generan con Codex; el resto busca imágenes o vídeos según lo marcado. '
+      + 'Si no hay un recurso adecuado, se usa Codex. Los vídeos se incorporan sin su audio.'),
+    h('p', { clase: 'pista' }, 'Audio obtiene efectos de sonido de FreeSound para acompañar '
+      + 'la escena, además de su imagen o vídeo. Sin bibliotecas visuales seleccionadas, '
+      + 'todas las imágenes se generan con IA. Configura las claves en ⚙ Configuración.'),
+    esEstilo ? h('p', { clase: 'pista' }, 'Los vídeos nuevos heredarán esta selección.') : null,
+    h('div', { clase: 'fila meta' },
+      h('a', { href: 'https://pixabay.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pixabay'),
+      h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels'),
+      h('a', { href: 'https://freesound.org/', target: '_blank', rel: 'noopener noreferrer' }, 'FreeSound')));
 }
 
 function subtitulosDelEncargo(e, alCambiar, esEstilo = false) {
@@ -6801,6 +6967,7 @@ async function crearYGenerarLight(estilo) {
         transiciones: e.transiciones,
         transiciones_personalizadas: e.transiciones_personalizadas,
         subtitulos: e.subtitulos !== false,
+        bibliotecas: e.bibliotecas,
       },
     });
     const pid = (datos.proyecto || {}).id;
@@ -6865,6 +7032,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'transiciones', paso: 'render', param: 'transiciones' },
   { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
+  { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
 ];
 
 /* Las tres ranuras completas a partir de lo guardado, que puede faltar entero
@@ -6901,6 +7069,7 @@ function pedidoDelVideoLight() {
     transiciones: [...(params('render').transiciones || [])],
     transiciones_personalizadas: !!params('render').transiciones_personalizadas,
     subtitulos: params('render').subtitulos !== false,
+    bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
   v.pedido = {
     pid: v.pid,
@@ -6958,6 +7127,7 @@ function vistaEncargoVideoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
 
@@ -7060,7 +7230,7 @@ async function volcarEncargoLight(pedido) {
   const renombrar = !!nombre && nombre !== guardado.nombre;
   if (!Object.keys(porPaso).length && !renombrar) return;
   try {
-    for (const paso of ['ingesta', 'brief', 'guion', 'render']) {
+    for (const paso of ['ingesta', 'brief', 'guion', 'assets', 'render']) {
       if (!porPaso[paso]) continue;
       await pedir(API.params(pid, paso),
         { method: 'PUT', cuerpo: { params: porPaso[paso] } });
@@ -8749,6 +8919,14 @@ function vistaPreviaLight() {
   engancharSwipePrevia(marco);
   caja.appendChild(marco);
 
+  if (e.recurso_biblioteca) {
+    const recurso = e.recurso_biblioteca;
+    caja.appendChild(h('p', { clase: 'meta' },
+      `${recurso.tipo === 'video' ? 'Vídeo' : 'Imagen'} de ${recurso.autor || 'autor'} · `,
+      h('a', { href: recurso.pagina, target: '_blank', rel: 'noopener noreferrer' },
+        recurso.fuente === 'pexels' ? 'Pexels' : 'Pixabay')));
+  }
+
   /* LOS MANDOS. La flecha derecha es el gesto principal —pasar de escena y
      oírla— así que va grande y también en el teclado. */
   /* LA FILA DE MANDOS SE MONTA AQUI PERO SE CUELGA LA ULTIMA.
@@ -10428,6 +10606,7 @@ function vistaCrearLight() {
   cajas.appendChild(bloqueLight('⏱️ Ritmo', 'cada cuánto corta el vídeo',
     sliderRitmo(e.ritmo, v => { e.ritmo = v; tocarEncargoLight(); })));
 
+  cajas.appendChild(bibliotecasDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(subtitulosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
 
@@ -10892,6 +11071,7 @@ function vistaPresetLight() {
     datos.montaje = JSON.parse(JSON.stringify(montaje));
     guardarPresetLight(ficha.id, { montaje: datos.montaje });
   };
+  caja.appendChild(bibliotecasDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(subtitulosDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(efectosDelEncargo(montaje, guardarMontaje, true));
 
@@ -11814,8 +11994,10 @@ const TARJETAS_INICIO = [
   { id: 'claude', titulo: '1 · Tu cuenta de Claude', pinta: tarjetaClaudeInicio },
   { id: 'openai', titulo: '2 · Tu cuenta de ChatGPT (imágenes)', pinta: tarjetaOpenAIInicio },
   { id: 'cartesia', titulo: '3 · La clave de Cartesia (voz)', pinta: tarjetaCartesiaInicio },
-  { id: 'jamendo', titulo: '4 · La clave de Jamendo (música, opcional)', pinta: tarjetaJamendoInicio },
-  { id: 'freesound', titulo: '5 · La clave de FreeSound (efectos, opcional)', pinta: tarjetaFreeSoundInicio },
+  { id: 'pixabay', titulo: '4 · La clave de Pixabay (recursos, opcional)', pinta: tarjetaPixabayInicio },
+  { id: 'pexels', titulo: '5 · La clave de Pexels (recursos, opcional)', pinta: tarjetaPexelsInicio },
+  { id: 'jamendo', titulo: '6 · La clave de Jamendo (música, opcional)', pinta: tarjetaJamendoInicio },
+  { id: 'freesound', titulo: '7 · La clave de FreeSound (efectos, opcional)', pinta: tarjetaFreeSoundInicio },
   { id: 'listo', titulo: 'Todo listo', pinta: tarjetaFinalInicio },
 ];
 
@@ -11924,7 +12106,7 @@ function tarjetaBienvenidaInicio() {
     h('div', { clase: 'pista' },
       'Esto convierte lo que escribas —unas notas, un artículo, tu propio guion— '
       + 'en un vídeo de animación narrada, en varios pasos con revisión entre '
-      + 'ellos. Para que pueda hacerlo necesita hablar con cinco servicios, y '
+      + 'ellos. Se conecta con distintos servicios que '
       + 'usan tu sesión o una clave. Esta guía te lleva por ellos uno a uno, con el '
       + 'enlace de cada sitio.'),
     h('ol', { clase: 'inicio-pasos' },
@@ -11932,8 +12114,10 @@ function tarjetaBienvenidaInicio() {
         + 'catálogo visual y los rótulos, y mueve al asistente de la burbuja.'),
       h('li', {}, h('b', {}, 'ChatGPT / Codex'), ': tu cuenta para dibujar los planos, sin API key.'),
       h('li', {}, h('b', {}, 'Cartesia'), ': la voz que narra.'),
-      h('li', {}, h('b', {}, 'Jamendo y FreeSound'), ': música y efectos. Son las dos únicas que se '
-        + 'pueden dejar para luego; las otras tres hacen falta.')),
+      h('li', {}, h('b', {}, 'Pixabay y Pexels'), ': imágenes y vídeos de bibliotecas para combinar '
+        + 'con los planos de Codex. Puedes usar una, ambas o dejarlas para luego.'),
+      h('li', {}, h('b', {}, 'Jamendo y FreeSound'), ': música y efectos, opcionales. FreeSound '
+        + 'también aporta los sonidos de escena cuando marcas Audio en las bibliotecas.')),
     h('div', { clase: 'caja-info' },
       'Abajo a la derecha hay una burbuja: es el asistente. Sabe cómo funciona '
       + 'todo esto y ve lo que está pasando en tu Estudio, así que cuando algo '
@@ -12132,13 +12316,52 @@ function tarjetaCartesiaInicio() {
   ];
 }
 
+function tarjetaPixabayInicio() {
+  const ficha = estadoConfig().ficha;
+  const datos = (ficha && ficha.pixabay) || {};
+  return [
+    h('div', { clase: 'pista' }, 'Pixabay aporta imágenes y vídeos para representar las escenas. '
+      + 'Su clave es opcional: hace falta cuando selecciones Pixabay en un estilo o vídeo. '
+      + 'Puedes combinarlo con Pexels y con imágenes generadas por Codex.'),
+    h('ol', { clase: 'inicio-pasos' },
+      h('li', {}, 'Crea una cuenta o inicia sesión en ', enlaceInicio('Pixabay', 'https://pixabay.com/'), '.'),
+      h('li', {}, 'Abre la ', enlaceInicio('documentación de la API', 'https://pixabay.com/api/docs/'),
+        ' con tu sesión iniciada.'),
+      h('li', {}, 'En «Search Images», busca el parámetro ', h('b', {}, 'key'),
+        ', copia tu API key y pégala aquí. La misma clave sirve para imágenes y vídeos.')),
+    ficha ? estadoClaveInicio(!!datos.puesta, datos.cola || '')
+      : h('div', { clase: 'cargando' }, 'leyendo las claves…'),
+    campoClaveInicio('la API key de Pixabay', clave => guardarClaves({ pixabay: { clave } })),
+    h('p', { clase: 'meta' }, 'Para efectos de sonido se usa FreeSound, que se configura más adelante.'),
+  ];
+}
+
+function tarjetaPexelsInicio() {
+  const ficha = estadoConfig().ficha;
+  const datos = (ficha && ficha.pexels) || {};
+  return [
+    h('div', { clase: 'pista' }, 'Pexels aporta fotografías y vídeos para las escenas. '
+      + 'Su clave es opcional: hace falta si seleccionas Pexels como biblioteca. '
+      + 'Puedes activar Pexels y Pixabay a la vez.'),
+    h('ol', { clase: 'inicio-pasos' },
+      h('li', {}, 'Crea una cuenta o inicia sesión en ', enlaceInicio('Pexels', 'https://www.pexels.com/'), '.'),
+      h('li', {}, 'Abre ', enlaceInicio('Pexels API', 'https://www.pexels.com/api/'),
+        ' y solicita una clave de API siguiendo los pasos de tu cuenta.'),
+      h('li', {}, 'Copia la ', h('b', {}, 'API key'), ' y pégala aquí. Sirve para fotos y vídeos.')),
+    ficha ? estadoClaveInicio(!!datos.puesta, datos.cola || '')
+      : h('div', { clase: 'cargando' }, 'leyendo las claves…'),
+    campoClaveInicio('la API key de Pexels', clave => guardarClaves({ pexels: { clave } })),
+    h('p', { clase: 'meta' }, 'Los clips se incorporan sin audio. Los efectos de sonido usan FreeSound.'),
+  ];
+}
+
 function tarjetaJamendoInicio() {
   const ficha = estadoConfig().ficha;
   const jamendo = (ficha && ficha.jamendo) || {};
   return [
     h('div', { clase: 'pista' },
       'Jamendo es un catálogo de música con licencia libre: de ahí sale la banda '
-      + 'sonora. Es una de las dos que se pueden dejar: si no está, el Estudio lo '
+      + 'sonora. Es opcional: si no está, el Estudio lo '
       + 've y monta el vídeo sin música, sin pedirla. Se puede poner otro día '
       + 'desde Configuración.'),
     h('ol', { clase: 'inicio-pasos' },
@@ -12158,9 +12381,9 @@ function tarjetaFreeSoundInicio() {
   const freesound = (ficha && ficha.freesound) || {};
   return [
     h('div', { clase: 'pista' },
-      'FreeSound es un catálogo de efectos de sonido con licencia libre. Es la '
-      + 'otra que se puede dejar: sin ella el vídeo se monta sin efectos, y el '
-      + 'Estudio no los pide. Se puede poner otro día desde Configuración.'),
+      'FreeSound aporta efectos de sonido, también para la casilla Audio de las bibliotecas. '
+      + 'Puedes dejarlo para luego si no vas a usar efectos. Si marcas Audio en un estilo '
+      + 'o vídeo, necesitarás esta clave. También se puede introducir desde Configuración.'),
     h('ol', { clase: 'inicio-pasos' },
       h('li', {}, 'Crea una cuenta en ', enlaceInicio('freesound.org', 'https://freesound.org/home/register/'), '.'),
       h('li', {}, 'Pide una clave en ', enlaceInicio('freesound.org/apiv2/apply', 'https://freesound.org/apiv2/apply'),
@@ -12191,6 +12414,8 @@ function tarjetaFinalInicio() {
     fila('Claude — guion, catálogo, rótulos y el asistente', claude),
     fila('ChatGPT / Codex — imágenes', imagenes),
     fila('Cartesia — voz', !!(ficha.cartesia && ficha.cartesia.puesta)),
+    fila('Pixabay — imágenes y vídeos', !!(ficha.pixabay && ficha.pixabay.puesta), true),
+    fila('Pexels — imágenes y vídeos', !!(ficha.pexels && ficha.pexels.puesta), true),
     fila('Jamendo — música', !!(ficha.jamendo && ficha.jamendo.puesta), true),
     fila('FreeSound — efectos', !!(ficha.freesound && ficha.freesound.puesta), true),
     faltan

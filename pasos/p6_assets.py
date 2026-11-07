@@ -66,6 +66,10 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cartelas  # noqa: E402
+try:
+    from . import bibliotecas
+except ImportError:
+    import bibliotecas
 import corrector  # noqa: E402
 import cta  # noqa: E402
 import encuadres  # noqa: E402
@@ -100,6 +104,7 @@ MAX_ROTULOS = 1
 
 
 PARAMS_POR_DEFECTO = {
+    "bibliotecas": {},
     "calidad": "low",                  # low | medium | high  (coste por imagen)
     "estilo": {
         # VACIO a proposito. Aqui habia una frase describiendo un dibujo concreto
@@ -1404,6 +1409,20 @@ def planificar(proyecto, params, inventario=None, replantear=False,
     }
     plan["assets"] = _assets_necesarios(plan, catalogo, p)
     medios_escena.aplicar_al_plan(plan, p)
+    anteriores = {}
+    por_id_anterior = {}
+    for anterior in (previo or {}).get("escenas", []):
+        anteriores.setdefault(medios.normalizar_texto(anterior.get("narracion") or ""), []).append(anterior)
+        por_id_anterior[anterior["id"]] = anterior
+    for escena in escenas:
+        texto = medios.normalizar_texto(escena.get("narracion") or "")
+        anterior = por_id_anterior.get(escena["id"], {})
+        if medios.normalizar_texto(anterior.get("narracion") or "") != texto:
+            candidatos = anteriores.get(texto) or []
+            anterior = candidatos[0] if len(candidatos) == 1 else {}
+        bibliotecas.restaurar(escena, anterior)
+        if not (p.get("bibliotecas") or {}).get("audio"):
+            escena.pop("audio_biblioteca", None)
     plan["dependencias"] = {f"escena:{e['id']}": _assets_de_escena(e)
                             for e in escenas}
     # Que ha sobrevivido del plan anterior. Va en el plan a proposito: es lo que
@@ -3291,6 +3310,7 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
     """
     tamano = tamano or "apaisado"
     firma = medios.huella({"prompt": prompt, "calidad": p["calidad"],
+                           **({"bibliotecas_codex": True} if bibliotecas.activa(p) else {}),
                            # el tamano entra en la firma: la misma escena en
                            # vertical es otra imagen, y la cache no puede
                            # devolver la apaisada
@@ -3340,6 +3360,9 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
 
     def generar_actual():
         try:
+            if bibliotecas.activa(p):
+                return imagen.codex().generar(prompt_actual, referencias, p["calidad"],
+                                               imagen.TAMANOS[tamano])
             return imagen.generar(prompt_actual, referencias, quality=p["calidad"], tamano=tamano)
         except RuntimeError as fallo:
             if adaptacion and _rechazo_de_seguridad(fallo):
@@ -3378,6 +3401,9 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
                 medios.escribir_json(ruta_decision, {"firma": firma, "intentada": True,
                                                    "alternativa_visual": adaptacion})
                 return generar_actual()
+            if bibliotecas.activa(p):
+                raise RuntimeError(f"{nombre}: Codex rechazó este plano. Revisa su dirección; "
+                                   "no se utiliza una API de pago como alternativa.") from rechazo
             if not prompt_seguro or prompt_seguro == prompt:
                 raise RuntimeError(
                     f"{nombre}: OpenAI rechaza este plano con su filtro de "
@@ -3664,9 +3690,18 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
         avisar(0.34, "%d imagenes recolocadas: el corte les cambio el numero"
                      % recolocadas["movidas"], None)
     total = len(escenas)
+    opciones_bibliotecas = bibliotecas.normalizar(p.get("bibliotecas") or {})
+    configuracion_bibliotecas = (medios.huella({k: v for k, v in opciones_bibliotecas.items()
+                                              if k != "audio"})
+                                if opciones_bibliotecas["proveedores"] and (
+                                    opciones_bibliotecas["imagenes"] or opciones_bibliotecas["video"])
+                                else None)
+    biblioteca = bibliotecas.Biblioteca(proyecto, p, plan, avisar) if bibliotecas.activa(p) else None
+    if biblioteca:
+        biblioteca.verificar_claves()
     cadenas = _cuantas_cadenas(p, escenas)
     imagen = medios.motor("imagen_openai/imagen.py")
-    if getattr(imagen, "proveedor_imagen", lambda: "api")() == "codex":
+    if biblioteca or getattr(imagen, "proveedor_imagen", lambda: "api")() == "codex":
         cadenas = min(cadenas, imagen.codex().concurrencia())
     orden = {escena["id"]: indice for indice, escena in enumerate(escenas)}
 
@@ -3697,6 +3732,12 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             uid = f"escena:{sid}"
             destino = os.path.join(dirs["escenas"], f"{sid}.png")
             ficha_json = os.path.join(dirs["escenas"], f"{sid}.json")
+            guardada_biblioteca = medios.leer_json(ficha_json, {}) or {}
+            cambio_biblioteca = guardada_biblioteca.get("bibliotecas_config") != configuracion_bibliotecas
+            if cambio_biblioteca or not (p.get("bibliotecas") or {}).get("audio"):
+                escena.pop("audio_biblioteca", None)
+            if biblioteca:
+                biblioteca.audio(escena)
 
             # Una cartela no deja PNG, asi que su ficha en disco es lo unico
             # que dice que ya estaba hecha. Y tiene que ser una ficha DE
@@ -3711,6 +3752,9 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 hecho = os.path.exists(destino)
             if escena.get("medio_usuario"):
                 ficha = medios_escena.materializar(proyecto, escena, trabajo)
+                if escena.get("audio_biblioteca"):
+                    ficha["audio_biblioteca"] = escena["audio_biblioteca"]
+                    medios.escribir_json(ficha_json, ficha)
                 previas[sid] = destino
                 orden_cadena.append(sid)
                 with cerrojo:
@@ -3748,8 +3792,14 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             # «redibujar el video entero», y ahi si lo has pedido.
             pedida = (uid in set(unidades) if unidades is not None
                       else bool(forzar))
-            if hecho and not pedida:
-                if not _sin_imagen(escena):
+            if cambio_biblioteca and (unidades is None or uid in unidades):
+                pedida = True
+            misma_biblioteca = (guardada_biblioteca.get("recurso_biblioteca")
+                and guardada_biblioteca.get("bibliotecas_peticion") == medios.huella(
+                    {k: escena.get(k) for k in ("narracion", "direccion", "prompt")})
+                and not cambio_biblioteca and not forzar)
+            if hecho and (not pedida or misma_biblioteca):
+                if not _sin_imagen(escena) and not escena.get("recurso_biblioteca"):
                     previas[sid] = destino
                     orden_cadena.append(sid)
                 ficha = medios.leer_json(ficha_json, {}) or {
@@ -3757,6 +3807,13 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                     "origen": "conservado"}
                 ficha["origen"] = "conservado"
                 _aplicar_alternativa_visual(escena, ficha)
+                bibliotecas.restaurar(escena, ficha)
+                if not (p.get("bibliotecas") or {}).get("audio"):
+                    escena.pop("audio_biblioteca", None)
+                    ficha.pop("audio_biblioteca", None)
+                if escena.get("audio_biblioteca"):
+                    ficha["audio_biblioteca"] = escena["audio_biblioteca"]
+                    medios.escribir_json(ficha_json, ficha)
                 # OBSOLETA NO ES PENDIENTE. Si lo que hay dibujado no es de
                 # lo que se dice aqui, la imagen se queda igualmente: no se
                 # tira, no se rehace sola y no se cobra. Se DICE, y la
@@ -3777,7 +3834,13 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 anunciar(sid)
                 continue
 
-            if cartelas.sin_imagen(escena):
+            escena.pop("medio_biblioteca", None)
+            escena.pop("recurso_biblioteca", None)
+            recurso = biblioteca.visual(escena, destino) if biblioteca else None
+            if recurso:
+                meta = recurso
+                prompt, referencias = "", []
+            elif cartelas.sin_imagen(escena):
                 # UNA CARTELA DE FONDO NEGRO NO DEJA IMAGEN, y es deliberado.
                 #
                 # Aqui se rasterizaba a PNG para que la rejilla de planos
@@ -3925,7 +3988,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                                          recuperacion=recuperacion,
                                          alternativa_visual=(lambda fallo: _preparar_alternativa_visual(
                                              escena_final, referencias, plan, p, fallo, avisar, original=escena))
-                                         if getattr(imagen, "proveedor_imagen", lambda: "api")() == "codex"
+                                         if biblioteca or getattr(imagen, "proveedor_imagen", lambda: "api")() == "codex"
                                          else None)
                 _aplicar_alternativa_visual(escena, meta)
                 if meta.get("alternativa_visual"):
@@ -3944,7 +4007,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             # pantalla negra con letras como «asi va este video» es justo lo
             # contrario de lo que hacen. Un fotograma de un mapa REAL, menos
             # todavia: es la unica imagen del video que no esta dibujada.
-            if not _sin_imagen(escena):
+            if not _sin_imagen(escena) and not escena.get("recurso_biblioteca"):
                 previas[sid] = destino
                 orden_cadena.append(sid)
             ficha = {"tipo": "escena", "id": sid,
@@ -3961,6 +4024,10 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                      "zoom": escena.get("zoom"),
                      "assets": plan["dependencias"].get(uid, []),
                      "prompt": prompt,
+                     **({"bibliotecas_config": configuracion_bibliotecas}
+                        if configuracion_bibliotecas else {}),
+                     **({"audio_biblioteca": escena["audio_biblioteca"]}
+                        if escena.get("audio_biblioteca") else {}),
                      "referencias": [{"papel": r["papel"], "ruta": r["ruta"]}
                                      for r in referencias], **meta}
             medios.escribir_json(ficha_json, ficha)
@@ -4821,6 +4888,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
     """
     arranque_paso = time.time()
     p = _con_defectos(params)
+    if bibliotecas.activa(p):
+        p["bibliotecas"] = bibliotecas.normalizar(p["bibliotecas"])
     avisar = estadisticas.avisador(avisar)
     try:
         from .recuperacion_imagenes import Recuperacion
@@ -4848,6 +4917,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
 
     avisar(0.03, "cortando la narracion en planos")
     plan = planificar(proyecto, p, replantear=replantear, previo=previo)
+    if bibliotecas.activa(p):
+        bibliotecas.Biblioteca(proyecto, p, plan, avisar).verificar_claves()
     necesarios = plan["assets"]
     _avisar_conservacion(plan, avisar)
 

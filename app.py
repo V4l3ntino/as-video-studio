@@ -1571,6 +1571,11 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if "bibliotecas" in nuevos:
+            try:
+                PASOS_MODULOS.bibliotecas.normalizar(nuevos["bibliotecas"])
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if "subtitulos" in nuevos and not isinstance(nuevos["subtitulos"], bool):
             raise ErrorApi(400, "subtitulos debe ser un booleano")
         if "transiciones_personalizadas" in nuevos and not isinstance(
@@ -4716,6 +4721,17 @@ def _ruta_de_version(ctx, paso, *partes):
     return "/".join(["pasos", paso, f"v{int(version)}"] + list(partes))
 
 
+def _ruta_publica_proyecto(ctx, ruta):
+    """Los medios guardan rutas de disco; /a/ recibe rutas relativas al proyecto."""
+    if not ruta:
+        return None
+    try:
+        destino = ruta_contenida(ctx.proyecto.raiz, str(ruta).replace("\\", os.sep))
+    except ValueError as fallo:
+        raise ErrorApi(403, "ruta del medio fuera del proyecto") from fallo
+    return os.path.relpath(destino, ctx.proyecto.raiz).replace(os.sep, "/")
+
+
 def _ficha_de_escena(ctx, sid):
     """La ficha del dibujo de un plano: para QUE texto se dibujo, y su ruta."""
     version = ctx.proyecto.version_activa("assets")
@@ -4939,7 +4955,7 @@ def _plan_de_previsualizacion(ctx):
 
 @app.get("/api/proyectos/{pid}/previsualizacion")
 def leer_previsualizacion(pid: str):
-    """Las piezas para ver el video sin montarlo. -> {escenas, audio, ...}"""
+    """Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto."""
     ctx = contexto(pid)
     plan = _plan_de_previsualizacion(ctx)
     audio = _audio_de_la_toma(ctx)
@@ -4992,7 +5008,7 @@ def leer_previsualizacion(pid: str):
         dibujada, dice = p6._texto_clave(ficha), p6._texto_clave(escena)
         if dibujada and dice and p6._mismo_dicho(dibujada, dice):
             imagen = ficha.get("ruta") or imagen
-        medio_usuario = escena.get("medio_usuario") or {}
+        medio_usuario = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
         if medio_usuario:
             imagen = medio_usuario.get("poster") or imagen
         escenas.append({
@@ -5003,9 +5019,11 @@ def leer_previsualizacion(pid: str):
             "narracion": escena.get("narracion") or "",
             "bloque": (escena.get("origen") or {}).get("bloque") or "",
             "cartela": (escena.get("cartela") or {}).get("plantilla") or "",
-            "imagen": imagen,
-            "clip": medio_usuario.get("archivo") if medio_usuario.get("tipo") == "video" else None,
+            "imagen": _ruta_publica_proyecto(ctx, imagen),
+            "clip": _ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
+                    if medio_usuario.get("tipo") == "video" else None,
             "medio_usuario": medio_usuario or None,
+            "recurso_biblioteca": escena.get("recurso_biblioteca"),
             # y si el dibujo que hay ya no es de lo que aqui se dice. Va vacio
             # cuando esta al dia: es una excepcion, no un campo de todos.
             **_obsolescencia(ctx, escena),
@@ -8048,8 +8066,10 @@ def _sembrar_taller(ctx, encargo):
     for paso, valores in light.params_de_ritmo(encargo.get("ritmo")).items():
         ctx.estado.actualizar_params(paso, valores)
     if "montaje" in encargo:
-        _validar_params("render", encargo["montaje"], ctx)
-        ctx.estado.actualizar_params("render", encargo["montaje"])
+        for paso, valores in _presets().cambios_para(
+                {"tipo": "montaje", "datos": encargo["montaje"]}).items():
+            _validar_params(paso, valores, ctx)
+            ctx.estado.actualizar_params(paso, valores)
     return idioma
 
 
@@ -9197,7 +9217,10 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
         contenido["montaje"] = dict(contenido.get("montaje") or {}, **montaje)
         contenido.setdefault("origen", {})["montaje"] = copy.deepcopy(contenido["montaje"])
         try:
-            _taller_de(ficha).estado.actualizar_params("render", contenido["montaje"])
+            taller = _taller_de(ficha)
+            for paso, valores in presets.cambios_para(
+                    {"tipo": "montaje", "datos": contenido["montaje"]}).items():
+                taller.estado.actualizar_params(paso, valores)
         except ErrorApi:
             pass
 
@@ -10336,6 +10359,10 @@ def _sembrar_video_light(ctx, datos):
     if guion:
         _validar_params("guion", guion, ctx)
         ctx.estado.actualizar_params("guion", guion)
+    if "bibliotecas" in datos:
+        assets = {"bibliotecas": datos["bibliotecas"]}
+        _validar_params("assets", assets, ctx)
+        ctx.estado.actualizar_params("assets", assets)
     render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")
               if k in datos}
     if render:

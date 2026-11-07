@@ -876,6 +876,9 @@ def probar_sustitucion_de_escenas(cliente):
     _, previa = cliente.get(f"/api/proyectos/{proyecto.id}/previsualizacion")
     escena = (previa.get("escenas") or [{}])[0]
     ok(escena.get("imagen"), "la previsualizacion tiene la imagen sustituida")
+    ok(not os.path.isabs(escena["imagen"]), "la imagen propia se publica relativa al proyecto")
+    imagen_http = cliente.sesion.get(f"{cliente.base}/a/{proyecto.id}/{escena['imagen']}?mini=1024", timeout=15)
+    igual(imagen_http.status_code, 200, "la URL de la imagen propia se puede cargar en el navegador")
     igual((escena.get("medio_usuario") or {}).get("tipo"), "imagen", "se identifica como material propio")
     respuesta = cliente.sesion.post(url, files={"archivo": ("foto.png", b"rota", "image/png")}, timeout=30)
     final = esperar_trabajo(cliente, respuesta.json()["trabajo_id"])
@@ -907,6 +910,39 @@ def probar_sustitucion_de_escenas(cliente):
                   f"el archivo de {duracion} s conserva hasta 15 segundos")
             _, previa = cliente.get(f"/api/proyectos/{proyecto.id}/previsualizacion")
             ok(previa["escenas"][0].get("clip"), "la previsualizacion publica el clip para reproducirlo")
+
+    # Las bibliotecas guardan rutas absolutas, igual que las sustituciones.
+    # Se comprueba la URL HTTP real, no solo que exista un campo en el JSON.
+    biblioteca = Proyecto.crear(cliente.carpeta, "Previa de bibliotecas")
+    carpeta = biblioteca.ruta("recursos_biblioteca", "ejemplo")
+    os.makedirs(carpeta, exist_ok=True)
+    poster = os.path.join(carpeta, "imagen.png")
+    clip = os.path.join(carpeta, "video.mp4")
+    Image.new("RGB", (160, 90), "blue").save(poster)
+    shutil.copyfile(ruta, clip)
+    escenas = [
+        {"id": "S001", "t_in": 0, "t_out": 3, "duracion": 3, "narracion": "Una imagen de biblioteca",
+         "medio_biblioteca": {"tipo": "imagen", "archivo": poster, "poster": poster}},
+        {"id": "S002", "t_in": 3, "t_out": 6, "duracion": 3, "narracion": "Un video de biblioteca",
+         "medio_biblioteca": {"tipo": "video", "archivo": clip, "poster": poster}},
+    ]
+    escribir_json(biblioteca.ruta_trabajo("assets") + "/plan.json", {
+        "escenas": escenas, "resolucion": [160, 90], "formato": "horizontal"})
+    Estado(biblioteca).completar("assets", {"plan": "plan.json"})
+    _, previa = cliente.get(f"/api/proyectos/{biblioteca.id}/previsualizacion")
+    for e in previa["escenas"]:
+        ok(e["imagen"].startswith("recursos_biblioteca/"),
+           f"{e['id']}: el poster de biblioteca usa una ruta publica relativa")
+        respuesta = cliente.sesion.get(f"{cliente.base}/a/{biblioteca.id}/{e['imagen']}?mini=1024", timeout=15)
+        igual(respuesta.status_code, 200, f"{e['id']}: el poster de biblioteca responde 200")
+        ok(respuesta.headers.get("content-type", "").startswith("image/"),
+           f"{e['id']}: el navegador recibe una imagen, no un error JSON")
+    video = previa["escenas"][1]["clip"]
+    ok(video.startswith("recursos_biblioteca/"), "el video de biblioteca usa una ruta publica relativa")
+    respuesta = cliente.sesion.get(f"{cliente.base}/a/{biblioteca.id}/{video}",
+        headers={"Range": "bytes=0-127"}, timeout=15)
+    igual(respuesta.status_code, 206, "el video de biblioteca admite reproduccion por rangos")
+    igual(respuesta.headers.get("content-type"), "video/mp4", "se sirve el clip como video MP4")
 
 
 def probar_cartelas_y_transiciones(cliente, pid, raiz_proyecto=None):
@@ -3203,6 +3239,28 @@ def probar_video_light(cliente):
     ok(not any(t["puesta"] for t in efectos_heredados["transiciones"]),
        "un estilo sin efectos no recupera las transiciones de fabrica al heredarlo")
     cliente.put(f"/api/presets-light/{estilo_id}", {"montaje": seleccion})
+
+    opciones_biblioteca = {"proveedores": ["pixabay", "pexels"], "imagenes": True,
+                          "video": True, "audio": True, "ia_cada": 4}
+    respuesta, _ = cliente.put(f"/api/presets-light/{estilo_id}", {
+        "montaje": {"bibliotecas": opciones_biblioteca}})
+    igual(respuesta.status_code, 200, "el estilo guarda las bibliotecas y la frecuencia de IA")
+    respuesta, nuevo = cliente.post(f"/api/presets-light/{estilo_id}/video", {
+        "nombre": "Bibliotecas heredadas", "material": "Una escena del bosque."})
+    igual(respuesta.status_code, 201, "el video hereda el modo mixto sin generar recursos")
+    bibliotecas_id = nuevo.get("proyecto", {}).get("id") or ""
+    _, assets = cliente.get(f"/api/proyectos/{bibliotecas_id}/pasos/assets")
+    igual(assets["params"].get("bibliotecas"), opciones_biblioteca,
+          "proveedores, tipos y frecuencia llegan a assets, que produce los planos")
+    _, montaje_bibliotecas = cliente.get(f"/api/proyectos/{bibliotecas_id}/pasos/render")
+    ok("bibliotecas" not in montaje_bibliotecas["params"],
+       "el montaje no guarda decisiones que pertenecen a la generacion de recursos")
+    respuesta, _ = cliente.put(f"/api/proyectos/{bibliotecas_id}/pasos/assets/params", {
+        "bibliotecas": dict(opciones_biblioteca, ia_cada=0)})
+    igual(respuesta.status_code, 400, "se rechaza una frecuencia de IA invalida")
+    respuesta, _ = cliente.put(f"/api/presets-light/{estilo_id}", {
+        "montaje": {"bibliotecas": {"proveedores": ["inventada"]}}})
+    igual(respuesta.status_code, 400, "el estilo rechaza bibliotecas desconocidas")
 
     # ---- crear el video: los cuatro campos de la pantalla en un POST
     respuesta, creado = cliente.post(f"/api/presets-light/{estilo_id}/video", {

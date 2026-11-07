@@ -561,6 +561,10 @@ button.pastilla { cursor: pointer; }
   font-size: 14px; text-transform: none; letter-spacing: normal;
   color: var(--texto); margin: 0; }
 .efecto-encargo input { flex: 0 0 auto; margin-top: 4px; }
+.bibliotecas-parametros { border: 0; padding: 0; margin: 0; min-width: 0; }
+.bibliotecas-parametros:disabled { opacity: .45; filter: grayscale(.7); }
+.bibliotecas-parametros:disabled label,
+.bibliotecas-parametros:disabled input { cursor: not-allowed; }
 .efecto-encargo > span { display: flex; flex-direction: column; gap: 3px; }
 .efecto-sfx .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .efecto-sfx .icono {
@@ -1245,7 +1249,11 @@ video { width: 100%; border-radius: 9px; border: 1px solid var(--linea); backgro
   box-shadow: var(--sombra); padding-top: env(safe-area-inset-top);
 }
 #config.plegado { display: none; }
-#cuerpo-config { overflow-y: auto; padding: 12px; }
+#cuerpo-config { overflow-y: auto; padding: 12px; flex: 1; min-height: 0; }
+.config-guardar { flex-shrink: 0; padding: 12px; border-top: 1px solid var(--linea);
+  background: var(--panel); padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.config-guardar button { width: 100%; }
+.config-guardar [role="status"] { display: block; margin-top: 8px; }
 
 .bloque-config {
   background: var(--hueco); border: 1px solid var(--linea);

@@ -145,9 +145,10 @@ class Sustituciones(unittest.TestCase):
             previa = servidor.leer_previsualizacion(self.proyecto.id)
         self.assertEqual(resultado["medio"]["ancla"], plan_visible["escenas"][0]["narracion"])
         escena = next(e for e in previa["escenas"] if e["id"] == "S001")
-        self.assertEqual(escena["clip"], resultado["medio"]["archivo"])
+        self.assertEqual(escena["clip"], os.path.relpath(
+            resultado["medio"]["archivo"], self.proyecto.raiz).replace(os.sep, "/"))
         self.assertEqual(escena["medio_usuario"]["tipo"], "video")
-        self.assertTrue(Path(escena["clip"]).is_file())
+        self.assertTrue(Path(self.proyecto.raiz, escena["clip"]).is_file())
         self.assertNotIn("obsoleta", escena)
 
 

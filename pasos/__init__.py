@@ -58,6 +58,7 @@ from . import avisos, recuperacion_imagenes  # noqa: E402,F401
 # encuadres (que clase de plano es cada uno) lo
 # Wikimedia Commons; antes se llamaba commons.py, a un typo de comun.py) los
 from . import encuadres  # noqa: E402,F401
+from . import bibliotecas  # noqa: E402,F401
 from . import p6_assets, p7_callouts, p8_render  # noqa: E402,F401
 # y repaso (lo que se escribe MIRANDO el video montado) el ultimo de los que
 # deciden: reparte notas en cambios de todos los pasos anteriores
@@ -89,7 +90,7 @@ def modulo_de(paso_id):
     return MODULOS.get(str(paso_id))
 
 
-__all__ = ["catalogo_visual", "conservar", "repaso", "publicacion", "shorts", "avisos", "recuperacion_imagenes",
+__all__ = ["bibliotecas", "catalogo_visual", "conservar", "repaso", "publicacion", "shorts", "avisos", "recuperacion_imagenes",
            "cartelas", "claves", "cli_claude", "comun", "direccion",
            "enrutar_estilo", "redactor",
            "login_cli", "asistente", "salud_cli", "comprobar_claves", "mcp_estudio",

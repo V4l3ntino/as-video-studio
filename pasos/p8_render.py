@@ -1571,8 +1571,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                     "hyperframe_px": mov.get("hyperframe_px")},
             "capa": svg, "capa_fija": fija,
             "hyper": hyper, "frames": total, "fps": fps,
-            "video": ((escena.get("medio_usuario") or {}).get("archivo")
-                      if (escena.get("medio_usuario") or {}).get("tipo") == "video" else None),
+            "video": ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
+                      if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None),
             "resolucion": [ancho, alto], "calidad": p["calidad_video"],
             "carpeta": os.path.join(dir_frames, sid), "clip": clip,
             "ultimo": os.path.join(dir_ultimo, f"{sid}.png"),

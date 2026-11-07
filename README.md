@@ -144,6 +144,40 @@ generador de IA. El material propio se guarda dentro del proyecto, viaja al
 exportarlo o duplicarlo y sigue seleccionado al retomar la generación. Espera
 a que termine el trabajo del vídeo o páralo antes de sustituir una escena.
 
+### Combinar bibliotecas e imágenes con IA
+
+En los **estilos** y en el **encargo del vídeo**, justo encima de **Subtítulos**,
+aparece **Obtener recursos de bibliotecas**:
+
+- Selecciona **Pixabay**, **Pexels** o ambas.
+- Marca **Imágenes**, **Vídeo** y, si quieres efectos de sonido, **Audio**.
+- Ajusta **Una imagen con IA cada N escenas** (inicialmente 5).
+
+Las escenas ilustradas N, 2N, 3N… usan **Codex**; las demás buscan recursos de
+los tipos y proveedores elegidos. Las cartelas de fondo sólido, los componentes
+ya construidos y las sustituciones manuales conservan su tratamiento propio.
+El selector prepara búsquedas para la escena y elige entre los resultados;
+si ninguno encaja o el archivo no es utilizable, se genera una imagen con Codex
+y se indica en el progreso. Los vídeos se descargan y normalizan **sin audio**.
+Cada escena sigue teniendo una imagen o un vídeo, incluso al marcar solo Audio.
+
+**Audio usa FreeSound**: las API públicas de Pixabay y Pexels solo ofrecen
+imágenes y vídeos. Se buscan sonidos adecuados a la acción, sin voces ni música;
+se mezclan bajo la narración y se limitan a la duración de su escena. Si no hay
+un efecto adecuado, esa escena conserva su narración sin un efecto añadido.
+
+Configura las claves de los proveedores elegidos en **⚙ Configuración →
+Bibliotecas, música y efectos** y la sesión de Codex para las imágenes de IA.
+Las claves también admiten `PIXABAY_API_KEY` y `PEXELS_API_KEY` por entorno.
+Una biblioteca visual sin clave o un Audio marcado sin clave de FreeSound
+detiene la tarea con el motivo, antes de generar los recursos.
+
+Los estilos transmiten estas opciones a los vídeos nuevos. Las búsquedas se
+cachean 24 horas; los recursos elegidos y su procedencia se guardan en el
+proyecto y viajan al duplicarlo o exportarlo. Al retomar se conserva lo obtenido.
+Las imágenes muestran su autor y un enlace a la biblioteca en la revisión.
+Sin proveedores seleccionados, se mantiene la generación habitual con IA.
+
 ### Incluir o quitar los subtítulos
 
 Al crear o editar un **estilo**, debajo de **Ritmo** aparecen **Subtítulos** y
@@ -454,9 +488,16 @@ se guardan en `secretos/claves.json`, fuera del control de versiones. Ninguna
 clave baja entera al navegador: la pantalla ve la etiqueta, los cuatro últimos
 caracteres y el estado.
 
+El botón **Guardar configuración**, siempre visible al pie del panel, guarda las
+claves introducidas y los ajustes de correo pendientes. Al terminar muestra
+**Configuración guardada correctamente**; si falla, indica el error y conserva
+las claves pendientes para poder reintentar.
+
 **La primera vez, una guía de inicio** las pide de una en una —Claude la
 primera, porque es un login y no una clave— con los pasos y el enlace de donde
-se consigue cada una. Se ve una vez por instalación (la marca vive en los
+se consigue cada una. Incluye las claves opcionales de **Pixabay** y **Pexels**
+para imágenes y vídeos, y **FreeSound** para los efectos de sonido.
+Se ve una vez por instalación (la marca vive en los
 ajustes del servidor, no en el navegador) y se vuelve a abrir desde
 Configuración.
 

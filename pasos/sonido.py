@@ -1206,8 +1206,6 @@ def eventos(escenas, cortes, params, semilla=0):
     (ver p8._concatenar), asi que todo lo de aqui va restado por ese desfase.
     """
     surtido = (params or {}).get("efectos") or {}
-    if not surtido:
-        return []
     origen = float((escenas or [{}])[0].get("t_in") or 0.0)
     # los vetados se leen UNA vez: `elegir` corre una vez por tecla de una
     # cartela, o sea decenas de veces por plano, y abrir el fichero en cada una
@@ -1218,6 +1216,12 @@ def eventos(escenas, cortes, params, semilla=0):
     for escena in escenas or []:
         sid = escena.get("id")
         inicio = float(escena.get("t_in") or 0.0) - origen
+        ambiente = escena.get("audio_biblioteca") or {}
+        if ambiente and clave_de(ambiente) not in prohibidos:
+            fuera.append({"t": max(0.0, inicio), "papel": "escena",
+                          "ficha": ambiente, "ganancia": 0.3,
+                          "duracion": max(0.0, float(escena.get("t_out") or 0)
+                                          - float(escena.get("t_in") or 0))})
 
         # 1. LA TRANSICION, colocada por su GOLPE y no por su primera muestra.
         #
@@ -1365,7 +1369,7 @@ def igualar_por_papel(lista):
     por_papel = {}
     for evento in lista or []:
         ficha = evento.get("ficha") or {}
-        ruta = banco("efectos", _nombre_de(ficha))
+        ruta = ficha.get("archivo") or banco("efectos", _nombre_de(ficha))
         if not os.path.exists(ruta):
             continue
         por_papel.setdefault(str(evento.get("papel") or ""), {}).setdefault(ruta, None)
@@ -1403,7 +1407,7 @@ def pista_de_efectos(lista, duracion_s, destino, igualar=True):
     cache, usados = {}, 0
     for evento in lista or []:
         ficha = evento.get("ficha") or {}
-        origen = banco("efectos", _nombre_de(ficha))
+        origen = ficha.get("archivo") or banco("efectos", _nombre_de(ficha))
         if not os.path.exists(origen):
             continue                                   # no esta en el banco: se calla
         if origen not in cache:
@@ -1413,6 +1417,8 @@ def pista_de_efectos(lista, duracion_s, destino, igualar=True):
         if inicio >= total:
             continue
         trozo = muestra[:total - inicio]
+        if evento.get("duracion") is not None:
+            trozo = trozo[:max(0, int(float(evento["duracion"]) * FRECUENCIA))]
         # la correccion del FICHERO multiplica a la ganancia del EVENTO: la
         # primera iguala lo que el banco trae desigual y la segunda es la
         # intencion (la clase, y el toque aleatorio de cada tecla)

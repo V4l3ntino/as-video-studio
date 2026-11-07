@@ -42,7 +42,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/proyectos/{pid}/exportar/{token}` | Descarga un ZIP ya preparado, disponible durante una hora. |
 | `POST` | `/api/proyectos/{pid}/feedback` | Feedback general o sobre una unidad; rehace SOLO lo que apunta. |
 | `POST` | `/api/proyectos/{pid}/presets-canal/{preset_id}/aplicar` | Copia los valores del preset a los params de los pasos que toque. |
-| `GET` | `/api/proyectos/{pid}/previsualizacion` | Las piezas para ver el video sin montarlo. -> {escenas, audio, ...} |
+| `GET` | `/api/proyectos/{pid}/previsualizacion` | Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto. |
 | `PUT` | `/api/proyectos/{pid}/redactor` | Guarda el prompt escrito de cada plano. Un prompt vacío lo quita. |
 | `POST` | `/api/proyectos/{pid}/redactor/proponer` | Escribe el prompt de cada plano, con TODOS los planos delante de una vez. |
 | `GET` | `/api/proyectos/{pid}/repaso` | Las notas escritas sobre el vídeo montado, con los cortes para anclarlas. |

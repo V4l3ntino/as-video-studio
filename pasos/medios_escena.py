@@ -93,6 +93,8 @@ def aplicar_al_plan(plan, params):
             medio = candidatos[0] if len(candidatos) == 1 and texto else None
         if medio:
             escena["medio_usuario"] = copy.deepcopy(medio)
+            escena.pop("medio_biblioteca", None)
+            escena.pop("recurso_biblioteca", None)
             if escena.get("cartela"):
                 escena["cartela"] = dict(escena["cartela"], fondo="imagen")
     return plan
@@ -134,6 +136,8 @@ def sustituir(proyecto, estado, plan, sid, medio):
         estado.actualizar_params("assets", {"unidades": faltantes}, del_propio_paso=True)
     trabajo = medios.sembrar_trabajo(proyecto, "assets")
     escena["medio_usuario"] = medio
+    escena.pop("medio_biblioteca", None)
+    escena.pop("recurso_biblioteca", None)
     if escena.get("cartela"):
         escena["cartela"] = dict(escena["cartela"], fondo="imagen")
     ficha = materializar(proyecto, escena, trabajo)

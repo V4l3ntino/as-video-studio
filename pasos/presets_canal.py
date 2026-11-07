@@ -165,8 +165,8 @@ TIPOS = {
     "montaje": {
         "nombre": "Montaje",
         "que_fija": "los subtitulos y las transiciones de los videos nuevos",
-        "claves": ("subtitulos", "transiciones", "transiciones_personalizadas"),
-        "pasos": ("render",),
+        "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas"),
+        "pasos": ("assets", "render"),
     },
     "canal": {
         "nombre": "Canal",
@@ -239,6 +239,12 @@ def _limpiar_datos(tipo, datos):
                if v is not None and v != ""}
     if tipo == "montaje":
         from pasos.transiciones import CATALOGO
+        if "bibliotecas" in limpios:
+            from pasos import bibliotecas
+            try:
+                limpios["bibliotecas"] = bibliotecas.normalizar(limpios["bibliotecas"])
+            except ValueError as fallo:
+                raise ErrorPreset(str(fallo)) from fallo
         for clave in ("subtitulos", "transiciones_personalizadas"):
             if clave in limpios and not isinstance(limpios[clave], bool):
                 raise ErrorPreset(f"{clave} debe ser un booleano")
@@ -1080,7 +1086,11 @@ def cambios_para(ficha, params_actuales=None):
         return cambios
 
     if tipo == "montaje":
-        return {"render": copy.deepcopy(datos)}
+        render = {k: copy.deepcopy(v) for k, v in datos.items() if k != "bibliotecas"}
+        cambios = {"render": render} if render else {}
+        if "bibliotecas" in datos:
+            cambios["assets"] = {"bibliotecas": copy.deepcopy(datos["bibliotecas"])}
+        return cambios
 
     if tipo == "voz":
         # voz_nombre es solo para el resumen del desplegable: no es un param del
@@ -1165,6 +1175,8 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
         render = params.get("render") or {}
         bloque = {c: copy.deepcopy(render[c]) for c in TIPOS["montaje"]["claves"]
                   if c in render}
+        if "bibliotecas" in assets:
+            bloque["bibliotecas"] = copy.deepcopy(assets["bibliotecas"])
         if bloque:
             datos["montaje"] = bloque
 
