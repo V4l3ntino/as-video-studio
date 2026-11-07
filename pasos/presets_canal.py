@@ -162,14 +162,20 @@ TIPOS = {
                    "emociones", "hueco_minimo"),
         "pasos": ("voz",),
     },
+    "montaje": {
+        "nombre": "Montaje",
+        "que_fija": "los subtitulos y las transiciones de los videos nuevos",
+        "claves": ("subtitulos", "transiciones", "transiciones_personalizadas"),
+        "pasos": ("render",),
+    },
     "canal": {
         "nombre": "Canal",
         "que_fija": "de golpe el guion, el estilo grafico y la voz",
         # las claves de un canal son los OTROS tipos: dentro de cada una va el
         # bloque de datos de ese tipo, tal cual. Y ademas 'origen', que no es un
         # tipo: ver ORIGEN mas abajo.
-        "claves": ("guion", "estilo", "voz", "rotulos", "origen"),
-        "pasos": ("brief", "guion", "assets", "voz", "callouts"),
+        "claves": ("guion", "estilo", "voz", "rotulos", "montaje", "origen"),
+        "pasos": ("brief", "guion", "assets", "voz", "callouts", "render"),
     },
 }
 
@@ -186,7 +192,8 @@ TIPOS = {
 #: `taller` es el id del proyecto oculto donde se genero: ahi siguen las
 #: imagenes que se adjuntaron, asi que rehacer la guia no las vuelve a pedir.
 CLAVES_ORIGEN = ("estilo_prompt", "estilo_imagenes", "tono_prompt",
-                 "voz_prompt", "voz_id", "idioma", "ritmo", "taller", "feedback",
+                  "voz_prompt", "voz_id", "idioma", "ritmo", "taller", "feedback",
+                  "montaje",
                  # Descripciones cortas de lo que salio, para poder ENSENAR el
                  # estilo sin abrirlo entero. No son params: no se aplican a
                  # ningun paso, solo se leen.
@@ -194,7 +201,7 @@ CLAVES_ORIGEN = ("estilo_prompt", "estilo_imagenes", "tono_prompt",
 
 # Orden en el que se ensenan y en el que se aplican. El guion va primero porque
 # el resto se lee en el: la voz hereda el idioma que fija el guion.
-ORDEN = ("guion", "estilo", "voz", "rotulos")
+ORDEN = ("guion", "estilo", "voz", "rotulos", "montaje")
 
 
 def tipos():
@@ -230,6 +237,16 @@ def _limpiar_datos(tipo, datos):
             f"Lo que guarda es: {', '.join(permitidas)}")
     limpios = {c: copy.deepcopy(v) for c, v in datos.items()
                if v is not None and v != ""}
+    if tipo == "montaje":
+        from pasos.transiciones import CATALOGO
+        for clave in ("subtitulos", "transiciones_personalizadas"):
+            if clave in limpios and not isinstance(limpios[clave], bool):
+                raise ErrorPreset(f"{clave} debe ser un booleano")
+        if "transiciones" in limpios:
+            valores = limpios["transiciones"]
+            if not isinstance(valores, list) or any(
+                    not isinstance(v, str) or v not in CATALOGO for v in valores):
+                raise ErrorPreset("transiciones debe ser una lista de efectos conocidos")
     if tipo == "canal":
         # un canal es un paquete de los otros tipos: cada bloque se valida con
         # las reglas de SU tipo, o el paquete se convierte en el agujero por
@@ -419,6 +436,9 @@ def resumen_de(ficha):
         if datos.get("calidad"):
             trozos.append(f"calidad {datos['calidad']}")
         return " · ".join(trozos)
+    if tipo == "montaje":
+        return "con subtítulos" if datos.get("subtitulos", True) else "sin subtítulos"
+
     if tipo == "voz":
         emociones = datos.get("emociones") or []
         return " · ".join(x for x in [
@@ -1059,6 +1079,9 @@ def cambios_para(ficha, params_actuales=None):
             cambios["callouts"] = de_callouts
         return cambios
 
+    if tipo == "montaje":
+        return {"render": copy.deepcopy(datos)}
+
     if tipo == "voz":
         # voz_nombre es solo para el resumen del desplegable: no es un param del
         # paso y meterlo cambiaria la firma sin cambiar lo que suena
@@ -1137,5 +1160,12 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
                   if callouts.get(c) not in (None, "")}
         if bloque:
             datos["rotulos"] = bloque
+
+    if "montaje" in incluir:
+        render = params.get("render") or {}
+        bloque = {c: copy.deepcopy(render[c]) for c in TIPOS["montaje"]["claves"]
+                  if c in render}
+        if bloque:
+            datos["montaje"] = bloque
 
     return datos

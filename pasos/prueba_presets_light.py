@@ -70,8 +70,23 @@ def probar_encargo():
     limpio = light.validar_encargo(dict(ENCARGO_VIDEO, nombre="  Canal  "))
     igual(limpio["nombre"], "Canal", "el nombre se limpia")
     igual(limpio["idioma"], "es", "el idioma viaja")
+    montaje = {"subtitulos": False, "transiciones": [],
+               "transiciones_personalizadas": True}
+    con_montaje = light.validar_encargo(dict(ENCARGO_VIDEO, montaje=montaje))
+    igual(con_montaje["montaje"], montaje,
+          "crear un estilo conserva subtitulos desactivados y ninguna transicion")
+    from pasos import presets_canal
+    congelado = presets_canal.datos_de_params({"render": con_montaje["montaje"]})
+    igual(congelado.get("montaje"), montaje,
+          "congelar el taller conserva False y la lista vacia en el estilo")
+    igual(presets_canal.cambios_para({"tipo": "canal", "datos": congelado}),
+          {"render": montaje}, "el estilo aplica esas mismas decisiones al video")
 
     casos = [
+        (dict(ENCARGO_VIDEO, montaje={"subtitulos": "false"}),
+         "con subtitulos no booleanos"),
+        (dict(ENCARGO_VIDEO, montaje={"transiciones": ["inventada"]}),
+         "con un efecto desconocido"),
         (dict(ENCARGO_VIDEO, nombre=""), "sin nombre"),
         (dict(ENCARGO_VIDEO, idioma="kl"), "con un idioma que no existe"),
         # DESCRIBIRLO A SECAS NO ES UN CAMINO: el estilo se COPIA de unas

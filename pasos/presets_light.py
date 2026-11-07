@@ -521,6 +521,12 @@ def validar_encargo(crudo):
     # de tumbar el encargo -- un preset guardado antes de que esto existiera no
     # trae ninguno, y tiene que poder rehacerse igual.
     limpio["ritmo"] = ritmo_de(datos.get("ritmo"))["id"]
+    if "montaje" in datos:
+        from pasos import presets_canal
+        try:
+            limpio["montaje"] = presets_canal._limpiar_datos("montaje", datos["montaje"])
+        except presets_canal.ErrorPreset as fallo:
+            raise ErrorEncargo(str(fallo)) from fallo
 
     # EL ESTILO GRAFICO: UN VIDEO O UNAS IMAGENES, y el texto acompana a
     # cualquiera de los dos.

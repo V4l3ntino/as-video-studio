@@ -71,6 +71,8 @@ PARAMS_POR_DEFECTO = {
     # y esto decide CUAL. Asi cambiar la paleta de transiciones deja obsoleto el
     # render y nada mas: ni las imagenes ni las capas.
     "transiciones": [],
+    # La capa fija contiene solo subtitulos; las cartelas viven en la movil.
+    "subtitulos": True,
     "conservar_frames": False,
     # CUANTOS PROCESOS DE CAPTURA A LA VEZ. 0 = automatico (ver LOTES_A_LA_VEZ),
     # 1 = en fila. Es una palanca de VELOCIDAD pura: el video sale identico
@@ -1555,7 +1557,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         # anterior. Se vuelve a montar callouts y aparece.
         fija = ""
         ruta_fija = mov.get("capa_fija")
-        if ruta_fija:
+        if ruta_fija and p["subtitulos"]:
             ruta_fija = os.path.join(base_callouts, ruta_fija)
             if os.path.exists(ruta_fija):
                 with open(ruta_fija, "r", encoding="utf-8") as fh:

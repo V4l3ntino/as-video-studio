@@ -83,12 +83,12 @@ def _fotogramas(cuantos=3, nombre="f"):
 def prueba_catalogo():
     print("\n  CATALOGO DE TIPOS")
     ids = [t["id"] for t in presets.tipos()]
-    igual(ids, ["guion", "estilo", "voz", "rotulos", "canal"],
+    igual(ids, ["guion", "estilo", "voz", "rotulos", "montaje", "canal"],
           "los tipos salen en su orden, con el canal el ultimo")
     for ficha in presets.tipos():
         ok(bool(ficha["nombre"]) and bool(ficha["que_fija"]),
            f"el tipo {ficha['id']} dice como se llama y que fija")
-        ok(all(p in ("brief", "guion", "assets", "voz", "callouts")
+        ok(all(p in ("brief", "guion", "assets", "voz", "callouts", "render")
                for p in ficha["pasos"]),
            f"el tipo {ficha['id']} solo toca pasos que existen")
     revienta(lambda: presets.guardar("loquesea", "x", {"a": 1}),

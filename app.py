@@ -1571,6 +1571,8 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if "subtitulos" in nuevos and not isinstance(nuevos["subtitulos"], bool):
+            raise ErrorApi(400, "subtitulos debe ser un booleano")
         if "transiciones_personalizadas" in nuevos and not isinstance(
                 nuevos["transiciones_personalizadas"], bool):
             raise ErrorApi(400, "transiciones_personalizadas debe ser un booleano")
@@ -8045,6 +8047,9 @@ def _sembrar_taller(ctx, encargo):
         ctx.estado.actualizar_params("guion", {"cta": encargo["cta"]})
     for paso, valores in light.params_de_ritmo(encargo.get("ritmo")).items():
         ctx.estado.actualizar_params(paso, valores)
+    if "montaje" in encargo:
+        _validar_params("render", encargo["montaje"], ctx)
+        ctx.estado.actualizar_params("render", encargo["montaje"])
     return idioma
 
 
@@ -8550,7 +8555,7 @@ def _congelar_preset(ctx, encargo, preset_id=None):
     """Guarda lo que ha producido el taller como preset de canal. -> ficha."""
     presets = _presets()
     params = {paso: (ctx.estado.params(paso) or {})
-              for paso in ("brief", "guion", "assets", "voz", "callouts")}
+              for paso in ("brief", "guion", "assets", "voz", "callouts", "render")}
     datos = presets.datos_de_params(params)
     datos["origen"] = {c: encargo[c] for c in presets.CLAVES_ORIGEN
                        if encargo.get(c)}
@@ -8945,6 +8950,7 @@ def duplicar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
         or f"{ficha.get('nombre') or 'Estilo'} (copia)"
 
     contenido = copy.deepcopy(ficha.get("datos") or {})
+
     origen = dict(contenido.get("origen") or {})
     # el taller se copia; si no lo hay, la copia se queda sin el y lo dice al
     # intentar rehacer una parte
@@ -9185,6 +9191,15 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
                             + ", ".join(light.IDIOMAS))
 
     contenido = copy.deepcopy(ficha.get("datos") or {})
+
+    if "montaje" in datos:
+        montaje = _preset_o_400(lambda p: p._limpiar_datos("montaje", datos["montaje"]))
+        contenido["montaje"] = dict(contenido.get("montaje") or {}, **montaje)
+        contenido.setdefault("origen", {})["montaje"] = copy.deepcopy(contenido["montaje"])
+        try:
+            _taller_de(ficha).estado.actualizar_params("render", contenido["montaje"])
+        except ErrorApi:
+            pass
 
     # EL RITMO TAMPOCO REGENERA NADA: escribe los mismos tres campos de duracion
     # que el modo editor tiene en su tarjeta de estilo, mas el aire entre
@@ -10321,7 +10336,7 @@ def _sembrar_video_light(ctx, datos):
     if guion:
         _validar_params("guion", guion, ctx)
         ctx.estado.actualizar_params("guion", guion)
-    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas")
+    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")
               if k in datos}
     if render:
         _validar_params("render", render, ctx)

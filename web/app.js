@@ -4937,6 +4937,7 @@ function encargoLight() {
       // agente por la descripción
       voz_id: '',
       ritmo: '',            // lo pone el servidor al cargar la galería
+      montaje: { subtitulos: true, transiciones: [], transiciones_personalizadas: false },
     };
   }
   return APP.light.encargo;
@@ -4970,6 +4971,7 @@ function encargoParaServidor() {
     voz_prompt: e.voz_prompt,
     voz_id: e.voz_id || '',
     ritmo: e.ritmo || ritmoPorDefecto(),
+    montaje: e.montaje,
   };
 }
 
@@ -5536,7 +5538,7 @@ function retomarTallerLight(taller) {
   const guardado = taller.encargo || {};
   const actual = encargoLight();
   ['nombre', 'idioma', 'estilo_prompt', 'tono_prompt', 'voz_prompt', 'voz_id',
-    'ritmo'].forEach(clave => {
+    'ritmo', 'montaje'].forEach(clave => {
     if (guardado[clave] !== undefined && guardado[clave] !== null) {
       actual[clave] = guardado[clave];
     }
@@ -5944,6 +5946,7 @@ async function duplicarEstiloLight(ficha) {
    está tomada. */
 function elegirEstiloLight(ficha) {
   localStorage.setItem('estudio.light.estilo', ficha.id);
+  Object.assign(encargoVideoLight(), montajeDelEstiloLight(ficha));
   // se empieza en el ENCARGO: elegir un estilo es el principio de un vídeo
   // nuevo. Si había uno a medias, la propia pantalla lo ofrece.
   APP.light.video.vista = 'encargo';
@@ -5952,6 +5955,15 @@ function elegirEstiloLight(ficha) {
 
 function estiloElegido() {
   return fichaLight(localStorage.getItem('estudio.light.estilo'));
+}
+
+function montajeDelEstiloLight(ficha) {
+  const montaje = ((ficha || {}).datos || {}).montaje || {};
+  return {
+    subtitulos: montaje.subtitulos !== false,
+    transiciones: [...(montaje.transiciones || [])],
+    transiciones_personalizadas: !!montaje.transiciones_personalizadas,
+  };
 }
 
 /* ============================================ EL VÍDEO DEL MODO LIGHT
@@ -6048,8 +6060,7 @@ function encargoVideoLight() {
       // estilo, porque un video puede querer mandar a la web y el siguiente
       // solo pedir un comentario.
       cta: ctaPorDefecto(),
-      transiciones: [],
-      transiciones_personalizadas: false,
+      ...montajeDelEstiloLight(fichaLight(APP.light.abierto) || estiloElegido()),
     };
   }
   return v.encargo;
@@ -6478,6 +6489,7 @@ function vistaElegidoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
 
   /* LAS INDICACIONES, detrás del material y en su propio bloque: los hechos son
@@ -6530,10 +6542,27 @@ function selectorFormato(valor, alCambiar) {
   return h('div', { clase: 'campo' }, h('label', {}, 'Formato'), tira);
 }
 
+function subtitulosDelEncargo(e, alCambiar, esEstilo = false) {
+  return bloqueLight('Subtítulos', 'texto sincronizado con la narración',
+    h('label', { clase: 'efecto-encargo' },
+      h('input', {
+        type: 'checkbox', checked: e.subtitulos !== false,
+        'data-foco': 'encargo-subtitulos',
+        onchange: ev => {
+          e.subtitulos = ev.target.checked;
+          if (alCambiar) alCambiar();
+        },
+      }),
+      h('span', {}, h('b', {}, 'Incorporar subtítulos al vídeo'),
+        h('span', { clase: 'meta' },
+          esEstilo ? 'Los vídeos nuevos heredarán esta selección.'
+            : 'Cambiar esta opción solo afecta al montaje.'))));
+}
+
 /* El catálogo viene del motor: nombres, descripciones y las seis de fábrica.
    La marca distingue «ninguna» del [] histórico que significa «por defecto». */
 let CATALOGO_EFECTOS = null;
-function efectosDelEncargo(e) {
+function efectosDelEncargo(e, alCambiar, esEstilo = false) {
   const lista = h('div', { clase: 'efectos-encargo' });
   const resumen = h('p', { clase: 'pista', role: 'status' }, 'Cargando efectos…');
   const caja = bloqueLight('Efectos', 'transiciones entre imágenes', resumen, lista);
@@ -6547,8 +6576,10 @@ function efectosDelEncargo(e) {
         ? e.transiciones : catalogo.filter(t => t.defecto).map(t => t.id));
       const actualizarResumen = () => {
         resumen.textContent = elegidas.size
-          ? `${elegidas.size} efectos habilitados. Se alternan al montar el vídeo. `
-            + 'Cambiar esta selección solo afecta al montaje.'
+          ? (elegidas.size === 1 ? '1 efecto habilitado. Se usa al montar el vídeo. '
+            : `${elegidas.size} efectos habilitados. Se alternan al montar el vídeo. `)
+            + (esEstilo ? 'Los vídeos nuevos heredarán esta selección.'
+              : 'Cambiar esta selección solo afecta al montaje.')
           : 'Sin transiciones: las imágenes se muestran una detrás de otra, con cortes directos.';
       };
       vaciar(lista);
@@ -6561,6 +6592,7 @@ function efectosDelEncargo(e) {
             e.transiciones = catalogo.filter(f => elegidas.has(f.id)).map(f => f.id);
             e.transiciones_personalizadas = true;
             actualizarResumen();
+            if (alCambiar) alCambiar();
           },
         });
         lista.appendChild(h('label', { clase: 'efecto-encargo' }, check,
@@ -6768,6 +6800,7 @@ async function crearYGenerarLight(estilo) {
         cta: e.cta,
         transiciones: e.transiciones,
         transiciones_personalizadas: e.transiciones_personalizadas,
+        subtitulos: e.subtitulos !== false,
       },
     });
     const pid = (datos.proyecto || {}).id;
@@ -6831,6 +6864,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'cta', paso: 'guion', param: 'cta' },
   { clave: 'transiciones', paso: 'render', param: 'transiciones' },
   { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
+  { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
 ];
 
 /* Las tres ranuras completas a partir de lo guardado, que puede faltar entero
@@ -6866,6 +6900,7 @@ function pedidoDelVideoLight() {
     cta: ctaLeida(params('guion').cta),
     transiciones: [...(params('render').transiciones || [])],
     transiciones_personalizadas: !!params('render').transiciones_personalizadas,
+    subtitulos: params('render').subtitulos !== false,
   };
   v.pedido = {
     pid: v.pid,
@@ -6897,7 +6932,7 @@ function vistaEncargoVideoLight() {
       + 'regenerarlo, y con él se rehacen después la voz y las imágenes que ya '
       + 'no cuadren; lo que siga valiendo no se vuelve a pagar. El nombre se '
       + 'cambia sin regenerar nada. El formato rehace TODAS las imágenes. '
-      + 'Los efectos solo cambian el montaje, sin rehacer el guion, la voz ni las imágenes.'
+      + 'Los efectos y los subtítulos solo cambian el montaje, sin rehacer el guion, la voz ni las imágenes.'
     : 'Lo que se le va a pedir al redactor. Se guarda solo; cuando esté, '
       + '«Generar el guion» abajo.'));
 
@@ -6923,6 +6958,7 @@ function vistaEncargoVideoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
 
   caja.appendChild(bloqueLight('Las indicaciones',
@@ -10392,6 +10428,9 @@ function vistaCrearLight() {
   cajas.appendChild(bloqueLight('⏱️ Ritmo', 'cada cuánto corta el vídeo',
     sliderRitmo(e.ritmo, v => { e.ritmo = v; tocarEncargoLight(); })));
 
+  cajas.appendChild(subtitulosDelEncargo(e.montaje, tocarEncargoLight, true));
+  cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
+
   cajas.appendChild(bloqueLight('🎙️ Voz', 'quién lo locuta',
     campoArea('', e.voz_prompt, v => { e.voz_prompt = v; tocarEncargoLight(); },
       'grave, pausada, sin sonar a locutor de anuncio'),
@@ -10847,6 +10886,14 @@ function vistaPresetLight() {
   caja.appendChild(bloqueLight('⏱️ Ritmo', 'cada cuánto corta el vídeo',
     sliderRitmo((ficha.origen_ritmo || ritmoPorDefecto()),
       v => guardarPresetLight(ficha.id, { ritmo: v }))));
+
+  const montaje = montajeDelEstiloLight(ficha);
+  const guardarMontaje = () => {
+    datos.montaje = JSON.parse(JSON.stringify(montaje));
+    guardarPresetLight(ficha.id, { montaje: datos.montaje });
+  };
+  caja.appendChild(subtitulosDelEncargo(montaje, guardarMontaje, true));
+  caja.appendChild(efectosDelEncargo(montaje, guardarMontaje, true));
 
   // 🎙️ la voz, con su escucha
   const voz = h('div', {});

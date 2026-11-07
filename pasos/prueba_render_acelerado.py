@@ -13,6 +13,38 @@ import p8_render
 
 
 class RenderAcelerado(unittest.TestCase):
+    def test_desactivar_subtitulos_conserva_cartelas_y_capas_originales(self):
+        with tempfile.TemporaryDirectory(prefix="estudio_subtitulos_") as carpeta:
+            raiz = Path(carpeta)
+            hyper = raiz / "hyper.png"
+            hyper.touch()
+            movil = raiz / "cartela.svg"
+            movil.write_text("<svg>Cartela</svg>", encoding="utf-8")
+            fija = raiz / "subtitulo.svg"
+            fija.write_text("<svg>Subtitulo</svg>", encoding="utf-8")
+            plan = raiz / "plan.json"
+            movimiento = raiz / "movimiento.json"
+            p8_render.medios.escribir_json(str(plan), {"escenas": [
+                {"id": "S001", "t_in": 0, "t_out": 1}]})
+            p8_render.medios.escribir_json(str(movimiento), {"movimientos": [{
+                "id": "S001", "hyperframe": str(hyper), "capa": movil.name,
+                "capa_fija": fija.name, "ventana_ini": [0, 0, 1, 1],
+                "ventana_fin": [0, 0, 1, 1]}]})
+            for opcion, esperado in (({}, "<svg>Subtitulo</svg>"),
+                                     ({"subtitulos": False}, ""),
+                                     ({"subtitulos": True}, "<svg>Subtitulo</svg>")):
+                with self.subTest(opcion=opcion), patch.object(
+                        p8_render.medios, "sembrar_trabajo", return_value=carpeta), patch.object(
+                        p8_render, "_elegir_codec", return_value="libx264"), patch.object(
+                        p8_render, "correr_lote", side_effect=RuntimeError("captura de prueba")) as lote:
+                    with self.assertRaisesRegex(RuntimeError, "captura de prueba"):
+                        p8_render.ejecutar(None, dict(
+                            plan=str(plan), movimiento=str(movimiento), audio="voz.wav", **opcion))
+                    tarea = lote.call_args.args[0][0]
+                    self.assertEqual(tarea["capa_fija"], esperado)
+                    self.assertEqual(tarea["capa"], "<svg>Cartela</svg>")
+                    self.assertEqual(fija.read_text(encoding="utf-8"), "<svg>Subtitulo</svg>")
+
     def test_retomar_no_mezcla_codificadores_tras_un_fallo(self):
         with tempfile.TemporaryDirectory(prefix="estudio_codec_") as carpeta:
             clips = [str(Path(carpeta) / f"S{i}.mp4") for i in range(2)]

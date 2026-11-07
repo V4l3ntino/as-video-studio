@@ -144,6 +144,19 @@ generador de IA. El material propio se guarda dentro del proyecto, viaja al
 exportarlo o duplicarlo y sigue seleccionado al retomar la generación. Espera
 a que termine el trabajo del vídeo o páralo antes de sustituir una escena.
 
+### Incluir o quitar los subtítulos
+
+Al crear o editar un **estilo**, debajo de **Ritmo** aparecen **Subtítulos** y
+**Efectos**. Sus selecciones se guardan en el estilo y se copian al encargo de
+cada vídeo nuevo que crees con él. Puedes ajustarlas después para ese vídeo.
+Por ejemplo, un estilo sin subtítulos y con solo **Fundido** dará vídeos nuevos
+con esas mismas opciones. Los cambios del estilo se aplican a los vídeos futuros.
+
+En **Encargo → Subtítulos**, encima de **Efectos**, marca o desmarca
+**Incorporar subtítulos al vídeo**. Están activados por defecto. La selección se
+guarda por vídeo y se aplica al montar de nuevo, sin regenerar el guion, la voz
+ni las imágenes. Las cartelas se conservan.
+
 ### Elegir las transiciones del vídeo
 
 En **Encargo → Efectos**, marca los tipos de transición que puede usar el montaje.

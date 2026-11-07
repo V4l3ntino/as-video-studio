@@ -3176,6 +3176,34 @@ def probar_video_light(cliente):
     igual(respuesta.status_code, 200, "hay un estilo con el que hacer el vídeo")
     estilo_id = (datos.get("preset") or {}).get("id") or ""
 
+    seleccion = {"subtitulos": False, "transiciones": ["fundido"],
+                 "transiciones_personalizadas": True}
+    respuesta, editado = cliente.put(f"/api/presets-light/{estilo_id}",
+                                     {"montaje": seleccion})
+    igual(respuesta.status_code, 200, "el estilo guarda subtitulos y efectos sin generar")
+    igual((editado.get("preset") or {}).get("datos", {}).get("montaje"), seleccion,
+          "el estilo conserva exactamente las casillas elegidas")
+    respuesta, heredado = cliente.post(f"/api/presets-light/{estilo_id}/video", {
+        "nombre": "Video con montaje heredado", "material": "Material de prueba"})
+    igual(respuesta.status_code, 201, "se puede crear un video heredando el montaje")
+    heredado_id = (heredado.get("proyecto") or {}).get("id") or ""
+    _, render_heredado = cliente.get(f"/api/proyectos/{heredado_id}/pasos/render")
+    igual({k: render_heredado.get("params", {}).get(k) for k in seleccion}, seleccion,
+          "el video hereda subtitulos desactivados y solo Fundido")
+    cliente.put(f"/api/presets-light/{estilo_id}", {
+        "montaje": {"subtitulos": True, "transiciones": [],
+                    "transiciones_personalizadas": True}})
+    _, render_intacto = cliente.get(f"/api/proyectos/{heredado_id}/pasos/render")
+    igual(render_intacto["params"], render_heredado["params"],
+          "editar el estilo conserva la seleccion propia de los videos existentes")
+    _, sin_efectos = cliente.post(f"/api/presets-light/{estilo_id}/video", {
+        "nombre": "Video sin efectos heredados", "material": "Material de prueba"})
+    sin_efectos_id = sin_efectos.get("proyecto", {}).get("id") or ""
+    _, efectos_heredados = cliente.get(f"/api/proyectos/{sin_efectos_id}/transiciones")
+    ok(not any(t["puesta"] for t in efectos_heredados["transiciones"]),
+       "un estilo sin efectos no recupera las transiciones de fabrica al heredarlo")
+    cliente.put(f"/api/presets-light/{estilo_id}", {"montaje": seleccion})
+
     # ---- crear el video: los cuatro campos de la pantalla en un POST
     respuesta, creado = cliente.post(f"/api/presets-light/{estilo_id}/video", {
         "nombre": "El hackeo del banco",
@@ -3187,6 +3215,7 @@ def probar_video_light(cliente):
                     "El informe se publicó tres meses después.",
         "indicaciones": "Céntrate en el mecanismo, no en las personas.",
         "transiciones": [], "transiciones_personalizadas": True,
+        "subtitulos": False,
         # LAS LLAMADAS A LA ACCION SE DECIDEN POR VIDEO, no en el estilo
         "cta": {"cta_final": {"puesto": True,
                               "texto": "que se suscriba y vea otro vídeo"}}})
@@ -3209,6 +3238,18 @@ def probar_video_light(cliente):
     _, efectos = cliente.get(f"/api/proyectos/{vid}/transiciones")
     ok(not any(t["puesta"] for t in efectos["transiciones"]),
        "el video nuevo conserva la seleccion sin efectos del encargo")
+    _, montaje = cliente.get(f"/api/proyectos/{vid}/pasos/render")
+    igual(montaje["params"].get("subtitulos"), False,
+          "el video nuevo conserva la seleccion sin subtitulos")
+    respuesta, _ = cliente.put(f"/api/proyectos/{vid}/pasos/render/params",
+                               {"subtitulos": True})
+    igual(respuesta.status_code, 200, "se pueden reactivar los subtitulos")
+    _, montaje = cliente.get(f"/api/proyectos/{vid}/pasos/render")
+    igual(montaje["params"].get("subtitulos"), True,
+          "la seleccion de subtitulos queda guardada")
+    respuesta, _ = cliente.put(f"/api/proyectos/{vid}/pasos/render/params",
+                               {"subtitulos": "false"})
+    igual(respuesta.status_code, 400, "subtitulos rechaza valores no booleanos")
     # EL MATERIAL VA AL PASO «ORIGEN», que es donde vive con su version y su
     # firma: cambiarlo deja obsoleto el guion y todo lo que cuelga.
     respuesta, origen = cliente.get(f"/api/proyectos/{vid}/pasos/ingesta")
