@@ -432,6 +432,7 @@ const API = {
     + `/callouts/vista?plano=${encodeURIComponent(plano)}`,
   transiciones: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/transiciones`,
   catalogoTransiciones: `${BASE}/api/transiciones`,
+  catalogoAnimaciones: `${BASE}/api/animaciones`,
   sonido: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/sonido`,
   efectos: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/sonido/efectos`,
   sonidoArco: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/sonido/arco`,
@@ -5037,6 +5038,7 @@ function encargoLight() {
       voz_id: '',
       ritmo: '',            // lo pone el servidor al cargar la galería
       montaje: { subtitulos: true, transiciones: [], transiciones_personalizadas: false,
+        animaciones: [],
         bibliotecas: bibliotecasPorDefectoLight() },
     };
   }
@@ -6065,6 +6067,7 @@ function montajeDelEstiloLight(ficha) {
     subtitulos: montaje.subtitulos !== false,
     transiciones: [...(montaje.transiciones || [])],
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
+    animaciones: [...(montaje.animaciones || [])],
     bibliotecas: bibliotecasPorDefectoLight(montaje.bibliotecas),
   };
 }
@@ -6625,6 +6628,7 @@ function vistaElegidoLight() {
   caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
+  caja.appendChild(animacionesDelEncargo(e));
 
   /* LAS INDICACIONES, detrás del material y en su propio bloque: los hechos son
      una cosa y CÓMO contarlos es otra. Cuando iban en la misma caja, lo escrito
@@ -6807,6 +6811,69 @@ function efectosDelEncargo(e, alCambiar, esEstilo = false) {
     } catch (err) {
       resumen.textContent = `No se han podido cargar los efectos: ${err.message}`;
       vaciar(lista).appendChild(h('button', { clase: 'mini', onclick: cargar }, 'Reintentar'));
+    }
+  };
+  cargar();
+  return caja;
+}
+
+/* MOTION ANIMATION: dos recuadros. A la izquierda lo que hay (tarjetas con su
+   GIF), a la derecha lo que entrará al montar; pulsar una tarjeta la cambia de
+   lado. Cuál lleva cada escena lo decide el motor mirando lo que se dice en
+   ella (pasos/animaciones.py): aquí solo se elige la paleta.
+   Mientras nadie toca nada NO se escribe `animaciones`: una lista nueva en un
+   vídeo que nunca la tuvo movería la firma del render sin que nadie lo pidiera. */
+let CATALOGO_ANIMACIONES = null;
+function animacionesDelEncargo(e, alCambiar, esEstilo = false) {
+  const disponibles = h('div', { clase: 'anim-tarjetas', role: 'list' });
+  const elegidas = h('div', { clase: 'anim-tarjetas', role: 'list' });
+  const resumen = h('p', { clase: 'pista', role: 'status' }, 'Cargando animaciones…');
+  const caja = bloqueLight('Motion animation', 'animaciones gráficas al montar el vídeo',
+    resumen,
+    h('div', { clase: 'anim-recuadros' },
+      h('section', { clase: 'anim-recuadro', 'aria-label': 'Animaciones disponibles' },
+        h('h4', {}, 'Disponibles'), disponibles),
+      h('section', { clase: 'anim-recuadro anim-elegidas', 'aria-label': 'Animaciones seleccionadas' },
+        h('h4', {}, 'Se usarán al montar'), elegidas)));
+  const cargar = async () => {
+    try {
+      if (!CATALOGO_ANIMACIONES) CATALOGO_ANIMACIONES = pedir(API.catalogoAnimaciones)
+        .catch(err => { CATALOGO_ANIMACIONES = null; throw err; });
+      const catalogo = (await CATALOGO_ANIMACIONES).animaciones;
+      const lista = () => new Set(e.animaciones || []);
+      const pintar = () => {
+        const marcadas = lista();
+        const tarjeta = (a, dentro) => h('button', {
+          type: 'button', clase: 'anim-tarjeta', role: 'listitem',
+          'data-foco': `encargo-animacion-${a.id}`,
+          title: `${a.descripcion} (${a.tecnica})`,
+          'aria-label': `${dentro ? 'Quitar' : 'Añadir'} ${a.nombre}`,
+          onclick: () => {
+            const nuevas = lista();
+            if (dentro) nuevas.delete(a.id); else nuevas.add(a.id);
+            e.animaciones = catalogo.filter(f => nuevas.has(f.id)).map(f => f.id);
+            pintar();
+            if (alCambiar) alCambiar();
+          },
+        }, h('img', { src: `${BASE}/${a.gif}`, alt: '', loading: 'lazy' }),
+        h('b', {}, a.nombre));
+        vaciar(disponibles);
+        vaciar(elegidas);
+        catalogo.filter(a => !marcadas.has(a.id)).forEach(a => disponibles.appendChild(tarjeta(a, false)));
+        catalogo.filter(a => marcadas.has(a.id)).forEach(a => elegidas.appendChild(tarjeta(a, true)));
+        if (!disponibles.children.length) disponibles.appendChild(h('p', { clase: 'meta' }, 'Están todas elegidas.'));
+        if (!elegidas.children.length) elegidas.appendChild(h('p', { clase: 'meta' }, 'Pulsa una tarjeta para añadirla.'));
+        resumen.textContent = marcadas.size
+          ? `${marcadas.size === 1 ? '1 animación elegida' : `${marcadas.size} animaciones elegidas`}. `
+            + 'El motor pone cada una en la escena donde encaja (una cifra, una fecha, un nombre propio, una frase corta) y deja el resto como está. '
+            + (esEstilo ? 'Los vídeos nuevos heredarán esta selección.'
+              : 'Cambiar esta selección solo afecta al montaje.')
+          : 'Sin animaciones: las escenas se montan solo con su imagen, sus rótulos y los subtítulos.';
+      };
+      pintar();
+    } catch (err) {
+      resumen.textContent = `No se han podido cargar las animaciones: ${err.message}`;
+      vaciar(disponibles).appendChild(h('button', { clase: 'mini', onclick: cargar }, 'Reintentar'));
     }
   };
   cargar();
@@ -7005,6 +7072,7 @@ async function crearYGenerarLight(estilo) {
         cta: e.cta,
         transiciones: e.transiciones,
         transiciones_personalizadas: e.transiciones_personalizadas,
+        animaciones: e.animaciones || [],
         subtitulos: e.subtitulos !== false,
         bibliotecas: e.bibliotecas,
       },
@@ -7070,6 +7138,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'cta', paso: 'guion', param: 'cta' },
   { clave: 'transiciones', paso: 'render', param: 'transiciones' },
   { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
+  { clave: 'animaciones', paso: 'render', param: 'animaciones' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
 ];
@@ -7107,6 +7176,7 @@ function pedidoDelVideoLight() {
     cta: ctaLeida(params('guion').cta),
     transiciones: [...(params('render').transiciones || [])],
     transiciones_personalizadas: !!params('render').transiciones_personalizadas,
+    animaciones: [...(params('render').animaciones || [])],
     subtitulos: params('render').subtitulos !== false,
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
@@ -7169,6 +7239,7 @@ function vistaEncargoVideoLight() {
   caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
+  caja.appendChild(animacionesDelEncargo(e));
 
   caja.appendChild(bloqueLight('Las indicaciones',
     'cómo quieres que se cuente (opcional)',
@@ -10711,6 +10782,7 @@ function vistaCrearLight() {
   cajas.appendChild(bibliotecasDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(subtitulosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
+  cajas.appendChild(animacionesDelEncargo(e.montaje, tocarEncargoLight, true));
 
   cajas.appendChild(bloqueLight('🎙️ Voz', 'quién lo locuta',
     campoArea('', e.voz_prompt, v => { e.voz_prompt = v; tocarEncargoLight(); },
@@ -11176,6 +11248,7 @@ function vistaPresetLight() {
   caja.appendChild(bibliotecasDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(subtitulosDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(efectosDelEncargo(montaje, guardarMontaje, true));
+  caja.appendChild(animacionesDelEncargo(montaje, guardarMontaje, true));
 
   // 🎙️ la voz, con su escucha
   const voz = h('div', {});

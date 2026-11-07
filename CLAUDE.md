@@ -335,6 +335,26 @@ que nunca la fijaron, y regenerarlas se paga.
 
 ---
 
+## Motion animation (`pasos/animaciones.py`)
+
+Animaciones SVG/SMIL de la guía de motion graphics (cifra, fecha, ficha, tipografía
+cinética) que se pintan ENCIMA de un plano, en la capa `#capaanim` de `p8_render.PAGINA`,
+movidas con `setCurrentTime` como el subtítulo. Lo que no se deduce del código:
+
+- **Es un param del render (`animaciones`), vacío = ninguna**, y por eso un vídeo
+  de antes sale byte a byte igual. No escribas `[]` por defecto al abrir una
+  pantalla: mueve la firma del render (regla 1). La pantalla solo guarda al tocar.
+- **Qué animación lleva cada escena lo decide `repartir` mirando la narración**
+  (cifra, año, nombre propio, frase corta), con reglas deterministas y sin modelo.
+  Solo entran las elegidas, con aire entre dos animadas, y nunca sobre cartelas.
+- **Las tarjetas de la pantalla son GIF** (`web/anim_<id>.gif`, planos a propósito:
+  `fichero_web` no sirve subcarpetas). Si cambias un dibujo, regenéralos con
+  `python herramientas/gifs_animaciones.py` (lanzarlo por PowerShell: Edge headless).
+- Collage, pantalla dividida, paralaje y avatar de la guía NO están: piden varios
+  recursos por escena o capas de profundidad que el plan no modela.
+
+---
+
 ## Instalación del CLI de Claude
 
 El asistente y el motor de generación de guiones necesitan el **Claude Agent SDK CLI**.
@@ -381,11 +401,37 @@ El asistente contesta con un doble que repite lo que recibió.
 powershell -NoProfile -File pruebas.ps1
 ```
 
-Las veintiséis en verde, y las herramientas de análisis sin nada que decir
+Todas las suites de la lista `$suites` de `pruebas.ps1` en verde (34 al escribir
+esto; no hay un número fijo), y las herramientas de análisis sin nada que decir
 (`huerfanas_js` trae dos sospechosas de siempre, `async` y `fallar`, que no son
 llamadas).
 Y si has tocado la interfaz, **ábrela**: una regla de CSS de menos o un bloque
 que no se pinta no da ningún error en ningún sitio.
+
+**Una sola suite** (son scripts sueltos, no pytest; cada una se corre sin más):
+
+```bash
+python nucleo/prueba_manifiestos.py
+python pasos/prueba_regresiones.py
+python prueba_api.py --conservar     # arranca su propio servidor; conserva los proyectos temporales
+```
+
+Si cambias rutas de `app.py`, regenera la referencia con `python generar_api.py`
+(`docs/API.md`; `prueba_api` comprueba que cuadra, no se edita a mano).
+
+**Capas:** `nucleo/` es el grafo genérico (no sabe nada de vídeo), `pasos/` no
+depende de HTTP, `motores/` solo consume contratos de ficheros, y `app.py` es lo
+único que une HTTP con ejecutores. Una tarea nueva no corre hasta entrar en
+`pasos/recetas.py` y en el ejecutor de `app.py`.
+
+**Pruebas nuevas:** desvía antes de importar `ESTUDIO_ESTADISTICAS`,
+`ESTUDIO_SECRETOS` y `ESTUDIO_AJUSTES`. `ESTUDIO_SIMULAR=1` no garantiza que no
+haya llamadas reales: cada camino debe implementarlo o usar dobles.
+
+**Windows:** el `TEMP` puede traer el alias 8.3 (`VALENT~1`) y el CLI de Claude
+deniega `Write` en esas rutas; usa `os.path.realpath` para temporales, `cwd` y
+`--add-dir`. `AGENTS.md` tiene el resto de reglas finas (Codex, medios de
+usuario, recuperación de imágenes) con su prueba aislada.
 
 Tres cosas que ahorran perseguir fallos que no existen:
 

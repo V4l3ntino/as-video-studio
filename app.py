@@ -1606,6 +1606,8 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, "transiciones debe ser una lista")
         listas = (("transiciones", PASOS_MODULOS.transiciones.CATALOGO,
                    "transiciones"),
+                  ("animaciones", PASOS_MODULOS.animaciones.CATALOGO,
+                   "animaciones"),
                   ("plantillas_cartela", PASOS_MODULOS.cartelas.PLANTILLAS,
                    "plantillas de cartela"))
         for clave, catalogo, comose in listas:
@@ -5730,6 +5732,14 @@ def catalogo_transiciones():
     return {"transiciones": [dict(id=tid, nombre=f["nombre"],
                                   descripcion=f["descripcion"], defecto=f["defecto"])
                               for tid, f in trans.CATALOGO.items() if tid != "corte"]}
+
+
+@app.get("/api/animaciones")
+def catalogo_animaciones():
+    """Animaciones de motion graphics disponibles, con su GIF de muestra."""
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f"los pasos no se han podido cargar: {ERROR_PASOS}")
+    return {"animaciones": PASOS_MODULOS.animaciones.catalogo_para_pantalla()}
 
 
 @app.get("/api/proyectos/{pid}/transiciones")
@@ -10403,7 +10413,8 @@ def _sembrar_video_light(ctx, datos):
         assets = {"bibliotecas": datos["bibliotecas"]}
         _validar_params("assets", assets, ctx)
         ctx.estado.actualizar_params("assets", assets)
-    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")
+    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos",
+                                    "animaciones")
               if k in datos}
     if render:
         _validar_params("render", render, ctx)

@@ -49,6 +49,7 @@ import websocket
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import animaciones  # noqa: E402
 import cartelas  # noqa: E402
 import estadisticas  # noqa: E402
 import medios  # noqa: E402
@@ -71,6 +72,11 @@ PARAMS_POR_DEFECTO = {
     # y esto decide CUAL. Asi cambiar la paleta de transiciones deja obsoleto el
     # render y nada mas: ni las imagenes ni las capas.
     "transiciones": [],
+    # QUE animaciones de motion graphics entran en este video (ids de
+    # `animaciones.CATALOGO`). Vacio = ninguna, y es lo que sale en todo video
+    # de antes: no hay «de fabrica». Cual lleva cada plano lo decide
+    # `animaciones.repartir` mirando lo que se dice en el.
+    "animaciones": [],
     # La capa fija contiene solo subtitulos; las cartelas viven en la movil.
     "subtitulos": True,
     "conservar_frames": False,
@@ -373,6 +379,10 @@ html,body{margin:0;padding:0;background:#0b0c09;overflow:hidden}
 #camara{z-index:0}
 #capafija{position:absolute;left:0;top:0;width:__W__px;height:__H__px;z-index:1}
 #capafija > svg{width:__W__px;height:__H__px;display:block}
+/* LAS ANIMACIONES van por encima del subtitulo y fuera del zoom, como el: se
+   pintan en pixeles del cuadro de salida (pasos/animaciones.py). */
+#capaanim{position:absolute;left:0;top:0;width:__W__px;height:__H__px;z-index:2}
+#capaanim > svg{width:__W__px;height:__H__px;display:block}
 </style></head><body>
 <!-- DOS CAPAS, Y LA DIFERENCIA ES EN QUE LADO DEL TRANSFORM ESTAN.
      #capa va DENTRO de #camara, asi que la escala el zoom: ahi vive lo que
@@ -387,6 +397,7 @@ html,body{margin:0;padding:0;background:#0b0c09;overflow:hidden}
     <div id="capa">__CAPA__</div>
   </div>
   <div id="capafija">__CAPAFIJA__</div>
+  <div id="capaanim">__CAPAANIM__</div>
 </div>
 <script>
 // Esta pagina pinta el plano LIMPIO: su zoom y su capa animada, y nada mas. La
@@ -409,6 +420,9 @@ if (svg && svg.pauseAnimations) svg.pauseAnimations();
 // que hay que congelarla y moverla a mano igual que la otra: si corriera sola,
 // cada fotograma la pillaria donde le tocase por reloj de pared.
 if (svgFijo && svgFijo.pauseAnimations) svgFijo.pauseAnimations();
+// Y la de las animaciones de motion graphics: mismo trato, mismo reloj.
+const svgAnim = document.querySelector('#capaanim svg');
+if (svgAnim && svgAnim.pauseAnimations) svgAnim.pauseAnimations();
 
 function suavizar(u){ return u*u*(3-2*u); }
 
@@ -446,6 +460,7 @@ function pintar(t){
     'px) scale(' + s.toFixed(6) + ')';
   if (svg && svg.setCurrentTime) svg.setCurrentTime(t);
   if (svgFijo && svgFijo.setCurrentTime) svgFijo.setCurrentTime(t);
+  if (svgAnim && svgAnim.setCurrentTime) svgAnim.setCurrentTime(t);
   if (FOTOGRAMAS.length) {
     const indice = Math.min(FOTOGRAMAS.length - 1, Math.max(0, Math.round(t * FPS)));
     fondo.src = FOTOGRAMAS[indice];
@@ -463,7 +478,8 @@ def _url_local(ruta):
     return "file:///" + os.path.abspath(ruta).replace("\\", "/")
 
 
-def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, fotogramas=()):
+def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, fotogramas=(),
+               capa_anim=""):
     ancho, alto = [int(v) for v in p["resolucion"]]
     hw, hh = mov.get("hyperframe_px") or [3072, 2048]
     duracion = float(escena["t_out"]) - float(escena["t_in"])
@@ -474,6 +490,7 @@ def _pagina_de(escena, mov, capa_svg, hyper, p, destino, capa_fija="", fps=30, f
             .replace("__FOTOGRAMAS__", json.dumps([_url_local(f) for f in fotogramas]))
             .replace("__CAPA__", capa_svg)
             .replace("__CAPAFIJA__", capa_fija or "")
+            .replace("__CAPAANIM__", capa_anim or "")
             .replace("__MOV__", json.dumps({"ventana_ini": mov["ventana_ini"],
                                             "ventana_fin": mov["ventana_fin"]}))
             .replace("__FPS__", str(int(fps)))
@@ -1226,7 +1243,8 @@ def renderizar_plano(tarea, navegador=None):
     pagina = _pagina_de(tarea["escena"], tarea["mov"], tarea["capa"],
                         tarea["hyper"], {"resolucion": tarea["resolucion"]},
                         os.path.join(carpeta, "escena.html"),
-                         capa_fija=tarea.get("capa_fija") or "", fps=fps, fotogramas=fotogramas)
+                         capa_fija=tarea.get("capa_fija") or "", fps=fps, fotogramas=fotogramas,
+                         capa_anim=tarea.get("capa_anim") or "")
 
     navegador.abrir(pagina)
     corte = tarea.get("corte") or {}
@@ -1247,6 +1265,7 @@ def renderizar_plano(tarea, navegador=None):
             "duracion": round(total / float(fps), 3),
             "transicion": corte.get("tipo") or "corte",
             "ranura": corte.get("ranura") or "corte",
+            "animacion": tarea.get("animacion") or "",
             "frames_transicion": pintados,
             "segundos_render": round(time.perf_counter() - inicio_plano, 3),
             "codec": tarea.get("codec", "libx264"),
@@ -1514,6 +1533,11 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     # reabrirla por plano seria recompilarlos. Los colores de acento salen de la
     # paleta que dejo callouts (ver p7_callouts.ejecutar).
     paleta = (medios.leer_json(ruta_mov, {}) or {}).get("paleta") or {}
+    # LAS ANIMACIONES, repartidas UNA vez con todas las escenas delante: el
+    # hueco entre dos animadas depende de las vecinas, y rehacer un plano suelto
+    # no puede cambiarle la animacion a otro (misma razon que las transiciones).
+    animadas = animaciones.capas(escenas, p, idioma=plan.get("idioma"),
+                                 paleta=paleta, salida=(ancho, alto))
     pagina_trans = transiciones.pagina(
         os.path.join(trabajo, "transicion.html"), ancho, alto, paleta)
     resultados = {}
@@ -1570,6 +1594,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                     "ventana_fin": mov["ventana_fin"],
                     "hyperframe_px": mov.get("hyperframe_px")},
             "capa": svg, "capa_fija": fija,
+            "capa_anim": (animadas.get(sid) or {}).get("svg", ""),
+            "animacion": (animadas.get(sid) or {}).get("animacion", ""),
             "hyper": hyper, "frames": total, "fps": fps,
             "video": ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
                       if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None),

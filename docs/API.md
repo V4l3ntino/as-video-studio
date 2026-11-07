@@ -273,6 +273,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | | Ruta | Qué hace |
 |---|---|---|
 | `GET` | `/` | La interfaz del Estudio. |
+| `GET` | `/api/animaciones` | Animaciones de motion graphics disponibles, con su GIF de muestra. |
 | `GET` | `/api/avisos/correo` | Configuración de reintentos y avisos SMTP, sin devolver la contraseña. |
 | `PUT` | `/api/avisos/correo` | Guarda Gmail/SMTP y los intervalos de reintento fuera de los proyectos. |
 | `POST` | `/api/avisos/correo/probar` | Envía un correo de prueba real al destinatario configurado. |
@@ -283,4 +284,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**169 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**170 endpoints.** Escrito por `generar_api.py` desde `app.py`.

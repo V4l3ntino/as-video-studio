@@ -28,7 +28,7 @@ from . import tipografia  # noqa: E402,F401
 # los subtitulos los pinta el navegador en el previsualizador, asi que sus
 # trozos con tiempos tienen que salir por la API
 from . import subtitulos  # noqa: E402,F401
-from . import cartelas, sonido, transiciones  # noqa: E402,F401
+from . import animaciones, cartelas, sonido, transiciones  # noqa: E402,F401
 # direccion (que se ve en cada plano) solo depende del CLI y del guion:
 # corre antes de que exista ninguna imagen, que es lo que la abarata
 from . import direccion  # noqa: E402,F401
@@ -100,6 +100,7 @@ __all__ = ["bibliotecas", "catalogo_visual", "conservar", "repaso", "publicacion
            "p1_ingesta", "p2_brief", "p3_guion",
            "p4_voz", "p5_revision_audio", "presets_voz", "presets_canal",
            "presets_light", "recetas", "sonido", "tipografia", "subtitulos", "tono", "transiciones",
+           "animaciones",
            "voz_descrita",
            "p6_assets", "p7_callouts", "p8_render",
            "MODULOS", "modulo_de"]

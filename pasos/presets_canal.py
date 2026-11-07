@@ -164,8 +164,9 @@ TIPOS = {
     },
     "montaje": {
         "nombre": "Montaje",
-        "que_fija": "los subtitulos y las transiciones de los videos nuevos",
-        "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas"),
+        "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
+        "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas",
+                   "animaciones"),
         "pasos": ("assets", "render"),
     },
     "canal": {
@@ -253,6 +254,12 @@ def _limpiar_datos(tipo, datos):
             if not isinstance(valores, list) or any(
                     not isinstance(v, str) or v not in CATALOGO for v in valores):
                 raise ErrorPreset("transiciones debe ser una lista de efectos conocidos")
+        if "animaciones" in limpios:
+            from pasos.animaciones import CATALOGO as ANIMACIONES
+            valores = limpios["animaciones"]
+            if not isinstance(valores, list) or any(
+                    not isinstance(v, str) or v not in ANIMACIONES for v in valores):
+                raise ErrorPreset("animaciones debe ser una lista de animaciones conocidas")
     if tipo == "canal":
         # un canal es un paquete de los otros tipos: cada bloque se valida con
         # las reglas de SU tipo, o el paquete se convierte en el agujero por
