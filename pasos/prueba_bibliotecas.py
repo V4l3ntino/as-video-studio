@@ -32,13 +32,15 @@ class Bibliotecas(unittest.TestCase):
                          "t_out": i*3} for i in range(1, 7)]
         self.plan = {"escenas": self.escenas, "resolucion": [320, 180],
                      "formato": "horizontal", "dependencias": {}, "assets": {}}
-        self.config = dict(bibliotecas.DEFECTOS, proveedores=["pixabay", "pexels"], ia_cada=3)
+        self.config = dict(bibliotecas.DEFECTOS, proveedores=["pixabay", "pexels"],
+                           incorporar_ia=True, ia_cada=3)
         self.params = {"bibliotecas": self.config}
         self.avisar = Mock()
 
     def test_validacion_y_solo_audio_no_elimina_el_visual(self):
         for valores in ({"ia_cada": 0}, {"ia_cada": True}, {"ia_cada": 1.5},
-                        {"audio": "si"}, {"proveedores": ["otra"]}):
+                         {"audio": "si"}, {"incorporar_ia": "si"},
+                         {"proveedores": ["otra"]}):
             with self.subTest(valores=valores), self.assertRaises(ValueError):
                 bibliotecas.normalizar(valores)
         b = bibliotecas.Biblioteca(self.proyecto, {"bibliotecas": {
@@ -58,6 +60,22 @@ class Bibliotecas(unittest.TestCase):
             for e in (self.escenas[2], self.escenas[5]):
                 self.assertIsNone(b.visual(e, "no-se-escribe.png"))
             consulta.assert_not_called()
+
+    def test_sin_cadencia_se_busca_stock_en_todas_las_escenas(self):
+        self.config["incorporar_ia"] = False
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        self.assertFalse(any(b.turnos.values()))
+        with patch.object(b, "consulta", return_value={"visual": "forest"}) as consulta, patch.object(
+                bibliotecas, "buscar", return_value=[]) as buscar:
+            self.assertIsNone(b.visual(self.escenas[2], "sin.png"))
+            consulta.assert_called_once()
+            buscar.assert_called()
+        self.assertIn("Codex", self.avisar.call_args.args[1])
+
+    def test_proyectos_anteriores_conservan_la_cadencia(self):
+        anterior = {"proveedores": ["pixabay"], "ia_cada": 3}
+        self.assertTrue(bibliotecas.normalizar(anterior)["incorporar_ia"])
+        self.assertFalse(bibliotecas.normalizar({})["incorporar_ia"])
 
     def test_adaptadores_cache_y_credenciales_no_se_persisten(self):
         almacen = {p: {"clave": "secreto-prueba"} for p in ("pixabay", "pexels")}

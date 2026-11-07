@@ -150,27 +150,27 @@ En los **estilos** y en el **encargo del vídeo**, justo encima de **Subtítulos
 aparece **Obtener recursos de bibliotecas**:
 
 - Selecciona **Pixabay**, **Pexels** o ambas.
-- Marca **Imágenes**, **Vídeo** y, si quieres efectos de sonido, **Audio**.
-- Ajusta **Una imagen con IA cada N escenas** (inicialmente 5).
+- Marca **Imágenes** y/o **Vídeo**.
+- Si quieres imágenes de IA periódicas, marca **Incorporar imágenes ia** y ajusta
+  **Una imagen con IA cada N escenas** (inicialmente 5).
 
-Las escenas ilustradas N, 2N, 3N… usan **Codex**; las demás buscan recursos de
-los tipos y proveedores elegidos. Las cartelas de fondo sólido, los componentes
+Con esa opción marcada, las escenas ilustradas N, 2N, 3N… usan **Codex**;
+las demás buscan recursos de los tipos y proveedores elegidos. Las cartelas de
+fondo sólido, los componentes
 ya construidos y las sustituciones manuales conservan su tratamiento propio.
 El selector prepara búsquedas para la escena y elige entre los resultados;
 si ninguno encaja o el archivo no es utilizable, se genera una imagen con Codex
 y se indica en el progreso. Los vídeos se descargan y normalizan **sin audio**.
-Cada escena sigue teniendo una imagen o un vídeo, incluso al marcar solo Audio.
-
-**Audio usa FreeSound**: las API públicas de Pixabay y Pexels solo ofrecen
-imágenes y vídeos. Se buscan sonidos adecuados a la acción, sin voces ni música;
-se mezclan bajo la narración y se limitan a la duración de su escena. Si no hay
-un efecto adecuado, esa escena conserva su narración sin un efecto añadido.
+Sin la opción de IA periódica, todas las escenas buscan primero en las
+bibliotecas seleccionadas; Codex solo interviene si no hay un recurso adecuado.
+Sin bibliotecas visuales seleccionadas, las escenas se ilustran con Codex.
+Los proyectos anteriores conservan su cadencia de IA al abrirse.
 
 Configura las claves de los proveedores elegidos en **⚙ Configuración →
 Bibliotecas, música y efectos** y la sesión de Codex para las imágenes de IA.
 Las claves también admiten `PIXABAY_API_KEY` y `PEXELS_API_KEY` por entorno.
-Una biblioteca visual sin clave o un Audio marcado sin clave de FreeSound
-detiene la tarea con el motivo, antes de generar los recursos.
+Una biblioteca visual sin clave detiene la tarea con el motivo, antes de generar
+los recursos.
 
 Los estilos transmiten estas opciones a los vídeos nuevos. Las búsquedas se
 cachean 24 horas; los recursos elegidos y su procedencia se guardan en el

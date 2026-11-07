@@ -6071,7 +6071,8 @@ function montajeDelEstiloLight(ficha) {
 
 function bibliotecasPorDefectoLight(crudo) {
   return Object.assign({ proveedores: [], imagenes: true, video: true,
-    audio: false, ia_cada: 5 }, JSON.parse(JSON.stringify(crudo || {})));
+    audio: false, incorporar_ia: !!(crudo && crudo.proveedores && crudo.proveedores.length),
+    ia_cada: 5 }, JSON.parse(JSON.stringify(crudo || {})));
 }
 
 /* ============================================ EL VÍDEO DEL MODO LIGHT
@@ -6697,22 +6698,32 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
     proveedores.appendChild(boton);
   });
   const tipos = h('div', { clase: 'fila' });
-  [['imagenes', 'Imágenes'], ['video', 'Vídeo'], ['audio', 'Audio']].forEach(([id, nombre]) => {
+  [['imagenes', 'Imágenes'], ['video', 'Vídeo']].forEach(([id, nombre]) => {
     tipos.appendChild(h('label', { clase: 'efecto-encargo' }, h('input', {
       type: 'checkbox', checked: opciones[id], 'data-foco': `bibliotecas-${id}`,
       onchange: ev => { opciones[id] = ev.target.checked; cambiar(); },
     }), h('span', {}, nombre)));
   });
-  const frecuencia = h('div', { clase: 'campo' }, h('label', {},
-    'Una imagen con IA cada N escenas'), h('input', {
+  const numero = h('input', {
     type: 'number', min: 1, max: 1000, step: 1, value: opciones.ia_cada,
+    disabled: !opciones.incorporar_ia,
     'aria-label': 'Una imagen con IA cada N escenas', 'data-foco': 'bibliotecas-ia-cada',
     onchange: ev => {
       opciones.ia_cada = Math.max(1, Math.min(1000, Math.round(Number(ev.target.value) || 5)));
       ev.target.value = opciones.ia_cada;
       cambiar();
     },
-  }));
+  });
+  const frecuencia = h('div', { clase: 'campo' },
+    h('label', { clase: 'efecto-encargo' }, h('input', {
+      type: 'checkbox', checked: opciones.incorporar_ia, 'data-foco': 'bibliotecas-incorporar-ia',
+      onchange: ev => {
+        opciones.incorporar_ia = ev.target.checked;
+        numero.disabled = !opciones.incorporar_ia;
+        cambiar();
+      },
+    }), h('span', {}, 'Incorporar imágenes ia')),
+    h('label', {}, 'Una imagen con IA cada N escenas'), numero);
   const parametros = h('fieldset', {
     clase: 'bibliotecas-parametros', 'aria-label': 'Parámetros de las bibliotecas',
   }, tipos, frecuencia);
@@ -6725,17 +6736,15 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
   actualizarDisponibilidad();
   return bloqueLight('Obtener recursos de bibliotecas', 'combina recursos de stock e imágenes de IA',
     proveedores, parametros, aviso,
-    h('p', { clase: 'pista' }, 'Puedes seleccionar ambas bibliotecas. Las escenas N, 2N, 3N… '
-      + 'se generan con Codex; el resto busca imágenes o vídeos según lo marcado. '
-      + 'Si no hay un recurso adecuado, se usa Codex. Los vídeos se incorporan sin su audio.'),
-    h('p', { clase: 'pista' }, 'Audio obtiene efectos de sonido de FreeSound para acompañar '
-      + 'la escena, además de su imagen o vídeo. Sin bibliotecas visuales seleccionadas, '
+    h('p', { clase: 'pista' }, 'Puedes seleccionar ambas bibliotecas. Si incorporas imágenes IA, '
+      + 'las escenas N, 2N, 3N… se generan con Codex; el resto busca imágenes o vídeos '
+      + 'según lo marcado. Si no hay un recurso adecuado, se usa Codex como última instancia. '
+      + 'Los vídeos se incorporan sin su audio. Sin bibliotecas visuales seleccionadas, '
       + 'todas las imágenes se generan con IA. Configura las claves en ⚙ Configuración.'),
     esEstilo ? h('p', { clase: 'pista' }, 'Los vídeos nuevos heredarán esta selección.') : null,
     h('div', { clase: 'fila meta' },
       h('a', { href: 'https://pixabay.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pixabay'),
-      h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels'),
-      h('a', { href: 'https://freesound.org/', target: '_blank', rel: 'noopener noreferrer' }, 'FreeSound')));
+      h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels')));
 }
 
 function subtitulosDelEncargo(e, alCambiar, esEstilo = false) {

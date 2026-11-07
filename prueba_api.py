@@ -3266,7 +3266,7 @@ def probar_video_light(cliente):
     cliente.put(f"/api/presets-light/{estilo_id}", {"montaje": seleccion})
 
     opciones_biblioteca = {"proveedores": ["pixabay", "pexels"], "imagenes": True,
-                          "video": True, "audio": True, "ia_cada": 4}
+                           "video": True, "audio": True, "incorporar_ia": True, "ia_cada": 4}
     respuesta, _ = cliente.put(f"/api/presets-light/{estilo_id}", {
         "montaje": {"bibliotecas": opciones_biblioteca}})
     igual(respuesta.status_code, 200, "el estilo guarda las bibliotecas y la frecuencia de IA")

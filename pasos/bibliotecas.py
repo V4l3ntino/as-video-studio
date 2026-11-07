@@ -19,7 +19,7 @@ except ImportError:
     import sonido
 
 DEFECTOS = {"proveedores": [], "imagenes": True, "video": True,
-            "audio": False, "ia_cada": 5}
+            "audio": False, "incorporar_ia": False, "ia_cada": 5}
 
 
 def normalizar(crudo):
@@ -28,11 +28,14 @@ def normalizar(crudo):
     if set(crudo) - set(DEFECTOS):
         raise ValueError("bibliotecas contiene opciones desconocidas")
     p = dict(DEFECTOS, **copy.deepcopy(crudo))
+    # Los proyectos anteriores tenían la cadencia activada implícitamente.
+    if "incorporar_ia" not in crudo and crudo.get("proveedores"):
+        p["incorporar_ia"] = True
     if not isinstance(p["proveedores"], list) or any(
             v not in ("pixabay", "pexels") for v in p["proveedores"]):
         raise ValueError("elige Pixabay, Pexels o ambas bibliotecas")
     p["proveedores"] = list(dict.fromkeys(p["proveedores"]))
-    for campo in ("imagenes", "video", "audio"):
+    for campo in ("imagenes", "video", "audio", "incorporar_ia"):
         if not isinstance(p[campo], bool):
             raise ValueError(f"bibliotecas.{campo} debe ser un booleano")
     if type(p["ia_cada"]) is not int or not 1 <= p["ia_cada"] <= 1000:
@@ -161,7 +164,8 @@ class Biblioteca:
         visuales = [e for e in plan["escenas"] if not e.get("medio_usuario")
                     and not e.get("sigue_a") and not e.get("componente")
                     and (not e.get("cartela") or e["cartela"].get("fondo") == "imagen")]
-        self.turnos = {e["id"]: (i + 1) % self.p["ia_cada"] == 0 for i, e in enumerate(visuales)}
+        self.turnos = {e["id"]: self.p["incorporar_ia"] and (i + 1) % self.p["ia_cada"] == 0
+                       for i, e in enumerate(visuales)}
         self.lock = threading.Lock()
         self.audio_lock = threading.Lock()
         self.usados = set()
