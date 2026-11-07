@@ -337,37 +337,88 @@ que nunca la fijaron, y regenerarlas se paga.
 
 ## Motion animation (`pasos/animaciones.py`)
 
-Animaciones SVG/SMIL de la guía de motion graphics (cifra, fecha, ficha, tipografía
-cinética) que se pintan ENCIMA de un plano, en la capa `#capaanim` de `p8_render.PAGINA`,
-movidas con `setCurrentTime` como el subtítulo. Lo que no se deduce del código:
+Animaciones SVG/SMIL tomadas de una guía de motion graphics, que se pintan ENCIMA
+de un plano (como el subtítulo, fuera del zoom) y se mueven con `setCurrentTime`:
+mismo reloj en previa y en render. Ocho, cada una con su señal en lo que se dice:
 
-- **Es un param del render (`animaciones`), vacío = ninguna**, y por eso un vídeo
-  de antes sale byte a byte igual. No escribas `[]` por defecto al abrir una
-  pantalla: mueve la firma del render (regla 1). La pantalla solo guarda al tocar.
-- **Qué animación lleva cada escena lo decide `repartir` mirando la narración**
-  (cifra, año, contraste, nombre propio, frase corta), con reglas deterministas y
-  sin modelo. Solo entran las elegidas, con aire entre dos animadas, y nunca sobre
-  cartelas. Varias comparten señal (`termino`): rotan por semilla.
-- **`collage-titulo` y `comparacion-tarjetas` enseñan la imagen del plano SIGUIENTE**
-  (`requiere_imagenes`): `p8` pasa `imagenes` = URL del hyperframe de cada plano y
-  la pagina las PRECARGA en `#precarga` (un `<image>` dentro de un SVG no lo espera
-  `Navegador.abrir`: sin eso la primera captura sale con la tarjeta vacía).
-- **Atenuar/desenfocar el plano no lo hace el SVG**: `capas` devuelve `fondo` y la
-  página lo aplica con `animaciones.JS_FONDO` (misma función en p8 y en el GIF).
-  Un contorno de texto que se «escribe» se enciende letra a letra (`_tecleo(trazo=)`)
-  o se ve fantasma.
-- **Las tarjetas de la pantalla son GIF** (`web/anim_<id>.gif`, planos a propósito:
-  `fichero_web` no sirve subcarpetas). Si cambias un dibujo, regenéralos con
-  `python herramientas/gifs_animaciones.py` (lanzarlo por PowerShell: Edge headless).
-- **La previa de Imágenes (`/previsualizacion`) lleva la animación de cada escena**
-  (`escena.animacion` = svg + fondo + `pico`), calculada con `animaciones.capas` y
-  la misma semilla que el render. El navegador la pinta encima con el reloj de la
-  voz (`animarPrevia`; parada, en el `pico`) y `aplicarFondo` en `app.js` es COPIA
-  de `animaciones.JS_FONDO` (`prueba_animaciones` compara las dos). Las URL de
-  otras imágenes viajan como `proyecto://ruta`: solo el navegador sabe el prefijo.
-  `pasos/_proyecto_animaciones.py` fabrica un proyecto de juguete sin pagar nada.
-- Collage, pantalla dividida, paralaje y avatar de la guía NO están: piden varios
-  recursos por escena o capas de profundidad que el plan no modela.
+| Señal | Animaciones |
+|---|---|
+| `cifra` (cantidad o %) | `infografia-cifra` |
+| `fecha` (año o «5 de mayo») | `editorial-fecha` |
+| `contraste` («mientras que», «frente a»…) | `comparacion-tarjetas` |
+| `termino` (nombre propio que no abre frase) | `ficha-ui`, `ficha-cristal`, `etiqueta-escrita`, `collage-titulo` |
+| `frase` (3 a 9 palabras) | `tipografia-cinetica` |
+
+Collage, pantalla dividida con vídeos propios, paralaje real y avatar de la guía
+NO están: piden varios recursos por escena o capas de profundidad que el plan no
+modela. Lo que no se deduce del código:
+
+**Dónde se eligen y cómo llegan al vídeo**
+- **Se eligen en el estilo** (`montaje.animaciones`, en `presets_canal`, con herencia
+  a los vídeos nuevos) **y se guardan como param del GUION** (`guion.animaciones`), no
+  del render: el texto tiene que decir lo que cada una necesita. Cambiar la
+  selección deja obsoleto el guion y todo lo que cuelga (voz, imágenes pagadas), y
+  la pantalla lo dice. No escribas `[]` por defecto al abrir una pantalla (regla 1);
+  `animacionesDelEncargo` solo toca `e.animaciones` al pulsar una tarjeta.
+- **El plan va ANTES del guion**: `plan_de_huecos` reparte las elegidas por el
+  vídeo (cada una, al menos una vez; entre el 2.º bloque y el penúltimo),
+  `bloque_para_guion` lo cuenta en la instrucción de `p3_guion._instruccion` (el
+  redactor deja en cada hueco la frase que la animación necesita, sin inventar
+  datos, y marca el bloque con `"animacion": id`), y `etiquetar_bloques` comprueba
+  cada marca contra el texto y RESCATA las que no escribió (aunque quede pegada a
+  otra: que salgan todas importa más que el aire). Lo que no cabe se avisa por su
+  nombre. Todo queda en `guion.json` (`guion[].animacion`, `animaciones`) y de ahí lo
+  leen render y previa (`etiquetas_de`, `pedidas_de`).
+- **Render y previa reparten con `repartir(etiquetas=...)`**: cada bloque marcado
+  lleva su animación en el plano de ese bloque que dice lo que necesita, y las que
+  falten se buscan por la señal en cualquier plano libre. Un vídeo de ANTES del
+  plan (sin etiquetas) sigue repartiéndose mirando la narración, con
+  `render.animaciones` y aire entre dos animadas; sin nada elegido no se pinta
+  nada y el MP4 sale byte a byte igual.
+- **`cobertura` dice cuáles no han salido** y la cabecera de Imágenes lo enseña
+  («✦ 5 de 6 animaciones · faltan: …»).
+
+**Las que enseñan dos elementos** (`collage-titulo`, `comparacion-tarjetas`,
+`requiere_imagenes`): usan la imagen de su escena y la de la de al lado (la
+siguiente, o la anterior si no hay; `elementos` en la asignación). NO se genera una
+imagen extra: sería gasto y tocaría el motor de imágenes. `p8` pasa `imagenes`
+(URL de cada hyperframe) y la página las PRECARGA en `#precarga`: un `<image>`
+dentro de un SVG no lo espera `Navegador.abrir` y la primera captura saldría vacía.
+
+**El render** (`p8_render`): capa `#capaanim` con z-index sobre el subtítulo;
+`PARAMS_POR_DEFECTO["animaciones"]` es solo el respaldo de los vídeos de antes.
+Atenuar o desenfocar el PLANO no lo puede hacer el SVG: `capas` devuelve `fondo` y
+la página lo aplica con `animaciones.JS_FONDO`. Un contorno de texto que se
+«escribe» se enciende letra a letra (`_tecleo(trazo=)`) o se ve fantasma. Cada
+animación declara cuánto necesita para leerse (`tiempo`) y `repartir` la salta si
+la señal cae tarde.
+
+**La previa** (`GET /previsualizacion`): cada escena trae `animacion` (svg, fondo,
+`pico`, `elementos`) y el resumen `animaciones`. El navegador la pinta encima de la
+imagen (`animarPrevia`, un fotograma de pantalla, con el reloj de la voz; parada,
+en el `pico`, el instante en que está completa) y la imagen pasa a `cover` como el
+render. El botón «✦ Animación» la apaga para ver el dibujo solo (preferencia en
+`localStorage`). `aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
+(`prueba_animaciones` compara las dos). Las URL de otras imágenes viajan como
+`proyecto://ruta`: solo el navegador sabe el prefijo del proxy.
+
+**La pantalla** (sección «Motion animation» en estilo, encargo y detalle del
+estilo): dos recuadros, disponibles a la izquierda y elegidas a la derecha, con
+tarjetas de GIF que cambian de lado al pulsarlas. Los recuadros miden SIEMPRE 506 px
+de alto y hacen scroll por dentro (`.anim-recuadro`). Los GIF son `web/anim_<id>.gif`
+(planos: `fichero_web` no sirve subcarpetas) y salen del mismo dibujo que el render:
+si cambias una animación, `python herramientas/gifs_animaciones.py` los regenera
+(por PowerShell: Edge headless; no usa ffmpeg, escribe Pillow).
+
+**Probar sin pagar**: `pasos/_proyecto_animaciones.py` fabrica un proyecto de
+juguete con guion etiquetado, plan e imágenes (lo usa `prueba_animaciones`); para
+verlo en la interfaz, arranca un servidor aparte con `--proyectos <carpeta>` y las
+tres variables `ESTUDIO_*` desviadas. La redacción REAL del plan por Claude no
+tiene prueba automática (gasta cupo): lo que se prueba es la instrucción, el
+marcado y el rescate con bloques sintéticos.
+
+**Python no recarga solo**: tras tocar `app.py` o `pasos/`, hay que reiniciar el
+servicio; un «Not Found» en `/api/animaciones` es un servidor anterior al cambio.
 
 ---
 
@@ -449,7 +500,18 @@ deniega `Write` en esas rutas; usa `os.path.realpath` para temporales, `cwd` y
 `--add-dir`. `AGENTS.md` tiene el resto de reglas finas (Codex, medios de
 usuario, recuperación de imágenes) con su prueba aislada.
 
+**ffmpeg y ffprobe tienen que estar en el PATH** (`ESTUDIO_FFMPEG` si no): sin ellos
+el estudio no monta ni un MP4 ni un Short, y `prueba_api` falla en las dos
+comprobaciones de Shorts y varias suites se saltan solas. En esta máquina se
+instalaron con `winget install Gyan.FFmpeg` (9.0.2): un shell abierto ANTES no lo ve
+(refresca `$env:Path` desde Machine+User) y un servicio arrancado desde él tampoco.
+
 Tres cosas que ahorran perseguir fallos que no existen:
+
+- `prueba_render_acelerado.test_flujo_y_secuencia_conservan_pixeles_subtitulos_y_transiciones`
+  falla con ffmpeg 9.0.2 (compara hashes de dos caminos de codificación). Es
+  anterior a las animaciones: se comprobó en el commit previo. Antes se saltaba
+  por falta de ffmpeg.
 
 - `prueba_pasos_visuales` reutiliza `%TEMP%\estudio_prueba_visual` entre
   ejecuciones; si una pasada se corta a medias, la siguiente falla por el estado

@@ -2555,3 +2555,6 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .previa-anim { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .previa-anim > svg { display: block; width: 100%; height: 100%; }
 .previa-marco.con-animacion > img { object-fit: cover; }
+
+/* una animacion elegida que no ha encontrado frase que la sostenga */
+.aviso-animaciones { color: var(--aviso, #e0a23a); }

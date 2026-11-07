@@ -6865,9 +6865,9 @@ function animacionesDelEncargo(e, alCambiar, esEstilo = false) {
         if (!elegidas.children.length) elegidas.appendChild(h('p', { clase: 'meta' }, 'Pulsa una tarjeta para añadirla.'));
         resumen.textContent = marcadas.size
           ? `${marcadas.size === 1 ? '1 animación elegida' : `${marcadas.size} animaciones elegidas`}. `
-            + 'El motor pone cada una en la escena donde encaja (una cifra, una fecha, un nombre propio, una frase corta) y deja el resto como está. '
+            + 'El guion se escribe con todas ellas previstas: el redactor deja en cada punto la frase que cada una necesita (una cifra, una fecha, una comparación, un nombre propio…) y las de tarjetas comparten imagen con la escena de al lado. '
             + (esEstilo ? 'Los vídeos nuevos heredarán esta selección.'
-              : 'Cambiar esta selección solo afecta al montaje.')
+              : 'Cambiar esta selección deja obsoleto el guion y, con él, la voz y las imágenes: se vuelven a hacer.')
           : 'Sin animaciones: las escenas se montan solo con su imagen, sus rótulos y los subtítulos.';
       };
       pintar();
@@ -7138,7 +7138,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'cta', paso: 'guion', param: 'cta' },
   { clave: 'transiciones', paso: 'render', param: 'transiciones' },
   { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
-  { clave: 'animaciones', paso: 'render', param: 'animaciones' },
+  { clave: 'animaciones', paso: 'guion', param: 'animaciones' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
 ];
@@ -7176,7 +7176,8 @@ function pedidoDelVideoLight() {
     cta: ctaLeida(params('guion').cta),
     transiciones: [...(params('render').transiciones || [])],
     transiciones_personalizadas: !!params('render').transiciones_personalizadas,
-    animaciones: [...(params('render').animaciones || [])],
+    /* las del guion; un vídeo de antes del plan las tenía en el render */
+    animaciones: [...(params('guion').animaciones || params('render').animaciones || [])],
     subtitulos: params('render').subtitulos !== false,
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
@@ -8970,6 +8971,22 @@ function aplicarFondo(el, F, t){
     + (1 + (F.luz-1)*k).toFixed(4) + ')' : '';
 }
 
+/* QUE SALEN TODAS: cuántas de las animaciones elegidas han llegado a colocarse y
+   cuáles faltan (un guion sin la frase que la sostenga). Nada si no se pidió ninguna. */
+function animacionesEnLaCabecera(resumen) {
+  if (!resumen || !(resumen.pedidas || []).length) return null;
+  const faltan = resumen.faltan || [];
+  const dentro = resumen.pedidas.length - faltan.length;
+  const nombres = resumen.nombres || {};
+  return h('span', {
+    clase: faltan.length ? 'meta aviso-animaciones' : 'meta',
+    title: faltan.length
+      ? 'Estas animaciones no han encontrado una frase que las sostenga en el guion. '
+        + 'Edita el guion o vuelve a escribirlo.' : 'Todas las animaciones elegidas salen en el vídeo.',
+  }, `✦ ${dentro} de ${resumen.pedidas.length} animaciones`
+    + (faltan.length ? ` · faltan: ${faltan.map(a => nombres[a] || a).join(', ')}` : ''));
+}
+
 function verAnimacionPrevia() {
   try { return localStorage.getItem('estudio.previa.animacion') !== 'no'; } catch (_) { return true; }
 }
@@ -9033,6 +9050,7 @@ function vistaPreviaLight() {
     h('span', { clase: 'meta' },
       escenas.length ? `escena ${PREVIA.i + 1} de ${escenas.length}` : ''),
     obsoletasEnLaCabecera(escenas),
+    animacionesEnLaCabecera((PREVIA.ficha || {}).animaciones),
     h('span', { clase: 'crece' }),
     costeLight()));
 
@@ -9153,7 +9171,9 @@ function vistaPreviaLight() {
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`
       + (e.bloque ? ` · ${e.bloque}` : '')
-      + (e.animacion ? ` · ${e.animacion.nombre}` : '')),
+      + (e.animacion ? ` · ${e.animacion.nombre}` : '')
+      + (e.animacion && e.animacion.elementos
+        ? ` (con ${e.animacion.elementos.otra})` : '')),
     h('span', { clase: 'crece' }),
     h('button', {
       clase: 'primario', disabled: PREVIA.i >= escenas.length - 1,

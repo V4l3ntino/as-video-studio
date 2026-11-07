@@ -1,7 +1,7 @@
-"""Un proyecto de juguete con plan, imagenes e `animaciones`, sin generar NADA.
+"""Un proyecto de juguete con guion, plan, imagenes y animaciones, sin generar NADA.
 
-Lo usan `prueba_animaciones` (la previa lleva la animacion de cada escena) y quien
-quiera ver la previa con animaciones sin pagar una imagen:
+Lo usan `prueba_animaciones` (la previa lleva la animacion de cada escena y dice
+cuales faltan) y quien quiera ver la previa con animaciones sin pagar una imagen:
 
     python pasos/_proyecto_animaciones.py <carpeta_de_proyectos>
 """
@@ -22,6 +22,13 @@ TEXTOS = ["El 45% de los barcos nunca llegó a puerto.",
           "Las raíces sanas crecen mientras que las raíces atrofiadas mueren.",
           "Nadie volvió a verlos jamás."]
 
+#: Lo que el guion dejaria previsto, bloque a bloque (un bloque por escena).
+ETIQUETAS = {"B001": "infografia-cifra", "B002": "editorial-fecha", "B003": "collage-titulo",
+             "B004": "comparacion-tarjetas", "B005": "tipografia-cinetica"}
+
+#: Lo que se ELIGIO: una mas de las que caben, para ver como se avisa de la que falta.
+ELEGIDAS = list(ETIQUETAS.values()) + ["ficha-ui"]
+
 
 def _escena(i, texto, t0, duracion=6.0):
     marcas, t = [], t0 + 0.3
@@ -29,7 +36,8 @@ def _escena(i, texto, t0, duracion=6.0):
         marcas.append([round(t, 3), round(t + 0.38, 3)])
         t += 0.42
     return {"id": f"S{i:03d}", "t_in": t0, "t_out": t0 + duracion, "duracion": duracion,
-            "narracion": texto, "marcas": marcas, "personajes": []}
+            "narracion": texto, "marcas": marcas, "personajes": [],
+            "origen": {"bloque": f"B{i:03d}", "indice": 0}}
 
 
 def _imagen(destino, i):
@@ -43,22 +51,35 @@ def _imagen(destino, i):
     img.save(destino)
 
 
-def construir(carpeta, animaciones=("infografia-cifra", "editorial-fecha", "ficha-cristal",
-                                    "comparacion-tarjetas", "tipografia-cinetica")):
-    """-> (proyecto, estado). Cinco escenas de 6 s con su imagen y las animaciones pedidas."""
+def construir(carpeta, animaciones=ELEGIDAS, etiquetas=ETIQUETAS):
+    """-> (proyecto, estado). Cinco escenas de 6 s, cada una de su bloque, con imagen.
+
+    `animaciones` es lo que se eligio (params del guion) y `etiquetas` lo que el
+    guion dejo marcado en cada bloque; con `etiquetas={}` es un video de antes del
+    plan, que reparte por lo que se dice.
+    """
     proyecto = Proyecto.crear(carpeta, "Previa con animaciones")
     estado = Estado(proyecto)
     escenas = [_escena(i + 1, t, i * 6.0) for i, t in enumerate(TEXTOS)]
     plan = {"generacion": [960, 640], "resolucion": [1280, 720], "formato": "horizontal",
             "idioma": "es", "semilla": 7, "duracion_total": 30.0, "escenas": escenas}
+    # el guion: un bloque por escena, con la animacion que lleva
+    bloques = [{"id": f"B{i + 1:03d}", "texto": t, "abre_seccion": i == 0,
+                **({"animacion": etiquetas[f"B{i + 1:03d}"]} if f"B{i + 1:03d}" in etiquetas else {})}
+               for i, t in enumerate(TEXTOS)]
+    trabajo_g = proyecto.ruta_trabajo("guion")
+    escribir_json(os.path.join(trabajo_g, "guion.json"),
+                  {"titulo": "Juguete", "guion": bloques, "idioma": "es",
+                   "animaciones": list(animaciones or [])})
+    estado.completar("guion", {"guion_fichero": "guion.json"})
+    if animaciones:
+        estado.actualizar_params("guion", {"animaciones": list(animaciones)})
     trabajo = proyecto.ruta_trabajo("assets")
     os.makedirs(os.path.join(trabajo, "escenas"), exist_ok=True)
     escribir_json(os.path.join(trabajo, "plan.json"), plan)
     for i, e in enumerate(escenas):
         _imagen(os.path.join(trabajo, "escenas", f"{e['id']}.png"), i)
     estado.completar("assets", {"plan": "plan.json"})
-    if animaciones:
-        estado.actualizar_params("render", {"animaciones": list(animaciones)})
     return proyecto, estado
 
 

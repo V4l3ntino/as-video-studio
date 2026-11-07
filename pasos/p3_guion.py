@@ -103,8 +103,9 @@ import subprocess  # noqa: F401  (las pruebas sustituyen p3_guion.subprocess.Pop
 import time
 
 try:
-    from . import cli_claude, comun, cta, estadisticas, fuentes, marcas_tts
+    from . import animaciones, cli_claude, comun, cta, estadisticas, fuentes, marcas_tts
 except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
+    import animaciones
     import cli_claude
     import comun
     import cta
@@ -156,6 +157,13 @@ PARAMS_POR_DEFECTO = {
     # frase, y un modelo que anota un guion ajeno pone las pausas donde el las
     # habria puesto, no donde estan.
     "anotaciones_voz": True,
+    # LAS ANIMACIONES DE MOTION GRAPHICS elegidas para este video (ids de
+    # `animaciones.CATALOGO`). Son del GUION y no solo del render porque el texto
+    # tiene que decir lo que cada una necesita -- una cifra, una fecha, una
+    # comparacion --: antes de redactar se reparten por el video
+    # (`animaciones.plan_de_huecos`) y se le piden al redactor. Vacio = ninguna, y
+    # el guion sale como antes.
+    "animaciones": [],
     # La emocion aparte: es la unica etiqueta que la propia documentacion de
     # Cartesia marca como experimental, y justo en nuestro caso (una toma
     # continua, o sea todo cambio es a mitad de generacion). Se deja encendida
@@ -285,6 +293,16 @@ def _normalizar(params, estricto=True):
     opciones["idioma"] = str(crudo or "").strip().lower()
 
     opciones["guion_propio"] = bool(opciones.get("guion_propio"))
+
+    elegidas = opciones.get("animaciones")
+    if not isinstance(elegidas, list):
+        if estricto and elegidas:
+            raise ValueError("animaciones tiene que ser una lista")
+        elegidas = []
+    desconocidas = [str(a) for a in elegidas if str(a) not in animaciones.CATALOGO]
+    if desconocidas and estricto:
+        raise ValueError(f"animaciones desconocidas: {', '.join(desconocidas)}")
+    opciones["animaciones"] = [a for a in animaciones.CATALOGO if a in set(map(str, elegidas))]
 
     # LOS PARAMS CRUDOS otra vez, y por el mismo motivo: `cta._normalizar` mira
     # tambien los personajes para TRADUCIR lo de antes del 06-09-2026 (cuando
@@ -547,6 +565,18 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
     seccion_cta = cta.bloque_para_guion(opciones.get("cta"))
     if seccion_cta:
         partes.extend(["", seccion_cta])
+
+    # LAS ANIMACIONES, REPARTIDAS ANTES DE ESCRIBIR. Cada una elegida sale al
+    # menos una vez, asi que el redactor sabe en que punto tiene que dejar una
+    # cifra, una fecha, una comparacion... y marca el bloque que la lleva.
+    plan_animaciones = animaciones.plan_de_huecos(
+        opciones.get("animaciones"),
+        float(brief.get("duracion_objetivo_s") or 0)
+        or presupuesto / max(0.5, float(brief.get("palabras_por_segundo") or 2.5)),
+        bloques_previstos, semilla=len(opciones.get("prompt_general") or ""))
+    seccion_animaciones = animaciones.bloque_para_guion(plan_animaciones, bloques_previstos)
+    if seccion_animaciones:
+        partes.extend(["", seccion_animaciones])
 
     avisos = brief.get("avisos") or []
     if avisos:
@@ -891,6 +921,12 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         f"poco. Si te has quedado corto, desarrolla los hechos del material. "
         f"Esta cuenta manda sobre cualquier otra cosa que te apetezca contar.",
     ])
+    if plan_animaciones:
+        partes.extend([
+            "",
+            "Los bloques que llevan una animacion se marcan asi (solo esos): "
+            '{"id": "B012", "texto": "...", "animacion": "<id de la lista>"}.',
+        ])
     partes.extend([
         "",
         "== FORMATO DE SALIDA ==",
@@ -1021,7 +1057,11 @@ def _normalizar_bloques(datos):
                                # bloque (se presenta, cierra). Lo marca el
                                # redactor y lo lee el catalogo visual, que es
                                # quien lo pone en el plano.
-                               "personaje": bool(elemento.get("personaje"))})
+                               "personaje": bool(elemento.get("personaje")),
+                               # la animacion que lleva este bloque, si el redactor
+                               # la marco; `animaciones.etiquetar_bloques` comprueba
+                               # que el texto la sostiene
+                               "animacion": str(elemento.get("animacion") or "").strip()})
         else:
             raise RuntimeError(f"bloque de guion con forma inesperada: {elemento!r}")
 
@@ -1555,17 +1595,29 @@ def _redactar(proyecto, params, avisar):
         bloques[0]["abre_seccion"] = True   # el primero siempre abre seccion
     # Y AHORA EL AIRE, con las secciones ya fijadas.
     _aire_entre_secciones(bloques, opciones)
+    # LAS ANIMACIONES, COMPROBADAS Y RESCATADAS: lo que el redactor marco sin
+    # escribir la frase se quita, y lo que no marco se busca en el texto. Se
+    # hace con el texto FINAL (tras las ediciones a mano y las anotaciones).
+    avisos_animaciones = animaciones.etiquetar_bloques(
+        bloques, opciones.get("animaciones"),
+        animaciones.plan_de_huecos(
+            opciones.get("animaciones"),
+            float(brief_doc.get("duracion_objetivo_s") or 0), len(bloques),
+            semilla=len(opciones.get("prompt_general") or "")), idioma)
     guion = [{"id": b["id"], "texto": b["texto"],
               "abre_seccion": bool(b.get("abre_seccion")),
               # y si el personaje del canal da la cara en el:
               # solo cuando es verdad, para no ensuciar los guiones sin personaje
-              **({"personaje": True} if b.get("personaje") else {})}
+              **({"personaje": True} if b.get("personaje") else {}),
+              # y la animacion de motion graphics que lleva, si lleva alguna
+              **({"animacion": b["animacion"]} if b.get("animacion") else {})}
              for b in bloques]
     detalle = [{"id": b["id"], "texto": b["texto"],
                 "palabras": marcas_tts.contar_palabras(b["texto"])}
                for b in bloques]
     avisos = list(_avisos(bloques, palabras, brief_doc, idioma))
     avisos.extend(pendientes)
+    avisos.extend(avisos_animaciones)
     tokens = comun.tokens_de_cli(sobre)
 
     avisar(0.96, "guardando el guion")
@@ -1609,6 +1661,9 @@ def _redactar(proyecto, params, avisar):
         # marca en pantalla es publicidad, y la publicidad que no se ha pedido no
         # se pone.
         "cta": opciones.get("cta"),
+        # Y LAS ANIMACIONES PEDIDAS: lo que se eligio, para poder decir despues
+        # cuales de ellas llegaron a colocarse (`animaciones.cobertura`).
+        "animaciones": opciones.get("animaciones"),
     }
     comun.escribir_json(os.path.join(trabajo, "guion.json"), documento)
     comun.escribir_texto(

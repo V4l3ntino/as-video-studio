@@ -371,23 +371,115 @@ def _es_cartela(escena):
     return bool(escena.get("cartela")) or bool(escena.get("capitulo_svg"))
 
 
-def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0):
+def _vecina(lista, indice, imagenes):
+    """Con QUE otra escena comparte tarjetas la del `indice`. -> indice | None
+
+    La siguiente si tiene imagen y no es una cartela; si no, la anterior. Es la
+    segunda ficha de la animacion: la escena trae la suya y esta es «el otro
+    elemento» del collage o de la comparacion. Un clip de usuario aporta su
+    poster, que es lo que `imagenes` ya trae.
+    """
+    for j in (indice + 1, indice - 1):
+        if 0 <= j < len(lista):
+            otra = lista[j]
+            if otra.get("id") and not _es_cartela(otra) and imagenes.get(otra["id"]):
+                return j
+    return None
+
+
+def _ficha_de(lista, indice, animacion, senal, datos, imagenes):
+    """La asignacion de UN plano. None si no tiene con que hacer sus tarjetas."""
+    ficha = {"animacion": animacion, "senal": senal, "datos": datos}
+    if CATALOGO[animacion].get("requiere_imagenes"):
+        sid = lista[indice].get("id")
+        j = _vecina(lista, indice, imagenes)
+        if j is None or not imagenes.get(sid):
+            return None
+        otra = lista[j]["id"]
+        ficha["imagenes"] = {"propia": imagenes[sid], "otra": imagenes[otra]}
+        ficha["elementos"] = {"propia": sid, "otra": otra}
+    return ficha
+
+
+def _admite(lista, indice, animacion, imagenes, idioma):
+    """Si el plano `indice` puede llevar `animacion`. -> (senal, datos) | None"""
+    escena = lista[indice]
+    if not escena.get("id") or _es_cartela(escena) or _duracion(escena) < DURACION_MINIMA:
+        return None
+    senal = CATALOGO[animacion]["senal"]
+    datos = senales(escena, idioma).get(senal)
+    largo = _duracion(escena)
+    if (not datos or datos["hasta"] > largo - 0.1
+            or datos["desde"] > largo - CATALOGO[animacion].get("tiempo", TIEMPO_PARA_LEERSE)):
+        return None
+    if _ficha_de(lista, indice, animacion, senal, datos, imagenes) is None:
+        return None
+    return senal, datos
+
+
+def _repartir_planificado(lista, pedidas, etiquetas, idioma, imagenes):
+    """Las animaciones que el GUION dejo previstas, y las que aun faltan.
+
+    Cada bloque etiquetado lleva UNA animacion y se le busca, dentro del bloque,
+    el plano que dice lo que esa animacion necesita. Despues, lo que no ha
+    salido -- el redactor no escribio la frase, o salio en un plano sin tiempo
+    para leerse -- se busca por la senal en cualquier plano libre, con aire
+    respecto a los ya animados: que una animacion elegida no aparezca nunca es
+    justo lo que esto existe para evitar.
+    """
+    salida, ocupados = {}, set()
+    por_bloque = {}
+    for i, escena in enumerate(lista):
+        por_bloque.setdefault(str((escena.get("origen") or {}).get("bloque") or ""), []).append(i)
+    for bloque, animacion in sorted(etiquetas.items(),
+                                    key=lambda par: (por_bloque.get(par[0]) or [10 ** 9])[0]):
+        for i in por_bloque.get(bloque, []):
+            visto = _admite(lista, i, animacion, imagenes, idioma)
+            if visto:
+                salida[lista[i]["id"]] = _ficha_de(lista, i, animacion, visto[0], visto[1], imagenes)
+                ocupados.add(i)
+                break
+    puestas = {f["animacion"] for f in salida.values()}
+    for animacion in pedidas:
+        if animacion in puestas:
+            continue
+        for i in range(len(lista)):
+            if i in ocupados or {i - 1, i + 1} & ocupados:
+                continue
+            visto = _admite(lista, i, animacion, imagenes, idioma)
+            if visto:
+                salida[lista[i]["id"]] = _ficha_de(lista, i, animacion, visto[0], visto[1], imagenes)
+                ocupados.add(i)
+                puestas.add(animacion)
+                break
+    return salida
+
+
+def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0, etiquetas=None):
     """Que animacion lleva cada plano. Determinista.
 
-    -> {id_de_plano: {"animacion", "senal", "datos", "imagenes"?}}
+    -> {id_de_plano: {"animacion", "senal", "datos", "imagenes"?, "elementos"?}}
 
-    Solo los planos que llevan algo: el resto no aparece. Mirando la narracion
-    de cada uno, y con aire entre dos animadas (HUECO_ENTRE_ANIMACIONES).
+    Con `etiquetas` ({id_de_bloque: animacion}, lo que dejo el guion) se reparte
+    LO PREVISTO: cada animacion va al plano de su bloque que dice lo que necesita
+    (`_repartir_planificado`). Sin ellas -- un video de antes del plan -- se
+    reparte mirando la narracion de cada plano, con aire entre dos animadas
+    (HUECO_ENTRE_ANIMACIONES).
 
     `imagenes` es {id_de_plano: url de su imagen}. Sin ella -- o si al plano le
-    falta su vecino -- las animaciones que ensenan una SEGUNDA imagen no entran.
-    `semilla` desempata entre las que comparten senal sin usar random: rehacer un
-    plano suelto no puede cambiarle la animacion a otro.
+    falta con quien compartir tarjetas -- las animaciones que ensenan una SEGUNDA
+    imagen no entran. `semilla` desempata entre las que comparten senal sin usar
+    random: rehacer un plano suelto no puede cambiarle la animacion a otro.
     """
+    imagenes = imagenes or {}
+    etiquetas = {str(b): a for b, a in (etiquetas or {}).items() if a in CATALOGO}
     elegidas = elegidas_de(params)
+    if etiquetas:
+        previstas = set(etiquetas.values())
+        pedidas = [a for a in CATALOGO if a in set(elegidas) | previstas]
+        return _repartir_planificado(list(escenas or []), pedidas, etiquetas, idioma, imagenes)
     if not elegidas:
         return {}
-    imagenes = imagenes or {}
     por_senal = {}
     for a in elegidas:
         por_senal.setdefault(CATALOGO[a]["senal"], []).append(a)
@@ -403,9 +495,6 @@ def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0):
         if sin_animar < HUECO_ENTRE_ANIMACIONES:
             sin_animar += 1
             continue
-        siguiente = lista[indice + 1] if indice + 1 < len(lista) else None
-        con_vecina = bool(siguiente and siguiente.get("id") and not _es_cartela(siguiente)
-                          and imagenes.get(sid) and imagenes.get(siguiente["id"]))
         vistas = senales(escena, idioma)
         largo = _duracion(escena)
         opciones = []
@@ -415,9 +504,8 @@ def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0):
             if vistas[senal]["hasta"] > largo - 0.1:
                 continue
             opciones += [(senal, a) for a in por_senal[senal]
-                         if (con_vecina or not CATALOGO[a].get("requiere_imagenes"))
-                         and vistas[senal]["desde"] <= largo - CATALOGO[a].get(
-                             "tiempo", TIEMPO_PARA_LEERSE)]
+                         if vistas[senal]["desde"] <= largo - CATALOGO[a].get("tiempo", TIEMPO_PARA_LEERSE)
+                         and _ficha_de(lista, indice, a, senal, vistas[senal], imagenes) is not None]
         if not opciones:
             sin_animar += 1
             continue
@@ -426,14 +514,205 @@ def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0):
         senal = posibles[0][0]
         grupo = [a for s, a in posibles if s == senal]
         animacion = grupo[medios.desempatar(semilla, sid, "animacion") % len(grupo)]
-        ficha = {"animacion": animacion, "senal": senal, "datos": vistas[senal]}
-        if CATALOGO[animacion].get("requiere_imagenes"):
-            ficha["imagenes"] = {"propia": imagenes[sid],
-                                 "siguiente": imagenes[siguiente["id"]]}
-        salida[sid] = ficha
+        salida[sid] = _ficha_de(lista, indice, animacion, senal, vistas[senal], imagenes)
         ultima = animacion
         sin_animar = 0
     return salida
+
+
+def cobertura(reparto, pedidas):
+    """Cuantas veces sale cada animacion pedida. -> {"pedidas", "colocadas", "faltan"}
+
+    Es lo que dice si el video lleva TODAS las que se eligieron: una que falta
+    es un guion que no tiene una frase que la sostenga, y se dice para que se
+    pueda arreglar en vez de descubrirlo en el MP4.
+    """
+    pedidas = [a for a in CATALOGO if a in set(pedidas or [])]
+    cuenta = {}
+    for ficha in (reparto or {}).values():
+        cuenta[ficha["animacion"]] = cuenta.get(ficha["animacion"], 0) + 1
+    return {"pedidas": pedidas,
+            "colocadas": {a: cuenta[a] for a in pedidas if a in cuenta},
+            "faltan": [a for a in pedidas if a not in cuenta]}
+
+
+# ===========================================================================
+# EL PLAN, ANTES DEL GUION
+#
+# Las animaciones se colocan por lo que se DICE, asi que de nada sirve elegir
+# ocho si el guion no tiene ni una cifra ni una comparacion: salen las que el
+# texto casualmente permite. Por eso el plan va PRIMERO: antes de redactar se
+# reparten las animaciones por el video (cada elegida, al menos una vez) y se le
+# pide al redactor que escriba, en cada hueco, la frase que esa animacion
+# necesita -- y que marque el bloque con su id. Lo que no escriba se rescata
+# despues buscando el bloque que mejor lo diga (`etiquetar_bloques`).
+# ===========================================================================
+
+#: Lo que se le pide al redactor para que cada animacion tenga de que vivir.
+PIDE = {
+    "infografia-cifra": "una frase con una CIFRA o un PORCENTAJE concreto y de que es "
+                        "(«el 45 por ciento de los barcos...»), tomada del material",
+    "editorial-fecha": "una frase con un AÑO o una FECHA concreta («en 1923», «el 5 de mayo»)",
+    "ficha-ui": "una frase que presente un NOMBRE PROPIO (persona, lugar, empresa...) y diga "
+                "que es. El nombre propio NO abre la frase",
+    "ficha-cristal": "una frase que presente un NOMBRE PROPIO (persona, lugar, empresa...) y "
+                     "diga que es. El nombre propio NO abre la frase",
+    "etiqueta-escrita": "una frase que introduzca un NOMBRE PROPIO o un termino clave con "
+                        "mayuscula. No abre la frase",
+    "collage-titulo": "una frase que nombre un NOMBRE PROPIO (lugar, institucion, "
+                      "movimiento...) como protagonista del momento. No abre la frase",
+    "comparacion-tarjetas": "UNA frase que contraponga dos cosas con «mientras que» o «frente "
+                            "a» («las raices sanas crecen... mientras que las atrofiadas...»)",
+    "tipografia-cinetica": "una frase CORTA y contundente, de 3 a 9 palabras, que se sostenga "
+                           "sola y resuma el momento",
+}
+
+#: Un hueco cada tantos segundos de video, como minimo uno por animacion elegida.
+SEGUNDOS_POR_HUECO = 35
+
+
+def plan_de_huecos(elegidas, duracion_s, bloques, semilla=0):
+    """Donde va cada animacion en el video, ANTES de escribirlo.
+
+    -> [{"animacion", "senal", "bloque": n (1..bloques), "pide"}], en orden.
+
+    Cada elegida sale al menos una vez; si sobra video se repiten rotando. Van
+    repartidas entre el segundo bloque y el penultimo (el primero es el gancho y
+    el ultimo el cierre, y las de tarjetas necesitan otro plano al lado), nunca
+    en bloques seguidos mientras haya sitio, y sin repetir la misma dos veces
+    seguidas.
+    """
+    elegidas = [a for a in CATALOGO if a in set(elegidas or [])]
+    bloques = int(bloques or 0)
+    if not elegidas or bloques < 3:
+        return []
+    libres = max(1, bloques - 2)
+    huecos = max(len(elegidas), int(round(float(duracion_s or 0) / SEGUNDOS_POR_HUECO)))
+    huecos = min(huecos, libres, 3 * len(elegidas))
+    arranque = medios.desempatar(semilla, "plan_animaciones") % len(elegidas)
+    orden = [elegidas[(arranque + k) % len(elegidas)] for k in range(huecos)]
+    paso = libres / huecos
+    plan = []
+    for k, animacion in enumerate(orden):
+        bloque = 2 + int(k * paso + paso / 2)
+        plan.append({"animacion": animacion, "senal": CATALOGO[animacion]["senal"],
+                     "bloque": min(bloque, bloques - 1), "pide": PIDE[animacion]})
+    return plan
+
+
+def bloque_para_guion(plan, bloques):
+    """El trozo de la instruccion del guion que cuenta el plan. '' si no hay plan."""
+    if not plan:
+        return ""
+    lineas = [
+        "== ANIMACIONES GRAFICAS (motion graphics) ==",
+        "En el montaje se superpondra una animacion sobre la imagen en las escenas "
+        "donde se dice algo concreto. El video lleva estas, y CADA UNA tiene que "
+        f"quedar colocada (el video tiene unos {int(bloques)} bloques):",
+    ]
+    for hueco in plan:
+        nombre = CATALOGO[hueco["animacion"]]["nombre"]
+        lineas.append(f"  - hacia el bloque {hueco['bloque']}: «{nombre}» "
+                      f"(id \"{hueco['animacion']}\") -> {hueco['pide']}.")
+    lineas += [
+        "Como colocarlas:",
+        "  1. En ese bloque, UNA de sus frases dice justo eso, dentro del relato y "
+        "sin forzarlo: que encaje con lo que se cuenta. Si el material no trae un "
+        "dato asi en ese punto, mueve la frase al bloque mas cercano donde si lo "
+        "haya. NUNCA inventes un dato: solo los del material.",
+        "  2. Marca ese bloque con \"animacion\": \"<id>\" en el JSON (el id de la "
+        "lista, tal cual) y no marques ningun otro. Un bloque lleva como mucho una.",
+        "  3. Lo demas del bloque se escribe como siempre: la animacion es un "
+        "acento sobre una frase, no cambia como se cuenta.",
+    ]
+    return "\n".join(lineas)
+
+
+def _texto_llano(texto):
+    """El texto de un bloque sin anotaciones de voz (<break/>, <spell>...)."""
+    return " ".join(re.sub(r"<[^>]*>", " ", str(texto or "")).split())
+
+
+def senales_de_texto(texto, idioma=None):
+    """Las senales de un TEXTO suelto (un bloque del guion), sin tiempos.
+
+    Un bloque aun no tiene voz, asi que se le ponen marcas inventadas y
+    uniformes: solo importa SI la senal esta, no cuando se dice.
+    """
+    palabras = _texto_llano(texto).split()
+    marcas = [[round(i * 0.4, 3), round(i * 0.4 + 0.38, 3)] for i in range(len(palabras))]
+    return senales({"narracion": " ".join(palabras), "marcas": marcas, "t_in": 0.0}, idioma)
+
+
+def etiquetar_bloques(bloques, elegidas, plan, idioma=None):
+    """Deja en cada bloque la animacion que lleva. -> avisos (se toca `bloques`)
+
+    Se parte de lo que marco el redactor, comprobando que de verdad dice lo que
+    la animacion necesita (una marca sin frase que la sostenga no vale), y lo
+    que quede sin colocar se RESCATA: se busca el bloque libre -- cerca de donde
+    el plan lo pedia, sin pegarse a otro marcado -- cuyo texto tiene la senal.
+    Lo que ni asi cabe se dice en los avisos con su nombre.
+    """
+    elegidas = [a for a in CATALOGO if a in set(elegidas or [])]
+    avisos = []
+    if not elegidas:
+        for b in bloques:
+            b.pop("animacion", None)
+        return avisos
+    vistas = [senales_de_texto(b.get("texto"), idioma) for b in bloques]
+    for b, v in zip(bloques, vistas):
+        a = str(b.get("animacion") or "").strip()
+        if a and (a not in elegidas or CATALOGO[a]["senal"] not in v):
+            b.pop("animacion", None)
+        elif not a:
+            b.pop("animacion", None)
+    puestas = {b["animacion"] for b in bloques if b.get("animacion")}
+    donde = {h["animacion"]: h["bloque"] for h in (plan or []) if h["animacion"] not in puestas}
+    for animacion in elegidas:
+        if animacion in puestas:
+            continue
+        senal = CATALOGO[animacion]["senal"]
+        pedido = donde.get(animacion, len(bloques) // 2)
+        candidatos = []
+        for i, (b, v) in enumerate(zip(bloques, vistas)):
+            if b.get("animacion") or senal not in v or i in (0, len(bloques) - 1):
+                continue
+            # sin pegarse a otro marcado si hay sitio; si no, pegado: que salgan
+            # TODAS importa mas que el aire entre dos
+            pegado = any(bloques[j].get("animacion") for j in (i - 1, i + 1)
+                         if 0 <= j < len(bloques))
+            candidatos.append((pegado, abs((i + 1) - pedido), i))
+        if not candidatos:
+            avisos.append(f"la animacion «{CATALOGO[animacion]['nombre']}» no ha encontrado en "
+                          f"el guion una frase que la sostenga: no saldra en el video")
+            continue
+        _, _, i = min(candidatos)
+        bloques[i]["animacion"] = animacion
+        puestas.add(animacion)
+        avisos.append(f"la animacion «{CATALOGO[animacion]['nombre']}» se ha colocado en el "
+                      f"bloque {bloques[i].get('id')}, donde el texto ya trae lo que necesita")
+    return avisos
+
+
+def pedidas_de(proyecto):
+    """Las animaciones que se eligieron al escribir el guion. [] si no hay (o es de antes)."""
+    try:
+        import comun  # noqa: PLC0415
+        documento = comun.leer_salida(proyecto, "guion", "guion.json", obligatorio=False) or {}
+    except Exception:                                          # noqa: BLE001
+        return []
+    return [a for a in CATALOGO if a in set(documento.get("animaciones") or [])]
+
+
+def etiquetas_de(proyecto):
+    """{id_de_bloque: animacion} tal como las dejo el guion. {} si no hay (o es de antes)."""
+    try:
+        import comun  # noqa: PLC0415
+        documento = comun.leer_salida(proyecto, "guion", "guion.json", obligatorio=False) or {}
+    except Exception:                                          # noqa: BLE001
+        return {}
+    return {str(b["id"]): b["animacion"] for b in (documento.get("guion") or [])
+            if isinstance(b, dict) and b.get("id") and b.get("animacion") in CATALOGO}
 
 
 # ===========================================================================
@@ -854,7 +1133,7 @@ def _svg_collage(datos, duracion, ancho, alto, c, ctx=None):
     titulo = str(datos["nombre"]).upper()
     tam = min(86 * u, 0.9 * ancho / max(6, len(titulo)) * 1.5)
     una = _tarjeta_foto("co1", ctx["imagenes"]["propia"], cw, ch, u, entra + 0.3, (-70 * u, 0), fin=sale)
-    dos = _tarjeta_foto("co2", ctx["imagenes"]["siguiente"], cw, ch, u, entra + 0.95, (70 * u, 0), fin=sale)
+    dos = _tarjeta_foto("co2", ctx["imagenes"]["otra"], cw, ch, u, entra + 0.95, (70 * u, 0), fin=sale)
     paso = min(0.07, max(0.035, 1.2 / max(1, len(titulo))))
     letras = _tecleo(titulo, ancho / 2, 0.2 * alto, tam, "#ffffff", entra + 1.7, paso,
                      ancla="middle", espaciado=4 * u,
@@ -882,7 +1161,7 @@ def _svg_comparacion(datos, duracion, ancho, alto, c, ctx=None):
     xa, xb = ancho * 0.31, ancho * 0.69
     una = _tarjeta_foto("cp1", ctx["imagenes"]["propia"], cw, ch, u, entra + 0.3,
                         (0, 0.4 * alto), dur=0.8, fin=sale)
-    dos = _tarjeta_foto("cp2", ctx["imagenes"]["siguiente"], cw, ch, u, entra + 1.3,
+    dos = _tarjeta_foto("cp2", ctx["imagenes"]["otra"], cw, ch, u, entra + 1.3,
                         (0, -0.55 * alto), dur=0.8, fin=sale)
     cuerpo = (f'<g transform="translate({xa - cw / 2:.1f} {y:.1f})">{una}</g>'
               f'<g transform="translate({xb - cw / 2:.1f} {y:.1f})">{dos}</g>'
@@ -920,7 +1199,7 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
 
 
 def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
-          imagenes=None, semilla=0):
+          imagenes=None, semilla=0, etiquetas=None):
     """Todo lo que hace falta para el render.
     -> {id_de_plano: {"svg", "animacion", "fondo", "imagenes"}}
 
@@ -929,13 +1208,15 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
     dentro de un SVG no lo espera nadie y la primera captura saldria con la
     tarjeta vacia.
     """
-    reparto = repartir(escenas, params, idioma, imagenes=imagenes, semilla=semilla)
+    reparto = repartir(escenas, params, idioma, imagenes=imagenes, semilla=semilla,
+                       etiquetas=etiquetas)
     por_id = {e.get("id"): e for e in escenas or []}
     resultado = {}
     for sid, asignacion in reparto.items():
         svg, fondo = svg_de(asignacion, _duracion(por_id[sid]), salida, paleta)
         if svg:
             resultado[sid] = {"svg": svg, "animacion": asignacion["animacion"], "fondo": fondo,
+                              "elementos": asignacion.get("elementos"),
                               "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
                               "pico": pico_de(svg, _duracion(por_id[sid]))}
     return resultado

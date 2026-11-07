@@ -5102,7 +5102,13 @@ def leer_previsualizacion(pid: str):
     # Va como SVG con sus tiempos en el reloj DEL PLANO, como los subtitulos: el
     # navegador lo mueve al ritmo del audio. Sin el param `animaciones` -- todo
     # video de antes -- no se calcula nada y la escena sale como siempre.
-    if render.get("animaciones"):
+    guion_params = ctx.estado.params("guion") or {}
+    etiquetas = PASOS_MODULOS.animaciones.etiquetas_de(ctx.proyecto)
+    pedidas = list(dict.fromkeys(list(guion_params.get("animaciones") or [])
+                                 + PASOS_MODULOS.animaciones.pedidas_de(ctx.proyecto)
+                                 + list(render.get("animaciones") or [])))
+    resumen_animaciones = None
+    if pedidas or etiquetas:
         try:
             p_medios = PASOS_MODULOS.medios
             ruta_mov = p_medios.salida_de(ctx.proyecto, "callouts", claves=("movimiento",),
@@ -5115,18 +5121,27 @@ def leer_previsualizacion(pid: str):
             urls = {e["id"]: "proyecto://" + e["imagen"] for e in escenas if e.get("imagen")}
             cuadro = plan.get("resolucion") or [1920, 1080]
             animadas = PASOS_MODULOS.animaciones.capas(
-                escenas_plan, render, idioma=idioma, paleta=paleta,
+                escenas_plan, {"animaciones": pedidas}, idioma=idioma, paleta=paleta,
                 salida=(int(cuadro[0]), int(cuadro[1])), imagenes=urls,
-                semilla=(plan.get("semilla") or 0))
+                semilla=(plan.get("semilla") or 0), etiquetas=etiquetas)
         except Exception:                                     # noqa: BLE001
             animadas = {}
+        # QUE SALEN TODAS, o cual falta. Es lo que se le dice a quien mira: una
+        # animacion elegida que no aparece es un guion sin la frase que la sostenga.
+        resumen_animaciones = PASOS_MODULOS.animaciones.cobertura(
+            {sid: {"animacion": a["animacion"]} for sid, a in animadas.items()},
+            pedidas or list(etiquetas.values()))
+        resumen_animaciones["nombres"] = {
+            a: PASOS_MODULOS.animaciones.CATALOGO[a]["nombre"]
+            for a in resumen_animaciones["pedidas"]}
         for e in escenas:
             hecha = animadas.get(e["id"])
             if hecha:
                 e["animacion"] = {
                     "id": hecha["animacion"],
                     "nombre": PASOS_MODULOS.animaciones.CATALOGO[hecha["animacion"]]["nombre"],
-                    "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"]}
+                    "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
+                    "elementos": hecha.get("elementos")}
     return {
         "escenas": escenas,
         "audio": audio,
@@ -5147,6 +5162,9 @@ def leer_previsualizacion(pid: str):
         # ensenar una pantalla a medias sin explicacion
         "con_cartelas": bool(ctx.proyecto.version_activa("callouts")),
         "montado": bool(_ruta_de_version(ctx, "render", "video.mp4")),
+        # las animaciones pedidas y las que han llegado a colocarse; None si el
+        # video no pidio ninguna
+        "animaciones": resumen_animaciones,
     }
 
 
@@ -10431,6 +10449,12 @@ def _sembrar_video_light(ctx, datos):
     # HECHOS y esto es COMO contarlos --, y no se pisa lo que ya hubiera escrito.
     if datos.get("indicaciones") is not None:
         guion["prompt_general"] = str(datos["indicaciones"] or "")
+    # LAS ANIMACIONES DE MOTION GRAPHICS, al GUION y no al render: el redactor las
+    # recibe repartidas por el video y escribe la frase que cada una necesita
+    # (`animaciones.plan_de_huecos`), asi que elegirlas es una decision del texto.
+    # Cambiarlas despues deja obsoleto el guion, y es lo que tiene que pasar.
+    if datos.get("animaciones") is not None:
+        guion["animaciones"] = list(datos["animaciones"] or [])
     if ingesta:
         _validar_params("ingesta", ingesta, ctx)
         ctx.estado.actualizar_params("ingesta", ingesta)
@@ -10444,8 +10468,7 @@ def _sembrar_video_light(ctx, datos):
         assets = {"bibliotecas": datos["bibliotecas"]}
         _validar_params("assets", assets, ctx)
         ctx.estado.actualizar_params("assets", assets)
-    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos",
-                                    "animaciones")
+    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")
               if k in datos}
     if render:
         _validar_params("render", render, ctx)

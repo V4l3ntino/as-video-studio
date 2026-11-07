@@ -153,7 +153,7 @@ vecinas = [escena(1, "Las raíces sanas crecen profundas mientras que las raíce
 urls = {"S001": "file:///a.png", "S002": "file:///b.png"}
 con = animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls)
 igual("con la imagen del vecino, la comparacion entra", con.get("S001", {}).get("animacion"), "comparacion-tarjetas")
-igual("y lleva las dos imagenes", sorted((con.get("S001") or {}).get("imagenes", {})), ["propia", "siguiente"])
+igual("y lleva las dos imagenes", sorted((con.get("S001") or {}).get("imagenes", {})), ["otra", "propia"])
 igual("sin imagenes no entra",
       animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es"), {})
 igual("al ultimo plano le falta vecino: tampoco",
@@ -203,6 +203,120 @@ comprobar("en vertical tambien se dibujan",
           vertical and all('viewBox="0 0 1080 1920"' in c["svg"] for c in vertical.values()))
 igual("el texto se escapa", animaciones._esc('a<b & "c"'), "a&lt;b &amp; &quot;c&quot;")
 
+print("\n== el plan, ANTES de escribir el guion ==")
+todas_ids = list(animaciones.CATALOGO)
+plan = animaciones.plan_de_huecos(todas_ids, 240, 36, semilla=3)
+igual("cada animacion elegida tiene al menos un hueco",
+      {h["animacion"] for h in plan}, set(todas_ids))
+comprobar("los huecos caen entre el segundo bloque y el penultimo",
+          all(2 <= h["bloque"] <= 35 for h in plan), str([h["bloque"] for h in plan]))
+comprobar("y en bloques distintos y en orden",
+          [h["bloque"] for h in plan] == sorted({h["bloque"] for h in plan}))
+comprobar("nunca la misma animacion dos veces seguidas",
+          all(a["animacion"] != b["animacion"] for a, b in zip(plan, plan[1:])))
+igual("es determinista", animaciones.plan_de_huecos(todas_ids, 240, 36, semilla=3), plan)
+igual("sin animaciones elegidas no hay plan", animaciones.plan_de_huecos([], 240, 36), [])
+igual("ni con un video de dos bloques", animaciones.plan_de_huecos(todas_ids, 30, 2), [])
+largo = animaciones.plan_de_huecos(["ficha-ui", "editorial-fecha"], 600, 80)
+comprobar("un video largo repite rotando, sin pasarse de 3 veces cada una",
+          len(largo) > 2 and all(sum(h["animacion"] == a for h in largo) <= 3
+                                 for a in ("ficha-ui", "editorial-fecha")), str(len(largo)))
+instruccion = animaciones.bloque_para_guion(plan, 36)
+comprobar("la instruccion nombra cada animacion y su id",
+          all(f'id "{a}"' in instruccion.replace("(", "").replace(")", "") or f'"{a}"' in instruccion
+              for a in todas_ids))
+comprobar("pide marcar el bloque y no inventar datos",
+          '"animacion"' in instruccion and "NUNCA inventes" in instruccion)
+igual("sin plan no hay instruccion", animaciones.bloque_para_guion([], 36), "")
+
+import p3_guion  # noqa: E402
+opciones_g = p3_guion._normalizar({"animaciones": ["ficha-ui", "comparacion-tarjetas"]})
+igual("el guion guarda las que existen", opciones_g["animaciones"], ["ficha-ui", "comparacion-tarjetas"])
+try:
+    p3_guion._normalizar({"animaciones": ["nada"]})
+    comprobar("el guion rechaza una animacion que no existe", False)
+except ValueError:
+    comprobar("el guion rechaza una animacion que no existe", True)
+igual("sin animaciones, el guion no cambia", p3_guion._normalizar({})["animaciones"], [])
+brief_g = {"instrucciones": "", "idioma_salida_nombre": "espanol", "presupuesto_palabras": 600,
+           "margen": {"minimo": 500, "maximo": 700}, "palabras_por_bloque": 30,
+           "duracion_objetivo_s": 240, "bloques_estimados": 20}
+transcript_g = [{"t_in": 0, "t_out": 4, "texto": "Material de ejemplo."}]
+meta_g = {"titulo": "Prueba", "palabras_transcript": 3, "sin_tiempos": True}
+con_plan = p3_guion._instruccion(transcript_g, meta_g, brief_g, None, opciones_g, [], "es")
+sin_plan = p3_guion._instruccion(transcript_g, meta_g, brief_g, None, p3_guion._normalizar({}), [], "es")
+comprobar("con animaciones elegidas la instruccion las pide, repartidas",
+          "ANIMACIONES GRAFICAS" in con_plan and "hacia el bloque" in con_plan)
+comprobar("y sin ellas la instruccion no cambia", "ANIMACIONES GRAFICAS" not in sin_plan)
+comprobar("el modelo sabe como marcar el bloque", '"animacion": "<id de la lista>"' in con_plan)
+bloques_n = p3_guion._normalizar_bloques({"bloques": [
+    {"id": "B001", "texto": "uno"}, {"id": "B002", "texto": "dos", "animacion": " ficha-ui "}]})
+igual("el redactor marca un bloque y se recoge su id", bloques_n[1]["animacion"], "ficha-ui")
+igual("y el que no lo marca queda vacio", bloques_n[0]["animacion"], "")
+
+print("\n== etiquetar los bloques: lo marcado, lo rescatado y lo que no cabe ==")
+bl = [{"id": f"B{i:03d}", "texto": t} for i, t in enumerate([
+    "Un gancho sin nada concreto.",
+    "El 45 por ciento de los barcos nunca llegó a puerto.",
+    "Luego, en 1923, cayó el muro.",
+    "Las raíces sanas crecen profundas mientras que las raíces atrofiadas apenas avanzan.",
+    "Entonces llegó Cristóbal Colón con tres naves.",
+    "Nadie volvió.",
+    "El cierre del video."], 1)]
+bl[1]["animacion"] = "infografia-cifra"        # marcada y bien
+bl[2]["animacion"] = "comparacion-tarjetas"    # marcada, pero ahi no hay comparacion
+avisos_b = animaciones.etiquetar_bloques(
+    bl, ["infografia-cifra", "editorial-fecha", "comparacion-tarjetas", "ficha-ui", "collage-titulo"],
+    plan, "es")
+por_bloque = {b["id"]: b.get("animacion") for b in bl}
+igual("lo que el redactor marco bien se respeta", por_bloque["B002"], "infografia-cifra")
+comprobar("una marca sin frase que la sostenga se quita", por_bloque["B003"] != "comparacion-tarjetas")
+igual("la comparacion se rescata en el bloque que SI la dice", por_bloque["B004"], "comparacion-tarjetas")
+comprobar("la fecha se rescata aunque quede pegada a otra",
+          "editorial-fecha" in por_bloque.values(), str(por_bloque))
+comprobar("lo rescatado se dice en los avisos", any("se ha colocado" in a for a in avisos_b))
+comprobar("el gancho y el cierre no llevan animacion", por_bloque["B001"] is None and por_bloque["B007"] is None)
+comprobar("una animacion que el texto no puede sostener se avisa por su nombre",
+          any("Collage con título" in a and "no saldra" in a for a in avisos_b) or
+          "collage-titulo" in por_bloque.values(), str(avisos_b))
+sueltos = [{"id": "B001", "texto": "algo", "animacion": "ficha-ui"}]
+animaciones.etiquetar_bloques(sueltos, [], [], "es")
+comprobar("sin animaciones elegidas se limpian las marcas", "animacion" not in sueltos[0])
+
+print("\n== el reparto sigue lo previsto, y rescata lo que falte ==")
+escenas_p = [escena(1, "Un gancho sin nada.", 0), escena(2, "El 45% de los barcos nunca llegó.", 6),
+             escena(3, "Y asi siguio la historia de siempre.", 12),
+             escena(4, "Todo cambió en 1923, cuando cayó el muro.", 18),
+             escena(5, "Fin del recorrido de hoy.", 24)]
+for i, e in enumerate(escenas_p):
+    e["origen"] = {"bloque": f"B{i + 1:03d}"}
+urls_p = {e["id"]: f"file:///{e['id']}.png" for e in escenas_p}
+prev = animaciones.repartir(escenas_p, {}, "es", imagenes=urls_p, etiquetas={"B002": "infografia-cifra"})
+igual("con etiquetas solo sale lo previsto", {k: v["animacion"] for k, v in prev.items()},
+      {"S002": "infografia-cifra"})
+resc = animaciones.repartir(escenas_p, {"animaciones": ["editorial-fecha"]}, "es", imagenes=urls_p,
+                            etiquetas={"B002": "infografia-cifra"})
+igual("una elegida sin etiqueta se rescata donde el texto la dice",
+      {k: v["animacion"] for k, v in resc.items()}, {"S002": "infografia-cifra", "S004": "editorial-fecha"})
+cob = animaciones.cobertura(resc, ["infografia-cifra", "editorial-fecha", "ficha-ui"])
+igual("la cobertura dice cual falta", cob["faltan"], ["ficha-ui"])
+igual("y cuantas salen", cob["colocadas"], {"infografia-cifra": 1, "editorial-fecha": 1})
+bloque_equivocado = animaciones.repartir(escenas_p, {}, "es", imagenes=urls_p,
+                                         etiquetas={"B003": "infografia-cifra"})
+igual("una etiqueta en un bloque sin la frase se rescata donde SI hay cifra",
+      {k: v["animacion"] for k, v in bloque_equivocado.items()}, {"S002": "infografia-cifra"})
+tarjetas = [escena(1, "Las raíces sanas crecen mientras que las atrofiadas mueren pronto.", 0),
+            escena(2, "Y asi termina.", 6)]
+for i, e in enumerate(tarjetas):
+    e["origen"] = {"bloque": f"B{i + 1:03d}"}
+ult = animaciones.repartir(tarjetas[::-1], {}, "es", imagenes={"S001": "a", "S002": "b"},
+                           etiquetas={"B001": "comparacion-tarjetas"})
+igual("las tarjetas usan la escena de al lado (la anterior si no hay siguiente)",
+      (ult.get("S001") or {}).get("elementos"), {"propia": "S001", "otra": "S002"})
+igual("y con un solo plano sin vecina no entran",
+      animaciones.repartir(tarjetas[:1], {}, "es", imagenes={"S001": "a"},
+                           etiquetas={"B001": "comparacion-tarjetas"}), {})
+
 print("\n== la previa lleva la animacion de cada escena ==")
 comprobar("el instante de reposo cae despues de las entradas y antes de la salida",
           0 < animaciones.pico_de(capas["S001"]["svg"], 6.0) < 6.0,
@@ -227,31 +341,51 @@ with tempfile.TemporaryDirectory(prefix="previa_anim_") as carpeta_previa:
             patch.object(servidor, "_audio_de_la_toma", return_value=None):
         previa = servidor.leer_previsualizacion(proyecto.id)
     por_id = {e["id"]: e for e in previa["escenas"]}
-    comprobar("la escena con una cifra trae su animacion",
-              (por_id["S001"].get("animacion") or {}).get("id") == "infografia-cifra")
+    marcadas = {sid: (e.get("animacion") or {}).get("id") for sid, e in por_id.items()}
+    igual("la previa pone LO QUE EL GUION DEJO MARCADO en cada bloque", marcadas, {
+        "S001": "infografia-cifra", "S002": "editorial-fecha", "S003": "collage-titulo",
+        "S004": "comparacion-tarjetas", "S005": "tipografia-cinetica"})
     comprobar("y su svg, su nombre y su instante de reposo",
               all((por_id["S001"].get("animacion") or {}).get(k) for k in ("svg", "nombre", "pico")))
-    comprobar("la escena sin senal no trae ninguna", "animacion" not in por_id["S002"])
+    igual("las de tarjetas dicen con que otro elemento se hacen",
+          (por_id["S003"].get("animacion") or {}).get("elementos"), {"propia": "S003", "otra": "S004"})
+    igual("la ultima comparte con la anterior si no hay siguiente",
+          (por_id["S004"].get("animacion") or {}).get("elementos"), {"propia": "S004", "otra": "S005"})
+    resumen = previa["animaciones"]
+    igual("la previa dice cuales de las elegidas NO han encontrado sitio", resumen["faltan"], ["ficha-ui"])
+    igual("y cuantas se han colocado", sum(resumen["colocadas"].values()), 5)
+    comprobar("con su nombre para poder decirlo", resumen["nombres"]["ficha-ui"] == "Ficha de concepto")
     comprobar("las tarjetas con otra imagen llevan su ruta del proyecto, no una URL",
-              'proyecto://' in json.dumps(por_id["S003"].get("animacion") or {}) or
-              (por_id["S003"].get("animacion") or {}).get("id") != "comparacion-tarjetas")
-    estado.actualizar_params("render", {"animaciones": []})
+              "proyecto://pasos/assets/v1/escenas/" in (por_id["S003"].get("animacion") or {}).get("svg", ""))
+    comprobar("y el navegador puede completarlas (la ruta existe)", all(
+        os.path.isfile(os.path.join(proyecto.raiz, *p.split("proyecto://")[1].split('"')[0].split("/")))
+        for e in por_id.values() for p in (e.get("animacion") or {}).get("svg", "").split(" ")
+        if p.startswith('href="proyecto://')))
+    estado.actualizar_params("guion", {"animaciones": []})
     with patch.object(servidor, "contexto", return_value=ctx), \
             patch.object(servidor, "_audio_de_la_toma", return_value=None):
         sin = servidor.leer_previsualizacion(proyecto.id)
-    comprobar("sin animaciones elegidas la previa sale como siempre",
-              all("animacion" not in e for e in sin["escenas"]))
-    estado.actualizar_params("render", {"animaciones": ["comparacion-tarjetas", "collage-titulo"]})
+    comprobar("las etiquetas del guion siguen mandando aunque se vacie la eleccion",
+              sum(1 for e in sin["escenas"] if "animacion" in e) == 5)
+
+with tempfile.TemporaryDirectory(prefix="previa_anim_antes_") as carpeta_antes:
+    # UN VIDEO DE ANTES DEL PLAN: sin etiquetas en el guion y con las animaciones en
+    # los params del render. Sigue repartiendose por lo que se dice.
+    proyecto, estado = juguete.construir(carpeta_antes, animaciones=[], etiquetas={})
+    estado.actualizar_params("render", {"animaciones": ["infografia-cifra", "editorial-fecha"]})
+    ctx = SimpleNamespace(proyecto=proyecto, estado=estado, bitacora=MagicMock())
     with patch.object(servidor, "contexto", return_value=ctx), \
             patch.object(servidor, "_audio_de_la_toma", return_value=None):
-        dos = servidor.leer_previsualizacion(proyecto.id)
-    tarjetas = [e for e in dos["escenas"] if "animacion" in e and "<image" in e["animacion"]["svg"]]
-    comprobar("una animacion con tarjetas lleva sus imagenes como proyecto://", bool(tarjetas) and all(
-        "proyecto://pasos/assets/v1/escenas/" in e["animacion"]["svg"] for e in tarjetas),
-        str([e["id"] for e in tarjetas]))
-    comprobar("y el navegador puede completarlas (la ruta existe)", all(
-        os.path.isfile(os.path.join(proyecto.raiz, *p.split("proyecto://")[1].split('"')[0].split("/")))
-        for e in tarjetas for p in e["animacion"]["svg"].split(" ") if p.startswith('href="proyecto://')))
+        antes = servidor.leer_previsualizacion(proyecto.id)
+    por_id = {e["id"]: (e.get("animacion") or {}).get("id") for e in antes["escenas"]}
+    comprobar("un video de antes del plan reparte por lo que se dice (con aire entre dos)",
+              por_id["S001"] == "infografia-cifra" and por_id["S002"] is None, str(por_id))
+    estado.actualizar_params("render", {"animaciones": []})
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        vacio = servidor.leer_previsualizacion(proyecto.id)
+    comprobar("sin nada elegido la previa sale como siempre",
+              all("animacion" not in e for e in vacio["escenas"]) and vacio["animaciones"] is None)
 
 print("\n== la pagina de render las lleva ==")
 comprobar("la pagina tiene su capa", 'id="capaanim"' in p8_render.PAGINA)

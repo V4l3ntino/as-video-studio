@@ -1554,9 +1554,15 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             ruta_ = ruta_ if os.path.isabs(ruta_) else os.path.join(base_callouts, ruta_)
             if os.path.exists(ruta_):
                 imagenes[sid_] = _url_local(ruta_)
-    animadas = animaciones.capas(escenas, p, idioma=plan.get("idioma"), paleta=paleta,
-                                 salida=(ancho, alto), imagenes=imagenes,
-                                 semilla=(plan.get("semilla") or 0))
+    # LO QUE EL GUION DEJO PREVISTO manda (`animaciones.etiquetas_de`); un video de
+    # antes del plan -- sin etiquetas -- reparte por lo que se dice, con las que
+    # pida el render (`animaciones` en sus params).
+    pedidas = list(dict.fromkeys(list(p.get("animaciones") or [])
+                                 + animaciones.pedidas_de(proyecto)))
+    animadas = animaciones.capas(escenas, {"animaciones": pedidas}, idioma=plan.get("idioma"),
+                                 paleta=paleta, salida=(ancho, alto), imagenes=imagenes,
+                                 semilla=(plan.get("semilla") or 0),
+                                 etiquetas=animaciones.etiquetas_de(proyecto))
     pagina_trans = transiciones.pagina(
         os.path.join(trabajo, "transicion.html"), ancho, alto, paleta)
     resultados = {}
