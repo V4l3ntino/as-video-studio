@@ -45,10 +45,11 @@ igual que una transicion en cada corte (ver `transiciones.resolver`).
 
 LO QUE NO HACE
 --------------
-No toca imagenes, ni voz, ni subtitulos: es un parametro del RENDER y nada mas,
-asi que cambiar la seleccion nunca deja obsoleto un plano ya pagado. Y sin el
-param `animaciones` -- cualquier video de antes -- no pinta nada: el montaje
-sale byte a byte como salia.
+No genera imagenes nuevas ni cambia la voz o los subtitulos. La seleccion de
+videos nuevos es un parametro del GUION: Claude elige un fragmento literal
+para cada bloque animado. Cambiarla deja obsoletas voz e imagenes. Los guiones
+antiguos sin fragmentos elegidos siguen usando las senales deterministas; sin
+animaciones pedidas no se pinta nada.
 """
 import os
 import re
@@ -251,9 +252,15 @@ def _termino(palabras, marcas, t_in):
             i += 1
             continue
         j = i + 1
-        while j < len(palabras) and j - i < 3 and _limpio(palabras[j])[:1].isupper() \
-                and not _RE_ANIO.match(str(palabras[j])):
-            j += 1
+        while j < len(palabras) and j - i < 6:
+            siguiente = _limpio(palabras[j])
+            if siguiente[:1].isupper() and not _RE_ANIO.match(str(palabras[j])):
+                j += 1
+            elif siguiente.lower() in ("de", "del", "la", "las", "los", "of", "the") \
+                    and j + 1 < len(palabras) and _limpio(palabras[j + 1])[:1].isupper():
+                j += 1
+            else:
+                break
         nombre = " ".join(_limpio(p) for p in palabras[i:j])
         if mejor is None or len(nombre) > len(mejor[2]):
             mejor = (i, j, nombre)
@@ -272,6 +279,17 @@ def _termino(palabras, marcas, t_in):
             return {"nombre": nombre, "definicion": " ".join(frase),
                     "desde": desde, "hasta": hasta}
     return None
+
+
+def _nombre_propio(palabras):
+    """Nombre completo elegido por Claude, incluidos conectores como «de»."""
+    conectores = {"de", "del", "la", "las", "los", "of", "the"}
+    if not 1 <= len(palabras) <= 7:
+        return False
+    limpias = [_limpio(p) for p in palabras]
+    return (limpias[0][:1].isupper() and
+            all(p[:1].isupper() or p.lower() in conectores for p in limpias) and
+            limpias[-1][:1].isupper())
 
 
 def _frase(palabras, marcas, t_in):
@@ -401,23 +419,46 @@ def _ficha_de(lista, indice, animacion, senal, datos, imagenes):
     return ficha
 
 
-def _admite(lista, indice, animacion, imagenes, idioma):
+def _admite(lista, indice, animacion, imagenes, idioma, texto=None):
     """Si el plano `indice` puede llevar `animacion`. -> (senal, datos) | None"""
     escena = lista[indice]
     if not escena.get("id") or _es_cartela(escena) or _duracion(escena) < DURACION_MINIMA:
         return None
     senal = CATALOGO[animacion]["senal"]
     datos = senales(escena, idioma).get(senal)
+    # Claude escoge el fragmento en el guion; la voz decide en QUE plano y en
+    # QUE segundo cae. Nunca se muestra una frase de otro plano o inventada.
+    if texto:
+        palabras = str(escena.get("narracion") or "").split()
+        rango = _rango_literal(palabras, texto)
+        if not rango:
+            return None
+        marcas = escena.get("marcas") or []
+        if len(marcas) != len(palabras):
+            return None
+        trozo = palabras[rango[0]:rango[1]]
+        fragmento = {"narracion": " ".join(trozo), "marcas": marcas[rango[0]:rango[1]],
+                     "t_in": escena.get("t_in")}
+        elegido = senales(fragmento, idioma).get(senal)
+        if senal == "termino" and datos and _nombre_propio(trozo):
+            # El nombre puede abrir EL FRAGMENTO aunque no abra la frase.
+            elegido = dict(datos, nombre=" ".join(trozo),
+                           desde=float(marcas[rango[0]][0]) - float(escena["t_in"]))
+        if not elegido:
+            return None
+        datos = elegido
     largo = _duracion(escena)
-    if (not datos or datos["hasta"] > largo - 0.1
-            or datos["desde"] > largo - CATALOGO[animacion].get("tiempo", TIEMPO_PARA_LEERSE)):
+    desde_inicio = animacion in ("collage-titulo", "comparacion-tarjetas")
+    if (not datos or (not desde_inicio and datos["hasta"] > largo - 0.1)
+            or (not desde_inicio and datos["desde"] > largo - CATALOGO[animacion].get(
+                "tiempo", TIEMPO_PARA_LEERSE))):
         return None
     if _ficha_de(lista, indice, animacion, senal, datos, imagenes) is None:
         return None
     return senal, datos
 
 
-def _repartir_planificado(lista, pedidas, etiquetas, idioma, imagenes):
+def _repartir_planificado(lista, pedidas, etiquetas, idioma, imagenes, textos):
     """Las animaciones que el GUION dejo previstas, y las que aun faltan.
 
     Cada bloque etiquetado lleva UNA animacion y se le busca, dentro del bloque,
@@ -434,7 +475,7 @@ def _repartir_planificado(lista, pedidas, etiquetas, idioma, imagenes):
     for bloque, animacion in sorted(etiquetas.items(),
                                     key=lambda par: (por_bloque.get(par[0]) or [10 ** 9])[0]):
         for i in por_bloque.get(bloque, []):
-            visto = _admite(lista, i, animacion, imagenes, idioma)
+            visto = _admite(lista, i, animacion, imagenes, idioma, textos.get(bloque))
             if visto:
                 salida[lista[i]["id"]] = _ficha_de(lista, i, animacion, visto[0], visto[1], imagenes)
                 ocupados.add(i)
@@ -442,6 +483,10 @@ def _repartir_planificado(lista, pedidas, etiquetas, idioma, imagenes):
     puestas = {f["animacion"] for f in salida.values()}
     for animacion in pedidas:
         if animacion in puestas:
+            continue
+        # Si Claude eligio una frase concreta pero no cabe en ningun plano de
+        # su bloque, no sustituirla a escondidas por otra frase del video.
+        if any(a == animacion and textos.get(b) for b, a in etiquetas.items()):
             continue
         for i in range(len(lista)):
             if i in ocupados or {i - 1, i + 1} & ocupados:
@@ -455,7 +500,8 @@ def _repartir_planificado(lista, pedidas, etiquetas, idioma, imagenes):
     return salida
 
 
-def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0, etiquetas=None):
+def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0, etiquetas=None,
+            textos=None):
     """Que animacion lleva cada plano. Determinista.
 
     -> {id_de_plano: {"animacion", "senal", "datos", "imagenes"?, "elementos"?}}
@@ -477,7 +523,8 @@ def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0, etique
     if etiquetas:
         previstas = set(etiquetas.values())
         pedidas = [a for a in CATALOGO if a in set(elegidas) | previstas]
-        return _repartir_planificado(list(escenas or []), pedidas, etiquetas, idioma, imagenes)
+        return _repartir_planificado(list(escenas or []), pedidas, etiquetas, idioma, imagenes,
+                                    textos or {})
     if not elegidas:
         return {}
     por_senal = {}
@@ -501,10 +548,11 @@ def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0, etique
         for senal in PRIORIDAD:
             if senal not in vistas or senal not in por_senal:
                 continue
-            if vistas[senal]["hasta"] > largo - 0.1:
-                continue
             opciones += [(senal, a) for a in por_senal[senal]
-                         if vistas[senal]["desde"] <= largo - CATALOGO[a].get("tiempo", TIEMPO_PARA_LEERSE)
+                          if (a in ("collage-titulo", "comparacion-tarjetas") or
+                              (vistas[senal]["hasta"] <= largo - 0.1 and
+                               vistas[senal]["desde"] <= largo - CATALOGO[a].get(
+                                   "tiempo", TIEMPO_PARA_LEERSE)))
                          and _ficha_de(lista, indice, a, senal, vistas[senal], imagenes) is not None]
         if not opciones:
             sin_animar += 1
@@ -644,6 +692,40 @@ def senales_de_texto(texto, idioma=None):
     return senales({"narracion": " ".join(palabras), "marcas": marcas, "t_in": 0.0}, idioma)
 
 
+def _rango_literal(palabras, fragmento):
+    """Rango de palabras que reproduce literalmente el fragmento elegido."""
+    objetivo = [_limpio(p).casefold() for p in _texto_llano(fragmento).split()]
+    if not objetivo or len(objetivo) > 20:
+        return None
+    limpias = [_limpio(p).casefold() for p in palabras]
+    for i in range(len(limpias) - len(objetivo) + 1):
+        if limpias[i:i + len(objetivo)] == objetivo:
+            return i, i + len(objetivo)
+    return None
+
+
+def validar_textos(bloques, idioma=None):
+    """Descartar selecciones no literales o que no contienen lo que se anima."""
+    for bloque in bloques:
+        animacion = bloque.get("animacion")
+        texto = bloque.get("animacion_texto")
+        palabras = _texto_llano(bloque.get("texto")).split()
+        rango = _rango_literal(palabras, texto) if texto else None
+        senal = CATALOGO[animacion]["senal"] if animacion in CATALOGO else None
+        trozo = palabras[rango[0]:rango[1]] if rango else []
+        presentes = senales_de_texto(" ".join(trozo), idioma) if trozo else {}
+        # Un nombre completo al principio del fragmento no es comienzo de
+        # frase: la regla de mayúsculas no debe invalidar la elección de Claude.
+        nombre = senales_de_texto(bloque.get("texto"), idioma).get("termino") \
+            if senal == "termino" else None
+        valido = senal in presentes or (senal == "termino" and nombre
+                                        and _nombre_propio(trozo))
+        if not animacion or not rango or not valido:
+            bloque.pop("animacion_texto", None)
+        else:
+            bloque["animacion_texto"] = " ".join(palabras[rango[0]:rango[1]])
+
+
 def etiquetar_bloques(bloques, elegidas, plan, idioma=None):
     """Deja en cada bloque la animacion que lleva. -> avisos (se toca `bloques`)
 
@@ -713,6 +795,18 @@ def etiquetas_de(proyecto):
         return {}
     return {str(b["id"]): b["animacion"] for b in (documento.get("guion") or [])
             if isinstance(b, dict) and b.get("id") and b.get("animacion") in CATALOGO}
+
+
+def textos_de(proyecto):
+    """Fragmentos que Claude eligió al redactar cada bloque animado."""
+    try:
+        import comun  # noqa: PLC0415
+        documento = comun.leer_salida(proyecto, "guion", "guion.json", obligatorio=False) or {}
+    except Exception:                                          # noqa: BLE001
+        return {}
+    return {str(b["id"]): b["animacion_texto"] for b in (documento.get("guion") or [])
+            if isinstance(b, dict) and b.get("id") and isinstance(b.get("animacion_texto"), str)
+            and b.get("animacion") in CATALOGO}
 
 
 # ===========================================================================
@@ -916,6 +1010,8 @@ def _svg_ficha(datos, duracion, ancho, alto, c, ctx=None):
     w = min(0.5 * ancho, 820 * u) if ancho >= alto else 0.86 * ancho
     margen = 40 * u
     tam_n, tam_d = 66 * u, 31 * u
+    tam_n *= min(1.0, (w - 2 * margen) / max(1, tipografia.medir(
+        datos["nombre"], FUENTE_MEDIDA, tam_n, True)[0]))
     lineas = tipografia.partir(datos["definicion"], FUENTE_MEDIDA, tam_d, False, 0,
                                w - 2 * margen)[:3]
     h = margen + 34 * u + 86 * u + len(lineas) * tam_d * 1.45 + margen * 0.8
@@ -1040,6 +1136,9 @@ def _svg_etiqueta(datos, duracion, ancho, alto, c, ctx=None):
     texto = str(datos["nombre"]).upper()
     tam, esp = 62 * u, 5 * u
     pad = 34 * u
+    escala = min(1.0, (0.9 * ancho - 2 * pad) / max(1, tipografia.medir(
+        texto, FUENTE_MEDIDA, tam, True, esp)[0]))
+    tam, esp = tam * escala, esp * escala
     w = tipografia.medir(texto, FUENTE_MEDIDA, tam, True, esp)[0] + 2 * pad
     h = tam * 1.7
     paso = min(0.075, max(0.03, 1.3 / max(1, len(texto))))
@@ -1066,6 +1165,8 @@ def _svg_cristal(datos, duracion, ancho, alto, c, ctx=None):
     chip_t = 22 * u
     chip_w = tipografia.medir("CONCEPTO", FUENTE_MEDIDA, chip_t, True, 3 * u)[0] + 40 * u
     tam_n, tam_d = 50 * u, 26 * u
+    tam_n *= min(1.0, (w - 2 * m) / max(1, tipografia.medir(
+        datos["nombre"], FUENTE_MEDIDA, tam_n, True)[0]))
     nombre = str(datos["nombre"])
     lineas = tipografia.partir(datos["definicion"], FUENTE_MEDIDA, tam_d, False, 0, w - 2 * m)[:2]
     h = m * 2 + 56 * u + len(lineas) * tam_d * 1.5 + 6 * u
@@ -1127,12 +1228,14 @@ def _medidas_tarjetas(ancho, alto, altura=0.5):
 
 def _svg_collage(datos, duracion, ancho, alto, c, ctx=None):
     u = _unidad(ancho, alto)
-    entra, sale = _ventana(datos["desde"], duracion, minimo=3.6)
+    # Las dos fotos constituyen el plano completo: no aplicarles el limite de
+    # permanencia de los rotulos breves ni fundirlas antes del corte.
+    entra, sale = 0.0, float(duracion)
     cw, ch = _medidas_tarjetas(ancho, alto)
     y = 0.31 * alto
     titulo = str(datos["nombre"]).upper()
     tam = min(86 * u, 0.9 * ancho / max(6, len(titulo)) * 1.5)
-    una = _tarjeta_foto("co1", ctx["imagenes"]["propia"], cw, ch, u, entra + 0.3, (-70 * u, 0), fin=sale)
+    una = _tarjeta_foto("co1", ctx["imagenes"]["propia"], cw, ch, u, entra, (-70 * u, 0), fin=sale)
     dos = _tarjeta_foto("co2", ctx["imagenes"]["otra"], cw, ch, u, entra + 0.95, (70 * u, 0), fin=sale)
     paso = min(0.07, max(0.035, 1.2 / max(1, len(titulo))))
     letras = _tecleo(titulo, ancho / 2, 0.2 * alto, tam, "#ffffff", entra + 1.7, paso,
@@ -1147,7 +1250,7 @@ def _svg_collage(datos, duracion, ancho, alto, c, ctx=None):
 
 def _svg_comparacion(datos, duracion, ancho, alto, c, ctx=None):
     u = _unidad(ancho, alto)
-    entra, sale = _ventana(datos["desde"], duracion, minimo=3.0)
+    entra, sale = 0.0, float(duracion)
     cw, ch = _medidas_tarjetas(ancho, alto, 0.5)
     y = 0.2 * alto
     tam = min(44 * u, cw / max(6, len(datos["izquierda"])) * 1.6)
@@ -1159,7 +1262,7 @@ def _svg_comparacion(datos, duracion, ancho, alto, c, ctx=None):
                 f'stroke-width="{6*u:.1f}" paint-order="stroke" stroke-linejoin="round">'
                 f'{_entra(inicio)}{_sale(sale)}{_esc(texto)}</text>')
     xa, xb = ancho * 0.31, ancho * 0.69
-    una = _tarjeta_foto("cp1", ctx["imagenes"]["propia"], cw, ch, u, entra + 0.3,
+    una = _tarjeta_foto("cp1", ctx["imagenes"]["propia"], cw, ch, u, entra,
                         (0, 0.4 * alto), dur=0.8, fin=sale)
     dos = _tarjeta_foto("cp2", ctx["imagenes"]["otra"], cw, ch, u, entra + 1.3,
                         (0, -0.55 * alto), dur=0.8, fin=sale)
@@ -1199,7 +1302,7 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
 
 
 def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
-          imagenes=None, semilla=0, etiquetas=None):
+          imagenes=None, semilla=0, etiquetas=None, textos=None):
     """Todo lo que hace falta para el render.
     -> {id_de_plano: {"svg", "animacion", "fondo", "imagenes"}}
 
@@ -1209,7 +1312,7 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
     tarjeta vacia.
     """
     reparto = repartir(escenas, params, idioma, imagenes=imagenes, semilla=semilla,
-                       etiquetas=etiquetas)
+                       etiquetas=etiquetas, textos=textos)
     por_id = {e.get("id"): e for e in escenas or []}
     resultado = {}
     for sid, asignacion in reparto.items():

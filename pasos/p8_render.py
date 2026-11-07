@@ -1562,7 +1562,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     animadas = animaciones.capas(escenas, {"animaciones": pedidas}, idioma=plan.get("idioma"),
                                  paleta=paleta, salida=(ancho, alto), imagenes=imagenes,
                                  semilla=(plan.get("semilla") or 0),
-                                 etiquetas=animaciones.etiquetas_de(proyecto))
+                                 etiquetas=animaciones.etiquetas_de(proyecto),
+                                 textos=animaciones.textos_de(proyecto))
     pagina_trans = transiciones.pagina(
         os.path.join(trabajo, "transicion.html"), ancho, alto, paleta)
     resultados = {}

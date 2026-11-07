@@ -5123,7 +5123,8 @@ def leer_previsualizacion(pid: str):
             animadas = PASOS_MODULOS.animaciones.capas(
                 escenas_plan, {"animaciones": pedidas}, idioma=idioma, paleta=paleta,
                 salida=(int(cuadro[0]), int(cuadro[1])), imagenes=urls,
-                semilla=(plan.get("semilla") or 0), etiquetas=etiquetas)
+                semilla=(plan.get("semilla") or 0), etiquetas=etiquetas,
+                textos=PASOS_MODULOS.animaciones.textos_de(ctx.proyecto))
         except Exception:                                     # noqa: BLE001
             animadas = {}
         # QUE SALEN TODAS, o cual falta. Es lo que se le dice a quien mira: una

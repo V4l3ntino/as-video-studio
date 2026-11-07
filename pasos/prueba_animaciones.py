@@ -253,6 +253,62 @@ bloques_n = p3_guion._normalizar_bloques({"bloques": [
     {"id": "B001", "texto": "uno"}, {"id": "B002", "texto": "dos", "animacion": " ficha-ui "}]})
 igual("el redactor marca un bloque y se recoge su id", bloques_n[1]["animacion"], "ficha-ui")
 igual("y el que no lo marca queda vacio", bloques_n[0]["animacion"], "")
+comprobar("se le pide a Claude el fragmento visible de cada animacion",
+          '"animacion_texto"' in con_plan and "Universidad de Ginebra" in con_plan)
+eleccion = p3_guion._normalizar_bloques({"bloques": [
+    {"id": "B002", "texto": "Investigadores de la Universidad de Ginebra descubrieron algo.",
+     "animacion": "etiqueta-escrita", "animacion_texto": "Universidad de Ginebra"}]})
+animaciones.validar_textos(eleccion, "es")
+igual("Claude puede elegir el nombre completo y se conserva", eleccion[0].get("animacion_texto"),
+      "Universidad de Ginebra")
+eleccion[0]["animacion_texto"] = "Universidad de Oxford"
+animaciones.validar_textos(eleccion, "es")
+comprobar("una frase inventada no se conserva", "animacion_texto" not in eleccion[0])
+universidad = escena(5, "Investigadores de la Universidad de Ginebra descubrieron algo.", 0, 6)
+universidad["origen"] = {"bloque": "B002"}
+url_universidad = {"S005": "file:///foto.png"}
+for tipo in ("ficha-ui", "ficha-cristal", "etiqueta-escrita"):
+    seleccionado = animaciones.repartir([universidad], {"animaciones": [tipo]}, "es",
+        imagenes=url_universidad, etiquetas={"B002": tipo},
+        textos={"B002": "Universidad de Ginebra"})
+    igual(f"{tipo}: se muestra el nombre que eligio Claude",
+          seleccionado.get("S005", {}).get("datos", {}).get("nombre"), "Universidad de Ginebra")
+igual("el nombre completo tambien se reconoce en guiones anteriores",
+      animaciones.senales(universidad, "es")["termino"]["nombre"], "Universidad de Ginebra")
+dos_nombres = escena(11, "La Universidad de Ginebra publicó en Nature Communications el estudio.", 0, 7)
+dos_nombres["origen"] = {"bloque": "B011"}
+eleccion_nombre = [{"texto": dos_nombres["narracion"], "animacion": "collage-titulo",
+                    "animacion_texto": "Nature Communications"}]
+animaciones.validar_textos(eleccion_nombre, "es")
+igual("Claude puede escoger el segundo nombre propio del mismo plano",
+      eleccion_nombre[0].get("animacion_texto"), "Nature Communications")
+elegido_nombre = animaciones.repartir([dos_nombres, escena(12, "Y continuó.", 7)],
+    {"animaciones": ["collage-titulo"]}, "es", imagenes={"S011": "a", "S012": "b"},
+    etiquetas={"B011": "collage-titulo"}, textos={"B011": "Nature Communications"})
+igual("el titulo sigue la seleccion de Claude y no el nombre mas largo",
+      elegido_nombre.get("S011", {}).get("datos", {}).get("nombre"), "Nature Communications")
+igual("no se sustituye en silencio una seleccion de Claude que no aparece en el plano",
+      animaciones.repartir([universidad], {"animaciones": ["etiqueta-escrita"]}, "es",
+          etiquetas={"B002": "etiqueta-escrita"}, textos={"B002": "Universidad de Oxford"}), {})
+for tipo, texto, fragmento, campo, esperado in (
+    ("infografia-cifra", "El 45% de los barcos quedó atrás.", "45% de los barcos",
+     "texto", "45%"),
+    ("editorial-fecha", "Todo cambió en 1923, cuando cayó el muro.", "1923, cuando cayó el muro",
+     "texto", "1923"),
+    ("tipografia-cinetica", "Nadie volvió a verlos jamás.", "Nadie volvió a verlos jamás",
+     "palabras", ["Nadie", "volvió", "a", "verlos", "jamás."]),
+    ("comparacion-tarjetas", "Las raíces sanas crecen mientras que las atrofiadas mueren.",
+     "raíces sanas crecen mientras que las atrofiadas mueren", "izquierda", "RAÍCES SANAS")):
+    bloque = {"texto": texto, "animacion": tipo, "animacion_texto": fragmento}
+    animaciones.validar_textos([bloque], "es")
+    comprobar(f"{tipo}: Claude puede elegir el texto relevante", bool(bloque.get("animacion_texto")))
+    e = escena(9, texto, 0, 7)
+    e["origen"] = {"bloque": "B009"}
+    vecino = escena(10, "Y la historia siguió.", 7, 4)
+    elegido = animaciones.repartir([e, vecino], {"animaciones": [tipo]}, "es",
+        imagenes={"S009": "a", "S010": "b"}, etiquetas={"B009": tipo},
+        textos={"B009": bloque.get("animacion_texto")})
+    igual(f"{tipo}: el plano usa el fragmento elegido", elegido["S009"]["datos"][campo], esperado)
 
 print("\n== etiquetar los bloques: lo marcado, lo rescatado y lo que no cabe ==")
 bl = [{"id": f"B{i:03d}", "texto": t} for i, t in enumerate([
@@ -314,8 +370,26 @@ ult = animaciones.repartir(tarjetas[::-1], {}, "es", imagenes={"S001": "a", "S00
 igual("las tarjetas usan la escena de al lado (la anterior si no hay siguiente)",
       (ult.get("S001") or {}).get("elementos"), {"propia": "S001", "otra": "S002"})
 igual("y con un solo plano sin vecina no entran",
-      animaciones.repartir(tarjetas[:1], {}, "es", imagenes={"S001": "a"},
-                           etiquetas={"B001": "comparacion-tarjetas"}), {})
+       animaciones.repartir(tarjetas[:1], {}, "es", imagenes={"S001": "a"},
+                            etiquetas={"B001": "comparacion-tarjetas"}), {})
+for tipo, texto in (("collage-titulo", "Entonces llegó Cristóbal Colón con tres naves."),
+                    ("comparacion-tarjetas", "Las raíces sanas crecen mientras que las atrofiadas mueren pronto.")):
+    entrada = escena(7, texto, 0, 8.5)
+    entrada["origen"] = {"bloque": "B007"}
+    vecina = escena(8, "A continuación vemos el resultado.", 8.5, 4)
+    foto = {"S007": "file:///a.png", "S008": "file:///b.png"}
+    capa = animaciones.capas([entrada, vecina], {"animaciones": [tipo]}, "es",
+                             imagenes=foto, etiquetas={"B007": tipo})["S007"]
+    igual(f"{tipo} empieza a atenuar desde el inicio del plano", capa["fondo"]["t"][0], 0.0)
+    comprobar(f"{tipo} deja entrar la primera foto desde el segundo cero",
+              'begin="0.000s"' in capa["svg"])
+    igual(f"{tipo} mantiene el fondo hasta el final de una escena larga",
+          capa["fondo"]["t"][2], 8.5)
+    salidas = [float(t) for t in re.findall(
+        r'<animate\b[^>]*attributeName="opacity" from="1" to="0" begin="([0-9.]+)s"',
+        capa["svg"])]
+    comprobar(f"{tipo} no oculta fotos ni titulo antes del ultimo fotograma",
+              bool(salidas) and all(t == 8.5 for t in salidas), str(salidas))
 
 print("\n== la previa lleva la animacion de cada escena ==")
 comprobar("el instante de reposo cae despues de las entradas y antes de la salida",

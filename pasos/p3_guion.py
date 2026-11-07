@@ -925,7 +925,13 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         partes.extend([
             "",
             "Los bloques que llevan una animacion se marcan asi (solo esos): "
-            '{"id": "B012", "texto": "...", "animacion": "<id de la lista>"}.',
+            '{"id": "B012", "texto": "...", "animacion": "<id de la lista>", '
+            '"animacion_texto": "<fragmento literal del bloque>"}. '
+            'En CADA bloque animado elige tu mismo el fragmento RELEVANTE que '
+            'debe aparecer en pantalla: cifra con concepto, fecha con contexto, '
+            'nombre completo ("Universidad de Ginebra", no "Universidad"), '
+            'frase corta o las dos ideas contrapuestas con su conector. '
+            'Copialo literalmente del bloque, sin inventar ni abreviar nombres.',
         ])
     partes.extend([
         "",
@@ -1061,7 +1067,8 @@ def _normalizar_bloques(datos):
                                # la animacion que lleva este bloque, si el redactor
                                # la marco; `animaciones.etiquetar_bloques` comprueba
                                # que el texto la sostiene
-                               "animacion": str(elemento.get("animacion") or "").strip()})
+                               "animacion": str(elemento.get("animacion") or "").strip(),
+                               "animacion_texto": str(elemento.get("animacion_texto") or "").strip()})
         else:
             raise RuntimeError(f"bloque de guion con forma inesperada: {elemento!r}")
 
@@ -1604,13 +1611,16 @@ def _redactar(proyecto, params, avisar):
             opciones.get("animaciones"),
             float(brief_doc.get("duracion_objetivo_s") or 0), len(bloques),
             semilla=len(opciones.get("prompt_general") or "")), idioma)
+    animaciones.validar_textos(bloques, idioma)
     guion = [{"id": b["id"], "texto": b["texto"],
               "abre_seccion": bool(b.get("abre_seccion")),
               # y si el personaje del canal da la cara en el:
               # solo cuando es verdad, para no ensuciar los guiones sin personaje
               **({"personaje": True} if b.get("personaje") else {}),
               # y la animacion de motion graphics que lleva, si lleva alguna
-              **({"animacion": b["animacion"]} if b.get("animacion") else {})}
+              **({"animacion": b["animacion"]} if b.get("animacion") else {}),
+              **({"animacion_texto": b["animacion_texto"]} if b.get("animacion")
+                 and b.get("animacion_texto") else {})}
              for b in bloques]
     detalle = [{"id": b["id"], "texto": b["texto"],
                 "palabras": marcas_tts.contar_palabras(b["texto"])}

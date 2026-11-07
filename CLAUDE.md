@@ -369,6 +369,13 @@ modela. Lo que no se deduce del código:
   otra: que salgan todas importa más que el aire). Lo que no cabe se avisa por su
   nombre. Todo queda en `guion.json` (`guion[].animacion`, `animaciones`) y de ahí lo
   leen render y previa (`etiquetas_de`, `pedidas_de`).
+- **El texto visible lo elige Claude en el MISMO turno del guion**: por cada bloque
+  marcado propone `animacion_texto`, un fragmento literal de lo narrado (un nombre
+  completo como «Universidad de Ginebra», no su primera palabra). Se valida
+  contra el texto final, se guarda en `guion.json` y se localiza en las marcas de
+  voz de la escena; render y previa leen `textos_de`. Si no existe (guiones de
+  antes, rescates o seleccion invalida) se mantienen las reglas deterministas,
+  que ahora reconocen nombres con «de»/«del». No se llama al CLI en el render.
 - **Render y previa reparten con `repartir(etiquetas=...)`**: cada bloque marcado
   lleva su animación en el plano de ese bloque que dice lo que necesita, y las que
   falten se buscan por la señal en cualquier plano libre. Un vídeo de ANTES del
@@ -391,7 +398,12 @@ Atenuar o desenfocar el PLANO no lo puede hacer el SVG: `capas` devuelve `fondo`
 la página lo aplica con `animaciones.JS_FONDO`. Un contorno de texto que se
 «escribe» se enciende letra a letra (`_tecleo(trazo=)`) o se ve fantasma. Cada
 animación declara cuánto necesita para leerse (`tiempo`) y `repartir` la salta si
-la señal cae tarde.
+  la señal cae tarde.
+  `collage-titulo` y `comparacion-tarjetas` empiezan al inicio del plano aunque
+  la frase que las justifica se diga despues: necesitan tiempo para presentar
+  las dos fotografias antes del corte. Permanecen hasta el ultimo fotograma de
+  la escena, sin el limite de 4,2 s de los rotulos breves: las salidas SMIL y el
+  retorno del fondo empiezan en `duracion`, ya fuera del plano.
 
 **La previa** (`GET /previsualizacion`): cada escena trae `animacion` (svg, fondo,
 `pico`, `elementos`) y el resumen `animaciones`. El navegador la pinta encima de la
