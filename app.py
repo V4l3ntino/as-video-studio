@@ -5096,6 +5096,37 @@ def leer_previsualizacion(pid: str):
                 for t in trozos],
         })
     render = ctx.estado.params("render") or {}
+    # LA ANIMACION DE MOTION GRAPHICS DE CADA ESCENA, la que montaria el render.
+    # Se calcula con las MISMAS funciones y la misma semilla (`animaciones.capas`),
+    # asi que lo que se ve aqui es lo que `p8_render` pinta encima de ese plano.
+    # Va como SVG con sus tiempos en el reloj DEL PLANO, como los subtitulos: el
+    # navegador lo mueve al ritmo del audio. Sin el param `animaciones` -- todo
+    # video de antes -- no se calcula nada y la escena sale como siempre.
+    if render.get("animaciones"):
+        try:
+            p_medios = PASOS_MODULOS.medios
+            ruta_mov = p_medios.salida_de(ctx.proyecto, "callouts", claves=("movimiento",),
+                                          patrones=(r"movimiento\.json",))
+            paleta = ((p_medios.leer_json(ruta_mov, {}) or {}).get("paleta")
+                      if ruta_mov else None) or {}
+            # las URL de las tarjetas con otra imagen van como `proyecto://ruta`:
+            # solo el navegador sabe donde cuelga este servidor (el prefijo del
+            # proxy), asi que es el quien las completa
+            urls = {e["id"]: "proyecto://" + e["imagen"] for e in escenas if e.get("imagen")}
+            cuadro = plan.get("resolucion") or [1920, 1080]
+            animadas = PASOS_MODULOS.animaciones.capas(
+                escenas_plan, render, idioma=idioma, paleta=paleta,
+                salida=(int(cuadro[0]), int(cuadro[1])), imagenes=urls,
+                semilla=(plan.get("semilla") or 0))
+        except Exception:                                     # noqa: BLE001
+            animadas = {}
+        for e in escenas:
+            hecha = animadas.get(e["id"])
+            if hecha:
+                e["animacion"] = {
+                    "id": hecha["animacion"],
+                    "nombre": PASOS_MODULOS.animaciones.CATALOGO[hecha["animacion"]]["nombre"],
+                    "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"]}
     return {
         "escenas": escenas,
         "audio": audio,

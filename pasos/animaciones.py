@@ -936,8 +936,39 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
         svg, fondo = svg_de(asignacion, _duracion(por_id[sid]), salida, paleta)
         if svg:
             resultado[sid] = {"svg": svg, "animacion": asignacion["animacion"], "fondo": fondo,
-                              "imagenes": sorted((asignacion.get("imagenes") or {}).values())}
+                              "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
+                              "pico": pico_de(svg, _duracion(por_id[sid]))}
     return resultado
+
+
+_RE_ANIMATE = re.compile(
+    r'<animate\b[^>]*?attributeName="([^"]*)"[^>]*?\bfrom="([^"]*)"'
+    r'[^>]*?\bto="([^"]*)"[^>]*?\bbegin="([0-9.]+)s"'
+    r'(?:[^>]*?\bdur="([0-9.]+)s")?')
+
+
+def pico_de(svg, duracion):
+    """El instante en que la animacion esta COMPLETA y todavia no ha salido.
+
+    Es el cuadro que ensena la previa cuando nadie esta reproduciendo: en t=0 una
+    animacion no ha empezado y la previa parecería no llevar ninguna. Sale de los
+    propios tiempos del SVG -- cuando acaba la ultima entrada, antes de la primera
+    salida -- sin que cada dibujante tenga que declararlo.
+    """
+    entradas, salidas = [], []
+    for atributo, origen, destino, inicio, dur in _RE_ANIMATE.findall(svg or ""):
+        inicio, dur = float(inicio), float(dur or 0)
+        # una SALIDA es un fundido hacia 0. Otras cosas acaban en 0 sin salir (una
+        # posicion que vuelve a su sitio, un ancho que parte de 0 no): solo cuenta
+        # la opacidad que baja
+        sale = "opacity" in atributo and destino in ("0", "0.0") and origen not in ("0", "0.0")
+        (salidas if sale else entradas).append(inicio + dur)
+    if not entradas:
+        return 0.0
+    pico = max(entradas) + 0.15
+    if salidas:
+        pico = min(pico, min(salidas) - 0.05)
+    return round(max(0.0, min(pico, float(duracion) - 0.05)), 3)
 
 
 def describir(params=None):

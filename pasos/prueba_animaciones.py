@@ -14,6 +14,7 @@ Lo que se protege aqui, por orden de lo que costaria si se rompe:
 
 No necesita red, ni navegador, ni ffmpeg.
 """
+import json
 import os
 import re
 import sys
@@ -22,6 +23,14 @@ import xml.dom.minidom
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Esta suite importa `app` (para pedirle la previa): los datos del estudio van a
+# una carpeta temporal ANTES de cargarlo, o la salud del CLI, el onboarding y las
+# estadisticas acabarian en los de verdad.
+_DATOS = tempfile.mkdtemp(prefix="prueba_animaciones_")
+os.environ["ESTUDIO_SECRETOS"] = os.path.join(_DATOS, "secretos")
+os.environ["ESTUDIO_AJUSTES"] = os.path.join(_DATOS, "ajustes.json")
+os.environ["ESTUDIO_ESTADISTICAS"] = os.path.join(_DATOS, "estadisticas.json")
 
 import animaciones  # noqa: E402
 import p8_render  # noqa: E402
@@ -193,6 +202,56 @@ vertical = animaciones.capas(escenas, TODAS, "es", None, (1080, 1920))
 comprobar("en vertical tambien se dibujan",
           vertical and all('viewBox="0 0 1080 1920"' in c["svg"] for c in vertical.values()))
 igual("el texto se escapa", animaciones._esc('a<b & "c"'), "a&lt;b &amp; &quot;c&quot;")
+
+print("\n== la previa lleva la animacion de cada escena ==")
+comprobar("el instante de reposo cae despues de las entradas y antes de la salida",
+          0 < animaciones.pico_de(capas["S001"]["svg"], 6.0) < 6.0,
+          str(animaciones.pico_de(capas["S001"]["svg"], 6.0)))
+comprobar("un SVG sin animar descansa en 0", animaciones.pico_de("<svg/>", 6.0) == 0.0)
+igual("el pico viaja con la capa", capas["S001"]["pico"], animaciones.pico_de(capas["S001"]["svg"], 6.0))
+with open(os.path.join(RAIZ, "web", "app.js"), encoding="utf-8") as fh:
+    js = fh.read()
+quitar = lambda t: re.sub(r"\s+", "", t)  # noqa: E731
+comprobar("la previa aplica el fondo con LA MISMA funcion que el render",
+          quitar(animaciones.JS_FONDO) in quitar(js))
+comprobar("y la pantalla sabe pintar la animacion", "function animarPrevia" in js and "previa-anim" in js)
+sys.path.insert(0, RAIZ)
+import _proyecto_animaciones as juguete  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
+import app as servidor  # noqa: E402
+with tempfile.TemporaryDirectory(prefix="previa_anim_") as carpeta_previa:
+    proyecto, estado = juguete.construir(carpeta_previa)
+    ctx = SimpleNamespace(proyecto=proyecto, estado=estado, bitacora=MagicMock())
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        previa = servidor.leer_previsualizacion(proyecto.id)
+    por_id = {e["id"]: e for e in previa["escenas"]}
+    comprobar("la escena con una cifra trae su animacion",
+              (por_id["S001"].get("animacion") or {}).get("id") == "infografia-cifra")
+    comprobar("y su svg, su nombre y su instante de reposo",
+              all((por_id["S001"].get("animacion") or {}).get(k) for k in ("svg", "nombre", "pico")))
+    comprobar("la escena sin senal no trae ninguna", "animacion" not in por_id["S002"])
+    comprobar("las tarjetas con otra imagen llevan su ruta del proyecto, no una URL",
+              'proyecto://' in json.dumps(por_id["S003"].get("animacion") or {}) or
+              (por_id["S003"].get("animacion") or {}).get("id") != "comparacion-tarjetas")
+    estado.actualizar_params("render", {"animaciones": []})
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        sin = servidor.leer_previsualizacion(proyecto.id)
+    comprobar("sin animaciones elegidas la previa sale como siempre",
+              all("animacion" not in e for e in sin["escenas"]))
+    estado.actualizar_params("render", {"animaciones": ["comparacion-tarjetas", "collage-titulo"]})
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        dos = servidor.leer_previsualizacion(proyecto.id)
+    tarjetas = [e for e in dos["escenas"] if "animacion" in e and "<image" in e["animacion"]["svg"]]
+    comprobar("una animacion con tarjetas lleva sus imagenes como proyecto://", bool(tarjetas) and all(
+        "proyecto://pasos/assets/v1/escenas/" in e["animacion"]["svg"] for e in tarjetas),
+        str([e["id"] for e in tarjetas]))
+    comprobar("y el navegador puede completarlas (la ruta existe)", all(
+        os.path.isfile(os.path.join(proyecto.raiz, *p.split("proyecto://")[1].split('"')[0].split("/")))
+        for e in tarjetas for p in e["animacion"]["svg"].split(" ") if p.startswith('href="proyecto://')))
 
 print("\n== la pagina de render las lleva ==")
 comprobar("la pagina tiene su capa", 'id="capaanim"' in p8_render.PAGINA)

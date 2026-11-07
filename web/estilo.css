@@ -2548,3 +2548,10 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   border-radius: 5px; background: var(--lienzo); }
 .anim-tarjeta b { font-weight: 600; line-height: 1.25; }
 @media (max-width: 720px) { .anim-recuadros { grid-template-columns: 1fr; } }
+
+/* ------------------------------ la animacion de motion graphics en la previa
+   Encima de la imagen y sin cogerle el raton. Con ella la imagen se recorta como
+   el render (que saca una ventana 16:9 del plano), no se deja con bandas. */
+.previa-anim { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.previa-anim > svg { display: block; width: 100%; height: 100%; }
+.previa-marco.con-animacion > img { object-fit: cover; }

@@ -359,6 +359,13 @@ movidas con `setCurrentTime` como el subtítulo. Lo que no se deduce del código
 - **Las tarjetas de la pantalla son GIF** (`web/anim_<id>.gif`, planos a propósito:
   `fichero_web` no sirve subcarpetas). Si cambias un dibujo, regenéralos con
   `python herramientas/gifs_animaciones.py` (lanzarlo por PowerShell: Edge headless).
+- **La previa de Imágenes (`/previsualizacion`) lleva la animación de cada escena**
+  (`escena.animacion` = svg + fondo + `pico`), calculada con `animaciones.capas` y
+  la misma semilla que el render. El navegador la pinta encima con el reloj de la
+  voz (`animarPrevia`; parada, en el `pico`) y `aplicarFondo` en `app.js` es COPIA
+  de `animaciones.JS_FONDO` (`prueba_animaciones` compara las dos). Las URL de
+  otras imágenes viajan como `proyecto://ruta`: solo el navegador sabe el prefijo.
+  `pasos/_proyecto_animaciones.py` fabrica un proyecto de juguete sin pagar nada.
 - Collage, pantalla dividida, paralaje y avatar de la guía NO están: piden varios
   recursos por escena o capas de profundidad que el plan no modela.
 

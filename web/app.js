@@ -8952,6 +8952,76 @@ function botonSustituirEscena(escena) {
     PREVIA.sustituyendo ? 'Subiendo…' : 'Sustituir'));
 }
 
+/* ---------------------------------------- la animación de motion graphics
+   La que montaría el render en esta escena (`animaciones.capas`, en el
+   servidor), dibujada ENCIMA de la imagen y movida con el reloj de la voz:
+   mientras suena, al ritmo del audio; parada, en el instante en que está
+   completa (`pico`), que es lo que hace que se vea sin tener que darle al play.
+
+   `aplicarFondo` es la MISMA función que `animaciones.JS_FONDO` (la que corre
+   el render): atenuar o desenfocar la imagen de debajo no lo puede hacer el SVG.
+   Si cambia una, cambia la otra: `prueba_animaciones` lo comprueba. */
+function aplicarFondo(el, F, t){
+  if (!F) return;
+  const S = u => { u = Math.min(1, Math.max(0, u)); return u*u*(3-2*u); };
+  const k = S((t-F.t[0])/Math.max(1e-6, F.t[1]-F.t[0]))
+          * (1 - S((t-F.t[2])/Math.max(1e-6, F.t[3]-F.t[2])));
+  el.style.filter = k > 0.001 ? 'blur(' + (F.blur*k).toFixed(2) + 'px) brightness('
+    + (1 + (F.luz-1)*k).toFixed(4) + ')' : '';
+}
+
+function verAnimacionPrevia() {
+  try { return localStorage.getItem('estudio.previa.animacion') !== 'no'; } catch (_) { return true; }
+}
+
+function alternarAnimacionPrevia() {
+  try { localStorage.setItem('estudio.previa.animacion', verAnimacionPrevia() ? 'no' : 'si'); } catch (_) { /* sin almacenamiento: dura lo que dure la pantalla */ }
+  repintarVideo();
+}
+
+/* Las tarjetas con OTRA imagen llegan como `proyecto://ruta`: solo el navegador
+   sabe dónde cuelga el servidor (el prefijo del proxy). */
+function svgDeAnimacionPrevia(animacion, pid) {
+  return String(animacion.svg).split('proyecto://').map((trozo, i) => {
+    if (!i) return trozo;
+    const fin = trozo.indexOf('"');
+    const ruta = trozo.slice(0, fin).split('&amp;').join('&');
+    return `${API.archivo(pid, ruta)}?mini=1024${trozo.slice(fin)}`;
+  }).join('');
+}
+
+function relojDeAnimacionPrevia(e) {
+  if (PREVIA.sonando && PREVIA.audio) {
+    return Math.max(0, Math.min(e.duracion, PREVIA.audio.currentTime - e.t_in));
+  }
+  return e.animacion.pico;
+}
+
+function pintarAnimacionPrevia() {
+  const e = escenaPrevia();
+  const capa = document.querySelector('.previa-anim');
+  if (!e || !e.animacion || !capa) return;
+  const t = relojDeAnimacionPrevia(e);
+  const svg = capa.querySelector('svg');
+  if (svg && svg.pauseAnimations) svg.pauseAnimations();
+  if (svg && svg.setCurrentTime) svg.setCurrentTime(t);
+  const fondo = document.querySelector('.previa-marco > img, .previa-marco > .previa-clip');
+  if (fondo) aplicarFondo(fondo, e.animacion.fondo, t);
+}
+
+/* Un fotograma de pantalla, no un `timeupdate` (cuatro veces por segundo): a
+   esa cadencia una barra que se rellena o una letra que aparece iría a saltos. */
+function animarPrevia() {
+  cancelAnimationFrame(PREVIA.animando || 0);
+  const paso = () => {
+    pintarAnimacionPrevia();
+    if (PREVIA.sonando && document.querySelector('.previa-anim')) {
+      PREVIA.animando = requestAnimationFrame(paso);
+    }
+  };
+  paso();
+}
+
 function vistaPreviaLight() {
   const v = videoAbierto();
   const caja = h('div', { clase: 'light-previa' });
@@ -9020,6 +9090,17 @@ function vistaPreviaLight() {
     marco.appendChild(h('div', { clase: 'previa-sin-imagen' },
       'Esta escena todavía no tiene imagen generada.'));
   }
+  /* LA ANIMACIÓN DE MOTION GRAPHICS, ENCIMA DE LA IMAGEN. Es la excepción a
+     «aquí solo se mira el dibujo»: la elige el motor mirando lo que se dice en
+     la escena y no se puede juzgar sin verla sobre su imagen. Se apaga con el
+     botón de los mandos para volver a mirar el dibujo solo. */
+  if (e.animacion && verAnimacionPrevia()) {
+    marco.classList.add('con-animacion');
+    const capa = h('div', { clase: 'previa-anim', 'aria-hidden': 'true' });
+    capa.innerHTML = svgDeAnimacionPrevia(e.animacion, v.pid);
+    marco.appendChild(capa);
+    setTimeout(animarPrevia, 0);
+  }
   marco.appendChild(botonSustituirEscena(e));
   /* NI SUBTITULO NI SELLO DE CARTELA: aqui se mira el DIBUJO y nada mas.
      Los dos se revisan -- y se corrigen -- en la pantalla del video, que es
@@ -9063,9 +9144,16 @@ function vistaPreviaLight() {
         : reproducirTodoPrevia()),
       title: 'Todo seguido, con música y efectos (sin zoom ni transiciones)',
     }, PREVIA.seguido ? '❚❚ Parar' : '▶ Todo seguido'),
+    e.animacion ? h('button', {
+      clase: verAnimacionPrevia() ? 'mini primario' : 'mini',
+      onclick: alternarAnimacionPrevia, 'aria-pressed': String(verAnimacionPrevia()),
+      title: `Motion animation de esta escena: ${e.animacion.nombre}. `
+        + 'Púlsalo para ver la imagen sola.',
+    }, '✦ Animación') : null,
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`
-      + (e.bloque ? ` · ${e.bloque}` : '')),
+      + (e.bloque ? ` · ${e.bloque}` : '')
+      + (e.animacion ? ` · ${e.animacion.nombre}` : '')),
     h('span', { clase: 'crece' }),
     h('button', {
       clase: 'primario', disabled: PREVIA.i >= escenas.length - 1,
