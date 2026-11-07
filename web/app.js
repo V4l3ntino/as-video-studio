@@ -920,7 +920,10 @@ function seguirTrabajo(paso, tid, alTerminar, alAvanzar) {
   }
   pintarTrabajo(paso);
 
-  seguimiento.tic = setInterval(() => pintarTrabajo(paso), 500);
+  seguimiento.tic = setInterval(() => {
+    pintarTrabajo(paso);
+    if (paso === CLAVE_VIDEO_LIGHT) refrescarMontajeDisponibleLight();
+  }, 500);
 
   const aplicar = datos => {
     if (!datos || APP.seguimientos[paso] !== seguimiento) return;
@@ -930,6 +933,9 @@ function seguirTrabajo(paso, tid, alTerminar, alAvanzar) {
     anotarAvance(paso, datos.progreso);
     pintarTrabajo(paso);
     // lo que se esta produciendo se ve mientras se produce
+    if (paso === CLAVE_VIDEO_LIGHT && datos.estado === 'ejecutando') {
+      refrescarMontajeDisponibleLight();
+    }
     if (alAvanzar) { try { alAvanzar(datos); } catch (e) { console.error(e); } }
     // el medidor de la cabecera se mueve con el mismo flujo que la barra: lo
     // que se esta gastando se ve mientras se gasta, no al terminar
@@ -6489,6 +6495,30 @@ function hayMp4Light() {
   return !!(ficha && (ficha.versiones || []).length && (ficha.salidas || {}).mp4);
 }
 
+/* Render se versiona antes de preparar YouTube. Leer solo su ficha permite
+   reproducirlo durante el resto de la tanda, sin recargar guion ni audio. */
+async function refrescarMontajeDisponibleLight() {
+  const v = videoAbierto();
+  const trabajo = trabajoVideoLight();
+  if (!v.pid || !trabajo || v.vista !== 'video') return;
+  if (v.pidiendoMontaje || Date.now() - (v.montajeConsultado || 0) < 2000) return;
+  const pid = v.pid;
+  const tid = trabajo.id;
+  v.pidiendoMontaje = true;
+  v.montajeConsultado = Date.now();
+  try {
+    const ficha = await pedir(API.paso(pid, 'render'));
+    if (videoAbierto().pid !== pid || (trabajoVideoLight() || {}).id !== tid) return;
+    const anterior = v.fichas.render || {};
+    if (!(ficha.salidas || {}).mp4 || !(ficha.versiones || []).length) return;
+    v.fichas.render = ficha;
+    if (versionDe(anterior) !== versionDe(ficha) || !document.querySelector('.marco-video video')) {
+      pintarLight();
+    }
+  } catch (err) { /* se vuelve a consultar con el siguiente avance */ }
+  finally { v.pidiendoMontaje = false; }
+}
+
 function urlMp4Light() {
   const ficha = videoAbierto().fichas.render || {};
   const salidas = ficha.salidas || {};
@@ -9300,7 +9330,7 @@ function vistaVideoLight() {
   if (error) caja.appendChild(cajaError(error));
 
   const marco = h('div', { clase: `marco-video ${formatoDelVideo()}` });
-  if (hayMp4Light() && !trabajoVideoLight()) {
+  if (hayMp4Light()) {
     marco.appendChild(videoLight());
   } else if (v.planos.length) {
     // el último que ha caído, grande: es lo que se acaba de generar
@@ -9321,7 +9351,7 @@ function vistaVideoLight() {
      cuarenta miniaturas debajo del reproductor empujan el repaso fuera de
      pantalla y repiten lo que ya se mira mejor en las diapositivas. Mientras
      se genera si valen: son lo unico que ensena que algo esta pasando. */
-  if (v.planos.length && trabajoVideoLight()) {
+  if (v.planos.length && trabajoVideoLight() && !hayMp4Light()) {
     const tira = h('div', { clase: 'tira-planos' });
     v.planos.slice(-40).forEach(plano => tira.appendChild(h('img', {
       src: API.archivo(v.pid, plano.ruta || ''), alt: plano.id || '',
