@@ -257,6 +257,34 @@ class Bibliotecas(unittest.TestCase):
                 None, {}, self.avisar, proyecto=self.proyecto)
             visual.assert_not_called()
             generar.assert_not_called()
+            # Los params actuales de las bibliotecas pueden haber cambiado
+            # desde que se eligieron los recursos; una tanda de montaje normal
+            # conserva los recursos ya descargados y solo rehace la unidad pedida.
+            p["bibliotecas"]["ia_cada"] = 4
+            p["bibliotecas"]["proveedores"] = ["pexels"]
+            p6_assets._generar_escenas(self.plan, dirs, p, trabajo, lambda _: True,
+                None, {}, self.avisar, proyecto=self.proyecto)
+            visual.assert_not_called()
+            generar.assert_not_called()
+
+            # Una nota pide IA aunque el plano tuviera un clip propio o fuera
+            # uno de los turnos de biblioteca. Solo cambia esa unidad.
+            p["unidades"] = {"escena:S002": {"generar_ia": True,
+                "medio_usuario": None, "feedback": "Sustituye la escena por un bosque nevado"}}
+            self.escenas[1]["medio_usuario"] = {"tipo": "video", "archivo": "clip_anterior.mp4"}
+            with patch.object(p6_assets, "_corregir_con_agente", return_value=None):
+                rehechas = {}
+                p6_assets._generar_escenas(self.plan, dirs, p, trabajo, lambda _: True,
+                    ["escena:S002"], rehechas, self.avisar, forzar=True, proyecto=self.proyecto)
+            generar.assert_called_once()
+            self.assertEqual(generar.call_args.args[0], "S002")
+            visual.assert_not_called()
+            for clave in ("medio_usuario", "medio_biblioteca", "recurso_biblioteca"):
+                self.assertNotIn(clave, self.escenas[1])
+                self.assertNotIn(clave, rehechas["escena:S002"])
+            with Image.open(Path(dirs["escenas"]) / "S002.png") as imagen:
+                self.assertEqual(imagen.getpixel((0, 0)), (255, 0, 0))
+            generar.reset_mock()
             p6_assets._generar_escenas(self.plan, dirs, p, trabajo, lambda _: True,
                 ["escena:S001"], {}, self.avisar, proyecto=self.proyecto)
             visual.assert_not_called()

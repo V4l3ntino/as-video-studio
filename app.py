@@ -431,6 +431,8 @@ def _ejecutar_paso(avisar, ctx, paso_id, unidades, opciones=None):
 
     ligeras, recortadas = _aligerar(salidas)
     version = ctx.estado.completar(paso_id, ligeras, mapa)
+    notas_regeneradas = (_confirmar_notas_imagen(ctx, opciones["notas_imagen"], mapa)
+                          if paso_id == "assets" and (opciones or {}).get("notas_imagen") else [])
     # Las unidades que el paso dice que YA NO EXISTEN se des-declaran, aqui y en
     # todo lo que cuelga. Un id de plano es posicional y se hereda entre planes;
     # sin esto, un recorte que deja fuera un plano dejaba su unidad declarada
@@ -482,12 +484,31 @@ def _ejecutar_paso(avisar, ctx, paso_id, unidades, opciones=None):
         ctx.bitacora.anotar("aviso_no_disponible", paso_id, {"tipo": type(fallo_aviso).__name__})
     return {
         "version": version,
+        "notas_regeneradas": notas_regeneradas,
         "resumen": str(salidas.get("resumen") or ""),
         "salidas": ligeras,
         "unidades": sorted(mapa) if mapa else [],
         "retiradas": retiradas or [],
         "ruta": ctx.proyecto.ruta_paso(paso_id, version),
     }
+
+
+def _confirmar_notas_imagen(ctx, pedidos, mapa):
+    """Solo se confirma la nota de una escena producida, si no fue editada mientras corría."""
+    # El trabajo termina aunque se cierre el navegador: este visto no depende
+    # del callback JS que siga la barra de progreso de esa pestaña.
+    notas = {n["id"]: n for n in _repaso().leer(ctx.proyecto)["notas"]}
+    confirmadas = []
+    for pedido in pedidos:
+        nota = notas.get(pedido["id"])
+        if (f"escena:{pedido['plano']}" not in mapa or not nota
+                or nota.get("pantalla") != "imagenes"
+                or nota.get("plano") != pedido["plano"]
+                or nota.get("texto") != pedido["texto"]):
+            continue
+        _repaso().editar(ctx.proyecto, pedido["id"], regenerado=pedido["texto"])
+        confirmadas.append(pedido["id"])
+    return confirmadas
 
 
 def _avisar_paso_listo(ctx, paso_id, version, salidas, unidades, opciones):
@@ -1724,6 +1745,22 @@ def ejecutar_paso(pid: str, paso: str, cuerpo: dict = Body(default=None)):
                                 " (p. ej. [\"reparto\"])")
         if datos["tipos"]:
             opciones["tipos"] = [t.strip() for t in datos["tipos"]]
+    if datos.get("notas_imagen") is not None:
+        pedidas = datos["notas_imagen"]
+        if (paso_id != "assets" or not opciones.get("rehacer") or not unidades
+                or not isinstance(pedidas, list) or len(pedidas) != len(unidades)):
+            raise ErrorApi(400, "notas_imagen requiere rehacer esas escenas de assets")
+        por_id = {n["id"]: n for n in _repaso().leer(ctx.proyecto)["notas"]}
+        for pedido in pedidas:
+            if not isinstance(pedido, dict):
+                raise ErrorApi(400, "cada nota de imagen debe ser un objeto")
+            nota = por_id.get(pedido.get("id"))
+            if (not nota or nota.get("pantalla") != "imagenes"
+                    or nota.get("plano") != pedido.get("plano")
+                    or nota.get("texto") != pedido.get("texto")
+                    or f"escena:{nota['plano']}" not in unidades):
+                raise ErrorApi(400, "la nota ya no corresponde a la escena que se va a regenerar")
+        opciones["notas_imagen"] = pedidas
     trabajo_id = lanzar_paso(ctx, paso_id, unidades, opciones=opciones)
     return {"trabajo_id": trabajo_id, "paso": paso_id, "opciones": opciones,
             "unidades": unidades, "estado": "ejecutando",

@@ -1825,6 +1825,11 @@ textarea.texto-bloque:focus { outline: none; }
 }
 .pie-guion .barra-light { flex: 1; min-width: 0; }
 .pie-guion > button, .pie-guion > .ayuda-de { flex: 0 0 auto; white-space: nowrap; }
+.aplicar-repaso-acciones { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.aplicar-repaso-contenido { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.aplicar-repaso-progreso { width: min(320px, 34vw); }
+.aplicar-repaso-acciones { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.aplicar-repaso-progreso { width: min(320px, 34vw); }
 
 .barra-light { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .barra-light .carril {

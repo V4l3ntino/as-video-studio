@@ -82,10 +82,15 @@ def aplicar_al_plan(plan, params):
     unidades = (params or {}).get("unidades") or {}
     por_texto = {}
     for unidad in unidades.values():
+        if (unidad or {}).get("generar_ia"):
+            continue
         medio = (unidad or {}).get("medio_usuario")
         if medio:
             por_texto.setdefault(medios.normalizar_texto(medio.get("ancla") or ""), []).append(medio)
     for escena in plan.get("escenas") or []:
+        if (unidades.get("escena:" + escena["id"]) or {}).get("generar_ia"):
+            escena.pop("medio_usuario", None)
+            continue
         medio = (unidades.get("escena:" + escena["id"]) or {}).get("medio_usuario")
         texto = medios.normalizar_texto(escena.get("narracion") or "")
         if not medio or medios.normalizar_texto(medio.get("ancla") or "") != texto:
@@ -128,6 +133,7 @@ def sustituir(proyecto, estado, plan, sid, medio):
     params = estado.params("assets") or {}
     unidad = dict((params.get("unidades") or {}).get(uid) or {})
     unidad["medio_usuario"] = medio
+    unidad.pop("generar_ia", None)
     estado.actualizar_params("assets", {"unidades": {uid: unidad}})
     # Las otras escenas todavia pendientes se declaran, no se dan por hechas.
     faltantes = {"escena:" + e["id"]: {} for e in plan["escenas"]

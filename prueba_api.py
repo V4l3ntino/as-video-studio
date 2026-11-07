@@ -1443,6 +1443,31 @@ def probar_repaso(cliente, pid):
           "y se leen en ORDEN DE VIDEO, no de escritura")
     igual(datos.get("pendientes"), 2, "las dos estan sin aplicar")
 
+    respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{segunda}",
+                                   {"regenerado": "la musica esta alta"})
+    igual(respuesta.status_code, 200, "confirmar que una regeneracion termino actualiza la nota")
+    aplicada = next(n for n in datos["notas"] if n["id"] == segunda)
+    igual(aplicada.get("estado"), "aplicado",
+          "el servidor confirma la nota contra el mismo texto regenerado")
+    igual(datos.get("pendientes"), 1, "el contador resta la nota aplicada sin recargar")
+    respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{segunda}",
+                                   {"texto": "la musica sigue demasiado alta"})
+    editada = next(n for n in datos["notas"] if n["id"] == segunda)
+    igual(editada.get("estado"), "pendiente",
+          "editar despues la nota devuelve el cambio a pendiente")
+
+    respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{segunda}",
+                                   {"regenerado": "la musica esta alta"})
+    igual(respuesta.status_code, 200, "confirmar una regeneracion actualiza el apunte")
+    nota_regenerada = next(n for n in datos["notas"] if n["id"] == segunda)
+    igual(nota_regenerada.get("estado"), "aplicado",
+          "el apunte pasa a aplicado contra el texto que realmente se regenero")
+    igual(datos.get("pendientes"), 1, "el contador descuenta el apunte aplicado")
+    respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{segunda}",
+                                   {"texto": "la musica sigue demasiado alta"})
+    igual((next(n for n in datos["notas"] if n["id"] == segunda)).get("estado"), "pendiente",
+          "editar un apunte aplicado vuelve a dejarlo pendiente")
+
     respuesta, datos = cliente.put(f"/api/proyectos/{pid}/repaso/{primera}",
                                    {"texto": "mejor quitalo entero"})
     igual(respuesta.status_code, 200, "se puede editar")

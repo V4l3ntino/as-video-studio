@@ -1421,6 +1421,10 @@ def planificar(proyecto, params, inventario=None, replantear=False,
             candidatos = anteriores.get(texto) or []
             anterior = candidatos[0] if len(candidatos) == 1 else {}
         bibliotecas.restaurar(escena, anterior)
+        if _ajustes_unidad(p, f"escena:{escena['id']}").get("generar_ia"):
+            escena.pop("medio_usuario", None)
+            escena.pop("medio_biblioteca", None)
+            escena.pop("recurso_biblioteca", None)
         if not (p.get("bibliotecas") or {}).get("audio"):
             escena.pop("audio_biblioteca", None)
     plan["dependencias"] = {f"escena:{e['id']}": _assets_de_escena(e)
@@ -3733,8 +3737,14 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             destino = os.path.join(dirs["escenas"], f"{sid}.png")
             ficha_json = os.path.join(dirs["escenas"], f"{sid}.json")
             guardada_biblioteca = medios.leer_json(ficha_json, {}) or {}
+            generar_ia = bool(_ajustes_unidad(p, uid).get("generar_ia"))
+            if generar_ia:
+                escena.pop("medio_usuario", None)
             cambio_biblioteca = guardada_biblioteca.get("bibliotecas_config") != configuracion_bibliotecas
-            if cambio_biblioteca or not (p.get("bibliotecas") or {}).get("audio"):
+            opciones_audio = bool((p.get("bibliotecas") or {}).get("audio"))
+            configuracion_audio = medios.huella({"audio": opciones_audio})
+            cambio_audio = guardada_biblioteca.get("bibliotecas_audio_config") != configuracion_audio
+            if cambio_audio or not opciones_audio:
                 escena.pop("audio_biblioteca", None)
             if biblioteca:
                 biblioteca.audio(escena)
@@ -3792,12 +3802,10 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             # «redibujar el video entero», y ahi si lo has pedido.
             pedida = (uid in set(unidades) if unidades is not None
                       else bool(forzar))
-            if cambio_biblioteca and (unidades is None or uid in unidades):
-                pedida = True
             misma_biblioteca = (guardada_biblioteca.get("recurso_biblioteca")
                 and guardada_biblioteca.get("bibliotecas_peticion") == medios.huella(
                     {k: escena.get(k) for k in ("narracion", "direccion", "prompt")})
-                and not cambio_biblioteca and not forzar)
+                and not forzar and not generar_ia)
             if hecho and (not pedida or misma_biblioteca):
                 if not _sin_imagen(escena) and not escena.get("recurso_biblioteca"):
                     previas[sid] = destino
@@ -3808,11 +3816,14 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 ficha["origen"] = "conservado"
                 _aplicar_alternativa_visual(escena, ficha)
                 bibliotecas.restaurar(escena, ficha)
-                if not (p.get("bibliotecas") or {}).get("audio"):
+                if not opciones_audio:
                     escena.pop("audio_biblioteca", None)
                     ficha.pop("audio_biblioteca", None)
                 if escena.get("audio_biblioteca"):
                     ficha["audio_biblioteca"] = escena["audio_biblioteca"]
+                    medios.escribir_json(ficha_json, ficha)
+                if biblioteca:
+                    ficha["bibliotecas_audio_config"] = configuracion_audio
                     medios.escribir_json(ficha_json, ficha)
                 # OBSOLETA NO ES PENDIENTE. Si lo que hay dibujado no es de
                 # lo que se dice aqui, la imagen se queda igualmente: no se
@@ -3836,7 +3847,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
 
             escena.pop("medio_biblioteca", None)
             escena.pop("recurso_biblioteca", None)
-            recurso = biblioteca.visual(escena, destino) if biblioteca else None
+            recurso = biblioteca.visual(escena, destino) if biblioteca and not generar_ia else None
             if recurso:
                 meta = recurso
                 prompt, referencias = "", []
@@ -4026,6 +4037,8 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                      "prompt": prompt,
                      **({"bibliotecas_config": configuracion_bibliotecas}
                         if configuracion_bibliotecas else {}),
+                     **({"bibliotecas_audio_config": configuracion_audio}
+                        if biblioteca else {}),
                      **({"audio_biblioteca": escena["audio_biblioteca"]}
                         if escena.get("audio_biblioteca") else {}),
                      "referencias": [{"papel": r["papel"], "ruta": r["ruta"]}

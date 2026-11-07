@@ -9272,7 +9272,7 @@ function botonRenderizarLight() {
      o sea que gasta el render entero para dejarte el video sin tus notas. Es la
      misma regla que en la pantalla del video. Apagado y con el motivo puesto,
      no escondido: desaparecer no explica nada. */
-  const notasSinAplicar = estadoRepaso().pendientes > 0;
+  const notasSinAplicar = pendientesDeAhora() > 0;
   return conAyuda(
     notasSinAplicar
       ? 'Tienes notas del repaso sin aplicar. Esto solo montaria el MP4 y '
@@ -10186,6 +10186,10 @@ async function refrescarLoDibujado() {
         (PREVIA.ficha.escenas || []).forEach(e => {
           const suya = suyas[e.id];
           e.imagen = suya.imagen;
+          e.clip = suya.clip;
+          e.medio_usuario = suya.medio_usuario;
+          e.recurso_biblioteca = suya.recurso_biblioteca;
+          e.compuesto = suya.compuesto;
           if (suya.obsoleta) { e.obsoleta = true; e.dibujada_para = suya.dibujada_para; }
           else { delete e.obsoleta; delete e.dibujada_para; }
         });
@@ -10205,22 +10209,47 @@ async function refrescarLoDibujado() {
 /* SE ESCRIBE EN LA NOTA QUE SU IMAGEN YA SE REHIZO, y con qué texto. Es lo que
    hace que el «Regenerada ✓» siga ahí mañana. Va después del trabajo, no antes:
    si la tanda falla, la nota tiene que seguir pidiendo lo suyo. */
-async function apuntarRegeneradas(tanda, pid) {
+async function apuntarRegeneradas(tanda, pid, resultado) {
   /* EN LAS NOTAS DE SU VÍDEO, no en las del abierto: la tanda puede acabar
      mientras se mira otro (ver COLAS), y los ids de nota se repiten de un vídeo
      a otro -- R001 hay en todos --, así que marcar en el abierto daba por
      regenerada una nota de otro vídeo que nadie había tocado. */
   pid = pid || videoAbierto().pid;
-  let ultima = null;
+  let fallo = '';
+  const confirmadas = Array.isArray((resultado || {}).notas_regeneradas)
+    ? new Set(resultado.notas_regeneradas) : null;
   for (const x of tanda) {
     if (!x.nid) continue;
     try {
-      ultima = await pedir(API.repasoNota(pid, x.nid), {
-        method: 'PUT', cuerpo: { regenerado: x.texto },
-      });
-    } catch (err) { /* no poder marcarla no puede tirar la cola */ }
+      if (confirmadas) {
+        if (!confirmadas.has(x.nid)) throw new Error('la nota cambió durante la generación');
+      } else {
+        // Trabajos anteriores al sellado de notas en el servidor: conservar el
+        // camino antiguo para no perder la confirmación al terminar uno vivo.
+        const respuesta = await pedir(API.repasoNota(pid, x.nid), {
+          method: 'PUT', cuerpo: { regenerado: x.texto },
+        });
+        const nota = (respuesta.notas || []).find(n => n.id === x.nid);
+        if (!nota || nota.estado !== 'aplicado' || nota.regenerado !== x.texto) {
+          throw new Error('el servidor no ha confirmado que la nota quedó aplicada');
+        }
+      }
+      delete colaDe(pid).fallo[x.nid];
+    } catch (err) {
+      colaDe(pid).fallo[x.nid] = `La imagen se generó, pero no se pudo actualizar el estado de la nota: ${err.message}`;
+      fallo = err.message;
+    }
   }
-  if (ultima && esElVideoAbierto(pid)) guardarRepaso(ultima);
+  try {
+    const datos = await pedir(API.repaso(pid));
+    if (esElVideoAbierto(pid)) guardarRepaso(datos);
+    return !fallo;
+  } catch (err) {
+    for (const x of tanda) {
+      if (x.nid) colaDe(pid).fallo[x.nid] = `La imagen se generó, pero no se pudo actualizar el estado de la nota: ${err.message}`;
+    }
+    return false;
+  }
 }
 
 /* LO QUE PASA CUANDO ACABA UNA TANDA DE LA COLA, esté su vídeo abierto o no.
@@ -10228,7 +10257,7 @@ async function apuntarRegeneradas(tanda, pid) {
 async function terminarTandaDeCola(cola, tanda, trabajo) {
   if (trabajo.estado === 'ejecutando') return;
   if (trabajo.estado === 'listo') {
-    await apuntarRegeneradas(tanda, cola.pid);
+    await apuntarRegeneradas(tanda, cola.pid, trabajo.resultado);
   } else if (trabajo.estado === 'error') {
     tanda.forEach(x => { if (x.nid) cola.fallo[x.nid] = trabajo.error || 'fallo'; });
   }
@@ -10237,6 +10266,8 @@ async function terminarTandaDeCola(cola, tanda, trabajo) {
   cola.tanda = [];
   if (esElVideoAbierto(cola.pid)) {
     await refrescarLoDibujado();
+    await refrescarFichasLight();
+    await refrescarPlanLight('render', true);
     repintarVideo();
   }
   soltarCola(cola);
@@ -10340,7 +10371,9 @@ async function soltarCola(cola) {
     const conTexto = tanda.filter(x => x.texto);
     if (conTexto.length) {
       const unidades = {};
-      conTexto.forEach(x => { unidades[`escena:${x.sid}`] = { feedback: x.texto }; });
+      conTexto.forEach(x => { unidades[`escena:${x.sid}`] = {
+        feedback: x.texto, generar_ia: true, medio_usuario: null,
+      }; });
       await pedir(API.params(pid, 'assets'), {
         method: 'PUT', cuerpo: { params: { unidades }, fusionar_unidades: true },
       });
@@ -10349,7 +10382,10 @@ async function soltarCola(cola) {
        prompt la cache devolveria la imagen que acabas de rechazar. */
     const datos = await pedir(API.ejecutar(pid, 'assets'), {
       method: 'POST',
-      cuerpo: { unidades: tanda.map(x => `escena:${x.sid}`), rehacer: true },
+      cuerpo: { unidades: tanda.map(x => `escena:${x.sid}`), rehacer: true,
+        notas_imagen: tanda.filter(x => x.nid).map(x => ({
+          id: x.nid, plano: x.sid, texto: x.texto,
+        })) },
     });
     const tid = datos.trabajo_id || (datos.trabajo || {}).id;
     if (!tid) throw new Error('el servidor no ha devuelto ningún trabajo');
@@ -10458,8 +10494,9 @@ function listaDeNotas() {
             : est === 'en cola'
               ? 'Esperando turno. Entra en cuanto acabe alguna de las que van '
                 + 'ahora.'
-              : 'Vuelve a dibujar SOLO este plano con lo que has escrito. Se '
-                + 'hacen hasta tres a la vez; si pides mas, esperan turno.',
+               : 'Vuelve a dibujar SOLO este plano con lo que has escrito. Se '
+                 + 'sustituye también cualquier imagen o clip propio o de biblioteca '
+                 + 'que estuviera seleccionado para esta escena.',
           h('button', {
             clase: est === 'hecha' ? 'mini' : 'mini avisa',
             disabled: !nota.plano || est === 'corriendo' || est === 'en cola',
@@ -10527,9 +10564,39 @@ async function borrarNota(nid) {
                cartela, subtitulo, transicion, musica o efectos -- y despues
                monta el MP4. */
 function botonAplicarRepaso() {
-  const pend = pendientesDeAhora();
-  if (!pend) return null;
-  const corriendo = (APP.trabajos[CLAVE_VIDEO_LIGHT] || {}).estado === 'ejecutando';
+  const cola = cuadernoDeAhora() === 'imagenes' && COLA_IMG.pid === videoAbierto().pid
+    ? COLA_IMG : null;
+  if (!pendientesDeAhora() && !(cola && (cola.corriendo.length || cola.espera.length))) return null;
+  const acciones = h('div', { clase: 'aplicar-repaso-acciones' }, enVivo(() => {
+    const pend = pendientesDeAhora();
+    const actual = APP.trabajos[CLAVE_VIDEO_LIGHT] || {};
+    const activo = cola && cola.tid && actual.id === cola.tid
+      && ['pendiente', 'ejecutando'].includes(actual.estado);
+    const cantidad = cola ? cola.corriendo.length + cola.espera.length : 0;
+    if (!pend && !cantidad) return null;
+    const texto = cantidad
+      ? (activo ? 'Regenerando imagen…'
+        : `Preparando ${cantidad} ${cantidad === 1 ? 'imagen' : 'imágenes'}…`)
+      : `Aplicar ${pend} ${pend === 1 ? 'cambio' : 'cambios'}`;
+    const boton = h('button', {
+      clase: 'avisa', disabled: !!trabajoVideoLight() || cantidad > 0,
+      'aria-busy': !!trabajoVideoLight() || cantidad > 0 ? 'true' : 'false',
+      onclick: () => (cuadernoDeAhora() === 'imagenes'
+        ? encolarTodasLasImagenes() : aplicarRepaso()),
+    }, texto);
+    if (!cantidad) return boton;
+    if (!cola.corriendo.length) return h('div', { clase: 'aplicar-repaso-contenido' }, boton,
+      h('div', { clase: 'meta', role: 'status' },
+        `En cola · ${cola.espera.length} ${cola.espera.length === 1 ? 'imagen' : 'imágenes'}`));
+    const avance = Math.max(0, Math.min(1, Number(actual.progreso) || 0));
+    const relleno = h('div', { clase: 'relleno' });
+    relleno.style.width = `${(avance * 100).toFixed(1)}%`;
+    return h('div', { clase: 'aplicar-repaso-contenido' }, boton,
+      h('div', { clase: 'barra-light aplicar-repaso-progreso' },
+      h('div', { clase: 'carril' }, relleno),
+      h('div', { clase: 'meta', role: 'status' },
+        `${Math.round(avance * 100)} % · ${avancePublico(actual)}`)));
+  }));
   return conAyuda(
     (videoAbierto().vista === 'previa'
       ? 'Pone en cola todas las notas de esta pantalla y va rehaciendo esas '
@@ -10539,11 +10606,7 @@ function botonAplicarRepaso() {
         + 'a mezclar el audio, cambiar una cartela redibuja una capa, y solo se '
         + 'repaga una imagen si de verdad hay que volver a dibujar ese plano. '
         + 'Al terminar, monta el MP4 con los cambios dentro.'),
-    h('button', {
-      clase: 'avisa', disabled: corriendo,
-      onclick: () => (cuadernoDeAhora() === 'imagenes'
-        ? encolarTodasLasImagenes() : aplicarRepaso()),
-    }, `Aplicar ${pend} ${pend === 1 ? 'cambio' : 'cambios'}`));
+    acciones);
 }
 
 

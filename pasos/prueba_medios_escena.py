@@ -98,6 +98,21 @@ class Sustituciones(unittest.TestCase):
         self.assertTrue(os.path.isfile(medio["archivo"]))
         self.assertTrue(os.path.isfile(medio["poster"]))
 
+    def test_regeneracion_ia_no_recupera_el_clip_y_sustituir_restaura_eleccion_manual(self):
+        medio = self.nueva_imagen()
+        params = {"unidades": {"escena:S001": {"medio_usuario": medio,
+                                              "generar_ia": True}}}
+        plan = copy.deepcopy(self.plan)
+        plan["escenas"][0]["medio_usuario"] = medio
+        propios.aplicar_al_plan(plan, params)
+        self.assertNotIn("medio_usuario", plan["escenas"][0])
+        self.assertNotIn("medio_usuario", plan["escenas"][1])
+        self.estado.actualizar_params("assets", params)
+        propios.sustituir(self.proyecto, self.estado, plan, "S001", medio)
+        self.assertNotIn("generar_ia", self.estado.params("assets")["unidades"]["escena:S001"])
+        nuevo = propios.aplicar_al_plan(copy.deepcopy(self.plan), self.estado.params("assets"))
+        self.assertIn("medio_usuario", nuevo["escenas"][0])
+
     def test_retomar_una_escena_propia_no_solicita_otra_imagen(self):
         propios.sustituir(self.proyecto, self.estado, copy.deepcopy(self.plan), "S001", self.nueva_imagen())
         plan = propios.aplicar_al_plan(copy.deepcopy(self.plan), self.estado.params("assets"))

@@ -175,8 +175,15 @@ detiene la tarea con el motivo, antes de generar los recursos.
 Los estilos transmiten estas opciones a los vídeos nuevos. Las búsquedas se
 cachean 24 horas; los recursos elegidos y su procedencia se guardan en el
 proyecto y viajan al duplicarlo o exportarlo. Al retomar se conserva lo obtenido.
+Cambiar las opciones de bibliotecas no sustituye escenas ya generadas: para
+pedir otra imagen se regenera explícitamente la escena elegida.
 Las imágenes muestran su autor y un enlace a la biblioteca en la revisión.
 Sin proveedores seleccionados, se mantiene la generación habitual con IA.
+
+En **Imágenes**, el botón **Regenerar imagen** de un apunte genera una imagen
+con IA para esa escena usando la nota, aunque antes tuviera un recurso de
+biblioteca o una sustitución manual. El medio anterior deja de estar seleccionado;
+las demás escenas se conservan. Puedes volver a elegir un archivo con **Sustituir**.
 
 ### Incluir o quitar los subtítulos
 
