@@ -8467,7 +8467,7 @@ function pieLight() {
        medio, y cuando no hay nada que poner ahi el hueco lo llena un `crece`
        vacio -- que es lo que deja los dos botones en los extremos. */
     corriendo ? barraTandaLight('voz')
-      : (hayAudio ? reproductorLight() : h('span', { clase: 'crece' })),
+      : (hayAudio && !sinVoz ? reproductorLight() : h('span', { clase: 'crece' })),
     corriendo ? conAyuda(
       'Corta la tanda donde este. Lo que ya se ha generado se queda hecho y no '
       + 'hay que volver a pagarlo.',
