@@ -386,6 +386,16 @@ Espera a las otras generaciones, actualiza los clips sin mover escena ni borrado
 y muestra los errores sin reintentarlos en bucle. No usar el hyperframe ampliado
 como fuente si existe el PNG original: previa y render deben reutilizar el mismo
 clip. El motor serializa sus procesos para no competir por la GPU ni el parcial.
+El popup «Efecto Parallax» guarda en `render.params.unidades["escena:<sid>"].parallax`
+solo al pulsar Guardar, con `ancla` al texto normalizado, `activo`, `movimiento` e
+`intensidad`. Ausencia hereda; `activo:false` suprime explícitamente el efecto global.
+Las ediciones se aplican después del reparto para no cambiar los movimientos de
+las vecinas. No sustituir otros params de la unidad (por ejemplo `animacion`).
+GET/PUT de `escenas/<sid>/parallax` validan contra el plan visible. Una edición
+cambia la firma solo de esa unidad de render; voz/assets/callouts se conservan.
+Los trabajos de previa llevan la firma de los ajustes globales y por escena en
+su nombre; si se editan, el anterior se cancela y el navegador espera su cierre
+antes de solicitar los clips nuevos, sin confundirlo con la tanda nueva.
 El motor opcional DepthFlow 1.0.1 vive en `.depthflow` (o en
 `ESTUDIO_DEPTHFLOW_PYTHON`), separado del servicio. ShaderFlow 0.13 necesita cerrar
 su `WATCHDOG` al terminar: sin ello Windows espera indefinidamente aunque ya haya

@@ -1597,7 +1597,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     resultados = {}
     clips = []
     tareas = []
-    seleccion_parallax = parallax.seleccionar(escenas, p.get("parallax"), plan.get("semilla") or 0)
+    seleccion_parallax = parallax.seleccionar(escenas, p.get("parallax"), plan.get("semilla") or 0,
+                                             p.get("unidades"))
     for indice, escena in enumerate(escenas):
         sid = escena["id"]
         uid = f"escena:{sid}"

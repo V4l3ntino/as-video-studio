@@ -5091,11 +5091,67 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
     return leer_previsualizacion(pid)
 
 
+@app.get("/api/proyectos/{pid}/escenas/{sid}/parallax")
+def leer_parallax_escena(pid: str, sid: str):
+    """Configuración efectiva del parallax de una imagen, sin modificar el proyecto."""
+    from pasos import parallax
+    ctx = contexto(pid)
+    plan = _plan_de_previsualizacion(ctx)
+    escenas = plan.get("escenas") or []
+    escena = next((e for e in escenas if e.get("id") == sid), None)
+    if escena is None:
+        raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+    render = ctx.estado.params("render") or {}
+    seleccion = parallax.seleccionar(escenas, render.get("parallax"), plan.get("semilla") or 0,
+                                    render.get("unidades"))
+    edicion = parallax.ediciones_de(render).get(sid) or {}
+    personalizada = edicion.get("ancla") == parallax.ancla_de(escena)
+    actual = seleccion.get(sid) or (edicion if personalizada else parallax.normalizar(render.get("parallax")))
+    movimiento = actual.get("movimiento") or (actual.get("movimientos") or ["zoom_delante"])[0]
+    if movimiento == "aleatorio":
+        movimiento = "zoom_delante"
+    return {"ancla": parallax.ancla_de(escena), "disponible": parallax.admite(escena),
+            "personalizado": personalizada, "actual": {"activo": sid in seleccion,
+                "movimiento": movimiento, "intensidad": actual["intensidad"]}}
+
+
+@app.put("/api/proyectos/{pid}/escenas/{sid}/parallax")
+def editar_parallax_escena(pid: str, sid: str, datos: dict = Body(...)):
+    """Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje."""
+    from pasos import parallax
+    ctx = contexto(pid)
+    with _LOCK:
+        if any(not t["nombre"].startswith("previsualizar:parallax")
+               for t in ctx.gestor.listar(activos=True)):
+            raise ErrorApi(409, "espera a que termine el trabajo del vídeo antes de editar su parallax")
+        plan = _plan_de_previsualizacion(ctx)
+        escena = next((e for e in plan.get("escenas") or [] if e.get("id") == sid), None)
+        if escena is None:
+            raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+        if not parallax.admite(escena):
+            raise ErrorApi(400, "el efecto parallax solo se aplica a imágenes estáticas")
+        try:
+            edicion = parallax.validar_edicion(datos, escena)
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
+        uid = f"escena:{sid}"
+        unidad = dict(((ctx.estado.params("render") or {}).get("unidades") or {}).get(uid) or {})
+        unidad["parallax"] = edicion
+        ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+    return leer_previsualizacion(pid)
+
+
+def _ajustes_parallax_previa(ctx):
+    from pasos import parallax
+    render = ctx.estado.params("render") or {}
+    return (copy.deepcopy(render.get("parallax")), render.get("fps") or 30,
+            copy.deepcopy(parallax.ediciones_de(render)))
+
+
 def _correr_parallax_previa(avisar, ctx, pedidos, ajustes):
     from pasos import clips_parallax
     def comprobar():
-        render = ctx.estado.params("render") or {}
-        if (render.get("parallax"), render.get("fps") or 30) != ajustes:
+        if _ajustes_parallax_previa(ctx) != ajustes:
             raise Cancelado("La configuración de parallax ha cambiado")
     for i, (sid, pedido) in enumerate(pedidos):
         comprobar()
@@ -5116,8 +5172,11 @@ def preparar_parallax_previa(pid: str):
     from pasos import clips_parallax
     ctx = contexto(pid)
     with _LOCK:
+        ajustes = _ajustes_parallax_previa(ctx)
+        nombre = "previsualizar:parallax:" + hashlib.sha256(
+            json.dumps(ajustes, sort_keys=True).encode()).hexdigest()[:16]
         activos = ctx.gestor.listar(activos=True)
-        mismo = next((t for t in activos if t["nombre"] == "previsualizar:parallax"), None)
+        mismo = next((t for t in activos if t["nombre"] == nombre), None)
         if mismo:
             return {"trabajo_id": mismo["id"]}
         if activos:
@@ -5135,8 +5194,7 @@ def preparar_parallax_previa(pid: str):
                 pedidos.append((escena["id"], pedido))
         if not pedidos:
             return {"listo": True}
-        ajustes = (copy.deepcopy(render.get("parallax")), render.get("fps") or 30)
-        tid = ctx.gestor.lanzar("previsualizar:parallax", _correr_parallax_previa, ctx, pedidos, ajustes)
+        tid = ctx.gestor.lanzar(nombre, _correr_parallax_previa, ctx, pedidos, ajustes)
         _registrar_trabajo(tid, ctx.id)
         return {"trabajo_id": tid}
 
@@ -5162,7 +5220,8 @@ def leer_previsualizacion(pid: str):
     hechos = PASOS_MODULOS.p6_assets.planos_hechos(ctx.proyecto)
     from pasos import parallax, clips_parallax
     render = ctx.estado.params("render") or {}
-    seleccion_parallax = parallax.seleccionar(escenas_plan, render.get("parallax"), plan.get("semilla") or 0)
+    seleccion_parallax = parallax.seleccionar(escenas_plan, render.get("parallax"), plan.get("semilla") or 0,
+                                             render.get("unidades"))
     escenas = []
     for escena in escenas_plan:
         sid = str(escena.get("id") or "")

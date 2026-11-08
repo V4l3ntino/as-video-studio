@@ -299,6 +299,15 @@ Los clips se cachean en `parallax/` dentro del proyecto; el montaje reutiliza es
 mismos clips antes de componer las capas y transiciones habituales. Cambiar la
 imagen, el movimiento o los tiempos prepara el clip correspondiente de nuevo.
 
+Debajo del previsualizador, junto a **Crear animación**, pulsa **Efecto Parallax**
+para configurar solo esa imagen. El popup permite activar o quitar el efecto,
+elegir su **Movimiento de cámara** y cambiar la intensidad en **Configuración
+avanzada**. Pulsa **Guardar** para aplicarlo; cerrar descarta el borrador.
+La previsualización prepara el clip actualizado y el montaje usa esos mismos
+ajustes. Quitar el efecto de una escena se conserva aunque el vídeo anime todas
+las imágenes; también puedes activarlo solo en una imagen con la opción global
+apagada. Las demás escenas, sus animaciones y la narración se conservan.
+
 El motor es opcional y se instala en un entorno **separado** del servicio:
 
 ```powershell

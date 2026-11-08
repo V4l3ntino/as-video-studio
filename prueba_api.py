@@ -953,6 +953,37 @@ def probar_sustitucion_de_escenas(cliente):
     ok(preparados.get("listo"), "una previa cacheada no vuelve a generar clips")
     video_http = cliente.sesion.get(f"{cliente.base}/a/{biblioteca.id}/{previa['escenas'][0]['clip']}", timeout=15)
     igual(video_http.status_code, 200, "el MP4 parallax se sirve al reproductor")
+    editor_url = f"/api/proyectos/{biblioteca.id}/escenas/S001/parallax"
+    estado_antes = Path(biblioteca.ruta("estado.json")).read_bytes()
+    respuesta, editor = cliente.get(editor_url)
+    igual(respuesta.status_code, 200, "se abre el editor de parallax por imagen")
+    igual(editor["actual"]["movimiento"], "lateral", "el editor lee el movimiento efectivo de la imagen")
+    igual(Path(biblioteca.ruta("estado.json")).read_bytes(), estado_antes, "abrir el popup no escribe defaults")
+    # Debe conservar otros parámetros de la unidad, como su animación manual.
+    cliente.put(f"/api/proyectos/{biblioteca.id}/pasos/render/params", {"unidades": {
+        "escena:S001": {"animacion": {"id": "sin-animacion", "ancla": escenas[0]["narracion"], "contenido": {}}}}})
+    datos_edicion = dict(editor["actual"], ancla=editor["ancla"], activo=False)
+    respuesta, quitado = cliente.put(editor_url, datos_edicion)
+    igual(respuesta.status_code, 200, "se puede quitar parallax solo de esta imagen")
+    ok(not quitado["escenas"][0].get("clip"), "quitar el efecto recupera la imagen estática")
+    ok(not quitado["escenas"][0].get("parallax"), "el efecto global no reaparece en una escena desactivada")
+    _, render_editado = cliente.get(f"/api/proyectos/{biblioteca.id}/pasos/render")
+    igual(render_editado["params"]["unidades"]["escena:S001"]["animacion"]["id"], "sin-animacion",
+          "editar parallax conserva la animacion manual de esa unidad")
+    respuesta, _ = cliente.put(editor_url, dict(datos_edicion, ancla="Otra escena"))
+    igual(respuesta.status_code, 400, "se rechaza guardar sobre un texto de escena distinto")
+    respuesta, _ = cliente.put(editor_url, dict(datos_edicion, movimiento="inventado"))
+    igual(respuesta.status_code, 400, "el popup rechaza movimientos desconocidos")
+    respuesta, _ = cliente.put(editor_url.replace("S001", "S002"), dict(datos_edicion, ancla=escenas[1]["narracion"]))
+    igual(respuesta.status_code, 400, "un clip de biblioteca no admite un efecto de imagen estática")
+    respuesta, _ = cliente.get(editor_url.replace("S001", "NO_EXISTE"))
+    igual(respuesta.status_code, 404, "no se edita parallax en una escena inexistente")
+    cliente.put(f"/api/proyectos/{biblioteca.id}/pasos/render/params", {"parallax": {"activo": False}})
+    respuesta, activado = cliente.put(editor_url, dict(datos_edicion, activo=True, movimiento="orbita", intensidad="alta"))
+    igual(respuesta.status_code, 200, "se activa el efecto de una imagen aunque esté apagado globalmente")
+    igual(activado["escenas"][0]["parallax"]["opciones"]["movimiento"], "orbita", "la previa usa el movimiento de la escena")
+    igual(activado["escenas"][0]["parallax"]["opciones"]["intensidad"], "alta", "la previa usa la intensidad de la escena")
+    ok(not activado["escenas"][0].get("clip"), "un ajuste nuevo no reutiliza un clip con otro movimiento")
     for e in previa["escenas"]:
         ok(e["imagen"].startswith("recursos_biblioteca/"),
            f"{e['id']}: el poster de biblioteca usa una ruta publica relativa")

@@ -90,6 +90,46 @@ class Parallax(unittest.TestCase):
             elegidas = parallax.seleccionar(escenas, {"activo": True, "movimiento": movimiento})
             self.assertEqual({p["movimiento"] for p in elegidas.values()}, {movimiento})
 
+    def test_edicion_por_escena_no_cambia_las_vecinas_y_respeta_el_ancla(self):
+        escenas = [{"id": f"S{i}", "narracion": f"Frase {i}."} for i in range(1, 5)]
+        opciones = {"activo": True, "movimientos": ["lateral", "orbita"]}
+        antes = parallax.seleccionar(escenas, opciones)
+        edicion = {"activo": False, "movimiento": "vertical", "intensidad": "alta",
+                   "ancla": parallax.ancla_de(escenas[1])}
+        unidades = {"escena:S2": {"parallax": edicion, "animacion": {"id": "sin-animacion"}}}
+        despues = parallax.seleccionar(escenas, opciones, unidades=unidades)
+        self.assertEqual(despues, {sid: p for sid, p in antes.items() if sid != "S2"})
+        edicion["activo"] = True
+        despues = parallax.seleccionar(escenas, opciones, unidades=unidades)
+        self.assertEqual(despues["S2"]["movimiento"], "vertical")
+        self.assertEqual(despues["S2"]["intensidad"], "alta")
+        self.assertEqual({sid: p for sid, p in despues.items() if sid != "S2"},
+                         {sid: p for sid, p in antes.items() if sid != "S2"})
+        sin_global = parallax.seleccionar(escenas, {"activo": False}, unidades=unidades)
+        self.assertEqual(list(sin_global), ["S2"])
+        con_otro_texto = copy.deepcopy(escenas)
+        con_otro_texto[1]["narracion"] = "Otra frase."
+        self.assertEqual(parallax.seleccionar(con_otro_texto, opciones, unidades=unidades), antes)
+        with self.assertRaisesRegex(ValueError, "ha cambiado"):
+            parallax.validar_edicion(edicion, con_otro_texto[1])
+        con_clip = copy.deepcopy(escenas)
+        con_clip[1]["medio_usuario"] = {"tipo": "video"}
+        self.assertNotIn("S2", parallax.seleccionar(con_clip, opciones, unidades=unidades))
+
+    def test_editar_solo_invalida_la_unidad_de_render_elegida(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            estado = Estado(Proyecto.crear(tmp, "Unidades"))
+            for paso in ("ingesta", "brief", "guion", "voz", "revision_audio", "assets", "callouts"):
+                estado.completar(paso, {})
+            estado.actualizar_params("render", {"unidades": {"escena:S1": {}, "escena:S2": {}}})
+            estado.completar("render", {}, unidades={"escena:S1": {}, "escena:S2": {}})
+            firmas = {p: estado.firma(p) for p in ("guion", "voz", "assets", "callouts")}
+            edicion = parallax.validar_edicion({"ancla": "Frase.", "activo": False,
+                "movimiento": "lateral", "intensidad": "suave"}, {"narracion": "Frase."})
+            estado.actualizar_params("render", {"unidades": {"escena:S1": {"parallax": edicion}}})
+            self.assertEqual(estado.unidades_obsoletas("render"), ["escena:S1"])
+            self.assertEqual(firmas, {p: estado.firma(p) for p in firmas})
+
     def test_render_envia_solo_las_imagenes_elegidas_a_depthflow(self):
         with tempfile.TemporaryDirectory() as tmp:
             proyecto = Proyecto.crear(tmp, "Montaje")
@@ -122,8 +162,19 @@ class Parallax(unittest.TestCase):
                     {"movimiento": "zoom_delante", "intensidad": "suave"}, 6)
                 self.assertTrue(os.path.samefile(clips_parallax.disponible(proyecto, pedido), derivado))
                 self.assertTrue(os.path.samefile(clips_parallax.generar(proyecto, pedido), derivado))
-            self.assertEqual(generar.call_count, 1)
-            self.assertEqual([t["video"] for t in tareas], [None, "stock.mp4", derivado])
+                self.assertEqual(generar.call_count, 1)
+                self.assertEqual([t["video"] for t in tareas], [None, "stock.mp4", derivado])
+                generar.reset_mock()
+                tareas.clear()
+                edicion = {"activo": True, "movimiento": "vertical", "intensidad": "alta", "ancla": "Una frase."}
+                p8_render.ejecutar(proyecto, {"plan": str(plan), "movimiento": str(movimiento),
+                    "sonido": False, "lotes": 1, "fps": 6,
+                    "parallax": {"activo": True, "seleccion": "cada", "cada": 2}, "unidades": {
+                        "escena:S1": {"parallax": edicion},
+                        "escena:S3": {"parallax": dict(edicion, activo=False)}}})
+                self.assertEqual(generar.call_count, 1)
+                self.assertEqual(generar.call_args.args[2], {"movimiento": "vertical", "intensidad": "alta"})
+                self.assertEqual([t["video"] for t in tareas], [derivado, "stock.mp4", None])
 
     def test_previa_invalida_clip_si_cambian_imagen_tiempos_o_movimiento(self):
         with tempfile.TemporaryDirectory() as tmp:

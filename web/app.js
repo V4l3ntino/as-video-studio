@@ -6776,11 +6776,18 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
       h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels')));
 }
 
+const MOVIMIENTOS_PARALLAX = [
+  ['zoom_delante', 'Zoom hacia delante'], ['zoom_atras', 'Zoom hacia atrás'],
+  ['lateral', 'Paneo lateral'], ['vertical', 'Movimiento vertical'],
+  ['diagonal', 'Movimiento diagonal'], ['orbita', 'Órbita o inclinación suave'],
+  ['combinado', 'Movimiento combinado'],
+];
+
 function parallaxPorDefectoLight(valor) {
   const p = Object.assign({ activo: false, seleccion: 'todas',
     cada: 3, intensidad: 'suave' }, valor || {});
   p.movimientos = [...(p.movimientos || (p.movimiento === 'aleatorio'
-    ? ['zoom_delante', 'zoom_atras', 'lateral', 'vertical', 'diagonal', 'orbita', 'combinado']
+    ? MOVIMIENTOS_PARALLAX.map(([id]) => id)
     : [p.movimiento || 'zoom_delante']))];
   delete p.movimiento;
   return p;
@@ -6829,12 +6836,7 @@ function parallaxDelEncargo(e, alCambiar, esEstilo = false) {
     h('legend', {}, 'Movimientos de cámara'),
     h('p', { clase: 'pista' }, 'Elige uno o varios. Se alternarán entre las imágenes animadas; '
       + 'la variación se conserva al volver a montar. Mantén al menos uno seleccionado.'),
-    h('div', { clase: 'parallax-opciones' }, ...[
-    ['zoom_delante', 'Zoom hacia delante'], ['zoom_atras', 'Zoom hacia atrás'],
-    ['lateral', 'Paneo lateral'], ['vertical', 'Movimiento vertical'],
-    ['diagonal', 'Movimiento diagonal'], ['orbita', 'Órbita o inclinación suave'],
-    ['combinado', 'Movimiento combinado'],
-  ].map(([valor, nombre]) => {
+    h('div', { clase: 'parallax-opciones' }, ...MOVIMIENTOS_PARALLAX.map(([valor, nombre]) => {
     const entrada = h('input', { type: 'checkbox', checked: p.movimientos.includes(valor),
       'data-foco': `parallax-movimiento-${valor}`, onchange: ev => {
         p.movimientos = ev.target.checked ? [...p.movimientos, valor]
@@ -9291,6 +9293,105 @@ function animacionesEnLaCabecera(resumen) {
     + (faltan.length ? ` · faltan: ${faltan.map(a => nombres[a] || a).join(', ')}` : ''));
 }
 
+async function abrirParallaxEscena(escena) {
+  if ($('#editor-parallax')) return;
+  pararPrevia();
+  const pid = videoAbierto().pid;
+  const url = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/parallax`;
+  let ficha, guardando = false, sucio = false;
+  const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando efecto parallax…');
+  const guardarBoton = h('button', { clase: 'primario', disabled: true, onclick: guardar }, 'Guardar');
+  const activar = h('input', { type: 'checkbox', disabled: true,
+    onchange: marcarCambio });
+  const movimiento = h('select', { 'aria-label': 'Movimiento de cámara', onchange: marcarCambio },
+    ...MOVIMIENTOS_PARALLAX.map(([id, nombre]) => h('option', { value: id }, nombre)));
+  const intensidad = h('div', { clase: 'parallax-radios' },
+    ...[['suave', 'Suave'], ['media', 'Media'], ['alta', 'Alta']].map(([id, nombre]) =>
+      h('label', {}, h('input', { type: 'radio', name: 'parallax-intensidad-escena',
+        value: id, onchange: marcarCambio }), nombre)));
+  const configuracion = h('fieldset', { clase: 'parallax-editor-config', disabled: true },
+    h('label', { clase: 'campo' }, 'Movimiento de cámara', movimiento),
+    h('details', { clase: 'parallax-avanzado' }, h('summary', {}, 'Configuración avanzada'),
+      h('fieldset', {}, h('legend', {}, 'Intensidad del movimiento'), intensidad)));
+  const cerrar = () => {
+    if (guardando) return;
+    dialogo.close();
+    dialogo.remove();
+    repintarVideo();
+  };
+  const dialogo = h('dialog', { id: 'editor-parallax', clase: 'anim-editor parallax-editor',
+    'aria-labelledby': 'parallax-editor-titulo',
+    oncancel: ev => { ev.preventDefault(); cerrar(); },
+    onkeydown: ev => {
+      ev.stopPropagation();
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') { ev.preventDefault(); guardar(); }
+    } },
+    h('div', { clase: 'anim-editor-cab' },
+      h('h2', { id: 'parallax-editor-titulo' }, `Efecto Parallax · ${escena.id}`),
+      h('button', { clase: 'mini', onclick: cerrar, 'aria-label': 'Cerrar editor de parallax' }, 'Cerrar')),
+    h('p', { clase: 'meta' }, 'Estos ajustes solo cambian esta imagen. Desmarca la casilla para quitarle '
+      + 'el efecto. Pulsa Guardar para aplicar; cerrar descarta los cambios sin guardar.'),
+    h('label', { clase: 'efecto-encargo' }, activar,
+      h('span', {}, h('b', {}, 'Aplicar efecto parallax a esta imagen'))),
+    configuracion,
+    h('div', { clase: 'anim-editor-pie' }, estado, guardarBoton));
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
+
+  function marcarCambio() {
+    if (!ficha || !ficha.disponible || guardando) return;
+    sucio = true;
+    configuracion.disabled = !activar.checked;
+    guardarBoton.disabled = false;
+    estado.textContent = activar.checked ? 'Cambios sin guardar.' : 'Se quitará el parallax de esta imagen al guardar.';
+  }
+
+  async function guardar() {
+    if (!ficha || !sucio || guardando || !ficha.disponible) return;
+    const elegida = intensidad.querySelector('input:checked');
+    const datos = { ancla: ficha.ancla, activo: activar.checked, movimiento: movimiento.value,
+      intensidad: elegida ? elegida.value : 'suave' };
+    guardando = true;
+    activar.disabled = true;
+    configuracion.disabled = true;
+    guardarBoton.disabled = true;
+    estado.textContent = 'Guardando…';
+    try {
+      const previa = await pedir(url, { method: 'PUT', cuerpo: datos });
+      if (videoAbierto().pid !== pid) { guardando = false; cerrar(); return; }
+      PREVIA.ficha = previa;
+      PARALLAX_PREVIA.actual = null;
+      try { await refrescarFichasLight(); } catch (error) { /* el ajuste ya se ha guardado */ }
+      sucio = false;
+      guardando = false;
+      cerrar();
+      toast(datos.activo ? 'Parallax guardado para esta imagen. Preparando su vídeo…'
+        : 'Parallax quitado de esta imagen.');
+    } catch (error) {
+      estado.textContent = `No se ha guardado: ${error.message}`;
+    } finally {
+      guardando = false;
+      activar.disabled = false;
+      configuracion.disabled = !activar.checked;
+      guardarBoton.disabled = !sucio;
+    }
+  }
+
+  try {
+    ficha = await pedir(url);
+    if (!dialogo.isConnected) return;
+    activar.checked = ficha.actual.activo;
+    activar.disabled = !ficha.disponible;
+    movimiento.value = ficha.actual.movimiento;
+    intensidad.querySelectorAll('input').forEach(i => { i.checked = i.value === ficha.actual.intensidad; });
+    configuracion.disabled = !ficha.disponible || !activar.checked;
+    estado.textContent = !ficha.disponible ? 'El parallax solo se aplica a imágenes estáticas.'
+      : ficha.personalizado ? 'Configuración propia de esta imagen.' : 'Configuración heredada del vídeo.';
+  } catch (error) {
+    estado.textContent = `No se ha podido abrir el parallax: ${error.message}`;
+  }
+}
+
 async function abrirAnimacionEscena(escena) {
   if ($('#editor-animacion')) return;
   pararPrevia();
@@ -9710,6 +9811,12 @@ function vistaPreviaLight() {
       onclick: () => abrirAnimacionEscena(e),
       title: 'Editar el contenido o elegir una animación para esta escena',
     }, e.animacion ? '✦ Animación' : '✦ Crear animación'),
+    h('button', {
+      clase: e.parallax ? 'mini primario' : 'mini',
+      onclick: () => abrirParallaxEscena(e),
+      title: 'Configurar o quitar el efecto parallax solo en esta imagen',
+      disabled: (e.medio_usuario || {}).tipo === 'video',
+    }, 'Efecto Parallax'),
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`
       + (e.bloque ? ` · ${e.bloque}` : '')

@@ -2657,6 +2657,11 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   background: var(--panel); font-size: 13px; }
 .parallax-previa-estado progress { width: 130px; accent-color: var(--acento); }
 .parallax-previa-estado > span { min-width: 0; overflow-wrap: anywhere; flex: 1 1 240px; }
+.parallax-editor { width: min(640px, calc(100vw - 32px)); }
+.parallax-editor fieldset { border: 0; padding: 0; margin: 16px 0; min-width: 0; }
+.parallax-editor input[type="checkbox"], .parallax-editor input[type="radio"] { width: auto; }
+.parallax-editor-config:disabled { opacity: .55; }
+.parallax-editor .parallax-avanzado fieldset { margin-bottom: 0; }
 @media (max-width: 540px) {
   .parallax-opciones { grid-template-columns: 1fr; }
 }
