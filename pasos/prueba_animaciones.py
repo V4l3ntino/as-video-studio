@@ -256,7 +256,10 @@ comprobar("la instruccion nombra cada animacion y su id",
           all(f'id "{a}"' in instruccion.replace("(", "").replace(")", "") or f'"{a}"' in instruccion
               for a in todas_ids))
 comprobar("pide marcar el bloque y no inventar datos",
-          '"animacion"' in instruccion and "NUNCA inventes" in instruccion)
+           '"animacion"' in instruccion and "NUNCA inventes" in instruccion)
+comprobar("el texto se redacta para la animacion y selecciona un fragmento literal",
+          "REDACTA ese bloque a partir" in instruccion and
+          '"animacion_texto"' in instruccion and "comparación DE VERDAD" in instruccion)
 igual("sin plan no hay instruccion", animaciones.bloque_para_guion([], 36), "")
 
 import p3_guion  # noqa: E402
@@ -318,8 +321,21 @@ elegido_nombre = animaciones.repartir([dos_nombres, escena(12, "Y continuó.", 7
 igual("el titulo sigue la seleccion de Claude y no el nombre mas largo",
       elegido_nombre.get("S011", {}).get("datos", {}).get("nombre"), "Nature Communications")
 igual("no se sustituye en silencio una seleccion de Claude que no aparece en el plano",
-      animaciones.repartir([universidad], {"animaciones": ["etiqueta-escrita"]}, "es",
-          etiquetas={"B002": "etiqueta-escrita"}, textos={"B002": "Universidad de Oxford"}), {})
+       animaciones.repartir([universidad], {"animaciones": ["etiqueta-escrita"]}, "es",
+           etiquetas={"B002": "etiqueta-escrita"}, textos={"B002": "Universidad de Oxford"}), {})
+concepto = {"id": "B002", "texto": "Aquí aparece la fotosíntesis, que convierte la luz en energía.",
+            "animacion": "ficha-ui", "animacion_texto": "fotosíntesis"}
+animaciones.etiquetar_bloques([concepto], ["ficha-ui"], [], "es")
+animaciones.validar_textos([concepto], "es")
+igual("la ficha conserva un concepto sin nombre propio elegido en el guion",
+      (concepto.get("animacion"), concepto.get("animacion_texto", "").rstrip(",")),
+      ("ficha-ui", "fotosíntesis"))
+plano_concepto = escena(5, concepto["texto"], 0, 6)
+plano_concepto["origen"] = {"bloque": "B002"}
+reparto_concepto = animaciones.repartir([plano_concepto], {"animaciones": ["ficha-ui"]}, "es",
+    etiquetas={"B002": "ficha-ui"}, textos={"B002": "fotosíntesis"})
+igual("la ficha muestra la palabra clave de la narración, no otra",
+      reparto_concepto["S005"]["datos"]["nombre"], "fotosíntesis")
 for tipo, texto, fragmento, campo, esperado in (
     ("infografia-cifra", "El 45% de los barcos quedó atrás.", "45% de los barcos",
      "texto", "45%"),
@@ -339,6 +355,22 @@ for tipo, texto, fragmento, campo, esperado in (
         imagenes={"S009": "a", "S010": "b"}, etiquetas={"B009": tipo},
         textos={"B009": bloque.get("animacion_texto")})
     igual(f"{tipo}: el plano usa el fragmento elegido", elegido["S009"]["datos"][campo], esperado)
+
+for texto, fragmento, esperado in (
+    ("Todo cambió en mil novecientos veintitrés, cuando cayó el muro.",
+     "mil novecientos veintitrés", "1923"),
+    ("La historia empezó el cinco de mayo, con la llegada del barco.",
+     "cinco de mayo", "5 MAYO")):
+    bloque = {"texto": texto, "animacion": "editorial-fecha", "animacion_texto": fragmento}
+    animaciones.validar_textos([bloque], "es")
+    igual("la fecha escrita con letras conserva la selección del guion",
+          bloque.get("animacion_texto", "").rstrip(","), fragmento)
+    e = escena(9, texto, 0, 8)
+    e["origen"] = {"bloque": "B009"}
+    reparto = animaciones.repartir([e], {"animaciones": ["editorial-fecha"]}, "es",
+        etiquetas={"B009": "editorial-fecha"}, textos={"B009": fragmento})
+    igual("la banda convierte lo dicho a fecha visible sin perder el reloj",
+          reparto["S009"]["datos"]["texto"], esperado)
 
 print("\n== etiquetar los bloques: lo marcado, lo rescatado y lo que no cabe ==")
 bl = [{"id": f"B{i:03d}", "texto": t} for i, t in enumerate([

@@ -221,25 +221,36 @@ def _cifra(palabras, marcas, t_in, idioma):
             "desde": desde, "hasta": hasta}
 
 
-def _fecha(palabras, marcas, t_in):
-    for i, palabra in enumerate(palabras):
-        coincide = _RE_ANIO.match(str(palabra))
+def _fecha(palabras, marcas, t_in, idioma=None):
+    # El guion se locuta con TODO en letras. Recuperar los tramos numericos con
+    # la misma conversion que usan los subtitulos, conservando los indices de
+    # las palabras originales para sincronizar la banda con la voz.
+    tramos = list(subtitulos._cifras_de(palabras, idioma))
+    cubiertas = {i for a, b in tramos for i in range(a, b)}
+    tramos += [(i, i + 1) for i, p in enumerate(palabras)
+               if i not in cubiertas and re.search(r"\d", str(p))]
+    for a, b in sorted(tramos):
+        coincide = _RE_ANIO.match(subtitulos.limpiar_texto(palabras[a:b], idioma))
         if not coincide:
             continue
-        desde, hasta = _tiempos(marcas, i, i + 1, t_in)
+        desde, hasta = _tiempos(marcas, a, b, t_in)
         # el contexto es lo que cuelga del ano: «en 1923, cuando cayó el muro»
-        resto = _contexto(palabras, i + 1, despues=6, tope=7)
+        resto = _contexto(palabras, b, despues=6, tope=7)
         return {"texto": coincide.group(1), "contexto": resto,
                 "desde": desde, "hasta": hasta}
-    for i, palabra in enumerate(palabras[:-1]):
-        if _limpio(palabra).lower() == "de" and i >= 1 and re.fullmatch(
-                _MESES, _limpio(palabras[i + 1]).lower() or "-"):
-            dia = _limpio(palabras[i - 1])
-            if dia.isdigit() and 1 <= int(dia) <= 31:
-                desde, hasta = _tiempos(marcas, i - 1, i + 2, t_in)
-                return {"texto": f"{dia} {_limpio(palabras[i + 1]).upper()}",
-                        "contexto": _contexto(palabras, i + 2, despues=6, tope=7),
-                        "desde": desde, "hasta": hasta}
+    # Las unidades («cinco de mayo») no se convierten a cifra en los
+    # subtitulos, pero aqui SI son dias cuando preceden al nombre del mes.
+    dias = medios.numeros_en([medios.normalizar_texto(p) for p in palabras], idioma)
+    for a, n, valor in dias:
+        b = a + n
+        if b + 1 >= len(palabras) or _limpio(palabras[b]).lower() != "de" or not re.fullmatch(
+                _MESES, _limpio(palabras[b + 1]).lower() or "-"):
+            continue
+        if valor == int(valor) and 1 <= valor <= 31:
+            desde, hasta = _tiempos(marcas, a, b + 2, t_in)
+            return {"texto": f"{int(valor)} {_limpio(palabras[b + 1]).upper()}",
+                    "contexto": _contexto(palabras, b + 2, despues=6, tope=7),
+                    "desde": desde, "hasta": hasta}
     return None
 
 
@@ -290,7 +301,14 @@ def _nombre_propio(palabras):
     limpias = [_limpio(p) for p in palabras]
     return (limpias[0][:1].isupper() and
             all(p[:1].isupper() or p.lower() in conectores for p in limpias) and
-            limpias[-1][:1].isupper())
+             limpias[-1][:1].isupper())
+
+
+def _concepto_elegido(palabras):
+    """Un concepto breve elegido literalmente por el guionista, no por heuristica."""
+    limpias = [_limpio(p) for p in palabras]
+    return (1 <= len(limpias) <= 5 and
+            any(len(p) >= 4 and p.lower() not in _VACIAS for p in limpias))
 
 
 def _frase(palabras, marcas, t_in):
@@ -356,7 +374,7 @@ def senales(escena, idioma=None):
         t_in = float(escena.get("t_in") or 0.0)
         salida = {}
         for clave, buscar in (("cifra", lambda: _cifra(palabras, marcas, t_in, idioma)),
-                              ("fecha", lambda: _fecha(palabras, marcas, t_in)),
+                              ("fecha", lambda: _fecha(palabras, marcas, t_in, idioma)),
                               ("contraste", lambda: _contraste(palabras, marcas, t_in)),
                               ("termino", lambda: _termino(palabras, marcas, t_in)),
                               ("frase", lambda: _frase(palabras, marcas, t_in))):
@@ -465,10 +483,14 @@ def _admite(lista, indice, animacion, imagenes, idioma, texto=None):
         fragmento = {"narracion": " ".join(trozo), "marcas": marcas[rango[0]:rango[1]],
                      "t_in": escena.get("t_in")}
         elegido = senales(fragmento, idioma).get(senal)
-        if senal == "termino" and datos and _nombre_propio(trozo):
-            # El nombre puede abrir EL FRAGMENTO aunque no abra la frase.
-            elegido = dict(datos, nombre=" ".join(trozo),
-                           desde=float(marcas[rango[0]][0]) - float(escena["t_in"]))
+        if senal == "termino" and _concepto_elegido(trozo):
+            # Una ficha también puede explicar un concepto sin nombre propio:
+            # solo cuando Claude eligió su nombre literal en el guion. La
+            # heurística sin selección sigue exigiendo un nombre propio.
+            elegido = {"nombre": " ".join(_limpio(p) for p in trozo),
+                       "definicion": " ".join(palabras[:16]),
+                       "desde": float(marcas[rango[0]][0]) - float(escena["t_in"]),
+                       "hasta": float(marcas[rango[1] - 1][1]) - float(escena["t_in"])}
         if not elegido:
             return None
         datos = elegido
@@ -625,17 +647,21 @@ def cobertura(reparto, pedidas):
 PIDE = {
     "infografia-cifra": "una frase con una CIFRA o un PORCENTAJE concreto y de que es "
                         "(«el 45 por ciento de los barcos...»), tomada del material",
-    "editorial-fecha": "una frase con un AÑO o una FECHA concreta («en 1923», «el 5 de mayo»)",
-    "ficha-ui": "una frase que presente un NOMBRE PROPIO (persona, lugar, empresa...) y diga "
-                "que es. El nombre propio NO abre la frase",
-    "ficha-cristal": "una frase que presente un NOMBRE PROPIO (persona, lugar, empresa...) y "
-                     "diga que es. El nombre propio NO abre la frase",
-    "etiqueta-escrita": "una frase que introduzca un NOMBRE PROPIO o un termino clave con "
-                        "mayuscula. No abre la frase",
-    "collage-titulo": "una frase que nombre un NOMBRE PROPIO (lugar, institucion, "
-                      "movimiento...) como protagonista del momento. No abre la frase",
-    "comparacion-tarjetas": "UNA frase que contraponga dos cosas con «mientras que» o «frente "
-                            "a» («las raices sanas crecen... mientras que las atrofiadas...»)",
+    "editorial-fecha": "una frase con un AÑO o una FECHA concreta del material (en la voz, "
+                       "«en mil novecientos veintitrés», «el cinco de mayo»; la banda "
+                       "mostrará 1923 o 5 MAYO)",
+    "ficha-ui": "una frase que presente un NOMBRE PROPIO o CONCEPTO concreto y diga "
+                "qué significa; elige su nombre literal para la ficha",
+    "ficha-cristal": "una frase que presente un NOMBRE PROPIO o CONCEPTO concreto y diga "
+                     "qué significa; elige su nombre literal para la ficha",
+    "etiqueta-escrita": "una frase que introduzca un NOMBRE PROPIO o término clave "
+                        "concreto; elige su nombre literal para la etiqueta",
+    "collage-titulo": "una frase que nombre un lugar, institución, movimiento o CONCEPTO "
+                      "concreto como protagonista; elige su nombre literal como título",
+    "comparacion-tarjetas": "UNA frase que compare dos elementos concretos del material "
+                            "con «mientras que» o «frente a» (por ejemplo, «las raíces "
+                            "sanas crecen mientras que las atrofiadas...»). Sus dos "
+                            "etiquetas deben describir las imágenes de esta escena y la vecina",
     "tipografia-cinetica": "una frase CORTA y contundente, de 3 a 9 palabras, que se sostenga "
                            "sola y resuma el momento",
 }
@@ -689,14 +715,21 @@ def bloque_para_guion(plan, bloques):
                       f"(id \"{hueco['animacion']}\") -> {hueco['pide']}.")
     lineas += [
         "Como colocarlas:",
-        "  1. En ese bloque, UNA de sus frases dice justo eso, dentro del relato y "
-        "sin forzarlo: que encaje con lo que se cuenta. Si el material no trae un "
-        "dato asi en ese punto, mueve la frase al bloque mas cercano donde si lo "
-        "haya. NUNCA inventes un dato: solo los del material.",
+        "  1. Decide primero qué hecho o idea del material corresponde a cada "
+        "animación y en qué parada del relato encaja. REDACTA ese bloque a partir "
+        "de la animación asignada: una comparación DE VERDAD para las tarjetas, "
+        "una fecha para la banda, un nombre y qué significa para las fichas o "
+        "collage, una frase breve para la tipografía. No marques un bloque "
+        "cualquiera por cumplir. Si el material no trae ese dato ahí, mueve la "
+        "animación al bloque más cercano que sí lo tenga. NUNCA inventes datos.",
         "  2. Marca ese bloque con \"animacion\": \"<id>\" en el JSON (el id de la "
-        "lista, tal cual) y no marques ningun otro. Un bloque lleva como mucho una.",
-        "  3. Lo demas del bloque se escribe como siempre: la animacion es un "
-        "acento sobre una frase, no cambia como se cuenta.",
+        "lista, tal cual) y elige \"animacion_texto\": el fragmento LITERAL que "
+        "aparecerá en pantalla, con la cifra/fecha, el nombre completo, las dos "
+        "ideas y su conector, o la frase corta. No marques otros bloques. "
+        "Un bloque lleva como mucho una.",
+        "  3. Comprueba antes de entregar que CADA animación elegida tenga un "
+        "bloque distinto con su frase adecuada y su fragmento literal. El resto "
+        "se escribe con naturalidad: la animación acompaña al relato, no lo sustituye.",
     ]
     return "\n".join(lineas)
 
@@ -739,12 +772,9 @@ def validar_textos(bloques, idioma=None):
         senal = CATALOGO[animacion]["senal"] if animacion in CATALOGO else None
         trozo = palabras[rango[0]:rango[1]] if rango else []
         presentes = senales_de_texto(" ".join(trozo), idioma) if trozo else {}
-        # Un nombre completo al principio del fragmento no es comienzo de
-        # frase: la regla de mayúsculas no debe invalidar la elección de Claude.
-        nombre = senales_de_texto(bloque.get("texto"), idioma).get("termino") \
-            if senal == "termino" else None
-        valido = senal in presentes or (senal == "termino" and nombre
-                                        and _nombre_propio(trozo))
+        # Un concepto o nombre propio elegido por Claude no tiene por qué
+        # llevar mayúsculas ni empezar a mitad de frase.
+        valido = senal in presentes or (senal == "termino" and _concepto_elegido(trozo))
         if not animacion or not rango or not valido:
             bloque.pop("animacion_texto", None)
         else:
@@ -769,7 +799,12 @@ def etiquetar_bloques(bloques, elegidas, plan, idioma=None):
     vistas = [senales_de_texto(b.get("texto"), idioma) for b in bloques]
     for b, v in zip(bloques, vistas):
         a = str(b.get("animacion") or "").strip()
-        if a and (a not in elegidas or CATALOGO[a]["senal"] not in v):
+        texto = _texto_llano(b.get("texto")).split()
+        fragmento = b.get("animacion_texto")
+        rango = _rango_literal(texto, fragmento) if fragmento else None
+        concepto = (a in CATALOGO and CATALOGO[a]["senal"] == "termino" and
+                    rango and _concepto_elegido(texto[rango[0]:rango[1]]))
+        if a and (a not in elegidas or (CATALOGO[a]["senal"] not in v and not concepto)):
             b.pop("animacion", None)
         elif not a:
             b.pop("animacion", None)
