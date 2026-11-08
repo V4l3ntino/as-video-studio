@@ -51,6 +51,7 @@ silencio entre las dos frases se le cobraban al plano como si hablara.
     python segmentar.py --audio ./audio --out escenas.json --min 3 --max 6
 """
 import argparse
+import bisect
 import difflib
 import json
 import math
@@ -119,6 +120,106 @@ def tipo_de_corte(palabra):
     if limpia[-1] in DEBIL:
         return "debil"
     return "ninguno"
+
+
+CIERRES_FRASE = '\"\'»”’)]}'
+ABREVIATURAS = {"sr.", "sra.", "srta.", "dr.", "dra.", "prof.", "ud.",
+                "uds.", "mr.", "mrs.", "ms.", "st.", "etc.", "e.g.", "i.e."}
+
+
+def frases_del_texto(texto):
+    """Frases completas del guion, no trozos elegidos por su duracion.
+
+    Recibe texto hablado, sin SSML. No reescribe lo aportado: un fragmento sin
+    mayuscula o sin punto se corrige en el guion antes de pagar la locucion.
+    Las abreviaturas y las iniciales interiores no son finales de escena.
+    """
+    palabras = str(texto or "").split()
+    frases, actual = [], []
+    for indice, palabra in enumerate(palabras):
+        actual.append(palabra)
+        limpia = palabra.rstrip(CIERRES_FRASE)
+        if not limpia.endswith("."):
+            continue
+        siguiente = indice + 1 < len(palabras)
+        if siguiente and (limpia.lower() in ABREVIATURAS
+                          or re.fullmatch(r"(?:[^\W\d_]\.)+", limpia)):
+            continue
+        frase = " ".join(actual)
+        letras = [c for c in frase if c.isalpha()]
+        if not letras or (letras[0].islower()):
+            raise ValueError(f"la frase debe empezar por mayuscula: {frase[:100]}")
+        if any(c in frase for c in "!?¿¡…") or "..." in frase:
+            raise ValueError("cada escena debe ser una frase terminada en punto; "
+                             f"reformula las preguntas o exclamaciones: {frase[:100]}")
+        frases.append(frase)
+        actual = []
+    if actual:
+        raise ValueError("la frase debe terminar en punto: " + " ".join(actual)[:100])
+    return frases
+
+
+def _clave_locutada(texto):
+    texto = unicodedata.normalize("NFD", str(texto).casefold())
+    return "".join(c for c in texto if c.isalnum())
+
+
+def segmentar_frases(palabras, textos, minimo=3.0, maximo=6.0,
+                     adelanto=0.25, cola=0.45, reparto=None):
+    """Una frase del guion por escena, alineada con las marcas reales del TTS.
+
+    Las marcas pueden perder puntuacion o partir/unir tokens. Se comparan sus
+    letras completas con el texto hablado, sin inventar tiempos proporcionales.
+    Una frontera de frase debe coincidir con un limite real de palabra del TTS.
+    La horquilla solo se informa: nunca autoriza partir ni juntar frases.
+    """
+    frases = [f for texto in textos for f in frases_del_texto(texto)]
+    reales = [p for p in palabras if _clave_locutada(p["w"])]
+    letras_tts = [_clave_locutada(p["w"]) for p in reales]
+    letras_guion = [_clave_locutada(f) for f in frases]
+    if "".join(letras_tts) != "".join(letras_guion):
+        raise ValueError("las marcas de voz no coinciden con las frases del guion; "
+                         "revisa la locucion antes de dividirla en escenas")
+    if not frases:
+        return []
+    limites_tts, total = [], 0
+    for texto in letras_tts:
+        total += len(texto)
+        limites_tts.append(total)
+    segmentos, acumulado = [], 0
+    for frase in frases:
+        fin_frase = acumulado + len(_clave_locutada(frase))
+        if fin_frase not in limites_tts:
+            raise ValueError("una marca de voz cruza el punto entre dos frases; "
+                             "revisa la locucion antes de montar las escenas")
+        tramo = []
+        for palabra in frase.split():
+            largo = len(_clave_locutada(palabra))
+            if not largo:
+                if tramo:
+                    tramo[-1]["w"] += palabra
+                continue
+            primero = bisect.bisect_right(limites_tts, acumulado)
+            ultimo = bisect.bisect_left(limites_tts, acumulado + largo)
+            tramo.append({"w": palabra, "s": float(reales[primero]["s"]),
+                          "e": float(reales[ultimo]["e"])})
+            acumulado += largo
+        segmentos.append((tramo[0]["s"], tramo[-1]["e"], tramo))
+    todas = [p for _, _, tramo in segmentos for p in tramo]
+    entradas = entradas_de(todas, adelanto, cola)
+    duraciones, indice = [], 0
+    for _, _, tramo in segmentos:
+        fin = indice + len(tramo)
+        duraciones.append(entradas[fin] - entradas[indice])
+        indice = fin
+    bajo = all(d >= minimo - .05 for d in duraciones)
+    alto = all(d <= maximo + .05 for d in duraciones)
+    destino = ULTIMO_REPARTO if reparto is None else reparto
+    destino.update({"por_frases": True, "maximo_respetado": alto,
+                    "minimo_respetado": bajo, "horquilla_respetada": bajo and alto,
+                    "frases_enterradas": False, "minimo": minimo,
+                    "maximo": maximo, "escalon": 0})
+    return segmentos
 
 
 def coste_duracion(dur, minimo, maximo, ideal):
@@ -628,10 +729,14 @@ def informe(escenas, minimo, maximo, reparto=None):
     # las dos formas de que el corte no case con lo que se cuenta. Se cuentan y
     # se nombran: sin esto, seis planos de veintiseis llevaban dos ideas dentro
     # y no lo sabia nadie hasta ver el video.
-    con_varias = [e["id"] for e in escenas if frases_dentro(e.get("narracion")) > 0]
+    con_varias = [e["id"] for e in escenas
+                  if (len(frases_del_texto(e.get("narracion"))) - 1
+                      if e.get("frase_completa")
+                      else frases_dentro(e.get("narracion"))) > 0]
     partidas = [e["id"] for e in escenas if e.get("corte") != "fuerte"]
     return {
         "escenas": len(escenas),
+        **({"por_frases": True} if hecho.get("por_frases") else {}),
         "duracion_media": round(sum(duraciones) / len(duraciones), 2) if duraciones else 0,
         "duracion_min": round(min(duraciones), 2) if duraciones else 0,
         "duracion_max": round(max(duraciones), 2) if duraciones else 0,

@@ -552,6 +552,8 @@ def prueba_reintento():
         igual(salidas["intentos"], 2, "reintenta cuando la primera respuesta no se lee")
         igual(salidas["titulo"], "A la segunda", "se queda con la respuesta buena")
         trabajo = proyecto.ruta_trabajo("guion", crear=False)
+        comprobar(leer_json(os.path.join(trabajo, "guion.json"))["escenas_por_frase"] is True,
+                  "la redaccion nueva declara una frase completa por escena")
         comprobar(os.path.exists(os.path.join(trabajo, "instruccion_2.txt")),
                   "guarda la instruccion de cada intento")
 

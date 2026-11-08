@@ -74,6 +74,7 @@ import corrector  # noqa: E402
 import cta  # noqa: E402
 import encuadres  # noqa: E402
 import estadisticas  # noqa: E402
+import marcas_tts  # noqa: E402
 import medios  # noqa: E402
 import medios_escena  # noqa: E402
 import nombres_imagen  # noqa: E402
@@ -1214,16 +1215,31 @@ def planificar(proyecto, params, inventario=None, replantear=False,
     # Un plan de antes del 31-08 no lo trae, y entonces no se hereda: sin saber
     # donde cortaba de verdad, heredar del resultado es exactamente el fallo de
     # arriba.
-    crudo = [{"narracion": x} for x in ((previo or {}).get("corte") or [])]
-    segmentos = segmentar.heredar(palabras, crudo,
-                                  adelanto=adelanto, cola=cola,
-                                  minimo=p["min_s"], maximo=p["max_s"],
-                                  reparto=reparto_corte)
-    if not segmentos:
-        segmentos = segmentar.segmentar(palabras, p["min_s"], p["max_s"],
-                                        adelanto=adelanto, cola=cola, muros=muros,
-                                        reparto=reparto_corte)
+    por_frases = bool(meta.get("escenas_por_frase"))
+    if por_frases:
+        textos = [b.get("narracion") or marcas_tts.limpiar(b.get("texto") or "")
+                  for b in (meta.get("bloques") or [])]
+        if not textos:
+            raise ValueError("la voz no conserva las frases del guion para montar escenas")
+        segmentos = segmentar.segmentar_frases(
+            palabras, textos, p["min_s"], p["max_s"],
+            adelanto=adelanto, cola=cola, reparto=reparto_corte)
+    else:
+        crudo = [{"narracion": x} for x in ((previo or {}).get("corte") or [])]
+        segmentos = segmentar.heredar(palabras, crudo,
+                                      adelanto=adelanto, cola=cola,
+                                      minimo=p["min_s"], maximo=p["max_s"],
+                                      reparto=reparto_corte)
+        if not segmentos:
+            segmentos = segmentar.segmentar(palabras, p["min_s"], p["max_s"],
+                                            adelanto=adelanto, cola=cola, muros=muros,
+                                            reparto=reparto_corte)
     escenas = [dict(e) for e in segmentar.construir_escenas(segmentos)]
+    if por_frases:
+        for indice, escena in enumerate(escenas):
+            escena["frase_completa"] = True
+            escena["corte"] = "fuerte"
+            escena["transicion"] = segmentar.transicion_para(indice, "fuerte")
     # EL CORTE, TAL CUAL SALIO. Se guarda antes de que nadie lo toque: es lo
     # unico contra lo que la proxima pasada puede reconocer donde cortaba.
     corte_crudo = [e.get("narracion") or "" for e in escenas]
@@ -1377,6 +1393,7 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         # Con que reglas se corto este plan. Ver MOTOR_PLAN: no entra en ninguna
         # firma, se enseña.
         "motor": MOTOR_PLAN,
+        **({"escenas_por_frase": True} if por_frases else {}),
         # LA SEMILLA DEL VIDEO, y va en el plan porque la leen pasos de mas
         # abajo: de ella salen la transicion de cada corte, el efecto de sonido
         # que suena y el grano del fondo de una cartela.
@@ -1594,7 +1611,8 @@ def _marcar_cartelas(escenas, beats, p):
     # suelo de separacion y el techo tienen que contarlo antes -- si se contara
     # despues, el reparto mediria una cosa y el video ensenaria otra.
     ocupacion = cartelas.ocupacion_de(escenas, plan, idioma=idioma,
-                                      planos=cartelas.PLANOS_MAXIMOS)
+                                      planos=(1 if any(e.get("frase_completa") for e in escenas)
+                                              else cartelas.PLANOS_MAXIMOS))
     puestas, avisos = cartelas.repartir(escenas, plan, ocupacion=ocupacion)
     for escena in escenas:
         ficha = puestas.get(escena["id"])
@@ -1772,10 +1790,12 @@ def _fundir_cartelas(escenas, beats, puestas, p=None, idioma=None):
         if not ficha or not cartelas.es_cartela(escena):
             indice += 1
             continue
+        # Una cartela puede seguir sobre una frase, pero nunca fusionar dos
+        # escenas del contrato nuevo para ganar tiempo de lectura.
         libre = lambda otro: _absorbible(otro, puestas)        # noqa: E731
         desde, hasta, escritura = cartelas.tramo_de(
             ficha, escenas, indice, libre, idioma=idioma,
-            planos=cartelas.PLANOS_MAXIMOS)
+            planos=1 if escena.get("frase_completa") else cartelas.PLANOS_MAXIMOS)
         hogar = escenas[desde]
 
         # El HOGAR lleva la cartela y la escribe. Si no es su plano de origen,

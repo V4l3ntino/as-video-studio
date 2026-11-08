@@ -16,6 +16,7 @@ import argparse
 import base64
 import json
 import os
+import random
 import re
 import struct
 import sys
@@ -206,24 +207,31 @@ def _pcm_de_wav(wav: bytes) -> bytes:
 #: en el empalme suena como un chasquido, que es peor que el problema original.
 FUNDIDO_MS = 12
 
+# -63 dBFS aproximadamente. Una pausa puede contener una inspiracion o una
+# consonante mal delimitada por las marcas del TTS: nunca debe amplificarse ni
+# copiarse para fabricar el aire entre bloques.
+RUIDO_SALA_RMS_MAX = 24
+
 
 def _relleno_de_sala(pcm, desde_seg, hasta_seg, duracion):
-    """Ruido de sala para rellenar un hueco, sacado de la PROPIA pausa.
+    """Fondo tenue sin repetir muestras de la narracion.
 
     Antes se insertaban ceros. Una toma continua tiene su suelo de ruido, y
     cortarlo a cero durante mas de un segundo se oye como un corte: el fondo
     desaparece de golpe y vuelve. Con 88 bloques y 1,2 s de hueco eran 62 s de
     vacio digital en un video de 15 minutos, uno en cada frontera de bloque.
 
-    La mejor muestra de ruido de sala es la de la pausa que se esta ensanchando,
-    asi que se toma de ahi y se repite. Se alterna con su reverso para que la
-    repeticion no cree un patron audible.
+    La pausa solo sirve para estimar el nivel y sembrar un generador local
+    reproducible. Repetirla (incluso alternada con su reverso) convertia una
+    respiracion o el remate de una palabra en un tartamudeo durante todo el hueco.
+    El fondo generado queda limitado aunque las marcas incluyan voz. No cambia
+    ni una muestra de la toma original ni la duracion del relleno.
     """
     bytes_por_seg = SR * 2
     necesarios = int(duracion * bytes_por_seg) & ~1
     if necesarios <= 0:
         return b""
-    # semilla: el centro de la pausa natural, hasta 200 ms
+    # Muestra para estimar el nivel y sembrar el fondo, nunca para repetirla.
     ancho = max(0.0, hasta_seg - desde_seg)
     if ancho < 0.04:
         return b"\x00" * necesarios          # no hay pausa de la que sacar nada
@@ -235,17 +243,16 @@ def _relleno_de_sala(pcm, desde_seg, hasta_seg, duracion):
     if len(semilla) < 4:
         return b"\x00" * necesarios
 
-    reverso = semilla[::-1]
-    # el reverso de un buffer de bytes invierte tambien los dos bytes de cada
-    # muestra: se rehace por pares para que siga siendo audio y no ruido blanco
-    reverso = b"".join(reverso[i:i + 2][::-1] for i in range(0, len(reverso) - 1, 2))
-    trozos, largo, vuelta = [], 0, 0
-    while largo < necesarios:
-        pieza = semilla if vuelta % 2 == 0 else reverso
-        trozos.append(pieza)
-        largo += len(pieza)
-        vuelta += 1
-    relleno = bytearray(b"".join(trozos)[:necesarios])
+    valores = struct.unpack(f"<{len(semilla) // 2}h", semilla)
+    rms = (sum(v * v for v in valores) / len(valores)) ** 0.5
+    amplitud = int(min(rms, RUIDO_SALA_RMS_MAX) * (3 ** 0.5))
+    if amplitud == 0:
+        return b"\x00" * necesarios
+    generador = random.Random(semilla)
+    relleno = bytearray(necesarios)
+    for pos in range(0, necesarios, 2):
+        struct.pack_into("<h", relleno, pos,
+                         generador.randint(-amplitud, amplitud))
 
     # fundido de entrada y de salida sobre el relleno
     muestras = FUNDIDO_MS * SR // 1000
@@ -266,7 +273,7 @@ def espaciar(wav, palabras, reparto, escenas, hueco_minimo=1.0):
     conserva la toma tal cual y solo se estira el silencio en los cortes, asi que
     la prosodia dentro de cada frase queda intacta.
 
-    Lo que se inserta es RUIDO DE SALA de la propia pausa, no ceros: ver
+    Lo que se inserta es fondo tenue generado, sin repetir la pausa: ver
     _relleno_de_sala.
 
     Devuelve (wav_nuevo, desplazamientos) donde desplazamientos es el retardo

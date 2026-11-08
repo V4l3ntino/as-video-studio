@@ -68,7 +68,7 @@ $suites = @(
   'pasos\prueba_p1.py', 'pasos\prueba_p2.py', 'pasos\prueba_p3.py',
   'pasos\prueba_cta.py',
   'pasos\prueba_pasos_guion.py', 'pasos\prueba_marcas_tts.py',
-  'pasos\prueba_pasos_voz.py', 'pasos\prueba_pasos_visuales.py',
+  'pasos\prueba_pasos_voz.py', 'pasos\prueba_escenas_frases.py', 'pasos\prueba_pasos_visuales.py',
   'pasos\prueba_repaso.py', 'pasos\prueba_publicacion.py', 'pasos\prueba_shorts.py',
   'pasos\prueba_recuperacion_imagenes.py',
   'pasos\prueba_medios_escena.py',

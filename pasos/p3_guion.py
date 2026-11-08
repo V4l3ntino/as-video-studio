@@ -103,7 +103,7 @@ import subprocess  # noqa: F401  (las pruebas sustituyen p3_guion.subprocess.Pop
 import time
 
 try:
-    from . import animaciones, cli_claude, comun, cta, estadisticas, fuentes, marcas_tts
+    from . import animaciones, cli_claude, comun, cta, estadisticas, fuentes, marcas_tts, medios
 except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import animaciones
     import cli_claude
@@ -112,6 +112,7 @@ except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import estadisticas
     import fuentes
     import marcas_tts
+    import medios
 
 PASO = "guion"
 
@@ -708,7 +709,15 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         f"cortos; el total manda sobre el tamano del bloque. Cada bloque es una "
         f"idea que se lee de un tiron. Numeralos B001, B002, B003 en orden. Si "
         f"conservas un bloque del guion anterior practicamente igual, mantenle "
-        f"su id.",
+        f"su id. Dentro de cada bloque escribe frases completas y breves: "
+        "CADA FRASE SERA UNA ESCENA, con inicio y final propios. Empieza cada "
+        "frase por mayuscula y terminala con un punto (.). No partas una frase "
+        "entre escenas ni uses comas como finales de escena. Formula las "
+        "preguntas retoricas y las exclamaciones como afirmaciones terminadas "
+        "en punto; evita puntos suspensivos y abreviaturas con puntos. Ajusta "
+        "el ritmo escribiendo frases mas breves, nunca cortando una frase por "
+        "la mitad. Un bloque puede agrupar varias escenas, pero cada escena "
+        "contiene exactamente una frase completa.",
         # Esta regla existe por un fallo concreto: el guion salia sin tildes.
         # Todo lo que hay escrito en este Estudio -- codigo, instrucciones,
         # comentarios -- va sin tildes por compatibilidad de consolas, y el
@@ -882,26 +891,26 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         partes.extend(f"  - {linea}" for linea in correcciones)
 
     ejemplo = ('{"titulo": "titulo del video", "bloques": [{"id": "B001", '
-               '"texto": "texto locutado del primer bloque"}, '
-               '{"id": "B002", "texto": "..."}]}')
+               '"texto": "Una frase completa del primer bloque."}, '
+               '{"id": "B002", "texto": "Otra frase completa del relato."}]}')
     if opciones["anotaciones_voz"]:
         # El ejemplo lleva la anotacion puesta a proposito: un modelo copia la
         # forma del ejemplo antes que la regla, y esta es exactamente la pausa
         # que se echaba en falta -- la del gancho a la entrada del documental.
         ejemplo = ('{"titulo": "titulo del video", "bloques": [{"id": "B001", '
-                   '"texto": "el gancho, que cierra aqui.<break time=\\"900ms\\"/>", '
+                   '"texto": "El gancho cierra aqui.<break time=\\"900ms\\"/>", '
                    '"abre_seccion": true}, '
-                   '{"id": "B002", "texto": "y aqui empieza el documental.", '
+                   '{"id": "B002", "texto": "Aqui empieza el documental.", '
                    '"abre_seccion": true}]}')
     if opciones.get("personajes"):
         # con personaje, el ejemplo ensena la marca puesta en la presentacion:
         # un modelo copia la forma del ejemplo antes que la regla
         ejemplo = ('{"titulo": "titulo del video", "bloques": [{"id": "B001", '
-                   '"texto": "el gancho, que cierra aqui.<break time=\\"900ms\\"/>", '
+                   '"texto": "El gancho cierra aqui.<break time=\\"900ms\\"/>", '
                    '"abre_seccion": true}, '
                    '{"id": "B002", "texto": "Soy Nombre y en este video te voy a '
-                   'contar...", "personaje": true, "abre_seccion": true}, '
-                   '{"id": "B003", "texto": "y aqui sigue el documental."}]}')
+                   'contar esta historia.", "personaje": true, "abre_seccion": true}, '
+                   '{"id": "B003", "texto": "Aqui sigue el documental."}]}')
     # LA CUENTA, OTRA VEZ Y AL FINAL. No es repetir la regla 3 por insistir: la
     # ULTIMA parte de un prompt es la que mas pesa --esta medido en este repo
     # con el feedback de un plano-- y la longitud es lo unico
@@ -1039,6 +1048,18 @@ def _primer_objeto(texto):
 
 
 # ------------------------------------------------------------------- bloques
+
+def problemas_de_frases(bloques):
+    """Errores editoriales antes de locutar; no se inventa puntuacion al montar."""
+    segmentador = medios.motor("guion/segmentar.py")
+    problemas = []
+    for bloque in bloques:
+        try:
+            segmentador.frases_del_texto(marcas_tts.limpiar(bloque["texto"]))
+        except ValueError as fallo:
+            problemas.append(f"{bloque['id']}: {fallo}")
+    return problemas
+
 
 def _normalizar_bloques(datos):
     """Lista de bloques {id, texto} a partir de lo que haya contestado el modelo."""
@@ -1569,7 +1590,8 @@ def _redactar(proyecto, params, avisar):
         datos["_bloques"] = bloques
         datos["_avisos"] = propios
         palabras = sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques)
-        return _problemas(bloques, palabras, brief_doc, opciones, idioma)
+        return (_problemas(bloques, palabras, brief_doc, opciones, idioma)
+                + problemas_de_frases(bloques))
 
     datos, sobre, intentos, pendientes = _pedir(
         lambda correcciones, previo: _instruccion(transcript, metadatos,
@@ -1627,6 +1649,7 @@ def _redactar(proyecto, params, avisar):
                for b in bloques]
     avisos = list(_avisos(bloques, palabras, brief_doc, idioma))
     avisos.extend(pendientes)
+    avisos.extend(problemas_de_frases(bloques))
     avisos.extend(avisos_animaciones)
     tokens = comun.tokens_de_cli(sobre)
 
@@ -1641,6 +1664,9 @@ def _redactar(proyecto, params, avisar):
     documento = {
         "titulo": titulo,
         "guion": guion,
+        # Contrato de esta redaccion, no un param por defecto que altere las
+        # firmas de proyectos existentes al abrirlos.
+        "escenas_por_frase": True,
         "palabras": palabras,
         "presupuesto_palabras": presupuesto,
         "palabras_minimo": minimo,

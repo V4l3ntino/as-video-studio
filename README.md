@@ -245,6 +245,17 @@ puede reintentar por separado. La subida a YouTube sigue siendo manual.
 
 ### Importar y exportar el guion
 
+Los guiones nuevos se montan con **una frase completa por escena**. Cada frase
+empieza por mayúscula y termina en punto. Una coma no provoca un cambio de
+escena, y dos frases cortas tampoco se unen en una sola imagen. El ritmo se
+ajusta escribiendo frases más breves: si una frase resulta larga, el montaje la
+conserva entera aunque supere la duración objetivo del plano. Los cortes siguen
+las marcas reales de la voz; la narración se mantiene como una pista continua.
+
+La regla se conserva al revisar o regrabar la voz. Los proyectos con un guion
+anterior mantienen sus cortes; para adoptar el criterio nuevo hay que regenerar
+el guion y sus pasos dependientes.
+
 En la fase **Guion**, **Exportar guion (.txt)** descarga el texto actual,
 incluidas las correcciones manuales. Cada bloque ocupa un párrafo, separado del
 siguiente por una línea en blanco, sin título ni numeración.

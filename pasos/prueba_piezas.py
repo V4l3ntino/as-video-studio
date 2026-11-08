@@ -12,7 +12,7 @@ ejecutando" eso es deuda, y esta suite la salda. Cubre, por orden de riesgo:
   3. coste.coste_openai         por tokens, por imagen de respaldo, sin doble
                                 conteo
   4. segmentar                  que no deje huerfana la primera palabra
-  5. voz.espaciar               que el relleno sea ruido de sala y no ceros
+  5. voz.espaciar               fondo tenue sin repetir respiraciones ni letras
   6. p6._capa_vectorial         prioridad de candidatos y el tope de UNO
 
 Todo es unitario y en memoria: ni red ni API de imagen. Corre en
@@ -1372,11 +1372,11 @@ def _wav(muestras):
 
 
 def prueba_espaciar():
-    titulo("voz.espaciar: el relleno es ruido de sala, no ceros")
+    titulo("voz.espaciar: fondo tenue sin repetir la narracion")
     voz = medios.motor("voz_cartesia/voz.py")
     sr = voz.SR
     # Dos frases con una pausa corta entre ellas. La pausa lleva ruido de fondo
-    # de verdad (no silencio digital), que es lo que hay que copiar.
+    # de verdad (no silencio digital), cuyo nivel sirve para generar el fondo.
     total = int(sr * 4)
     muestras = []
     for i in range(total):
@@ -1405,7 +1405,35 @@ def prueba_espaciar():
     ok(nulos < len(trozo) * 0.2,
        f"lo insertado NO son ceros: solo {nulos} de {len(trozo)} muestras a cero")
     ok(max(abs(v) for v in trozo) < 2000,
-       "pero tampoco es voz: es el ruido de la propia pausa")
+       "pero tampoco es voz: el fondo queda limitado")
+
+    # Una pausa real puede contener respiracion o una consonante que Cartesia
+    # dejo fuera de las marcas. El relleno antiguo la repetia en bucle/reverso.
+    pausa = [int(11000 * np.sin(2 * np.pi * 180 * i / sr))
+             for i in range(int(.25 * sr))]
+    contaminado = _wav([8000] * sr + pausa + [7000] * (total - sr - len(pausa)))
+    seguro, desplazamientos = voz.espaciar(
+        contaminado, palabras, reparto, escenas, hueco_minimo=1.0)
+    original = voz._pcm_de_wav(contaminado)
+    procesado = voz._pcm_de_wav(seguro)
+    corte = int(1.125 * sr) * 2
+    insertados = len(procesado) - len(original)
+    fondo = np.frombuffer(procesado[corte:corte + insertados], dtype="<i2")
+    ok(np.max(np.abs(fondo)) <= voz.RUIDO_SALA_RMS_MAX * 2,
+       "una respiracion fuerte no se copia al relleno")
+    ok(np.sqrt(np.mean(fondo.astype(float) ** 2)) <= voz.RUIDO_SALA_RMS_MAX + 1,
+       "el relleno queda por debajo de -60 dBFS aunque las marcas incluyan voz")
+    ok(procesado[:corte] == original[:corte]
+       and procesado[corte + insertados:] == original[corte:],
+       "la toma original se conserva muestra por muestra a ambos lados")
+    igual(insertados, int(.75 * sr * 2) & ~1,
+          "el arreglo conserva la duracion y la sincronizacion")
+    ok(voz.espaciar(contaminado, palabras, reparto, escenas, 1.0)[0] == seguro,
+       "el fondo es reproducible sin depender del azar global")
+    # No introducir ruido en una pausa que ya era silencio digital.
+    ok(voz._relleno_de_sala(b"\x00" * (sr * 2), .1, .3, .4)
+       == b"\x00" * (int(.4 * sr * 2) & ~1),
+       "una pausa muda permanece muda")
 
     sin_falta = {"B01": [{"s": 0.0, "e": 1.0}], "B02": [{"s": 3.0, "e": 4.0}]}
     igual(voz.espaciar(wav, palabras, sin_falta, escenas, 1.0)[1], [],

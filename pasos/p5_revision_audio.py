@@ -130,6 +130,9 @@ Reglas:
   deletrean, marcadas: <spell>MFA</spell>.
 - Manten el idioma, el registro y una longitud parecida, salvo que la nota pida
   expresamente acortar o alargar.
+- Cada frase ocupa una escena: escribela completa, con mayuscula inicial y
+  punto final (.). Usa afirmaciones, sin preguntas, exclamaciones ni puntos
+  suspensivos. No dejes continuaciones de frase entre escenas.
 - Cambia solo lo que piden las notas; el resto del bloque se queda como esta.
 - Si una nota no se puede aplicar, aplica las demas y no lo comentes.
 - Si el bloque trae anotaciones de voz (<break time="700ms"/>, <speed ratio=
@@ -568,7 +571,8 @@ def ejecutar(proyecto, params, avisar=None):
 
     salidas = p4_voz.sintetizar_bloques(
         revisados, destino, cfg, avisar=progreso, sin_voz=sin_voz,
-        extra_meta={"bloques_modificados": modificados,
+        extra_meta={**p4_voz.contrato_de_escenas(proyecto),
+                    "bloques_modificados": modificados,
                     "cambios": cambios,
                     "avisos": avisos,
                     "modelo_texto": modelo_texto,

@@ -532,3 +532,33 @@ Tres cosas que ahorran perseguir fallos que no existen:
   parte y lo dice. No es un fallo.
 - `prueba_login` llama al CLI de Claude de verdad. Es la única que comprueba que
   el CLI sigue dejando entrar sin terminal y sin abrir un navegador.
+
+## Respiraciones o letras repetidas en la narración
+
+`voz_cartesia.voz._relleno_de_sala` repetía hasta 200 ms de la pausa, alternados
+con su reverso, para alargar el aire entre bloques. Las marcas de Cartesia pueden
+incluir una respiración o el remate de una consonante en esa «pausa»: el relleno
+los convertía en un tartamudeo. Se confirmó comparando una muestra del MP4 con el
+WAV guardado y reconociendo exactamente los bucles y sus fundidos. Ocurre al
+preparar la voz, no al concatenar las imágenes.
+
+El relleno ahora genera fondo reproducible, sin copiar muestras de la narración,
+limitado a unos -63 dBFS RMS. Conserva la longitud insertada y la toma original.
+No vuelvas a usar una pausa como bucle de audio. Regresión con una pausa que
+contiene voz en `pasos/prueba_piezas.py::prueba_espaciar`. La corrección no elimina
+bucles ya escritos en WAV antiguos; remontar ese mismo WAV tampoco los elimina.
+
+## Una frase completa por escena
+
+Las redacciones nuevas guardan `escenas_por_frase: true` en `guion.json`. Voz y
+revisión lo transmiten al `audio_meta.json`; `p6_assets.planificar` usa entonces
+`segmentar.segmentar_frases`, no el optimizador por duración ni cortes antiguos.
+Cada frase empieza por mayúscula y acaba en punto; la validación ocurre antes de
+pedir TTS. Los bloques B siguen siendo grupos editoriales y conservan sus ids.
+No partas una frase larga ni unas dos cortas para cumplir la horquilla: ahora es
+un objetivo de redacción, no permiso para cortar. Las cartelas tampoco fusionan
+escenas marcadas `frase_completa`. Los tiempos se alinean con palabras reales del
+TTS, incluso si pierde puntuación; si no coinciden las letras, falla en lugar de
+inventar tiempos. Regresión offline: `python pasos/prueba_escenas_frases.py`.
+No añadas el indicador como param por defecto ni lo inyectes en guiones antiguos:
+abrirlos o retomar sus imágenes debe conservar el corte y los recursos pagados.

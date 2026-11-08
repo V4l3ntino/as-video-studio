@@ -75,13 +75,14 @@ import time
 import requests
 
 try:
-    from . import cadencia, cli_claude, comun, estadisticas, marcas_tts, presets_voz
+    from . import cadencia, cli_claude, comun, estadisticas, marcas_tts, medios, presets_voz
 except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import cli_claude
     import comun
     import cadencia
     import estadisticas
     import marcas_tts
+    import medios
     import presets_voz
 
 PASO = "voz"
@@ -946,6 +947,8 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
     bloques = [b for b in bloques if b.get("texto", "").strip()]
     if not bloques:
         raise RuntimeError("el guion no tiene ni un bloque con texto")
+    if (extra_meta or {}).get("escenas_por_frase"):
+        validar_frases(bloques)
     os.makedirs(destino, exist_ok=True)
 
     # El transcript se manda ANOTADO: las etiquetas SSML son lo unico que le
@@ -1101,6 +1104,22 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
 
 # ------------------------------------------------------------------ paso 4
 
+def contrato_de_escenas(proyecto):
+    """Solo las redacciones nuevas activan una frase por escena."""
+    documento = comun.leer_salida(proyecto, "guion", "guion.json", obligatorio=False) or {}
+    return {"escenas_por_frase": True} if documento.get("escenas_por_frase") else {}
+
+
+def validar_frases(bloques):
+    segmentador = medios.motor("guion/segmentar.py")
+    for bloque in bloques:
+        try:
+            segmentador.frases_del_texto(marcas_tts.limpiar(bloque["texto"]))
+        except ValueError as fallo:
+            raise ValueError(f"Corrige el guion de {bloque['id']} antes de generar "
+                             f"la voz: {fallo}") from fallo
+
+
 def ejecutar(proyecto, params, avisar=None):
     """Sintetiza el guion entero y deja la pista en la carpeta de trabajo.
 
@@ -1116,8 +1135,9 @@ def ejecutar(proyecto, params, avisar=None):
 
     sin_voz = params.get("incorporar_voz") is False
     salidas = sintetizar_bloques(bloques, destino, cfg, avisar=avisa,
-                                 proyecto_id=getattr(proyecto, "id", None),
-                                 sin_voz=sin_voz)
+                                  proyecto_id=getattr(proyecto, "id", None),
+                                 sin_voz=sin_voz,
+                                 extra_meta=contrato_de_escenas(proyecto))
     comun.escribir_json(os.path.join(destino, "guion_locutado.json"),
                         {"bloques": bloques})
     avisa(1.0, salidas["resumen"])
@@ -1519,6 +1539,8 @@ Reglas:
 - Mismos hechos, mismas cifras y mismos nombres propios.
 - Conserva las anotaciones de voz (<break/>, <speed/>, <spell>) y su sitio.
 - TODO CON LETRAS: ni un digito ni un simbolo.
+- Cada frase sera una escena: conserva frases completas, con mayuscula inicial
+  y punto final (.), sin preguntas, exclamaciones ni puntos suspensivos.
 - Responde SOLO con este JSON: {{"bloques": [{{"id": "B00X", "texto": "..."}}]}}
 """
 
@@ -1592,6 +1614,8 @@ def regrabar_seccion(bloques, seccion_id, cfg, meta, destino, peticion="",
                                     cwd=cwd, motivo=MOTIVO_TTS)
 
     # 2. se graba SOLO esa seccion, en su propio contexto
+    if meta.get("escenas_por_frase"):
+        validar_frases(nuevos)
     trozo = " ".join(b["texto"].strip() for b in nuevos if b["id"] in dentro)
     avisa(0.35, f"grabando {seccion_id} ({len(trozo.split())} palabras)")
 
