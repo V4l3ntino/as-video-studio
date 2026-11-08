@@ -508,6 +508,135 @@ with tempfile.TemporaryDirectory(prefix="previa_anim_antes_") as carpeta_antes:
     comprobar("sin nada elegido la previa sale como siempre",
               all("animacion" not in e for e in vacio["escenas"]) and vacio["animaciones"] is None)
 
+print("\n== editar y crear animaciones por escena sin regenerar recursos ==")
+with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
+    proyecto, estado = juguete.construir(carpeta_editor, animaciones=[], etiquetas={})
+    # Con unidades declaradas el núcleo detecta los mapas globales indexados
+    # por escena. Un juguete sin este bloque ocultaba el fallo de producción.
+    estado.actualizar_params("render", {"unidades": {
+        "escena:S001": {"ajuste_previo": "conservar"}, "escena:S002": {}, "escena:S009": {}}})
+    firma_global = estado.firma_global("render")
+    firma_vecina = estado.firma_unidad("render", "escena:S002")
+    gestor = MagicMock()
+    gestor.listar.return_value = []
+    ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=gestor)
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        anteriores = {p: estado.params(p) for p in ("guion", "voz", "assets", "callouts", "render")}
+        editor = servidor.leer_animacion_escena(proyecto.id, "S001")
+        igual("abrir el editor no escribe defaults", {p: estado.params(p) for p in anteriores}, anteriores)
+        igual("una escena vacia ofrece todo el catalogo", [o["id"] for o in editor["opciones"]],
+              ["sin-animacion", *animaciones.CATALOGO])
+        for opcion in editor["opciones"]:
+            if opcion["id"] == "sin-animacion":
+                continue
+            edicion = {"id": opcion["id"], "contenido": dict(opcion["contenido"]), "ancla": editor["ancla"]}
+            resultado = servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+            hecha = resultado["escenas"][0].get("animacion") or {}
+            igual(f"crear/cambiar a {opcion['id']} llega a la previa", hecha.get("id"), opcion["id"])
+            ctx.estado = estado = type(estado)(proyecto)
+            leida = servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]
+            igual(f"{opcion['id']} conserva su contenido al reabrir", leida["contenido"], hecha["contenido"])
+            xml.dom.minidom.parseString(hecha["svg"])
+            igual(f"{opcion['id']} no cambia la firma global", estado.firma_global("render"), firma_global)
+            igual(f"{opcion['id']} no invalida otra escena", estado.firma_unidad("render", "escena:S002"), firma_vecina)
+            igual("conserva los otros ajustes de la unidad",
+                  estado.params("render")["unidades"]["escena:S001"]["ajuste_previo"], "conservar")
+        igual("editar solo cambia params de render",
+              {p: estado.params(p) for p in anteriores if p != "render"},
+              {p: v for p, v in anteriores.items() if p != "render"})
+        edicion = {"id": "ficha-cristal", "ancla": editor["ancla"],
+                   "contenido": {"etiqueta": "NOMBRE", "nombre": "Megalosaurus <grande>",
+                                 "definicion": "Una explicación corregida & propia."}}
+        resultado = servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+        svg = resultado["escenas"][0]["animacion"]["svg"]
+        comprobar("los tres textos editados llegan al SVG y se escapan",
+                  all(t in svg for t in ("NOMBRE", "Megalosaurus &lt;grande&gt;", "corregida &amp; propia")))
+        plan = servidor._plan_de_previsualizacion(ctx)
+        capas_manuales = animaciones.capas(plan["escenas"], estado.params("render"), salida=(1280, 720))
+        igual("el motor del render produce exactamente el SVG de la previa", capas_manuales["S001"]["svg"], svg)
+        # Un MP4 anterior ya tiene clips: remontar debe volver a dibujar la
+        # animación editada, no confundir ids de animación con ids de unidades.
+        trabajo_render = proyecto.ruta_trabajo("render")
+        os.makedirs(os.path.join(trabajo_render, "clips"), exist_ok=True)
+        movimientos = []
+        for e in plan["escenas"]:
+            with open(os.path.join(trabajo_render, "clips", e["id"] + ".mp4"), "wb") as fh:
+                fh.write(b"clip anterior")
+            movimientos.append({"id": e["id"], "ventana_ini": [0, 0, 1, 1],
+                                "ventana_fin": [0, 0, 1, 1], "capa": "ausente.svg",
+                                "hyperframe": proyecto.ruta_paso("assets", 1) + "/escenas/" + e["id"] + ".png"})
+        ruta_mov = os.path.join(carpeta_editor, "movimiento.json")
+        with open(ruta_mov, "w", encoding="utf-8") as fh:
+            json.dump({"movimientos": movimientos}, fh)
+        params_render = dict(estado.params("render"), movimiento=ruta_mov, sonido=False,
+                             lotes=1, transiciones=[])
+        capturadas = []
+
+        def capturar_lote(tareas, *args, **kwargs):
+            capturadas.extend(tareas)
+            return [{"id": t["id"], "frames": t["frames"]} for t in tareas]
+
+        with patch.object(p8_render.medios, "sembrar_trabajo", return_value=trabajo_render), \
+                patch.object(p8_render, "correr_lote", side_effect=capturar_lote), \
+                patch.object(p8_render.transiciones, "resolver", return_value={}), \
+                patch.object(p8_render, "_elegir_codec", return_value="libx264"), \
+                patch.object(p8_render, "_concatenar"), \
+                patch.object(p8_render.medios, "duracion_media", return_value=30):
+            montado = p8_render.ejecutar(proyecto, params_render)
+            igual("un montaje completo rehace los clips existentes", len(capturadas), len(plan["escenas"]))
+            igual("la animacion corregida llega a la tarea real de render", capturadas[0]["capa_anim"], svg)
+            igual("el montaje sella las unidades rehechas", len(montado["unidades"]), len(plan["escenas"]))
+            capturadas.clear()
+            p8_render.ejecutar(proyecto, params_render, unidades=["escena:S001"])
+            igual("rehacer una escena respeta los ids de unidad", [t["id"] for t in capturadas], ["S001"])
+        antes = estado.params("render")
+        for mala in (dict(edicion, id="no-existe"), dict(edicion, ancla="otro texto"),
+                     dict(edicion, contenido={"nombre": "incompleto"}),
+                     {"id": "infografia-cifra", "ancla": editor["ancla"],
+                      "contenido": {"texto": "no es una cifra", "etiqueta": "dato"}}):
+            try:
+                servidor.editar_animacion_escena(proyecto.id, "S001", mala)
+                comprobar("rechaza una edicion invalida", False)
+            except servidor.ErrorApi:
+                igual("un error conserva lo guardado", estado.params("render"), antes)
+        gestor.listar.return_value = ["trabajo activo"]
+        try:
+            servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+            comprobar("no edita durante un trabajo activo", False)
+        except servidor.ErrorApi:
+            igual("no edita durante un trabajo activo", estado.params("render"), antes)
+        escena_cambiada = dict(plan["escenas"][0], narracion="Una escena diferente.")
+        igual("no reutiliza una edicion si el id pasa a otra frase",
+              animaciones.capas([escena_cambiada], estado.params("render")), {})
+        gestor.listar.return_value = []
+        escena_nueve = dict(plan["escenas"][0], id="S009")
+        firma_uno = estado.firma_unidad("render", "escena:S001")
+        firma_nueve = estado.firma_unidad("render", "escena:S009")
+        with patch.object(servidor, "_plan_de_previsualizacion", return_value=dict(plan, escenas=[escena_nueve])):
+            resultado = servidor.editar_animacion_escena(proyecto.id, "S009", edicion)
+            igual("S009 se guarda con unidades ya declaradas", resultado["escenas"][0]["animacion"]["id"], "ficha-cristal")
+            comprobar("la firma de S009 cambia al asignar animación",
+                      estado.firma_unidad("render", "escena:S009") != firma_nueve)
+            igual("guardar S009 no cambia S001", estado.firma_unidad("render", "escena:S001"), firma_uno)
+            igual("guardar S009 no cambia la firma global", estado.firma_global("render"), firma_global)
+            comprobar("no hay un mapa de escenas en params globales", "animaciones_escenas" not in estado.params("render"))
+        sin_animacion = {"id": "sin-animacion", "ancla": editor["ancla"], "contenido": {}}
+        resultado = servidor.editar_animacion_escena(proyecto.id, "S001", sin_animacion)
+        comprobar("Sin animación quita la asignación manual de la previa", "animacion" not in resultado["escenas"][0])
+        ctx.estado = estado = type(estado)(proyecto)
+        igual("al reabrir la escena sigue sin animación",
+              servidor.leer_animacion_escena(proyecto.id, "S001")["actual"], None)
+        params_auto = dict(estado.params("render"), animaciones=["infografia-cifra"])
+        automaticas = animaciones.capas(plan["escenas"], {"animaciones": ["infografia-cifra"]})
+        comprobar("el plano tenía una animación automática", "S001" in automaticas)
+        comprobar("la elección Sin animación impide que reaparezca al montar",
+                  "S001" not in animaciones.capas(plan["escenas"], params_auto))
+        igual("quitar la animación no cambia la firma global", estado.firma_global("render"), firma_global)
+        servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+        comprobar("se puede volver a asignar una animación después de quitarla",
+                  servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]["id"] == "ficha-cristal")
+
 print("\n== la pagina de render las lleva ==")
 comprobar("la pagina tiene su capa", 'id="capaanim"' in p8_render.PAGINA)
 comprobar("y aplica el fondo con el mismo reloj", "aplicarFondo(camara, FONDOANIM, t)" in p8_render.PAGINA)

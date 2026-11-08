@@ -51,6 +51,7 @@ para cada bloque animado. Cambiarla deja obsoletas voz e imagenes. Los guiones
 antiguos sin fragmentos elegidos siguen usando las senales deterministas; sin
 animaciones pedidas no se pinta nada.
 """
+import math
 import os
 import re
 import sys
@@ -136,6 +137,115 @@ PERMANENCIA_MAXIMA = 4.2
 
 FUENTE_SVG = 'Verdana, "DejaVu Sans", sans-serif'
 FUENTE_MEDIDA = "verdana"
+
+# Contrato del editor: solo contenido visible, nunca SVG ni tiempos arbitrarios.
+CAMPOS = {
+    "infografia-cifra": [("texto", "Cifra"), ("etiqueta", "Etiqueta")],
+    "editorial-fecha": [("texto", "Fecha"), ("contexto", "Contexto")],
+    "ficha-ui": [("etiqueta", "Etiqueta"), ("nombre", "Título"), ("definicion", "Explicación")],
+    "ficha-cristal": [("etiqueta", "Etiqueta"), ("nombre", "Título"), ("definicion", "Explicación")],
+    "etiqueta-escrita": [("nombre", "Texto")],
+    "collage-titulo": [("nombre", "Título")],
+    "comparacion-tarjetas": [("izquierda", "Etiqueta izquierda"), ("derecha", "Etiqueta derecha")],
+    "tipografia-cinetica": [("texto", "Frase")],
+}
+
+
+def ancla_de(escena):
+    return " ".join(str(escena.get("narracion") or "").split())
+
+
+def contenido_de(aid, datos):
+    return {k: (" ".join(datos.get("palabras") or []) if aid == "tipografia-cinetica"
+                else str(datos.get(k, "CONCEPTO" if k == "etiqueta" and aid.startswith("ficha-") else "")))
+            for k, _ in CAMPOS[aid]}
+
+
+def validar_edicion(edicion, escena):
+    if (not isinstance(edicion, dict) or not isinstance(edicion.get("id"), str)
+            or edicion["id"] not in {*CATALOGO, "sin-animacion"}):
+        raise ValueError("elige una animación del catálogo")
+    if edicion.get("ancla") != ancla_de(escena):
+        raise ValueError("la escena ha cambiado; vuelve a abrir su animación")
+    aid, contenido = edicion["id"], edicion.get("contenido")
+    if aid == "sin-animacion":
+        if contenido != {}:
+            raise ValueError("Sin animación no admite campos de contenido")
+        return {"id": aid, "ancla": ancla_de(escena), "contenido": {}}
+    if not isinstance(contenido, dict) or set(contenido) != {k for k, _ in CAMPOS[aid]}:
+        raise ValueError("faltan campos de la animación o hay campos desconocidos")
+    limpio = {}
+    for k, nombre in CAMPOS[aid]:
+        valor = contenido[k]
+        if not isinstance(valor, str) or len(valor) > 500:
+            raise ValueError(f"{nombre}: utiliza como máximo 500 caracteres")
+        limpio[k] = " ".join(valor.split())
+    principal = CAMPOS[aid][1][0] if aid.startswith("ficha-") else CAMPOS[aid][0][0]
+    if not limpio[principal]:
+        raise ValueError("el texto principal no puede estar vacío")
+    if aid == "comparacion-tarjetas" and not limpio["derecha"]:
+        raise ValueError("escribe las dos etiquetas")
+    if aid == "infografia-cifra":
+        partes = _partes_cifra(limpio["texto"])
+        if not partes or not math.isfinite(partes[1]):
+            raise ValueError("escribe una cifra válida, por ejemplo 45% o 1200")
+    return {"id": aid, "ancla": ancla_de(escena), "contenido": limpio}
+
+
+def opciones_de(escena, actual=None, idioma=None):
+    vistas = senales(escena, idioma)
+    frase = " ".join(str(escena.get("narracion") or "Texto de la escena").split()[:8])
+    opciones = [{"id": "sin-animacion", "nombre": "Sin animación",
+                 "descripcion": "Quita la animación de esta escena al guardar.",
+                 "campos": [], "contenido": {}}]
+    for aid, ficha in CATALOGO.items():
+        datos = vistas.get(ficha["senal"]) or {}
+        respaldo = {"texto": "45%" if ficha["senal"] == "cifra" else "2026",
+                    "nombre": frase, "definicion": ancla_de(escena), "etiqueta": "CONCEPTO",
+                    "contexto": ancla_de(escena), "izquierda": "Antes", "derecha": "Después",
+                    "palabras": frase.split()}
+        contenido = contenido_de(aid, dict(respaldo, **datos))
+        if actual and actual["id"] == aid:
+            contenido = actual["contenido"]
+        opciones.append({"id": aid, "nombre": ficha["nombre"], "descripcion": ficha["descripcion"],
+                         "campos": [{"id": k, "nombre": n} for k, n in CAMPOS[aid]],
+                         "contenido": contenido})
+    return opciones
+
+
+def ediciones_de(params):
+    """Las asignaciones pertenecen a su unidad, nunca a la firma global."""
+    return {uid.split(":", 1)[1]: unidad["animacion"]
+            for uid, unidad in ((params or {}).get("unidades") or {}).items()
+            if uid.startswith("escena:") and isinstance(unidad, dict) and unidad.get("animacion")}
+
+
+def aplicar_ediciones(reparto, escenas, ediciones, imagenes):
+    salida = dict(reparto)
+    lista = list(escenas or [])
+    for i, escena in enumerate(lista):
+        sid = escena.get("id")
+        edicion = (ediciones or {}).get(sid)
+        if not edicion or edicion.get("ancla") != ancla_de(escena):
+            continue
+        edicion = validar_edicion(edicion, escena)
+        aid = edicion["id"]
+        if aid == "sin-animacion":
+            salida.pop(sid, None)
+            continue
+        datos = dict(edicion["contenido"], desde=0.0, hasta=min(1.0, _duracion(escena)))
+        if aid == "infografia-cifra":
+            datos["porcentaje"] = "%" in datos["texto"]
+        if aid == "tipografia-cinetica":
+            datos["palabras"] = datos.pop("texto").split()
+            paso = max(0.01, min(0.42, (_duracion(escena) - 0.8) / len(datos["palabras"])))
+            datos["tiempos"] = [[k * paso, (k + 1) * paso] for k in range(len(datos["palabras"]))]
+        ficha = _ficha_de(lista, i, aid, CATALOGO[aid]["senal"], datos, imagenes or {})
+        if ficha is None:
+            raise ValueError("esta animación necesita la imagen de la escena y la de una escena contigua")
+        salida[sid] = ficha
+    return salida
+
 
 _MESES = ("enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|"
           "setiembre|octubre|noviembre|diciembre|january|february|march|april|"
@@ -1057,7 +1167,7 @@ def _svg_ficha(datos, duracion, ancho, alto, c, ctx=None):
     etiqueta = (f'<text x="{margen:.1f}" y="{margen + 24*u:.1f}" opacity="0" '
                 f'font-family=\'{FUENTE_SVG}\' font-size="{26*u:.1f}" font-weight="700" '
                 f'letter-spacing="{4*u:.1f}" fill="{c["acento"]}">{_entra(entra + 0.5)}'
-                f'CONCEPTO</text>')
+                f'{_esc(datos.get("etiqueta", "CONCEPTO"))}</text>')
     nombre = (f'<text x="{margen:.1f}" y="{margen + 24*u + 76*u:.1f}" opacity="0" '
               f'font-family=\'{FUENTE_SVG}\' font-size="{tam_n:.1f}" font-weight="700" '
               f'fill="{c["texto"]}">{_entra(entra + 0.7)}{_esc(datos["nombre"])}</text>')
@@ -1198,9 +1308,13 @@ def _svg_cristal(datos, duracion, ancho, alto, c, ctx=None):
     w = min(0.64 * ancho, 1120 * u) if ancho >= alto else 0.9 * ancho
     m = 34 * u
     chip_t = 22 * u
-    chip_w = tipografia.medir("CONCEPTO", FUENTE_MEDIDA, chip_t, True, 3 * u)[0] + 40 * u
+    etiqueta = str(datos.get("etiqueta", "CONCEPTO"))
+    chip_medido = tipografia.medir(etiqueta, FUENTE_MEDIDA, chip_t, True, 3 * u)[0] + 40 * u
+    chip_w = min(w * 0.35, chip_medido)
+    ajuste_chip = (f'textLength="{max(1, chip_w - 40*u):.1f}" lengthAdjust="spacingAndGlyphs" '
+                   if chip_medido > chip_w else "")
     tam_n, tam_d = 50 * u, 26 * u
-    tam_n *= min(1.0, (w - 2 * m) / max(1, tipografia.medir(
+    tam_n *= min(1.0, (w - 2 * m - chip_w - 26 * u) / max(1, tipografia.medir(
         datos["nombre"], FUENTE_MEDIDA, tam_n, True)[0]))
     nombre = str(datos["nombre"])
     lineas = tipografia.partir(datos["definicion"], FUENTE_MEDIDA, tam_d, False, 0, w - 2 * m)[:2]
@@ -1228,7 +1342,7 @@ def _svg_cristal(datos, duracion, ancho, alto, c, ctx=None):
             f'stroke-width="{1.2*u:.1f}"/>'
             f'<text x="{m + chip_w/2:.1f}" y="{m + 28*u:.1f}" text-anchor="middle" '
             f'font-family=\'{FUENTE_SVG}\' font-size="{chip_t:.1f}" font-weight="700" '
-            f'letter-spacing="{3*u:.1f}" fill="#e9e6df">CONCEPTO</text></g>')
+            f'{ajuste_chip}letter-spacing="{3*u:.1f}" fill="#e9e6df">{_esc(etiqueta)}</text></g>')
     titulo = (f'<text x="{m + chip_w + 26*u:.1f}" y="{m + 36*u:.1f}" opacity="0" '
               f'font-family=\'{FUENTE_SVG}\' font-size="{tam_n:.1f}" font-weight="700" '
               f'fill="#ffffff">{_entra(entra + 0.85)}{_esc(nombre)}</text>')
@@ -1348,12 +1462,14 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
     """
     reparto = repartir(escenas, params, idioma, imagenes=imagenes, semilla=semilla,
                        etiquetas=etiquetas, textos=textos)
+    reparto = aplicar_ediciones(reparto, escenas, ediciones_de(params), imagenes)
     por_id = {e.get("id"): e for e in escenas or []}
     resultado = {}
     for sid, asignacion in reparto.items():
         svg, fondo = svg_de(asignacion, _duracion(por_id[sid]), salida, paleta)
         if svg:
             resultado[sid] = {"svg": svg, "animacion": asignacion["animacion"], "fondo": fondo,
+                              "contenido": contenido_de(asignacion["animacion"], asignacion["datos"]),
                               "elementos": asignacion.get("elementos"),
                               "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
                               "pico": pico_de(svg, _duracion(por_id[sid]))}

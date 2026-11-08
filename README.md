@@ -198,6 +198,26 @@ con IA para esa escena usando la nota, aunque antes tuviera un recurso de
 biblioteca o una sustitución manual. El medio anterior deja de estar seleccionado;
 las demás escenas se conservan. Puedes volver a elegir un archivo con **Sustituir**.
 
+### Editar o crear una animación en una escena
+
+En **Imágenes**, pulsa **✦ Animación** para abrir el editor de la escena. Puedes
+corregir sus textos y cambiar el tipo por cualquiera de las ocho animaciones del
+catálogo. Los campos se adaptan al tipo: cifra y etiqueta, fecha y contexto,
+título y explicación, frase o las dos etiquetas de una comparación.
+
+Si la escena no tiene animación, aparece **✦ Crear animación**. Elige un tipo y
+edita su contenido y pulsa **Guardar**. La vista previa se actualiza al guardar.
+Cerrar el editor descarta los cambios que todavía no hayas guardado.
+Para quitarla, selecciona **Sin animación** y pulsa **Guardar**. La escena queda
+sin animación también al volver a montar, aunque antes tuviera una automática.
+El collage y la comparación necesitan la imagen de la escena y la de una escena
+contigua; si falta alguna, el editor indica el motivo y conserva lo guardado.
+
+Los cambios se conservan al reabrir el vídeo y se aplican al **volver a montarlo**,
+sin regenerar narración ni imágenes. Abrir el editor no modifica el proyecto.
+La asignación manual queda vinculada al texto de la escena para no reutilizarla
+por error si ese identificador pasa a representar otra frase.
+
 ### Incluir o quitar los subtítulos
 
 Al crear o editar un **estilo**, debajo de **Ritmo** aparecen **Subtítulos** y

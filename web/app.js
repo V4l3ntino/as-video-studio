@@ -9073,13 +9073,127 @@ function animacionesEnLaCabecera(resumen) {
     + (faltan.length ? ` · faltan: ${faltan.map(a => nombres[a] || a).join(', ')}` : ''));
 }
 
-function verAnimacionPrevia() {
-  try { return localStorage.getItem('estudio.previa.animacion') !== 'no'; } catch (_) { return true; }
-}
+async function abrirAnimacionEscena(escena) {
+  if ($('#editor-animacion')) return;
+  pararPrevia();
+  const pid = videoAbierto().pid;
+  const url = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/animacion`;
+  const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando animaciones…');
+  const campos = h('div', { clase: 'anim-editor-campos' });
+  const muestra = h('div', { clase: `previa-marco anim-editor-previa ${formatoDelVideo()}` });
+  const descripcion = h('p', { clase: 'meta' });
+  let ficha, elegido = '', sucio = false, guardando = false;
+  const borradores = new Map();
+  const selector = h('select', { 'aria-label': 'Tipo de animación', disabled: true,
+    onchange: () => {
+      elegido = selector.value;
+      pintarCampos();
+      if (elegido) marcarCambio();
+    } });
+  const botonGuardar = h('button', { clase: 'primario', disabled: true,
+    onclick: guardar }, 'Guardar');
+  const cerrar = () => {
+    if (guardando) return;
+    dialogo.close();
+    dialogo.remove();
+    repintarVideo();
+  };
+  const dialogo = h('dialog', { id: 'editor-animacion', clase: 'anim-editor',
+    'aria-labelledby': 'anim-editor-titulo',
+    oncancel: ev => { ev.preventDefault(); cerrar(); },
+    onkeydown: ev => {
+      ev.stopPropagation();
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') {
+        ev.preventDefault();
+        guardar();
+      }
+    } },
+  h('div', { clase: 'anim-editor-cab' },
+    h('h2', { id: 'anim-editor-titulo' }, `${escena.animacion ? 'Editar' : 'Crear'} animación · ${escena.id}`),
+    h('button', { clase: 'mini', onclick: cerrar, 'aria-label': 'Cerrar editor de animación' }, 'Cerrar')),
+  h('p', { clase: 'meta' }, 'Pulsa Guardar para aplicar los cambios. Cerrar descarta los cambios sin guardar. Se verán en el vídeo al volver a montarlo.'),
+  h('div', { clase: 'anim-editor-disposicion' },
+    h('div', {}, h('label', { clase: 'campo' }, 'Tipo de animación', selector), descripcion, campos),
+    h('div', {}, muestra, h('p', { clase: 'meta' }, 'Vista previa guardada · se actualiza al guardar'))),
+  h('div', { clase: 'anim-editor-pie' }, estado, botonGuardar));
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
 
-function alternarAnimacionPrevia() {
-  try { localStorage.setItem('estudio.previa.animacion', verAnimacionPrevia() ? 'no' : 'si'); } catch (_) { /* sin almacenamiento: dura lo que dure la pantalla */ }
-  repintarVideo();
+  function pintarMuestra(e) {
+    vaciar(muestra);
+    muestra.classList.toggle('con-animacion', !!e.animacion);
+    if (e.imagen) muestra.appendChild(h('img', { src: `${API.archivo(pid, e.imagen)}?mini=1024`, alt: e.id }));
+    if (e.animacion) {
+      const capa = h('div', { clase: 'previa-anim', 'aria-hidden': 'true' });
+      capa.innerHTML = svgDeAnimacionPrevia(e.animacion, pid);
+      muestra.appendChild(capa);
+      const svg = capa.querySelector('svg');
+      if (svg && svg.pauseAnimations) svg.pauseAnimations();
+      if (svg && svg.setCurrentTime) svg.setCurrentTime(e.animacion.pico);
+      const imagen = muestra.querySelector('img');
+      if (imagen) aplicarFondo(imagen, e.animacion.fondo, e.animacion.pico);
+    }
+  }
+
+  function pintarCampos() {
+    vaciar(campos);
+    const opcion = ficha.opciones.find(o => o.id === elegido);
+    descripcion.textContent = opcion ? opcion.descripcion : 'Selecciona una animación para asignarla a esta escena.';
+    if (!opcion) return;
+    if (!borradores.has(elegido)) borradores.set(elegido, { ...opcion.contenido });
+    const contenido = borradores.get(elegido);
+    opcion.campos.forEach(campo => {
+      const entrada = h('textarea', { rows: campo.id === 'definicion' ? 3 : 2,
+        maxlength: 500, value: contenido[campo.id],
+        oninput: ev => { contenido[campo.id] = ev.target.value; marcarCambio(); } });
+      campos.appendChild(h('label', { clase: 'campo' }, campo.nombre, entrada));
+    });
+  }
+
+  function marcarCambio() {
+    sucio = true;
+    estado.textContent = 'Cambios sin guardar. Pulsa Guardar para aplicarlos.';
+    botonGuardar.disabled = false;
+  }
+
+  async function guardar() {
+    if (guardando || !sucio || !ficha || !elegido) return;
+    const datos = { id: elegido, ancla: ficha.ancla, contenido: { ...borradores.get(elegido) } };
+    guardando = true;
+    botonGuardar.disabled = true;
+    botonGuardar.textContent = 'Guardando…';
+    selector.disabled = true;
+    campos.querySelectorAll('textarea').forEach(c => { c.disabled = true; });
+    estado.textContent = 'Guardando…';
+    try {
+      const previa = await pedir(url, { method: 'PUT', cuerpo: datos });
+      PREVIA.ficha = previa;
+      sucio = false;
+      pintarMuestra(previa.escenas.find(e => e.id === escena.id));
+      estado.textContent = elegido === 'sin-animacion' ? 'Escena guardada sin animación' : 'Animación guardada';
+    } catch (error) {
+      estado.textContent = `No se ha guardado: ${error.message}`;
+    } finally {
+      guardando = false;
+      botonGuardar.disabled = !sucio;
+      botonGuardar.textContent = 'Guardar';
+      selector.disabled = false;
+      campos.querySelectorAll('textarea').forEach(c => { c.disabled = false; });
+    }
+  }
+
+  try {
+    ficha = await pedir(url);
+    elegido = ficha.actual ? ficha.actual.id : 'sin-animacion';
+    ficha.opciones.forEach(o => selector.appendChild(h('option', { value: o.id }, o.nombre)));
+    selector.value = elegido;
+    selector.disabled = false;
+    pintarCampos();
+    pintarMuestra(escena);
+    estado.textContent = 'Edita los textos o elige otro tipo de animación.';
+  } catch (error) {
+    estado.textContent = `No se ha podido abrir la animación: ${error.message}`;
+  }
 }
 
 /* Las tarjetas con OTRA imagen llegan como `proyecto://ruta`: solo el navegador
@@ -9228,9 +9342,9 @@ function vistaPreviaLight() {
   }
   /* LA ANIMACIÓN DE MOTION GRAPHICS, ENCIMA DE LA IMAGEN. Es la excepción a
      «aquí solo se mira el dibujo»: la elige el motor mirando lo que se dice en
-     la escena y no se puede juzgar sin verla sobre su imagen. Se apaga con el
-     botón de los mandos para volver a mirar el dibujo solo. */
-  if (e.animacion && verAnimacionPrevia()) {
+     la escena y no se puede juzgar sin verla sobre su imagen. El botón de los
+     mandos abre el editor para cambiar su contenido y tipo. */
+  if (e.animacion) {
     marco.classList.add('con-animacion');
     const capa = h('div', { clase: 'previa-anim', 'aria-hidden': 'true' });
     capa.innerHTML = svgDeAnimacionPrevia(e.animacion, v.pid);
@@ -9280,12 +9394,11 @@ function vistaPreviaLight() {
         : reproducirTodoPrevia()),
       title: 'Todo seguido, con música y efectos (sin zoom ni transiciones)',
     }, PREVIA.seguido ? '❚❚ Parar' : '▶ Todo seguido'),
-    e.animacion ? h('button', {
-      clase: verAnimacionPrevia() ? 'mini primario' : 'mini',
-      onclick: alternarAnimacionPrevia, 'aria-pressed': String(verAnimacionPrevia()),
-      title: `Motion animation de esta escena: ${e.animacion.nombre}. `
-        + 'Púlsalo para ver la imagen sola.',
-    }, '✦ Animación') : null,
+    h('button', {
+      clase: e.animacion ? 'mini primario' : 'mini',
+      onclick: () => abrirAnimacionEscena(e),
+      title: 'Editar el contenido o elegir una animación para esta escena',
+    }, e.animacion ? '✦ Animación' : '✦ Crear animación'),
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`
       + (e.bloque ? ` · ${e.bloque}` : '')

@@ -409,8 +409,23 @@ animación declara cuánto necesita para leerse (`tiempo`) y `repartir` la salta
 `pico`, `elementos`) y el resumen `animaciones`. El navegador la pinta encima de la
 imagen (`animarPrevia`, un fotograma de pantalla, con el reloj de la voz; parada,
 en el `pico`, el instante en que está completa) y la imagen pasa a `cover` como el
-render. El botón «✦ Animación» la apaga para ver el dibujo solo (preferencia en
-`localStorage`). `aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
+render. El botón «✦ Animación» abre el editor de contenido y tipo; sin asignación
+aparece «✦ Crear animación». Este editor guarda solo al pulsar **Guardar** (o
+Ctrl+S); cerrar descarta el borrador.
+La opción «Sin animación» persiste `id: "sin-animacion"` con contenido vacío:
+suprime la asignación automática DESPUÉS del reparto; borrar el ajuste manual
+haría reaparecer la animación del guion. Las ediciones viven en
+`render.params.unidades["escena:<sid>"].animacion`, ancladas a la narración normalizada.
+Nunca uses un mapa global indexado por escena: el núcleo lo rechaza cuando las
+unidades están declaradas y contaminaría todas sus firmas. Conserva los demás
+params de la unidad al guardar. `animaciones.capas` las aplica DESPUÉS del
+reparto automático, sin desplazar las animaciones de otras escenas ni tocar guion,
+voz o assets. En `p8_render.ejecutar`, `pedidas` contiene ids de UNIDADES: usa
+`animaciones_pedidas` para los tipos del catálogo; sobrescribir la primera saltaba
+clips ya existentes y sellaba mal las unidades. La regresión del remontaje con
+clips previos está en `prueba_animaciones` y la cadena real en `prueba_pasos_visuales`.
+El esquema de campos está en `animaciones.CAMPOS`; GET del editor es
+solo lectura y PUT valida antes de actualizar params. `aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
 (`prueba_animaciones` compara las dos). Las URL de otras imágenes viajan como
 `proyecto://ruta`: solo el navegador sabe el prefijo del proxy.
 

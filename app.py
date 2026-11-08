@@ -4999,6 +4999,47 @@ def _plan_de_previsualizacion(ctx):
     return plan
 
 
+@app.get("/api/proyectos/{pid}/escenas/{sid}/animacion")
+def leer_animacion_escena(pid: str, sid: str):
+    """Contenido editable y catálogo completo de animaciones para una escena."""
+    ctx = contexto(pid)
+    plan = _plan_de_previsualizacion(ctx)
+    escena = next((e for e in plan.get("escenas") or [] if e.get("id") == sid), None)
+    if escena is None:
+        raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+    previa = leer_previsualizacion(pid)
+    actual = next((e.get("animacion") for e in previa["escenas"] if e["id"] == sid), None)
+    anim = PASOS_MODULOS.animaciones
+    return {"ancla": anim.ancla_de(escena), "actual": actual,
+            "opciones": anim.opciones_de(escena, actual, plan.get("idioma"))}
+
+
+@app.put("/api/proyectos/{pid}/escenas/{sid}/animacion")
+def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
+    """Asigna o edita una animación manual; solo deja pendiente el montaje."""
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine el trabajo del vídeo o páralo antes de editar su animación")
+        plan = _plan_de_previsualizacion(ctx)
+        escena = next((e for e in plan.get("escenas") or [] if e.get("id") == sid), None)
+        if escena is None:
+            raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+        anim = PASOS_MODULOS.animaciones
+        try:
+            edicion = anim.validar_edicion(datos, escena)
+            previa = leer_previsualizacion(pid)
+            imagenes = {e["id"]: e["imagen"] for e in previa["escenas"] if e.get("imagen")}
+            anim.aplicar_ediciones({}, plan["escenas"], {sid: edicion}, imagenes)
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
+        uid = f"escena:{sid}"
+        unidad = dict(((ctx.estado.params("render") or {}).get("unidades") or {}).get(uid) or {})
+        unidad["animacion"] = edicion
+        ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+    return leer_previsualizacion(pid)
+
+
 @app.get("/api/proyectos/{pid}/previsualizacion")
 def leer_previsualizacion(pid: str):
     """Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto."""
@@ -5112,7 +5153,7 @@ def leer_previsualizacion(pid: str):
                                  + PASOS_MODULOS.animaciones.pedidas_de(ctx.proyecto)
                                  + list(render.get("animaciones") or [])))
     resumen_animaciones = None
-    if pedidas or etiquetas:
+    if pedidas or etiquetas or PASOS_MODULOS.animaciones.ediciones_de(render):
         try:
             p_medios = PASOS_MODULOS.medios
             ruta_mov = p_medios.salida_de(ctx.proyecto, "callouts", claves=("movimiento",),
@@ -5125,7 +5166,8 @@ def leer_previsualizacion(pid: str):
             urls = {e["id"]: "proyecto://" + e["imagen"] for e in escenas if e.get("imagen")}
             cuadro = plan.get("resolucion") or [1920, 1080]
             animadas = PASOS_MODULOS.animaciones.capas(
-                escenas_plan, {"animaciones": pedidas}, idioma=idioma, paleta=paleta,
+                escenas_plan, {"animaciones": pedidas,
+                               "unidades": render.get("unidades")}, idioma=idioma, paleta=paleta,
                 salida=(int(cuadro[0]), int(cuadro[1])), imagenes=urls,
                 semilla=(plan.get("semilla") or 0), etiquetas=etiquetas,
                 textos=PASOS_MODULOS.animaciones.textos_de(ctx.proyecto))
@@ -5145,6 +5187,7 @@ def leer_previsualizacion(pid: str):
                 e["animacion"] = {
                     "id": hecha["animacion"],
                     "nombre": PASOS_MODULOS.animaciones.CATALOGO[hecha["animacion"]]["nombre"],
+                    "contenido": hecha["contenido"],
                     "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
                     "elementos": hecha.get("elementos")}
     return {

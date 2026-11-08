@@ -2607,3 +2607,26 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .campos-voz-opcional[disabled] {
   opacity: 0.55;
 }
+/* Editor de contenido de motion graphics, con foco y cierre nativos de dialog. */
+.anim-editor {
+  color: var(--texto, #eee);
+  background: var(--panel, #17191f);
+  border: 1px solid #414650;
+  border-radius: 16px;
+  padding: 24px;
+  width: min(1080px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}
+.anim-editor::backdrop { background: #000b; }
+.anim-editor-cab { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.anim-editor-cab h2 { margin: 0; }
+.anim-editor-pie { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
+.anim-editor-disposicion { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr); gap: 24px; }
+.anim-editor .campo { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+.anim-editor textarea, .anim-editor select { width: 100%; box-sizing: border-box; }
+.anim-editor-previa { width: 100%; min-height: 0; margin-top: 16px; pointer-events: none; }
+@media (max-width: 720px) {
+  .anim-editor { padding: 16px; }
+  .anim-editor-disposicion { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}

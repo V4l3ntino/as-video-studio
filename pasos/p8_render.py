@@ -1557,13 +1557,16 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     # LO QUE EL GUION DEJO PREVISTO manda (`animaciones.etiquetas_de`); un video de
     # antes del plan -- sin etiquetas -- reparte por lo que se dice, con las que
     # pida el render (`animaciones` en sus params).
-    pedidas = list(dict.fromkeys(list(p.get("animaciones") or [])
-                                 + animaciones.pedidas_de(proyecto)))
-    animadas = animaciones.capas(escenas, {"animaciones": pedidas}, idioma=plan.get("idioma"),
-                                 paleta=paleta, salida=(ancho, alto), imagenes=imagenes,
-                                 semilla=(plan.get("semilla") or 0),
-                                 etiquetas=animaciones.etiquetas_de(proyecto),
-                                 textos=animaciones.textos_de(proyecto))
+    # No sobrescribir `pedidas`: son los ids de unidades que hay que renderizar,
+    # no los tipos de animación. Confundirlos reutiliza clips con textos antiguos.
+    animaciones_pedidas = list(dict.fromkeys(list(p.get("animaciones") or [])
+                                             + animaciones.pedidas_de(proyecto)))
+    animadas = animaciones.capas(
+        escenas, {"animaciones": animaciones_pedidas,
+                  "unidades": p.get("unidades")},
+        idioma=plan.get("idioma"), paleta=paleta, salida=(ancho, alto), imagenes=imagenes,
+        semilla=(plan.get("semilla") or 0), etiquetas=animaciones.etiquetas_de(proyecto),
+        textos=animaciones.textos_de(proyecto))
     pagina_trans = transiciones.pagina(
         os.path.join(trabajo, "transicion.html"), ancho, alto, paleta)
     resultados = {}
