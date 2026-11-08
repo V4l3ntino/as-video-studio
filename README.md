@@ -186,6 +186,13 @@ decisión: no se dibujan hojas de reparto ni se adjuntan a sus planos, aunque el
 catálogo visual identifique personas en el relato. Los vídeos anteriores siguen
 con su configuración; las imágenes ya creadas no se borran.
 
+En **Estilos → Voz** y en el **encargo del vídeo** puedes desmarcar **Incorporar
+voz**. El estilo transmite su selección a los vídeos nuevos y cada encargo puede
+cambiarla. Sin voz no se llama a Cartesia: se crea una pista muda con tiempos
+estimados para sincronizar planos, cartelas y subtítulos. El vídeo no lleva
+narración, aunque conserva la música y los efectos si están configurados. En el
+estilo, los campos de voz quedan desactivados hasta volver a marcar la casilla.
+
 En **Imágenes**, el botón **Regenerar imagen** de un apunte genera una imagen
 con IA para esa escena usando la nota, aunque antes tuviera un recurso de
 biblioteca o una sustitución manual. El medio anterior deja de estar seleccionado;

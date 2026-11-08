@@ -401,7 +401,7 @@ def _config_voz(proyecto, params):
         base = estado.params("voz") or {}
     base = {k: v for k, v in base.items() if k != "unidades"}
     for clave in ("preset", "modelo", "voz_id", "idioma", "velocidad",
-                  "emociones", "hueco_minimo"):
+                  "emociones", "hueco_minimo", "incorporar_voz"):
         if params.get(clave) is not None:
             base[clave] = params[clave]
     if isinstance(params.get("voz"), dict):
@@ -409,7 +409,7 @@ def _config_voz(proyecto, params):
     return base
 
 
-def _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa):
+def _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa, sin_voz=False):
     """Da por buena la toma del paso 4 SIN volver a sintetizarla.
 
     Es el caso de "la toma esta bien, no tengo nada que corregir". Sin
@@ -432,6 +432,8 @@ def _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa):
         return None
     meta = comun.leer_salida(proyecto, "voz", p4_voz.NOMBRE_META, obligatorio=False)
     if not isinstance(meta, dict):
+        return None
+    if bool(meta.get("sin_voz")) != sin_voz:
         return None
     origen_wav = os.path.join(carpeta, meta.get("archivo") or p4_voz.NOMBRE_PISTA)
     if not os.path.exists(origen_wav):
@@ -502,9 +504,11 @@ def ejecutar(proyecto, params, avisar=None):
             avisos.append(f"comentario sobre un bloque inexistente: {bloque_id}")
 
     cfg = p4_voz.resolver_params(_config_voz(proyecto, params))
+    sin_voz = _config_voz(proyecto, params).get("incorporar_voz") is False
 
     if not agrupados:
-        sellada = _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa)
+        sellada = _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa,
+                                     sin_voz=sin_voz)
         if sellada is not None:
             comun.escribir_json(os.path.join(destino, NOMBRE_GUION),
                                 {"guion": [dict(b) for b in bloques]})
@@ -563,7 +567,7 @@ def ejecutar(proyecto, params, avisar=None):
         return avisa(0.4 + 0.58 * max(0.0, min(1.0, valor)), mensaje)
 
     salidas = p4_voz.sintetizar_bloques(
-        revisados, destino, cfg, avisar=progreso,
+        revisados, destino, cfg, avisar=progreso, sin_voz=sin_voz,
         extra_meta={"bloques_modificados": modificados,
                     "cambios": cambios,
                     "avisos": avisos,

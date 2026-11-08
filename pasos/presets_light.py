@@ -583,9 +583,9 @@ def validar_encargo(crudo):
     limpio["tono_prompt"] = prompt
 
     voz = " ".join(str(datos.get("voz_prompt") or "").split())
-    if not voz:
+    if datos.get("montaje", {}).get("incorporar_voz") is not False and not voz:
         raise ErrorEncargo("falta la voz: describe cómo quieres que suene "
-                           "(«grave, pausada, sin dramatismo»)")
+                            "(«grave, pausada, sin dramatismo»)")
     limpio["voz_prompt"] = voz
     # LA VOZ ELEGIDA A MANO, opcional: el id de una voz del catalogo (lo
     # normal, la clonada del canal). Con ella la descripcion sigue valiendo
@@ -636,7 +636,9 @@ def tareas_de(encargo, solo=None):
     """
     imagenes = len((encargo or {}).get("estilo_imagenes") or [])
     tareas = [{**t, "tamano": imagenes} if t["id"] == "guia" and imagenes else t
-              for t in TAREAS]
+               for t in TAREAS]
+    if (encargo or {}).get("montaje", {}).get("incorporar_voz") is False:
+        tareas = [t for t in tareas if t["id"] != "voz"]
     if solo is not None:
         pedidas = set(solo)
         tareas = [t for t in tareas if t["id"] in pedidas]

@@ -5037,7 +5037,7 @@ function encargoLight() {
       // agente por la descripción
       voz_id: '',
       ritmo: '',            // lo pone el servidor al cargar la galería
-      montaje: { subtitulos: true, generar_personajes: true,
+      montaje: { subtitulos: true, generar_personajes: true, incorporar_voz: true,
         transiciones: [], transiciones_personalizadas: false,
         animaciones: [],
         bibliotecas: bibliotecasPorDefectoLight() },
@@ -5672,7 +5672,7 @@ function tarjetaEstiloLight(ficha) {
           // el icono lo manda el servidor con cada línea (`presets_canal.vinetas_de`):
           // aquí no hay forma de saber cuál es el idioma y cuál la voz sin deducirlo
           // del orden, y el orden se rompe en cuanto una línea no sale
-          ...vinetas.map(v => h('li', {},
+          ...vinetas.map(v => h('li', { clase: v.sin_voz ? 'sin-voz' : '' },
             h('span', { clase: 'ico' }, v.icono || '·'), v.texto || v))))),
     menuDeEstilo(ficha));
 }
@@ -6067,6 +6067,7 @@ function montajeDelEstiloLight(ficha) {
   return {
     subtitulos: montaje.subtitulos !== false,
     generar_personajes: montaje.generar_personajes !== false,
+    incorporar_voz: montaje.incorporar_voz !== false,
     transiciones: [...(montaje.transiciones || [])],
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
     animaciones: [...(montaje.animaciones || [])],
@@ -6628,6 +6629,8 @@ function vistaElegidoLight() {
     materialLight(e)));
 
   caja.appendChild(bibliotecasDelEncargo(e));
+  caja.appendChild(incorporarVozDelEncargo(e, () => pintarLight(), false,
+    ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, ficha)] : [])));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
   caja.appendChild(animacionesDelEncargo(e));
@@ -6785,6 +6788,41 @@ function personajesDelEncargo(e, alCambiar, esEstilo = false) {
         h('span', { clase: 'meta' }, esEstilo
           ? 'Los vídeos nuevos heredarán esta selección.'
           : 'Desactívalo si no necesitas hojas de personajes como referencia para las imágenes con IA.'))));
+}
+
+function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
+  const contenidos = h('fieldset', { clase: 'campos-voz-opcional',
+    disabled: e.incorporar_voz === false }, ...campos);
+  return bloqueLight('🎙️ Voz', 'locución del vídeo',
+    h('label', { clase: 'efecto-encargo' },
+      h('input', { type: 'checkbox', checked: e.incorporar_voz !== false,
+        'data-foco': 'encargo-incorporar-voz', onchange: ev => {
+          e.incorporar_voz = ev.target.checked;
+          contenidos.disabled = !e.incorporar_voz;
+          if (alCambiar) alCambiar();
+        } }),
+      h('span', {}, h('b', {}, 'Incorporar voz'),
+        h('span', { clase: 'meta' }, esEstilo
+          ? 'Los vídeos nuevos heredarán esta selección.'
+          : 'Sin voz se estiman los tiempos del guion. Cambiarla en un vídeo ya '
+            + 'generado deja pendientes la sincronización y el montaje.'))),
+    contenidos);
+}
+
+function vozParaVideoLight(e, estilo) {
+  const delEstilo = (((estilo || {}).datos || {}).voz || {});
+  const catalogo = vocesLight((estilo || {}).idioma || 'es');
+  if (!catalogo) return h('p', { clase: 'pista' }, 'Cargando voces…');
+  const opciones = [{ valor: '', nombre: `Voz del estilo: ${delEstilo.voz_nombre || 'la predeterminada'}` }];
+  for (const voz of catalogo) {
+    opciones.push({ valor: voz.id, nombre: voz.nombre || voz.id });
+  }
+  if (e.voz_id && !catalogo.some(v => v.id === e.voz_id)) {
+    opciones.push({ valor: e.voz_id, nombre: `Voz actual (${e.voz_id})` });
+  }
+  return campoSelect('Voz para este vídeo', e.voz_id || '', opciones,
+    valor => { e.voz_id = valor || (APP.light.vista === 'elegido'
+      ? '' : (delEstilo.voz_id || '')); });
 }
 
 /* El catálogo viene del motor: nombres, descripciones y las seis de fábrica.
@@ -7094,6 +7132,8 @@ async function crearYGenerarLight(estilo) {
         animaciones: e.animaciones || [],
         subtitulos: e.subtitulos !== false,
         generar_personajes: e.generar_personajes !== false,
+        incorporar_voz: e.incorporar_voz !== false,
+        ...(e.voz_id ? { voz_id: e.voz_id } : {}),
         bibliotecas: e.bibliotecas,
       },
     });
@@ -7162,6 +7202,8 @@ const CAMPOS_ENCARGO = [
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
   { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
+  { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
+  { clave: 'voz_id', paso: 'voz', param: 'voz_id' },
 ];
 
 /* Las tres ranuras completas a partir de lo guardado, que puede faltar entero
@@ -7201,6 +7243,8 @@ function pedidoDelVideoLight() {
     animaciones: [...(params('guion').animaciones || params('render').animaciones || [])],
     subtitulos: params('render').subtitulos !== false,
     generar_personajes: params('assets').generar_personajes !== false,
+    incorporar_voz: params('voz').incorporar_voz !== false,
+    voz_id: params('voz').voz_id || '',
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
   v.pedido = {
@@ -7260,6 +7304,9 @@ function vistaEncargoVideoLight() {
     materialLight(e)));
 
   caja.appendChild(bibliotecasDelEncargo(e));
+  caja.appendChild(incorporarVozDelEncargo(e,
+    () => { programarGuardadoEncargo(); pintarLight(); }, false,
+    ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
   caja.appendChild(animacionesDelEncargo(e));
@@ -10915,7 +10962,7 @@ function vistaCrearLight() {
   cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(animacionesDelEncargo(e.montaje, tocarEncargoLight, true));
 
-  cajas.appendChild(bloqueLight('🎙️ Voz', 'quién lo locuta',
+  cajas.appendChild(incorporarVozDelEncargo(e.montaje, tocarEncargoLight, true,
     campoArea('', e.voz_prompt, v => { e.voz_prompt = v; tocarEncargoLight(); },
       'grave, pausada, sin sonar a locutor de anuncio'),
     selectorVozPropiaLight(e)));
@@ -11386,7 +11433,7 @@ function vistaPresetLight() {
   const voz = h('div', {});
   voz.appendChild(escuchaDeVoz(ficha));
   voz.appendChild(cajaDeRehacer(ficha, 'voz'));
-  caja.appendChild(bloqueLight('🎙️ Voz', 'quién lo locuta', voz));
+  caja.appendChild(incorporarVozDelEncargo(montaje, guardarMontaje, true, voz));
 
   // 🌐 lo que se cambia a mano. Autoguardado, como todo lo demás.
   caja.appendChild(bloqueLight('🌐 Nombre e idioma', 'se cambian sin regenerar nada',
@@ -11608,7 +11655,8 @@ function vocesLight(idioma) {
     pedir(API.voces(idioma, true))
       .then(datos => {
         APP.light.voces = { idioma, lista: datos.voces || [], pidiendo: null };
-        if (['preset', 'crear'].includes(APP.light.vista)) pintarLight();
+        if (['preset', 'crear', 'elegido'].includes(APP.light.vista)
+            || (APP.light.vista === 'video' && APP.light.video.vista === 'encargo')) pintarLight();
       })
       .catch(() => { APP.light.voces = { idioma, lista: [], pidiendo: null }; });
   }

@@ -1598,6 +1598,7 @@ input[type=range].ritmo {
 .galeria-estilos .vinetas li { display: flex; gap: 6px; align-items: baseline; }
 .galeria-estilos .vinetas .ico { flex: 0 0 auto; font-size: 11px; opacity: .85; }
 .galeria-estilos .vinetas li > :not(.ico) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.galeria-estilos .vinetas li.sin-voz { color: var(--malo); font-weight: 600; }
 
 /* ---- los intentos a medias
  *
@@ -2558,3 +2559,14 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 
 /* una animacion elegida que no ha encontrado frase que la sostenga */
 .aviso-animaciones { color: var(--aviso, #e0a23a); }
+.campos-voz-opcional {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.campos-voz-opcional:disabled,
+.campos-voz-opcional[disabled] {
+  opacity: 0.55;
+}

@@ -92,12 +92,42 @@ def probar_encargo():
     igual(presets_canal.cambios_para({"tipo": "canal", "datos": congelado}),
            {"render": montaje, "assets": {"generar_personajes": False}},
            "el video nuevo hereda la decision en assets, no en render")
+    sin_voz = dict(ENCARGO_VIDEO, voz_prompt="",
+                   montaje={"incorporar_voz": False})
+    limpio = light.validar_encargo(sin_voz)
+    igual(limpio["voz_prompt"], "", "el estilo sin voz no exige descripcion")
+    ok(not any(t["id"] == "voz" for t in light.plan_de(limpio)["tareas"]),
+       "crear un estilo sin voz no consulta al selector de voces")
+    congelado = presets_canal.datos_de_params({
+        "voz": {"incorporar_voz": False}, "render": montaje})
+    igual(congelado["montaje"]["incorporar_voz"], False,
+           "el estilo guarda la opcion sin voz en montaje")
+    igual(presets_canal.cambios_para({"tipo": "canal", "datos": congelado})["voz"],
+           {"incorporar_voz": False}, "la opcion llega al paso de voz del video")
+    ficha = {"tipo": "canal", "idioma": "es", "datos": {
+        "montaje": {"incorporar_voz": False},
+        "voz": {"voz_nombre": "Voz anterior", "velocidad": "lenta"}}}
+    sin_voz_tarjeta = presets_canal.vinetas_de(ficha)
+    ok(any(v.get("sin_voz") and v["texto"] == "No hay voz"
+           for v in sin_voz_tarjeta),
+       "la tarjeta marca sin voz aunque conserve una seleccion anterior")
+    ficha["datos"]["montaje"]["incorporar_voz"] = True
+    con_voz_tarjeta = presets_canal.vinetas_de(ficha)
+    ok(any("Voz anterior" in v["texto"] and not v.get("sin_voz")
+           for v in con_voz_tarjeta),
+       "al reactivar la voz la tarjeta recupera su descripcion")
+    ficha["datos"]["montaje"]["incorporar_voz"] = False
+    ficha["datos"].pop("voz")
+    ok(any(v.get("sin_voz") for v in presets_canal.vinetas_de(ficha)),
+       "tambien se indica sin voz si aun no existe una seleccion")
 
     casos = [
         (dict(ENCARGO_VIDEO, montaje={"subtitulos": "false"}),
          "con subtitulos no booleanos"),
         (dict(ENCARGO_VIDEO, montaje={"generar_personajes": "false"}),
          "con generacion de personajes no booleana"),
+        (dict(ENCARGO_VIDEO, montaje={"incorporar_voz": "false"}),
+         "con incorporacion de voz no booleana"),
         (dict(ENCARGO_VIDEO, montaje={"transiciones": ["inventada"]}),
          "con un efecto desconocido"),
         (dict(ENCARGO_VIDEO, nombre=""), "sin nombre"),

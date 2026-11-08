@@ -1601,6 +1601,8 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, "subtitulos debe ser un booleano")
         if "generar_personajes" in nuevos and not isinstance(nuevos["generar_personajes"], bool):
             raise ErrorApi(400, "generar_personajes debe ser un booleano")
+        if "incorporar_voz" in nuevos and not isinstance(nuevos["incorporar_voz"], bool):
+            raise ErrorApi(400, "incorporar_voz debe ser un booleano")
         if "transiciones_personalizadas" in nuevos and not isinstance(
                 nuevos["transiciones_personalizadas"], bool):
             raise ErrorApi(400, "transiciones_personalizadas debe ser un booleano")
@@ -8901,7 +8903,9 @@ def _partes_cambiadas(antes, encargo, imagenes_nuevas):
     if (antes.get("tono_prompt") or "") != (encargo.get("tono_prompt") or ""):
         cambiadas.add("tono")
     if any((antes.get(c) or "") != (encargo.get(c) or "")
-           for c in ("voz_prompt", "voz_id", "idioma")):
+           for c in ("voz_prompt", "voz_id", "idioma")) or (
+           (antes.get("montaje") or {}).get("incorporar_voz") is False) != (
+           (encargo.get("montaje") or {}).get("incorporar_voz") is False):
         cambiadas.add("voz")
     return cambiadas
 
@@ -10412,6 +10416,8 @@ def _sembrar_video_light(ctx, datos):
     brief, guion = {}, {}
     if datos.get("duracion_objetivo_s") is not None:
         brief["duracion_objetivo_s"] = datos["duracion_objetivo_s"]
+    if datos.get("voz_id"):
+        brief["voz_id"] = datos["voz_id"]
     # EL FORMATO, junto a la duracion: horizontal o vertical.
     # Es una decision del video y va al brief, de donde la leen los pasos.
     if datos.get("formato") is not None:
@@ -10471,6 +10477,10 @@ def _sembrar_video_light(ctx, datos):
     if assets:
         _validar_params("assets", assets, ctx)
         ctx.estado.actualizar_params("assets", assets)
+    voz = {k: datos[k] for k in ("incorporar_voz", "voz_id") if k in datos}
+    if voz:
+        _validar_params("voz", voz, ctx)
+        ctx.estado.actualizar_params("voz", voz)
     render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")
               if k in datos}
     if render:

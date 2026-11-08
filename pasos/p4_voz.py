@@ -934,7 +934,8 @@ def _reparto(bloques, palabras):
 
 
 def sintetizar_bloques(bloques, destino, cfg, avisar=None,
-                       nombre=NOMBRE_PISTA, extra_meta=None, proyecto_id=None):
+                       nombre=NOMBRE_PISTA, extra_meta=None, proyecto_id=None,
+                       sin_voz=False):
     """Sintetiza los bloques en una toma unica y deja pista y meta en destino.
 
     Devuelve el dict de salidas del paso (pista, duracion, palabras, controles,
@@ -999,7 +1000,7 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
     trozos = [" ".join(por_bloque[bid] for bid in sec["bloques"])
               for sec in secciones]
     wav = duracion = palabras = None
-    if len(trozos) > 1 and not simulado():
+    if len(trozos) > 1 and not simulado() and not sin_voz:
         avisa(0.05, f"{len(trozos)} secciones en un solo contexto")
         try:
             wav, duracion, palabras = _toma_por_contexto(trozos, cfg, progreso)
@@ -1009,7 +1010,10 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
             avisa(0.06, f"el contexto no ha ido ({fallo}); se graba de una vez")
             wav = None
     if wav is None:
-        wav, duracion, palabras = sintetizar_toma(texto, cfg, progreso)
+        if sin_voz:
+            wav, duracion, palabras = _toma_simulada(texto, cfg)
+        else:
+            wav, duracion, palabras = sintetizar_toma(texto, cfg, progreso)
         secciones = [{"id": "SB001", "bloques": [b["id"] for b in anotados]}]
     avisa(0.88, "repartiendo palabras entre bloques")
     escenas, reparto = _reparto(anotados, palabras)
@@ -1055,12 +1059,15 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
         "controles": copy.deepcopy(cfg),
         "bloques": fichas,
         "simulado": simulado(),
+        **({"sin_voz": True} if sin_voz else {}),
         "silencio_anadido": round(silencio_anadido, 3),
         "meta": NOMBRE_META,
         "secciones": _fichas_de_seccion(secciones, fichas),
         "marcas_tts": marcas_tts.resumen(anotados),
         "avisos_marcas": list(dict.fromkeys(avisos_marcas)),
-        "resumen": (f"{len(anotados)} bloques, {round(duracion, 1)}s, "
+        "resumen": (f"{len(anotados)} bloques, {round(duracion, 1)}s, sin voz"
+                    if sin_voz else
+                    f"{len(anotados)} bloques, {round(duracion, 1)}s, "
                     f"{cfg['modelo']} {cfg.get('preset') or 'sin preset'}"),
     }
     if extra_meta:
@@ -1075,17 +1082,18 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
     # solo la usa cuando hay tomas suficientes de la misma voz y velocidad, y no
     # cuenta las simuladas -- que salen del propio estimador, asi que meterlas
     # seria medirse a uno mismo. Este paso no anotaba NADA hasta el 24-08.
-    medida = cadencia.medida_de_toma(len(ordenadas), duracion, silencio_anadido)
-    estadisticas.anotar(
-        PASO, max(0.01, time.time() - arranque), tamano=len(ordenadas),
-        proyecto=proyecto_id, idioma=cfg.get("idioma"),
-        detalle={"cadencia_palabras_s": medida,
-                 "velocidad": cadencia.nombre_velocidad(cfg.get("velocidad")),
-                 "hueco_minimo": cfg.get("hueco_minimo"),
-                 "modelo_voz": cfg.get("modelo"), "voz_id": cfg.get("voz_id"),
-                 "bloques": len(anotados), "duracion_s": round(duracion, 2),
-                 "silencio_anadido_s": round(silencio_anadido, 3),
-                 "simulado": simulado()})
+    if not sin_voz:
+        medida = cadencia.medida_de_toma(len(ordenadas), duracion, silencio_anadido)
+        estadisticas.anotar(
+            PASO, max(0.01, time.time() - arranque), tamano=len(ordenadas),
+            proyecto=proyecto_id, idioma=cfg.get("idioma"),
+            detalle={"cadencia_palabras_s": medida,
+                     "velocidad": cadencia.nombre_velocidad(cfg.get("velocidad")),
+                     "hueco_minimo": cfg.get("hueco_minimo"),
+                     "modelo_voz": cfg.get("modelo"), "voz_id": cfg.get("voz_id"),
+                     "bloques": len(anotados), "duracion_s": round(duracion, 2),
+                     "silencio_anadido_s": round(silencio_anadido, 3),
+                     "simulado": simulado()})
 
     avisa(0.98, f"toma de {duracion:.1f}s lista")
     return salidas
@@ -1106,8 +1114,10 @@ def ejecutar(proyecto, params, avisar=None):
     cfg = resolver_params(params_con_idioma(proyecto, params))
     destino = comun.preparar_trabajo(proyecto, PASO)
 
+    sin_voz = params.get("incorporar_voz") is False
     salidas = sintetizar_bloques(bloques, destino, cfg, avisar=avisa,
-                                 proyecto_id=getattr(proyecto, "id", None))
+                                 proyecto_id=getattr(proyecto, "id", None),
+                                 sin_voz=sin_voz)
     comun.escribir_json(os.path.join(destino, "guion_locutado.json"),
                         {"bloques": bloques})
     avisa(1.0, salidas["resumen"])

@@ -321,6 +321,37 @@ def prueba_paso4(base):
     return proyecto, estado, salidas
 
 
+def prueba_sin_voz(base):
+    print("\n[4b] sin locucion: pista muda y marcas, sin Cartesia")
+    proyecto, estado = preparar_proyecto(base, "Video sin voz")
+    params = {"incorporar_voz": False, "hueco_minimo": 0.5}
+    estado.set_params("voz", params)
+    real, contexto = p4_voz._toma_real, p4_voz._toma_por_contexto
+    simulado = os.environ.get("ESTUDIO_SIMULAR")
+    try:
+        os.environ["ESTUDIO_SIMULAR"] = "0"
+        def prohibida(*args, **kwargs):
+            raise AssertionError("no se debe llamar a Cartesia")
+        p4_voz._toma_real = prohibida
+        p4_voz._toma_por_contexto = prohibida
+        salidas = p4_voz.ejecutar(proyecto, params)
+        comprobar(salidas.get("sin_voz") is True, "la toma queda marcada sin voz")
+        comprobar(salidas["palabras"] and salidas["duracion"] > 0,
+                  "hay un reloj estimado para cortar los planos")
+        igual(energia_wav(salidas["pista"]), 0, "el WAV no contiene locucion")
+        estado.completar("voz", salidas)
+        revision = p5.ejecutar(proyecto, {})
+        comprobar(revision.get("sin_voz") is True,
+                  "revision_audio reutiliza el silencio sin sintetizar")
+        igual(energia_wav(revision["pista"]), 0, "la revision mantiene el silencio")
+    finally:
+        p4_voz._toma_real, p4_voz._toma_por_contexto = real, contexto
+        if simulado is None:
+            os.environ.pop("ESTUDIO_SIMULAR", None)
+        else:
+            os.environ["ESTUDIO_SIMULAR"] = simulado
+
+
 def prueba_previsualizacion(proyecto):
     print("\n[5] previsualizacion")
     params = {"preset": "divulgacion_cercana"}
@@ -703,6 +734,7 @@ def main():
         prueba_controles()
         prueba_lectura_guion(base)
         proyecto, estado, salidas = prueba_paso4(base)
+        prueba_sin_voz(base)
         prueba_previsualizacion(proyecto)
         prueba_trabajo_en_segundo_plano(base)
         prueba_paso5(proyecto, estado, salidas)

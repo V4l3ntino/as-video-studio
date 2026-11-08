@@ -166,8 +166,8 @@ TIPOS = {
         "nombre": "Montaje",
         "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
         "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas",
-                   "animaciones", "generar_personajes"),
-        "pasos": ("assets", "render"),
+                   "animaciones", "generar_personajes", "incorporar_voz"),
+        "pasos": ("voz", "assets", "render"),
     },
     "canal": {
         "nombre": "Canal",
@@ -246,7 +246,8 @@ def _limpiar_datos(tipo, datos):
                 limpios["bibliotecas"] = bibliotecas.normalizar(limpios["bibliotecas"])
             except ValueError as fallo:
                 raise ErrorPreset(str(fallo)) from fallo
-        for clave in ("subtitulos", "transiciones_personalizadas", "generar_personajes"):
+        for clave in ("subtitulos", "transiciones_personalizadas", "generar_personajes",
+                      "incorporar_voz"):
             if clave in limpios and not isinstance(limpios[clave], bool):
                 raise ErrorPreset(f"{clave} debe ser un booleano")
         if "transiciones" in limpios:
@@ -559,7 +560,10 @@ def vinetas_de(ficha):
     poner("🗣️", _recortar(str(origen.get("tono_prompt") or tono), 70))
 
     voz = datos.get("voz") or {}
-    if voz:
+    sin_voz = (datos.get("montaje") or {}).get("incorporar_voz") is False
+    if sin_voz:
+        lineas.append({"icono": "🎙️", "texto": "No hay voz", "sin_voz": True})
+    elif voz:
         nombre = (_nombre_de_voz(voz.get("voz_id")) or voz.get("voz_nombre")
                   or str(voz.get("voz_id") or "")[:8])
         poner("🎙️", " · ".join(x for x in [nombre, str(voz.get("velocidad") or "").strip()] if x))
@@ -1094,12 +1098,14 @@ def cambios_para(ficha, params_actuales=None):
 
     if tipo == "montaje":
         render = {k: copy.deepcopy(v) for k, v in datos.items()
-                  if k not in ("bibliotecas", "generar_personajes")}
+                  if k not in ("bibliotecas", "generar_personajes", "incorporar_voz")}
         cambios = {"render": render} if render else {}
         assets = {k: copy.deepcopy(datos[k]) for k in ("bibliotecas", "generar_personajes")
                   if k in datos}
         if assets:
             cambios["assets"] = assets
+        if "incorporar_voz" in datos:
+            cambios["voz"] = {"incorporar_voz": datos["incorporar_voz"]}
         return cambios
 
     if tipo == "voz":
@@ -1189,6 +1195,8 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
             bloque["bibliotecas"] = copy.deepcopy(assets["bibliotecas"])
         if "generar_personajes" in assets:
             bloque["generar_personajes"] = assets["generar_personajes"]
+        if "incorporar_voz" in voz:
+            bloque["incorporar_voz"] = voz["incorporar_voz"]
         if bloque:
             datos["montaje"] = bloque
 
