@@ -210,6 +210,11 @@ edita su contenido y pulsa **Guardar**. La vista previa se actualiza al guardar.
 Cerrar el editor descarta los cambios que todavía no hayas guardado.
 Para quitarla, selecciona **Sin animación** y pulsa **Guardar**. La escena queda
 sin animación también al volver a montar, aunque antes tuviera una automática.
+En **Tipografía cinética**, el campo **Subrayado**, debajo de **Frase**, permite
+elegir las palabras resaltadas. Sepáralas con espacios o comas: se resaltan todas
+las coincidencias de palabras completas, sin distinguir mayúsculas y sin que la
+puntuación afecte. Las palabras que no estén en la frase se ignoran; vacío no
+resalta ninguna. Los proyectos anteriores conservan su resaltado al abrirse.
 El collage y la comparación necesitan la imagen de la escena y la de una escena
 contigua; si falta alguna, el editor indica el motivo y conserva lo guardado.
 

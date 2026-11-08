@@ -637,6 +637,58 @@ with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
         comprobar("se puede volver a asignar una animación después de quitarla",
                   servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]["id"] == "ficha-cristal")
 
+print("\n== subrayado configurable de tipografia cinetica ==")
+frase_subrayado = "La última noche de mil ochocientos cincuenta, y otra NOCHE."
+palabras_subrayado = frase_subrayado.split()
+datos_subrayado = {"palabras": palabras_subrayado,
+                   "tiempos": [[i * .3, (i + 1) * .3] for i in range(len(palabras_subrayado))]}
+for seleccion, indices in (("NOCHE, mil; ausente", {2, 4, 9}), ("ÚLTIMA", {1}),
+                           ("noche noche", {2, 9}), ("cincuenta", {6}),
+                           ("ochociento", set()), ("ausente", set()), ("", set())):
+    datos = dict(datos_subrayado, subrayado=seleccion)
+    igual(f"coincidencias de {seleccion!r}", animaciones.subrayadas_de(datos), indices)
+    svg, _ = animaciones.svg_de({"animacion": "tipografia-cinetica", "datos": datos}, 6)
+    dom = xml.dom.minidom.parseString(svg)
+    resaltados = [n for n in dom.getElementsByTagName("rect") if n.getAttribute("fill-opacity") == "0.9"]
+    igual(f"el SVG pinta todos y solo los resaltados de {seleccion!r}", len(resaltados), len(indices))
+igual("sin el nuevo campo conserva la unica palabra automatica", animaciones.subrayadas_de(datos_subrayado), {5})
+igual("el editor muestra la palabra ya resaltada al abrir una animacion antigua",
+      animaciones.contenido_de("tipografia-cinetica", datos_subrayado)["subrayado"], "ochocientos")
+igual("el editor conserva un subrayado vacio explicito",
+      animaciones.contenido_de("tipografia-cinetica", dict(datos_subrayado, subrayado=""))["subrayado"], "")
+
+with tempfile.TemporaryDirectory(prefix="subrayado_anim_") as carpeta_subrayado:
+    proyecto, estado = juguete.construir(carpeta_subrayado, animaciones=[], etiquetas={})
+    estado.actualizar_params("render", {"unidades": {"escena:S001": {}, "escena:S002": {}}})
+    gestor = MagicMock()
+    gestor.listar.return_value = []
+    ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=gestor)
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        editor = servidor.leer_animacion_escena(proyecto.id, "S001")
+        opcion = next(o for o in editor["opciones"] if o["id"] == "tipografia-cinetica")
+        igual("Subrayado aparece despues de Frase", [c["nombre"] for c in opcion["campos"]], ["Frase", "Subrayado"])
+        vieja = {"id": "tipografia-cinetica", "ancla": editor["ancla"],
+                 "contenido": {"texto": frase_subrayado}}
+        servidor.editar_animacion_escena(proyecto.id, "S001", vieja)
+        comprobar("una edicion antigua sigue siendo legible sin inyectarle defaults",
+                  "subrayado" not in estado.params("render")["unidades"]["escena:S001"]["animacion"]["contenido"])
+        firma_vecina = estado.firma_unidad("render", "escena:S002")
+        firma_global = estado.firma_global("render")
+        nueva = dict(vieja, contenido={"texto": frase_subrayado, "subrayado": "noche, mil"})
+        previa = servidor.editar_animacion_escena(proyecto.id, "S001", nueva)
+        ctx.estado = estado = type(estado)(proyecto)
+        leida = servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]
+        igual("la seleccion se conserva al reabrir el editor", leida["contenido"]["subrayado"], "noche, mil")
+        plan = servidor._plan_de_previsualizacion(ctx)
+        render = animaciones.capas(plan["escenas"], estado.params("render"), salida=(1280, 720))
+        igual("previa y render comparten el subrayado elegido", render["S001"]["svg"], previa["escenas"][0]["animacion"]["svg"])
+        igual("subrayar no cambia las otras escenas", estado.firma_unidad("render", "escena:S002"), firma_vecina)
+        igual("subrayar no cambia la firma global", estado.firma_global("render"), firma_global)
+        nueva["contenido"]["subrayado"] = ""
+        previa = servidor.editar_animacion_escena(proyecto.id, "S001", nueva)
+        igual("borrar Subrayado se conserva como vacio", previa["escenas"][0]["animacion"]["contenido"]["subrayado"], "")
+
 print("\n== la pagina de render las lleva ==")
 comprobar("la pagina tiene su capa", 'id="capaanim"' in p8_render.PAGINA)
 comprobar("y aplica el fondo con el mismo reloj", "aplicarFondo(camara, FONDOANIM, t)" in p8_render.PAGINA)

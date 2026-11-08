@@ -424,8 +424,14 @@ voz o assets. En `p8_render.ejecutar`, `pedidas` contiene ids de UNIDADES: usa
 `animaciones_pedidas` para los tipos del catálogo; sobrescribir la primera saltaba
 clips ya existentes y sellaba mal las unidades. La regresión del remontaje con
 clips previos está en `prueba_animaciones` y la cadena real en `prueba_pasos_visuales`.
-El esquema de campos está en `animaciones.CAMPOS`; GET del editor es
-solo lectura y PUT valida antes de actualizar params. `aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
+El esquema de campos está en `animaciones.CAMPOS`. Tipografía cinética admite
+`contenido.subrayado` (texto):
+`subrayadas_de` resalta todas las palabras coincidentes, sin distinguir mayúsculas
+ni puntuación; vacío = ninguna. Si el campo no existe (guiones o ediciones
+anteriores), mantiene la elección automática de una palabra sin mutar params.
+El editor muestra esa elección inicial y solo persiste al pulsar Guardar.
+GET del editor es solo lectura y PUT valida antes de actualizar params.
+`aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
 (`prueba_animaciones` compara las dos). Las URL de otras imágenes viajan como
 `proyecto://ruta`: solo el navegador sabe el prefijo del proxy.
 

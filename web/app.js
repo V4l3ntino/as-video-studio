@@ -9143,10 +9143,16 @@ async function abrirAnimacionEscena(escena) {
     if (!borradores.has(elegido)) borradores.set(elegido, { ...opcion.contenido });
     const contenido = borradores.get(elegido);
     opcion.campos.forEach(campo => {
-      const entrada = h('textarea', { rows: campo.id === 'definicion' ? 3 : 2,
+      const subrayado = campo.id === 'subrayado';
+      const entrada = h(subrayado ? 'input' : 'textarea', {
+        type: subrayado ? 'text' : null, rows: subrayado ? null : (campo.id === 'definicion' ? 3 : 2),
+        placeholder: subrayado ? 'Ej.: noche, mil' : null,
         maxlength: 500, value: contenido[campo.id],
         oninput: ev => { contenido[campo.id] = ev.target.value; marcarCambio(); } });
       campos.appendChild(h('label', { clase: 'campo' }, campo.nombre, entrada));
+      if (subrayado) campos.appendChild(h('p', { clase: 'meta' },
+        'Separa las palabras con espacios o comas. Se resaltan todas las coincidencias, '
+        + 'sin distinguir mayúsculas. Déjalo vacío para no subrayar ninguna palabra.'));
     });
   }
 
@@ -9163,7 +9169,7 @@ async function abrirAnimacionEscena(escena) {
     botonGuardar.disabled = true;
     botonGuardar.textContent = 'Guardando…';
     selector.disabled = true;
-    campos.querySelectorAll('textarea').forEach(c => { c.disabled = true; });
+    campos.querySelectorAll('textarea, input').forEach(c => { c.disabled = true; });
     estado.textContent = 'Guardando…';
     try {
       const previa = await pedir(url, { method: 'PUT', cuerpo: datos });
@@ -9178,7 +9184,7 @@ async function abrirAnimacionEscena(escena) {
       botonGuardar.disabled = !sucio;
       botonGuardar.textContent = 'Guardar';
       selector.disabled = false;
-      campos.querySelectorAll('textarea').forEach(c => { c.disabled = false; });
+      campos.querySelectorAll('textarea, input').forEach(c => { c.disabled = false; });
     }
   }
 

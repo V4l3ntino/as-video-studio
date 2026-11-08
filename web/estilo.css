@@ -2624,7 +2624,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .anim-editor-pie { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
 .anim-editor-disposicion { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr); gap: 24px; }
 .anim-editor .campo { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
-.anim-editor textarea, .anim-editor select { width: 100%; box-sizing: border-box; }
+.anim-editor textarea, .anim-editor select, .anim-editor input { width: 100%; box-sizing: border-box; }
 .anim-editor-previa { width: 100%; min-height: 0; margin-top: 16px; pointer-events: none; }
 @media (max-width: 720px) {
   .anim-editor { padding: 16px; }

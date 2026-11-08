@@ -147,7 +147,7 @@ CAMPOS = {
     "etiqueta-escrita": [("nombre", "Texto")],
     "collage-titulo": [("nombre", "Título")],
     "comparacion-tarjetas": [("izquierda", "Etiqueta izquierda"), ("derecha", "Etiqueta derecha")],
-    "tipografia-cinetica": [("texto", "Frase")],
+    "tipografia-cinetica": [("texto", "Frase"), ("subrayado", "Subrayado")],
 }
 
 
@@ -155,9 +155,25 @@ def ancla_de(escena):
     return " ".join(str(escena.get("narracion") or "").split())
 
 
+def subrayadas_de(datos):
+    """Coincidencias de palabras completas; sin campo conserva la elección antigua."""
+    palabras = datos.get("palabras") or []
+    if not palabras:
+        return set()
+    if "subrayado" not in datos:
+        return {max(range(len(palabras)), key=lambda k: (len(_limpio(palabras[k])), k))}
+    buscadas = set(re.findall(r"\w+", str(datos["subrayado"]).casefold()))
+    return {i for i, palabra in enumerate(palabras)
+            if buscadas.intersection(re.findall(r"\w+", str(palabra).casefold()))}
+
+
 def contenido_de(aid, datos):
-    return {k: (" ".join(datos.get("palabras") or []) if aid == "tipografia-cinetica"
-                else str(datos.get(k, "CONCEPTO" if k == "etiqueta" and aid.startswith("ficha-") else "")))
+    if aid == "tipografia-cinetica":
+        palabras = datos.get("palabras") or []
+        subrayado = (str(datos["subrayado"]) if "subrayado" in datos else
+                     " ".join(_limpio(palabras[i]) for i in sorted(subrayadas_de(datos))))
+        return {"texto": " ".join(palabras), "subrayado": subrayado}
+    return {k: str(datos.get(k, "CONCEPTO" if k == "etiqueta" and aid.startswith("ficha-") else ""))
             for k, _ in CAMPOS[aid]}
 
 
@@ -172,10 +188,17 @@ def validar_edicion(edicion, escena):
         if contenido != {}:
             raise ValueError("Sin animación no admite campos de contenido")
         return {"id": aid, "ancla": ancla_de(escena), "contenido": {}}
-    if not isinstance(contenido, dict) or set(contenido) != {k for k, _ in CAMPOS[aid]}:
+    campos = {k for k, _ in CAMPOS[aid]}
+    # Las ediciones anteriores solo guardaban la frase. Leerlas mantiene el
+    # resaltado automático sin escribir defaults ni cambiar sus firmas.
+    if aid == "tipografia-cinetica" and isinstance(contenido, dict) and "subrayado" not in contenido:
+        campos.remove("subrayado")
+    if not isinstance(contenido, dict) or set(contenido) != campos:
         raise ValueError("faltan campos de la animación o hay campos desconocidos")
     limpio = {}
     for k, nombre in CAMPOS[aid]:
+        if k not in campos:
+            continue
         valor = contenido[k]
         if not isinstance(valor, str) or len(valor) > 500:
             raise ValueError(f"{nombre}: utiliza como máximo 500 caracteres")
@@ -1206,8 +1229,7 @@ def _svg_cinetica(datos, duracion, ancho, alto, c, ctx=None):
     x, y = 0.07 * ancho, 0.13 * alto
     inicio = max(0.0, tiempos[0][0] - 0.25)
     fin = min(duracion - 0.05, max(tiempos[-1][1] + 1.6, inicio + 2.6))
-    # la palabra clave: la mas larga de las ultimas, la que cierra la idea
-    clave = max(range(len(palabras)), key=lambda k: (len(_limpio(palabras[k])), k))
+    claves = subrayadas_de(datos)
     piezas = [f'<rect x="{-pad:.1f}" y="{-pad*0.55:.1f}" width="{caja_w + 2*pad:.1f}" '
               f'height="{caja_h + pad*0.4:.1f}" rx="{20*u:.1f}" fill="{c["sombra"]}" '
               f'fill-opacity="0.62"/>']
@@ -1216,12 +1238,12 @@ def _svg_cinetica(datos, duracion, ancho, alto, c, ctx=None):
         for k in ln:
             px, py = cursor, tam + fila * interlinea
             t0 = tiempos[k][0]
-            if k == clave:
+            if k in claves:
                 piezas.append(
                     f'<rect x="{px - 10*u:.1f}" y="{py - tam*0.9:.1f}" width="0" '
                     f'height="{tam*1.15:.1f}" rx="{8*u:.1f}" fill="{c["acento"]}" '
                     f'fill-opacity="0.9">{_anim("width", 0, f"{medidas[k] + 20*u:.1f}", t0, 0.4)}</rect>')
-            tinta = _sobre(c["acento"]) if k == clave else c["texto"]
+            tinta = _sobre(c["acento"]) if k in claves else c["texto"]
             piezas.append(
                 f'<text x="{px:.1f}" y="{py:.1f}" fill-opacity="0" '
                 f'font-family=\'{FUENTE_SVG}\' font-size="{tam:.1f}" font-weight="700" '
