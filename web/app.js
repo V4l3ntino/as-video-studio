@@ -6083,6 +6083,7 @@ function montajeDelEstiloLight(ficha) {
   const montaje = ((ficha || {}).datos || {}).montaje || {};
   return {
     subtitulos: montaje.subtitulos !== false,
+    parallax: parallaxPorDefectoLight(montaje.parallax),
     generar_personajes: montaje.generar_personajes !== false,
     incorporar_voz: montaje.incorporar_voz !== false,
     transiciones: [...(montaje.transiciones || [])],
@@ -6650,6 +6651,7 @@ function vistaElegidoLight() {
   caja.appendChild(incorporarVozDelEncargo(e, () => pintarLight(), false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, ficha)] : [])));
   caja.appendChild(subtitulosDelEncargo(e));
+  caja.appendChild(parallaxDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
   caja.appendChild(animacionesDelEncargo(e));
 
@@ -6772,6 +6774,98 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
     h('div', { clase: 'fila meta' },
       h('a', { href: 'https://pixabay.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pixabay'),
       h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels')));
+}
+
+function parallaxPorDefectoLight(valor) {
+  const p = Object.assign({ activo: false, seleccion: 'todas',
+    cada: 3, intensidad: 'suave' }, valor || {});
+  p.movimientos = [...(p.movimientos || (p.movimiento === 'aleatorio'
+    ? ['zoom_delante', 'zoom_atras', 'lateral', 'vertical', 'diagonal', 'orbita', 'combinado']
+    : [p.movimiento || 'zoom_delante']))];
+  delete p.movimiento;
+  return p;
+}
+
+function parallaxDelEncargo(e, alCambiar, esEstilo = false) {
+  const p = parallaxPorDefectoLight(e.parallax);
+  const guardar = () => {
+    e.parallax = { ...p, movimientos: [...p.movimientos] };
+    if (alCambiar) alCambiar();
+  };
+  const cuerpo = h('div', { clase: 'parallax-cuerpo', hidden: !p.activo });
+  const cada = h('input', { type: 'number', min: 1, max: 1000, step: 1, value: p.cada,
+    'aria-label': 'Animar cada N imágenes', 'data-foco': 'parallax-cada',
+    oninput: ev => {
+      const valor = Number(ev.target.value);
+      if (!Number.isInteger(valor) || valor < 1 || valor > 1000) return;
+      p.cada = valor;
+      guardar();
+      actualizarAyuda();
+    },
+    onchange: ev => { ev.target.value = p.cada; },
+  });
+  const ayuda = h('p', { clase: 'pista' });
+  const actualizarAyuda = () => {
+    ayuda.textContent = `Se animarán las imágenes ${p.cada}, ${p.cada * 2}, ${p.cada * 3}…`;
+  };
+  actualizarAyuda();
+  const intervalo = h('div', { hidden: p.seleccion !== 'cada' },
+    h('label', { clase: 'parallax-intervalo' }, 'Animar cada N imágenes', cada), ayuda);
+  const radios = (clave, opciones) => h('div', { clase: 'parallax-radios' },
+    ...opciones.map(([valor, texto]) => h('label', {},
+      h('input', { type: 'radio', name: `parallax-${clave}`, value: valor,
+        checked: p[clave] === valor, onchange: () => {
+          p[clave] = valor;
+          intervalo.hidden = p.seleccion !== 'cada';
+          guardar();
+        } }), texto)));
+  const casillasMovimiento = [];
+  const actualizarMovimientos = () => {
+    casillasMovimiento.forEach(c => {
+      c.disabled = p.movimientos.length === 1 && c.checked;
+    });
+  };
+  cuerpo.appendChild(h('fieldset', { clase: 'parallax-movimientos' },
+    h('legend', {}, 'Movimientos de cámara'),
+    h('p', { clase: 'pista' }, 'Elige uno o varios. Se alternarán entre las imágenes animadas; '
+      + 'la variación se conserva al volver a montar. Mantén al menos uno seleccionado.'),
+    h('div', { clase: 'parallax-opciones' }, ...[
+    ['zoom_delante', 'Zoom hacia delante'], ['zoom_atras', 'Zoom hacia atrás'],
+    ['lateral', 'Paneo lateral'], ['vertical', 'Movimiento vertical'],
+    ['diagonal', 'Movimiento diagonal'], ['orbita', 'Órbita o inclinación suave'],
+    ['combinado', 'Movimiento combinado'],
+  ].map(([valor, nombre]) => {
+    const entrada = h('input', { type: 'checkbox', checked: p.movimientos.includes(valor),
+      'data-foco': `parallax-movimiento-${valor}`, onchange: ev => {
+        p.movimientos = ev.target.checked ? [...p.movimientos, valor]
+          : p.movimientos.filter(m => m !== valor);
+        actualizarMovimientos();
+        guardar();
+      } });
+    casillasMovimiento.push(entrada);
+    return h('label', { clase: 'efecto-encargo' }, entrada, h('span', {}, nombre));
+  }))));
+  actualizarMovimientos();
+  cuerpo.appendChild(h('fieldset', { clase: 'parallax-seleccion' },
+    h('legend', {}, '¿Qué imágenes quieres animar?'),
+    radios('seleccion', [['todas', 'Todas las imágenes'], ['cada', 'Cada N imágenes'],
+      ['aleatorias', 'Imágenes aleatorias']]), intervalo,
+    h('p', { clase: 'pista' }, 'Solo se cuentan imágenes estáticas. La selección aleatoria anima aproximadamente la mitad y se conserva al remontar.')));
+  cuerpo.appendChild(h('details', { clase: 'parallax-avanzado' },
+    h('summary', {}, 'Configuración avanzada'),
+    h('fieldset', {}, h('legend', {}, 'Intensidad del movimiento'),
+      radios('intensidad', [['suave', 'Suave'], ['media', 'Media'], ['alta', 'Alta']]))));
+  if (esEstilo) cuerpo.appendChild(h('p', { clase: 'pista' }, 'Los vídeos nuevos heredarán esta selección.'));
+  const panel = bloqueLight('Efecto parallax en imágenes estáticas',
+    'profundidad y movimiento de cámara',
+    h('label', { clase: 'efecto-encargo' }, h('input', {
+        type: 'checkbox', checked: p.activo, 'data-foco': 'parallax-activo',
+        onchange: ev => { p.activo = ev.target.checked; cuerpo.hidden = !p.activo; guardar(); },
+      }), h('span', {}, h('b', {}, 'Activar'),
+        h('span', { clase: 'meta' }, 'Añade profundidad y movimiento de cámara a tus imágenes.'))),
+    cuerpo);
+  panel.classList.add('parallax-panel');
+  return panel;
 }
 
 function subtitulosDelEncargo(e, alCambiar, esEstilo = false) {
@@ -7156,6 +7250,7 @@ async function crearYGenerarLight(estilo) {
         animaciones: e.animaciones || [],
         plantillas_cartela: e.plantillas_cartela || [],
         subtitulos: e.subtitulos !== false,
+        parallax: parallaxPorDefectoLight(e.parallax),
         generar_personajes: e.generar_personajes !== false,
         incorporar_voz: e.incorporar_voz !== false,
         ...(e.voz_id ? { voz_id: e.voz_id } : {}),
@@ -7226,6 +7321,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'animaciones', paso: 'guion', param: 'animaciones' },
   { clave: 'plantillas_cartela', paso: 'callouts', param: 'plantillas_cartela' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
+  { clave: 'parallax', paso: 'render', param: 'parallax' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
   { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
   { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
@@ -7270,6 +7366,7 @@ function pedidoDelVideoLight() {
     ...(params('callouts').plantillas_cartela !== undefined
       ? { plantillas_cartela: [...params('callouts').plantillas_cartela] } : {}),
     subtitulos: params('render').subtitulos !== false,
+    parallax: parallaxPorDefectoLight(params('render').parallax),
     generar_personajes: params('assets').generar_personajes !== false,
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
@@ -7336,6 +7433,7 @@ function vistaEncargoVideoLight() {
     () => { programarGuardadoEncargo(); pintarLight(); }, false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
   caja.appendChild(subtitulosDelEncargo(e));
+  caja.appendChild(parallaxDelEncargo(e, programarGuardadoEncargo));
   caja.appendChild(efectosDelEncargo(e));
   caja.appendChild(animacionesDelEncargo(e, programarGuardadoEncargo));
 
@@ -7459,6 +7557,9 @@ async function volcarEncargoLight(pedido) {
       });
     }
     if (APP.light.video.pid !== pid) return;
+    if ((porPaso.render || {}).parallax !== undefined && PREVIA.ficha) {
+      await refrescarLoDibujado();
+    }
     /* Los estados de los pasos han cambiado en cascada y la pantalla los lee
        de las fichas: se vuelven a pedir, sin repintar el formulario (se está
        escribiendo en él). El pie sí, que es lo que cambia a la vista. */
@@ -8600,6 +8701,79 @@ const PREVIA = {
   editando: '',       // id de la nota que se está corrigiendo, si hay alguna
 };
 
+const PARALLAX_PREVIA = { actual: null };
+
+function asegurarParallaxPrevia() {
+  const pid = videoAbierto().pid;
+  const escenas = ((PREVIA.ficha || {}).escenas || []).filter(e => (e.parallax || {}).clave);
+  if (!escenas.some(e => e.parallax.estado === 'pendiente')) return;
+  const clave = JSON.stringify([pid, escenas.map(e => e.parallax.clave)]);
+  let p = PARALLAX_PREVIA.actual;
+  if (!p || p.clave !== clave) {
+    if (p && p.tic) clearTimeout(p.tic);
+    p = { pid, clave, tid: '', estado: 'ejecutando', mensaje: 'Preparando vídeos parallax…',
+      progreso: 0, ocupado: false, tic: null };
+    PARALLAX_PREVIA.actual = p;
+  }
+  if (!p.ocupado && !p.tic && p.estado === 'ejecutando') seguirParallaxPrevia(p);
+}
+
+async function seguirParallaxPrevia(p) {
+  if (PARALLAX_PREVIA.actual !== p || videoAbierto().pid !== p.pid
+      || videoAbierto().vista !== 'previa') return;
+  p.ocupado = true;
+  try {
+    if (!p.tid) {
+      const respuesta = await pedir(`${API.proyecto(p.pid)}/previsualizacion/parallax`, { method: 'POST' });
+      p.tid = respuesta.trabajo_id || '';
+      p.mensaje = respuesta.esperando ? 'El parallax se preparará al terminar la generación actual…'
+        : 'Preparando vídeos parallax con DepthFlow…';
+      if (respuesta.listo) p.estado = 'listo';
+    }
+    if (p.tid) {
+      const trabajo = await pedir(API.trabajo(p.tid));
+      p.progreso = trabajo.progreso || 0;
+      p.mensaje = trabajo.mensaje || p.mensaje;
+      if (['listo', 'error', 'cancelado'].includes(trabajo.estado)) {
+        p.estado = trabajo.estado;
+        if (trabajo.estado === 'error') p.mensaje = trabajo.error || 'No se pudo preparar el parallax.';
+        if (trabajo.estado === 'cancelado') p.mensaje = 'Preparación de parallax detenida.';
+      }
+    }
+    if (videoAbierto().pid === p.pid && PARALLAX_PREVIA.actual === p) await refrescarLoDibujado();
+  } catch (err) {
+    p.estado = 'error';
+    p.mensaje = `No se pudo preparar el parallax: ${err.message}`;
+  } finally {
+    p.ocupado = false;
+  }
+  if (PARALLAX_PREVIA.actual !== p || videoAbierto().pid !== p.pid) return;
+  if (p.estado === 'ejecutando') {
+    p.tic = setTimeout(() => { p.tic = null; seguirParallaxPrevia(p); }, 2000);
+  }
+  repintarVideo();
+}
+
+function estadoParallaxPrevia() {
+  const pendientes = ((PREVIA.ficha || {}).escenas || []).filter(e => (e.parallax || {}).estado === 'pendiente');
+  if (!pendientes.length) return null;
+  setTimeout(asegurarParallaxPrevia, 0);
+  const p = PARALLAX_PREVIA.actual;
+  if (!p || p.pid !== videoAbierto().pid) return h('p', { clase: 'pista' }, 'Preparando vídeos parallax…');
+  return h('div', { clase: 'parallax-previa-estado', role: 'status' },
+    h('span', {}, p.mensaje),
+    p.estado === 'ejecutando' ? h('progress', { max: 1, value: p.progreso,
+      'aria-label': 'Progreso de los vídeos parallax' }) : null,
+    p.estado === 'ejecutando' && p.tid ? h('button', { clase: 'mini', onclick: async () => {
+      try { await pedir(API.cancelar(p.tid), { method: 'POST' }); }
+      catch (err) { toast(err.message, true); }
+    } }, 'Parar') : null,
+    ['error', 'cancelado', 'listo'].includes(p.estado) ? h('button', { clase: 'mini', onclick: () => {
+      PARALLAX_PREVIA.actual = null;
+      asegurarParallaxPrevia();
+    } }, 'Continuar parallax') : null);
+}
+
 async function cargarPreviaLight() {
   const v = videoAbierto();
   if (!v.pid || PREVIA.cargando) return;
@@ -9029,7 +9203,8 @@ function clipPrevia(escena, poster) {
     PREVIA.clip = h('video', {clase: 'previa-clip', src: url,
       controls: true, playsinline: true, autoplay: true, loop: true, muted: true,
       preload: 'auto', datos: {clave}, onloadedmetadata: sincronizarClipPrevia,
-      title: 'Clip propio: vista previa sin sonido. Oírla lo sincroniza con la narración.'});
+      title: escena.parallax ? 'Parallax: vista previa sin sonido. Oírla lo sincroniza con la narración.'
+        : 'Clip de vídeo: vista previa sin sonido. Oírla lo sincroniza con la narración.'});
     PREVIA.clip.muted = true;
     PREVIA.clip.defaultMuted = true;
   }
@@ -9436,6 +9611,7 @@ function vistaPreviaLight() {
 
   const disposicion = h('div', { clase: 'previa-disposicion' },
     galeriaImagenesPrevia(escenas), caja);
+  caja.appendChild(estadoParallaxPrevia() || document.createTextNode(''));
 
   /* EL PLANO: la imagen, su capa de rótulos encima y el subtítulo debajo del
      todo. Las tres en el MISMO cuadro y en el orden en el que se dibujan en el
@@ -10728,6 +10904,7 @@ async function refrescarLoDibujado() {
           const suya = suyas[e.id];
           e.imagen = suya.imagen;
           e.clip = suya.clip;
+          e.parallax = suya.parallax;
           e.medio_usuario = suya.medio_usuario;
           e.recurso_biblioteca = suya.recurso_biblioteca;
           e.compuesto = suya.compuesto;
@@ -11246,6 +11423,7 @@ function vistaCrearLight() {
   cajas.appendChild(bibliotecasDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(personajesDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(subtitulosDelEncargo(e.montaje, tocarEncargoLight, true));
+  cajas.appendChild(parallaxDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(animacionesDelEncargo(e.montaje, tocarEncargoLight, true));
 
@@ -11713,6 +11891,7 @@ function vistaPresetLight() {
   caja.appendChild(bibliotecasDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(personajesDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(subtitulosDelEncargo(montaje, guardarMontaje, true));
+  caja.appendChild(parallaxDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(efectosDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(animacionesDelEncargo(montaje, guardarMontaje, true));
 

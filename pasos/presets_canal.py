@@ -165,7 +165,7 @@ TIPOS = {
     "montaje": {
         "nombre": "Montaje",
         "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
-        "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas",
+        "claves": ("subtitulos", "parallax", "transiciones", "transiciones_personalizadas", "bibliotecas",
                    "animaciones", "plantillas_cartela", "generar_personajes", "incorporar_voz"),
         "pasos": ("voz", "assets", "callouts", "render"),
     },
@@ -240,6 +240,12 @@ def _limpiar_datos(tipo, datos):
                if v is not None and v != ""}
     if tipo == "montaje":
         from pasos.transiciones import CATALOGO
+        if "parallax" in limpios:
+            from pasos import parallax
+            try:
+                limpios["parallax"] = parallax.normalizar(limpios["parallax"])
+            except ValueError as fallo:
+                raise ErrorPreset(str(fallo)) from fallo
         if "bibliotecas" in limpios:
             from pasos import bibliotecas
             try:

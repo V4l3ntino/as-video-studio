@@ -2638,3 +2638,25 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   .anim-editor { padding: 16px; }
   .anim-editor-disposicion { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
+/* Parallax usa el mismo bloque y las mismas casillas que voz/subtítulos. */
+.parallax-cuerpo { display: grid; gap: 16px; margin-top: 16px; }
+.parallax-panel fieldset { border: 0; padding: 0; min-width: 0; }
+.parallax-panel legend { font-weight: 600; margin-bottom: 8px; padding: 0; }
+.parallax-opciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.parallax-panel .parallax-seleccion, .parallax-avanzado { border-top: 1px solid var(--linea); padding-top: 16px; }
+.parallax-radios { display: grid; gap: 8px; margin: 8px 0 12px; }
+.parallax-radios label { display: flex; align-items: center; gap: 8px; cursor: pointer;
+  text-transform: none; letter-spacing: normal; color: var(--texto); }
+.parallax-intervalo { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.parallax-intervalo input { width: 100px; }
+.parallax-avanzado summary { cursor: pointer; font-weight: 600; }
+.parallax-avanzado fieldset { margin-top: 12px; }
+.parallax-panel [hidden] { display: none; }
+.parallax-previa-estado { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px; margin-bottom: 12px; border: 1px solid var(--linea); border-radius: 8px;
+  background: var(--panel); font-size: 13px; }
+.parallax-previa-estado progress { width: 130px; accent-color: var(--acento); }
+.parallax-previa-estado > span { min-width: 0; overflow-wrap: anywhere; flex: 1 1 240px; }
+@media (max-width: 540px) {
+  .parallax-opciones { grid-template-columns: 1fr; }
+}

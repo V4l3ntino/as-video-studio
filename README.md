@@ -273,6 +273,49 @@ En **Encargo → Subtítulos**, encima de **Efectos**, marca o desmarca
 guarda por vídeo y se aplica al montar de nuevo, sin regenerar el guion, la voz
 ni las imágenes. Las cartelas se conservan.
 
+### Efecto parallax en imágenes estáticas
+
+En crear/editar **estilos** y en el **encargo del vídeo**, activa **Efecto
+parallax en imágenes estáticas**. El panel permite marcar **uno o varios movimientos**:
+zoom hacia delante o atrás, paneo lateral, movimiento vertical, diagonal, órbita
+suave o combinado. Se alternan de forma equilibrada entre las imágenes animadas,
+usando solo los movimientos marcados y conservando el reparto al remontar.
+Los ajustes antiguos de movimiento único siguen funcionando; el antiguo
+«Movimiento aleatorio» aparece como todos los movimientos seleccionados al editarlo.
+Puedes animar todas las imágenes, cada N imágenes (3, 6, 9… inicialmente)
+o una selección aleatoria; e intensidad suave, media o alta en **Configuración
+avanzada**. La selección aleatoria es reproducible y anima aproximadamente la
+mitad de las imágenes. Los clips de vídeo y las cartelas sin imagen no cuentan.
+
+Los estilos transmiten estas opciones a los vídeos nuevos. En un vídeo existente,
+cambiarlas solo requiere **volver a montar**, conservando narración e imágenes.
+DepthFlow estima la profundidad localmente y crea clips sin audio. Al abrir
+**Imágenes**, prepara automáticamente los clips de las escenas seleccionadas:
+se muestra el progreso y **Parar**, y cada imagen pasa a reproducirse como vídeo
+en cuanto está lista. **Oírla** sincroniza el movimiento con la narración.
+Si hay otra generación activa, espera a que termine antes de preparar el parallax.
+Puedes continuar una preparación detenida o reintentar un error desde esa pantalla.
+Los clips se cachean en `parallax/` dentro del proyecto; el montaje reutiliza esos
+mismos clips antes de componer las capas y transiciones habituales. Cambiar la
+imagen, el movimiento o los tiempos prepara el clip correspondiente de nuevo.
+
+El motor es opcional y se instala en un entorno **separado** del servicio:
+
+```powershell
+uv venv --python 3.14 .depthflow
+uv pip install --python .depthflow/Scripts/python.exe depthflow==1.0.1
+$env:ESTUDIO_DEPTHFLOW_PYTHON = (Resolve-Path .depthflow/Scripts/python.exe).Path
+python app.py --puerto 8020
+```
+
+El Estudio detecta automáticamente `.depthflow`; `ESTUDIO_DEPTHFLOW_PYTHON`
+permite situarlo fuera del programa. En Linux usa `.depthflow/bin/python` al
+instalar y exportar la variable. Requiere FFmpeg y un contexto OpenGL headless funcional; la primera
+animación descarga el modelo de profundidad. Si falta el motor o falla, el montaje
+muestra el motivo y puede reintentarse tras corregirlo. No se sustituye por un zoom
+plano. Verificación offline: `python pasos/prueba_parallax.py`; prueba del motor
+con estimación real y MP4: `python pasos/prueba_parallax.py --real`.
+
 ### Elegir las transiciones del vídeo
 
 En **Encargo → Efectos**, marca los tipos de transición que puede usar el montaje.

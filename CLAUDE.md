@@ -370,9 +370,28 @@ mismo reloj en previa y en render. Ocho, cada una con su señal en lo que se dic
 | `termino` (nombre propio que no abre frase) | `ficha-ui`, `ficha-cristal`, `etiqueta-escrita`, `collage-titulo` |
 | `frase` (3 a 9 palabras) | `tipografia-cinetica` |
 
-Collage, pantalla dividida con vídeos propios, paralaje real y avatar de la guía
-NO están: piden varios recursos por escena o capas de profundidad que el plan no
-modela. Lo que no se deduce del código:
+El parallax real se configura por separado en `render.parallax` y en
+`montaje.parallax` de los estilos. `pasos/parallax.py` selecciona solo imágenes
+estáticas de forma reproducible. `movimientos` permite varios tipos y los reparte
+equilibradamente entre las imágenes animadas, con orden estable por semilla;
+se sigue leyendo el antiguo `movimiento` único sin mutar params al abrir.
+La interfaz usa `bloqueLight` y casillas `efecto-encargo`, igual que voz/subtítulos.
+P8 usa `motores/parallax_depthflow.py` antes de
+componer sus capas, por el mismo camino de fotogramas que los clips propios.
+`pasos/clips_parallax.py` comparte los clips entre previa y p8 en `parallax/` del
+proyecto. GET de previsualización solo lee: publica `clip` si existe y `parallax`
+con su estado/firma. El navegador solicita POST `previsualizacion/parallax` para
+preparar los pendientes en un trabajo sin paso del grafo (cancelable y deduplicado).
+Espera a las otras generaciones, actualiza los clips sin mover escena ni borradores
+y muestra los errores sin reintentarlos en bucle. No usar el hyperframe ampliado
+como fuente si existe el PNG original: previa y render deben reutilizar el mismo
+clip. El motor serializa sus procesos para no competir por la GPU ni el parcial.
+El motor opcional DepthFlow 1.0.1 vive en `.depthflow` (o en
+`ESTUDIO_DEPTHFLOW_PYTHON`), separado del servicio. ShaderFlow 0.13 necesita cerrar
+su `WATCHDOG` al terminar: sin ello Windows espera indefinidamente aunque ya haya
+escrito el MP4. La caché incluye contenido, opciones y tiempos.
+Prueba offline y real: `pasos/prueba_parallax.py [--real]`. No escribir este param
+al abrir vídeos/estilos antiguos. Lo que no se deduce del código de animaciones:
 
 **Dónde se eligen y cómo llegan al vídeo**
 - **Se eligen en el estilo** (`montaje.animaciones`, en `presets_canal`, con herencia

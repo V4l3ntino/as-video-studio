@@ -55,6 +55,7 @@ import estadisticas  # noqa: E402
 import medios  # noqa: E402
 import sonido  # noqa: E402
 import transiciones  # noqa: E402
+import parallax  # noqa: E402
 
 PARAMS_POR_DEFECTO = {
     "fps": 30,
@@ -1596,6 +1597,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     resultados = {}
     clips = []
     tareas = []
+    seleccion_parallax = parallax.seleccionar(escenas, p.get("parallax"), plan.get("semilla") or 0)
     for indice, escena in enumerate(escenas):
         sid = escena["id"]
         uid = f"escena:{sid}"
@@ -1643,6 +1645,18 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         if animaciones.es_cartela_editor((animadas.get(sid) or {}).get("animacion")):
             fija = ""
 
+        video = ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
+                 if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None)
+        if sid in seleccion_parallax:
+            from pasos import clips_parallax
+            mensaje = f"{sid}: creando efecto parallax con DepthFlow"
+            avisar(0.02, mensaje)
+            medio = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
+            original = medio.get("poster") or os.path.join(os.path.dirname(ruta_plan), "escenas", sid + ".png")
+            pedido = clips_parallax.preparar(proyecto, escena,
+                original if os.path.isfile(original) else hyper, seleccion_parallax[sid], fps)
+            video = clips_parallax.generar(proyecto, pedido, latido=lambda: avisar(0.02, mensaje))
+
         tareas.append({
             "id": sid, "escena": {"id": sid, "t_in": escena["t_in"],
                                   "t_out": escena["t_out"]},
@@ -1655,8 +1669,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             "fondo_anim": (animadas.get(sid) or {}).get("fondo"),
             "precarga": (animadas.get(sid) or {}).get("imagenes") or [],
             "hyper": hyper, "frames": total, "fps": fps,
-            "video": ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
-                      if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None),
+            "video": video,
             "resolucion": [ancho, alto], "calidad": p["calidad_video"],
             "carpeta": os.path.join(dir_frames, sid), "clip": clip,
             "ultimo": os.path.join(dir_ultimo, f"{sid}.png"),

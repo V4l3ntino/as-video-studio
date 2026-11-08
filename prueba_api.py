@@ -854,6 +854,7 @@ def probar_presets_canal(cliente):
 
 def probar_sustitucion_de_escenas(cliente):
     seccion("SUSTITUIR UNA ESCENA POR IMAGEN O CLIP PROPIO")
+    from pathlib import Path
     from PIL import Image
     from nucleo.proyecto import Proyecto, escribir_json
     from nucleo.estado import Estado
@@ -929,7 +930,29 @@ def probar_sustitucion_de_escenas(cliente):
     escribir_json(biblioteca.ruta_trabajo("assets") + "/plan.json", {
         "escenas": escenas, "resolucion": [160, 90], "formato": "horizontal"})
     Estado(biblioteca).completar("assets", {"plan": "plan.json"})
+    cliente.put(f"/api/proyectos/{biblioteca.id}/pasos/render/params", {
+        "fps": 30, "parallax": {"activo": True, "movimientos": ["lateral"]}})
     _, previa = cliente.get(f"/api/proyectos/{biblioteca.id}/previsualizacion")
+    igual(previa["escenas"][0]["parallax"]["estado"], "pendiente",
+          "una imagen seleccionada anuncia el clip parallax pendiente")
+    ok(not previa["escenas"][1].get("parallax"), "un video de biblioteca no recibe parallax")
+    from pasos import clips_parallax
+    pedido = clips_parallax.preparar(biblioteca, escenas[0], poster,
+                                    {"movimiento": "lateral", "intensidad": "suave"}, 30)
+    derivado = biblioteca.ruta("parallax", "clips", "previa.mp4")
+    os.makedirs(os.path.dirname(derivado), exist_ok=True)
+    shutil.copyfile(clip, derivado)
+    escribir_json(pedido["indice"], {"clip": os.path.relpath(derivado, biblioteca.raiz)})
+    estado_antes = Path(biblioteca.ruta("estado.json")).read_bytes()
+    _, previa = cliente.get(f"/api/proyectos/{biblioteca.id}/previsualizacion")
+    igual(previa["escenas"][0]["clip"], "parallax/clips/previa.mp4", "la previa publica el clip parallax cacheado")
+    igual(previa["escenas"][0]["parallax"]["estado"], "listo", "el clip se identifica como parallax listo")
+    igual(Path(biblioteca.ruta("estado.json")).read_bytes(), estado_antes, "leer parallax no cambia el grafo")
+    respuesta, preparados = cliente.post(f"/api/proyectos/{biblioteca.id}/previsualizacion/parallax", {})
+    igual(respuesta.status_code, 202, "se puede solicitar la preparacion de parallax")
+    ok(preparados.get("listo"), "una previa cacheada no vuelve a generar clips")
+    video_http = cliente.sesion.get(f"{cliente.base}/a/{biblioteca.id}/{previa['escenas'][0]['clip']}", timeout=15)
+    igual(video_http.status_code, 200, "el MP4 parallax se sirve al reproductor")
     for e in previa["escenas"]:
         ok(e["imagen"].startswith("recursos_biblioteca/"),
            f"{e['id']}: el poster de biblioteca usa una ruta publica relativa")
@@ -3281,8 +3304,10 @@ def probar_video_light(cliente):
     igual(respuesta.status_code, 200, "hay un estilo con el que hacer el vídeo")
     estilo_id = (datos.get("preset") or {}).get("id") or ""
 
+    opciones_parallax = {"activo": True, "movimientos": ["diagonal", "lateral"], "seleccion": "cada",
+                         "cada": 3, "intensidad": "media"}
     seleccion = {"subtitulos": False, "transiciones": ["fundido"],
-                 "transiciones_personalizadas": True}
+                 "transiciones_personalizadas": True, "parallax": opciones_parallax}
     respuesta, editado = cliente.put(f"/api/presets-light/{estilo_id}",
                                      {"montaje": seleccion})
     igual(respuesta.status_code, 200, "el estilo guarda subtitulos y efectos sin generar")
@@ -3343,6 +3368,7 @@ def probar_video_light(cliente):
         "indicaciones": "Céntrate en el mecanismo, no en las personas.",
         "transiciones": [], "transiciones_personalizadas": True,
         "subtitulos": False,
+        "parallax": dict(opciones_parallax, movimientos=["orbita", "vertical"]),
         # LAS LLAMADAS A LA ACCION SE DECIDEN POR VIDEO, no en el estilo
         "cta": {"cta_final": {"puesto": True,
                               "texto": "que se suscriba y vea otro vídeo"}}})
@@ -3368,6 +3394,20 @@ def probar_video_light(cliente):
     _, montaje = cliente.get(f"/api/proyectos/{vid}/pasos/render")
     igual(montaje["params"].get("subtitulos"), False,
           "el video nuevo conserva la seleccion sin subtitulos")
+    igual(montaje["params"].get("parallax"), dict(opciones_parallax, movimientos=["orbita", "vertical"]),
+          "el encargo del video puede sustituir el parallax heredado")
+    respuesta, _ = cliente.put(f"/api/proyectos/{vid}/pasos/render/params",
+                               {"parallax": dict(opciones_parallax, activo=False)})
+    igual(respuesta.status_code, 200, "se puede desactivar parallax en un video existente")
+    _, montaje = cliente.get(f"/api/proyectos/{vid}/pasos/render")
+    igual(montaje["params"].get("parallax", {}).get("activo"), False,
+          "desactivar parallax persiste en el montaje")
+    for invalido in ({"cada": 0}, {"activo": "true"}, {"movimiento": "inventado"},
+                     {"movimientos": []}, {"movimientos": ["inventado"]}):
+        respuesta, _ = cliente.put(f"/api/proyectos/{vid}/pasos/render/params", {"parallax": invalido})
+        igual(respuesta.status_code, 400, "el video rechaza opciones de parallax invalidas")
+        respuesta, _ = cliente.put(f"/api/presets-light/{estilo_id}", {"montaje": {"parallax": invalido}})
+        igual(respuesta.status_code, 400, "el estilo rechaza opciones de parallax invalidas")
     respuesta, _ = cliente.put(f"/api/proyectos/{vid}/pasos/render/params",
                                {"subtitulos": True})
     igual(respuesta.status_code, 200, "se pueden reactivar los subtitulos")

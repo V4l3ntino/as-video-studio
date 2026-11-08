@@ -1592,6 +1592,12 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if "parallax" in nuevos:
+            from pasos import parallax
+            try:
+                parallax.normalizar(nuevos["parallax"])
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if "bibliotecas" in nuevos:
             try:
                 PASOS_MODULOS.bibliotecas.normalizar(nuevos["bibliotecas"])
@@ -5085,6 +5091,56 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
     return leer_previsualizacion(pid)
 
 
+def _correr_parallax_previa(avisar, ctx, pedidos, ajustes):
+    from pasos import clips_parallax
+    def comprobar():
+        render = ctx.estado.params("render") or {}
+        if (render.get("parallax"), render.get("fps") or 30) != ajustes:
+            raise Cancelado("La configuración de parallax ha cambiado")
+    for i, (sid, pedido) in enumerate(pedidos):
+        comprobar()
+        mensaje = f"Animando imágenes con DepthFlow: {i + 1} de {len(pedidos)} · {sid}"
+        avisar(i / len(pedidos), mensaje)
+        def latido():
+            comprobar()
+            avisar(i / len(pedidos), mensaje)
+        clips_parallax.generar(ctx.proyecto, pedido,
+            latido=latido)
+        avisar((i + 1) / len(pedidos), mensaje)
+    return {"clips": len(pedidos), "resumen": "clips parallax listos para previsualizar"}
+
+
+@app.post("/api/proyectos/{pid}/previsualizacion/parallax", status_code=202)
+def preparar_parallax_previa(pid: str):
+    """Prepara los clips DepthFlow seleccionados sin cambiar versiones ni firmas."""
+    from pasos import clips_parallax
+    ctx = contexto(pid)
+    with _LOCK:
+        activos = ctx.gestor.listar(activos=True)
+        mismo = next((t for t in activos if t["nombre"] == "previsualizar:parallax"), None)
+        if mismo:
+            return {"trabajo_id": mismo["id"]}
+        if activos:
+            return {"esperando": True}
+        previa = leer_previsualizacion(pid)
+        render = ctx.estado.params("render") or {}
+        pedidos = []
+        for escena in previa["escenas"]:
+            efecto = escena.get("parallax") or {}
+            if efecto.get("estado") != "pendiente":
+                continue
+            pedido = clips_parallax.preparar(ctx.proyecto, escena, escena["imagen"],
+                efecto["opciones"], render.get("fps") or 30)
+            if pedido:
+                pedidos.append((escena["id"], pedido))
+        if not pedidos:
+            return {"listo": True}
+        ajustes = (copy.deepcopy(render.get("parallax")), render.get("fps") or 30)
+        tid = ctx.gestor.lanzar("previsualizar:parallax", _correr_parallax_previa, ctx, pedidos, ajustes)
+        _registrar_trabajo(tid, ctx.id)
+        return {"trabajo_id": tid}
+
+
 @app.get("/api/proyectos/{pid}/previsualizacion")
 def leer_previsualizacion(pid: str):
     """Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto."""
@@ -5104,6 +5160,9 @@ def leer_previsualizacion(pid: str):
     params_callouts = ctx.estado.params("callouts") or {}
     medir, banda = _medidor_de_subtitulo(ctx, plan)
     hechos = PASOS_MODULOS.p6_assets.planos_hechos(ctx.proyecto)
+    from pasos import parallax, clips_parallax
+    render = ctx.estado.params("render") or {}
+    seleccion_parallax = parallax.seleccionar(escenas_plan, render.get("parallax"), plan.get("semilla") or 0)
     escenas = []
     for escena in escenas_plan:
         sid = str(escena.get("id") or "")
@@ -5143,6 +5202,15 @@ def leer_previsualizacion(pid: str):
         medio_usuario = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
         if medio_usuario:
             imagen = medio_usuario.get("poster") or imagen
+        efecto_parallax = None
+        clip_parallax = None
+        if sid in seleccion_parallax:
+            pedido = clips_parallax.preparar(ctx.proyecto, escena, imagen,
+                seleccion_parallax[sid], render.get("fps") or 30)
+            clip_parallax = clips_parallax.disponible(ctx.proyecto, pedido)
+            efecto_parallax = {"clave": pedido["clave"] if pedido else None,
+                "opciones": seleccion_parallax[sid],
+                "estado": "listo" if clip_parallax else "pendiente" if pedido else "sin_imagen"}
         tarjeta = hechos.get(sid + "__tarjeta") or {}
         imagen_tarjeta = None
         if (escena.get("tarjetas_animacion") and tarjeta.get("ruta")
@@ -5159,7 +5227,8 @@ def leer_previsualizacion(pid: str):
             "imagen": _ruta_publica_proyecto(ctx, imagen),
             "imagen_tarjeta": imagen_tarjeta,
             "clip": _ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
-                    if medio_usuario.get("tipo") == "video" else None,
+                    if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, clip_parallax),
+            "parallax": efecto_parallax,
             "medio_usuario": medio_usuario or None,
             "recurso_biblioteca": escena.get("recurso_biblioteca"),
             # y si el dibujo que hay ya no es de lo que aqui se dice. Va vacio
@@ -10628,7 +10697,7 @@ def _sembrar_video_light(ctx, datos):
     if voz:
         _validar_params("voz", voz, ctx)
         ctx.estado.actualizar_params("voz", voz)
-    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")
+    render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos", "parallax")
               if k in datos}
     if render:
         _validar_params("render", render, ctx)
