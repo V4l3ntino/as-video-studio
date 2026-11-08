@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(RAIZ, "pasos"))
 from PIL import Image, ImageDraw  # noqa: E402
 
 import animaciones  # noqa: E402
+import cartelas  # noqa: E402
 import medios  # noqa: E402
 import p8_render  # noqa: E402
 
@@ -92,16 +93,25 @@ def _pagina(destino, fondo, svg, fondo_anim, precarga):
 
 
 def generar(aid, carpeta, navegador):
-    primera = _escena("S001", MUESTRAS[aid])
     fondo = _paisaje(os.path.join(carpeta, "fondo.png"))
-    otra = _paisaje(os.path.join(carpeta, "tarjeta.png"), cielo=(70, 40, 60), sol=(250, 235, 200),
-                      lomas=((50, 30, 40), (24, 14, 20)))
-    imagenes = {"S001": p8_render._url_local(fondo), "S001__tarjeta": p8_render._url_local(otra)}
-    capas = animaciones.capas([primera], {"animaciones": [aid]}, "es", PALETA,
-                              (ANCHO, ALTO), imagenes=imagenes)
-    if "S001" not in capas:
-        raise RuntimeError(f"{aid}: la muestra no dispara su animacion")
-    capa = capas["S001"]
+    if aid.startswith("cartela-"):
+        pid = aid.removeprefix("cartela-")
+        svg = cartelas.svg_capa({"plantilla": pid, "datos": cartelas.PLANTILLAS[pid]["ejemplo"]},
+                                PALETA, duracion=DURACION)
+        bx, by, bx2, by2 = cartelas.BANDA
+        svg = svg.replace('viewBox="0 0 1536 1024"',
+                          f'viewBox="{bx} {by} {bx2 - bx} {by2 - by}"')
+        capa = {"svg": svg, "fondo": None, "imagenes": []}
+    else:
+        primera = _escena("S001", MUESTRAS[aid])
+        otra = _paisaje(os.path.join(carpeta, "tarjeta.png"), cielo=(70, 40, 60), sol=(250, 235, 200),
+                          lomas=((50, 30, 40), (24, 14, 20)))
+        imagenes = {"S001": p8_render._url_local(fondo), "S001__tarjeta": p8_render._url_local(otra)}
+        capas = animaciones.capas([primera], {"animaciones": [aid]}, "es", PALETA,
+                                  (ANCHO, ALTO), imagenes=imagenes)
+        if "S001" not in capas:
+            raise RuntimeError(f"{aid}: la muestra no dispara su animacion")
+        capa = capas["S001"]
     pagina = _pagina(os.path.join(carpeta, f"{aid}.html"), fondo, capa["svg"], capa["fondo"],
                      capa["imagenes"])
     marcos = os.path.join(carpeta, aid)
@@ -124,8 +134,9 @@ def generar(aid, carpeta, navegador):
 
 
 def main(argv):
-    ids = argv or list(animaciones.CATALOGO)
-    desconocidas = [a for a in ids if a not in animaciones.CATALOGO]
+    catalogo = list(animaciones.CATALOGO) + [f"cartela-{p}" for p in cartelas.plantillas_elegibles()]
+    ids = argv or catalogo
+    desconocidas = [a for a in ids if a not in catalogo]
     if desconocidas:
         print("no existen:", ", ".join(desconocidas))
         return 2

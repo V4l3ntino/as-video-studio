@@ -198,12 +198,33 @@ con IA para esa escena usando la nota, aunque antes tuviera un recurso de
 biblioteca o una sustitución manual. El medio anterior deja de estar seleccionado;
 las demás escenas se conservan. Puedes volver a elegir un archivo con **Sustituir**.
 
+### Elegir las cartelas animadas del montaje
+
+En **Motion animation**, tanto en el estilo como en el encargo, puedes elegir
+también las diez **cartelas sobre imagen**: La cifra, La cita, La frase que cae,
+La lista, Lo uno contra lo otro, La pregunta, La palabra, La portada de capítulo,
+Las fechas y El remate. Cada tarjeta muestra una vista previa animada; púlsala
+para pasarla entre **Disponibles** y **Se usarán al montar**.
+
+Los vídeos nuevos parten sin cartelas, salvo las que elijas o hereden del estilo.
+Solo se planifican las elegidas cuando la narración ofrece contenido adecuado.
+Los vídeos anteriores conservan su selección histórica al abrirse; puedes quitar
+las cartelas que no quieras y **volver a montar** para aplicar el cambio.
+Esto solo rehace las capas y el montaje, sin regenerar guion, voz ni imágenes.
+En un vídeo ya generado, volver a activar una cartela recupera las escenas que
+tenían ese contenido planificado. Las animaciones del guion conservan su selección
+independiente dentro de la misma sección.
+
 ### Editar o crear una animación en una escena
 
 En **Imágenes**, pulsa **✦ Animación** para abrir el editor de la escena. Puedes
-corregir sus textos y cambiar el tipo por cualquiera de las ocho animaciones del
-catálogo. Los campos se adaptan al tipo: cifra y etiqueta, fecha y contexto,
-título y explicación, frase o las dos etiquetas de una comparación.
+corregir sus textos y cambiar el tipo por cualquiera de las **18 opciones** del
+catálogo: las ocho animaciones del guion y las diez cartelas sobre imagen.
+Los campos se adaptan al tipo: cifra y etiqueta, fecha y contexto,
+título y explicación, frase, comparación, lista o cronología. En **La lista** y
+**Las fechas**, escribe entre dos y cuatro entradas, una por renglón.
+El editor reconoce también las cartelas automáticas que ya tenga la escena;
+puedes corregirlas, sustituirlas o quitarlas con **Sin animación**.
 
 Si la escena no tiene animación, aparece **✦ Crear animación**. Elige un tipo y
 edita su contenido y pulsa **Guardar**. La vista previa se actualiza al guardar.

@@ -5039,7 +5039,7 @@ function encargoLight() {
       ritmo: '',            // lo pone el servidor al cargar la galería
       montaje: { subtitulos: true, generar_personajes: true, incorporar_voz: true,
         transiciones: [], transiciones_personalizadas: false,
-        animaciones: [],
+        animaciones: [], plantillas_cartela: [],
         bibliotecas: bibliotecasPorDefectoLight() },
     };
   }
@@ -6088,6 +6088,7 @@ function montajeDelEstiloLight(ficha) {
     transiciones: [...(montaje.transiciones || [])],
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
     animaciones: [...(montaje.animaciones || [])],
+    plantillas_cartela: [...(montaje.plantillas_cartela || [])],
     bibliotecas: bibliotecasPorDefectoLight(montaje.bibliotecas),
   };
 }
@@ -6913,8 +6914,13 @@ function animacionesDelEncargo(e, alCambiar, esEstilo = false) {
     try {
       if (!CATALOGO_ANIMACIONES) CATALOGO_ANIMACIONES = pedir(API.catalogoAnimaciones)
         .catch(err => { CATALOGO_ANIMACIONES = null; throw err; });
-      const catalogo = (await CATALOGO_ANIMACIONES).animaciones;
-      const lista = () => new Set(e.animaciones || []);
+      const datos = await CATALOGO_ANIMACIONES;
+      const cartelas = datos.cartelas || [];
+      const catalogo = [...datos.animaciones.map(a => ({ ...a, clave: 'animaciones', valor: a.id })),
+        ...cartelas.map(a => ({ ...a, id: `cartela-${a.id}`, clave: 'plantillas_cartela', valor: a.id }))];
+      const lista = () => new Set(catalogo.filter(a => (a.clave === 'plantillas_cartela'
+        ? (e.plantillas_cartela === undefined ? cartelas.map(c => c.id) : e.plantillas_cartela)
+        : (e.animaciones || [])).includes(a.valor)).map(a => a.id));
       const pintar = () => {
         const marcadas = lista();
         const tarjeta = (a, dentro) => h('button', {
@@ -6925,12 +6931,13 @@ function animacionesDelEncargo(e, alCambiar, esEstilo = false) {
           onclick: () => {
             const nuevas = lista();
             if (dentro) nuevas.delete(a.id); else nuevas.add(a.id);
-            e.animaciones = catalogo.filter(f => nuevas.has(f.id)).map(f => f.id);
+            e[a.clave] = catalogo.filter(f => f.clave === a.clave && nuevas.has(f.id)).map(f => f.valor);
             pintar();
             if (alCambiar) alCambiar();
           },
         }, h('img', { src: `${BASE}/${a.gif}`, alt: '', loading: 'lazy' }),
-        h('b', {}, a.nombre));
+        h('b', {}, a.nombre), h('span', { clase: 'meta' },
+          a.clave === 'plantillas_cartela' ? 'Cartela sobre imagen' : 'Animación del guion'));
         vaciar(disponibles);
         vaciar(elegidas);
         catalogo.filter(a => !marcadas.has(a.id)).forEach(a => disponibles.appendChild(tarjeta(a, false)));
@@ -6939,10 +6946,10 @@ function animacionesDelEncargo(e, alCambiar, esEstilo = false) {
         if (!elegidas.children.length) elegidas.appendChild(h('p', { clase: 'meta' }, 'Pulsa una tarjeta para añadirla.'));
         resumen.textContent = marcadas.size
           ? `${marcadas.size === 1 ? '1 animación elegida' : `${marcadas.size} animaciones elegidas`}. `
-            + 'El guion se escribe con todas ellas previstas: el redactor deja en cada punto la frase que cada una necesita (una cifra, una fecha, una comparación, un nombre propio…) y las de tarjetas comparten imagen con la escena de al lado. '
+            + 'Las cartelas (frases, cifras, listas…) solo se incorporan si están elegidas y el contenido lo permite. '
             + (esEstilo ? 'Los vídeos nuevos heredarán esta selección.'
-              : 'Cambiar esta selección deja obsoleto el guion y, con él, la voz y las imágenes: se vuelven a hacer.')
-          : 'Sin animaciones: las escenas se montan solo con su imagen, sus rótulos y los subtítulos.';
+              : 'Cambiar cartelas solo rehace las capas y el montaje. Las animaciones del guion requieren volver a escribir el guion, la voz y las imágenes. En vídeos ya generados, las cartelas elegidas se aplican a las escenas que tengan ese contenido planificado.')
+          : 'Sin animaciones ni cartelas: las escenas se montan con su imagen y los subtítulos que hayas activado.';
       };
       pintar();
     } catch (err) {
@@ -7147,6 +7154,7 @@ async function crearYGenerarLight(estilo) {
         transiciones: e.transiciones,
         transiciones_personalizadas: e.transiciones_personalizadas,
         animaciones: e.animaciones || [],
+        plantillas_cartela: e.plantillas_cartela || [],
         subtitulos: e.subtitulos !== false,
         generar_personajes: e.generar_personajes !== false,
         incorporar_voz: e.incorporar_voz !== false,
@@ -7216,6 +7224,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'transiciones', paso: 'render', param: 'transiciones' },
   { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
   { clave: 'animaciones', paso: 'guion', param: 'animaciones' },
+  { clave: 'plantillas_cartela', paso: 'callouts', param: 'plantillas_cartela' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
   { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
@@ -7258,6 +7267,8 @@ function pedidoDelVideoLight() {
     transiciones_personalizadas: !!params('render').transiciones_personalizadas,
     /* las del guion; un vídeo de antes del plan las tenía en el render */
     animaciones: [...(params('guion').animaciones || params('render').animaciones || [])],
+    ...(params('callouts').plantillas_cartela !== undefined
+      ? { plantillas_cartela: [...params('callouts').plantillas_cartela] } : {}),
     subtitulos: params('render').subtitulos !== false,
     generar_personajes: params('assets').generar_personajes !== false,
     incorporar_voz: params('voz').incorporar_voz !== false,
@@ -7294,7 +7305,7 @@ function vistaEncargoVideoLight() {
       + 'regenerarlo, y con él se rehacen después la voz y las imágenes que ya '
       + 'no cuadren; lo que siga valiendo no se vuelve a pagar. El nombre se '
       + 'cambia sin regenerar nada. El formato rehace TODAS las imágenes. '
-      + 'Los efectos y los subtítulos solo cambian el montaje, sin rehacer el guion, la voz ni las imágenes.'
+      + 'Las cartelas, los efectos y los subtítulos solo cambian las capas y el montaje, sin rehacer el guion, la voz ni las imágenes.'
     : 'Lo que se le va a pedir al redactor. Se guarda solo; cuando esté, '
       + '«Generar el guion» abajo.'));
 
@@ -7326,7 +7337,7 @@ function vistaEncargoVideoLight() {
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
-  caja.appendChild(animacionesDelEncargo(e));
+  caja.appendChild(animacionesDelEncargo(e, programarGuardadoEncargo));
 
   caja.appendChild(bloqueLight('Las indicaciones',
     'cómo quieres que se cuente (opcional)',
@@ -7427,7 +7438,7 @@ async function volcarEncargoLight(pedido) {
   const renombrar = !!nombre && nombre !== guardado.nombre;
   if (!Object.keys(porPaso).length && !renombrar) return;
   try {
-    for (const paso of ['ingesta', 'brief', 'guion', 'voz', 'assets', 'render']) {
+    for (const paso of ['ingesta', 'brief', 'guion', 'voz', 'assets', 'callouts', 'render']) {
       if (!porPaso[paso]) continue;
       await pedir(API.params(pid, paso),
         { method: 'PUT', cuerpo: { params: porPaso[paso] } });
@@ -9185,9 +9196,10 @@ async function abrirAnimacionEscena(escena) {
       const entrada = h(subrayado ? 'input' : 'textarea', {
         type: subrayado ? 'text' : null, rows: subrayado ? null : (campo.id === 'definicion' ? 3 : 2),
         placeholder: subrayado ? 'Ej.: noche, mil' : null,
-        maxlength: 500, value: contenido[campo.id],
+        maxlength: campo.maxlength || 500, value: contenido[campo.id],
         oninput: ev => { contenido[campo.id] = ev.target.value; marcarCambio(); } });
       campos.appendChild(h('label', { clase: 'campo' }, campo.nombre, entrada));
+      if (campo.ayuda) campos.appendChild(h('p', { clase: 'meta' }, campo.ayuda));
       if (subrayado) campos.appendChild(h('p', { clase: 'meta' },
         'Separa las palabras con espacios o comas. Se resaltan todas las coincidencias, '
         + 'sin distinguir mayúsculas. Déjalo vacío para no subrayar ninguna palabra.'));
@@ -9301,7 +9313,7 @@ async function abrirAnimacionEscena(escena) {
     selector.value = elegido;
     selector.disabled = false;
     pintarCampos();
-    pintarMuestra(escena);
+    pintarMuestra({ ...escena, animacion: ficha.actual });
     estado.textContent = 'Edita los textos o elige otro tipo de animación.';
   } catch (error) {
     estado.textContent = `No se ha podido abrir la animación: ${error.message}`;

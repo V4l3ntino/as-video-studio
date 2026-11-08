@@ -286,6 +286,22 @@ def plantillas_elegibles():
     """Las que se le ofrecen al agente y a la pantalla, en orden."""
     return [n for n in PLANTILLAS if n not in PLANTILLAS_RESERVADAS]
 
+
+def escena_para_montaje(escena, params=None):
+    """Apaga las cartelas no elegidas sin alterar el plan ni sus tiempos.
+
+    Ausencia conserva proyectos anteriores; [] es una decisión explícita.
+    """
+    elegidas = (params or {}).get("plantillas_cartela")
+    omitir = (((params or {}).get("unidades") or {}).get(f"escena:{escena.get('id')}") or {}).get("omitir_cartela")
+    if omitir is not None and omitir == " ".join(str(escena.get("narracion") or "").split()):
+        return {k: v for k, v in escena.items() if k not in ("cartela", "escritura")}
+    if elegidas is None or not escena.get("cartela"):
+        return escena
+    if escena["cartela"].get("plantilla") in elegidas:
+        return escena
+    return {k: v for k, v in escena.items() if k not in ("cartela", "escritura")}
+
 PLANTILLA_POR_DEFECTO = "tesis"
 
 #: Cuantos planos como poco entre dos cartelas. Sin esto, un guion con cuatro
@@ -2614,7 +2630,11 @@ def proponer(escenas, params=None, ajuste=None, avisar=None, proyecto_id=None,
     # QUE PLANTILLAS puede usar viene de fuera (vive en los params de rotulos,
     # con el resto del grafismo); `params` se sigue admitiendo por si alguien
     # llama a mano.
-    activas = set(plantillas or (params or {}).get("plantillas_cartela") or []) or None
+    seleccion = plantillas if plantillas is not None else (params or {}).get("plantillas_cartela")
+    activas = set(seleccion) if seleccion is not None else None
+    if activas == set():
+        return {"plan": {}, "avisos": [], "planos": len(escenas),
+                "cartelas": 0, "propuestas": 0}
     idioma = str(idioma or "").strip() or "el idioma de la narracion"
 
     prevision = estadisticas.estimar(PASO, tamano=len(escenas), ajuste=elegido)

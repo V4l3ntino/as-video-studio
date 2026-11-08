@@ -1371,7 +1371,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
     for ruta in dirs.values():
         os.makedirs(ruta, exist_ok=True)
 
-    escenas = plan.get("escenas") or []
+    escenas = [cartelas.escena_para_montaje(e, p) for e in (plan.get("escenas") or [])]
+    cartelas_planificadas = {e["id"] for e in (plan.get("escenas") or []) if e.get("cartela")}
     pedidas = set(unidades) if unidades is not None else None
     movimiento = medios.motor("render_video/movimiento.py")
     # EL FORMATO DEL VIDEO, del plan: el cuadro de salida, el
@@ -1541,7 +1542,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
         # el previsualizador caia a la imagen cruda y dibujaba subtitulos que el
         # video no tiene, sin ensenar la cartela que si tiene. Justo lo
         # contrario de lo que esta pantalla promete.
-        if p["previsualizar"] and (fichas or cartelas.sobre_imagen(escena)):
+        if p["previsualizar"] and (fichas or sid in cartelas_planificadas):
             try:
                 ficha["previo"] = os.path.relpath(
                     previsualizar(png, svg_ruta, previo, fija_ruta, entrada,

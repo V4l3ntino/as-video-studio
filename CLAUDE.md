@@ -337,6 +337,27 @@ que nunca la fijaron, y regenerarlas se paga.
 
 ## Motion animation (`pasos/animaciones.py`)
 
+La sección incluye también las diez cartelas de `cartelas.PLANTILLAS`, con GIF
+`anim_cartela-<id>.gif`. Su selección independiente es
+`montaje.plantillas_cartela` en estilos y `callouts.params.plantillas_cartela`
+en vídeos: ausencia conserva el comportamiento histórico; `[]` apaga todas.
+Los formularios nuevos parten de `[]`; abrir un vídeo/estilo antiguo no lo escribe.
+`cartelas.proponer` respeta la lista vacía sin llamar a IA, y
+`escena_para_montaje` filtra las capas en p7 sin mutar assets, narración ni tiempos.
+Cambiar estas tarjetas solo invalida callouts/render. Volver a activar un tipo
+en un vídeo existente recupera sus cartelas ya planificadas. Las ocho animaciones
+del guion y sus firmas conservan su contrato independiente.
+El popup de escena usa `animaciones.CATALOGO_EDITOR`/`CAMPOS_EDITOR`: las ocho
+del guion más diez ids `cartela-<plantilla>`. No las añadas a `CATALOGO`, que
+reparte huecos antes de escribir el guion. Las listas viajan como texto con
+saltos de línea y se validan sin truncar (2–4 entradas). Sus ediciones usan el
+mismo param de unidad de render; `svg_de` adapta `cartelas.svg_capa` al cuadro.
+Al sustituir una cartela automática, la API guarda en esa unidad de callouts
+`omitir_cartela`, anclado a la narración, para regenerar solo su capa y evitar
+duplicarla. La previa reconoce las cartelas automáticas y las ediciones manuales
+mandan sobre ellas, incluido `sin-animacion`. Las cartelas manuales no llevan
+subtítulos debajo: p8 los suprime solo en esa escena.
+
 Animaciones SVG/SMIL tomadas de una guía de motion graphics, que se pintan ENCIMA
 de un plano (como el subtítulo, fuera del zoom) y se mueven con `setCurrentTime`:
 mismo reloj en previa y en render. Ocho, cada una con su señal en lo que se dice:

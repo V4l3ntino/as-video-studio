@@ -62,6 +62,7 @@ import medios  # noqa: E402
 import imagenes_animacion  # noqa: E402
 import subtitulos  # noqa: E402
 import tipografia  # noqa: E402
+import cartelas  # noqa: E402
 
 # ===========================================================================
 # EL CATALOGO
@@ -151,6 +152,31 @@ CAMPOS = {
     "tipografia-cinetica": [("texto", "Frase"), ("subrayado", "Subrayado")],
 }
 
+# Las cartelas son elegibles manualmente sin entrar en el plan del guion.
+CATALOGO_EDITOR = dict(CATALOGO, **{
+    f"cartela-{pid}": ficha for pid, ficha in cartelas.PLANTILLAS.items()})
+NOMBRES_CARTELA = {"cifra": "Cifra", "label": "Etiqueta", "nota": "Nota",
+                   "icono": "Icono (opcional)", "texto": "Texto", "quien": "Autor",
+                   "titulo": "Título", "lineas": "Líneas (una por renglón)",
+                   "izq_valor": "Valor izquierdo", "izq_label": "Etiqueta izquierda",
+                   "der_valor": "Valor derecho", "der_label": "Etiqueta derecha",
+                   "termino": "Término", "numero": "Número", "antetitulo": "Antetítulo",
+                   "hitos": "Hitos (uno por renglón)"}
+CAMPOS_EDITOR = dict(CAMPOS, **{
+    f"cartela-{pid}": [(k, NOMBRES_CARTELA[k]) for k in ficha["campos"]]
+    for pid, ficha in cartelas.PLANTILLAS.items()})
+
+
+def es_cartela_editor(aid):
+    return str(aid).startswith("cartela-") and aid in CATALOGO_EDITOR
+
+
+def datos_cartela(aid, contenido):
+    ficha = cartelas.PLANTILLAS[aid.removeprefix("cartela-")]
+    lista = (ficha.get("lista") or [None])[0]
+    return {k: [v.strip() for v in contenido[k].splitlines() if v.strip()]
+            if k == lista else contenido[k] for k in ficha["campos"]}
+
 
 def ancla_de(escena):
     return " ".join(str(escena.get("narracion") or "").split())
@@ -169,6 +195,9 @@ def subrayadas_de(datos):
 
 
 def contenido_de(aid, datos):
+    if es_cartela_editor(aid):
+        return {k: "\n".join(datos.get(k) or []) if isinstance(datos.get(k), list)
+                else str(datos.get(k) or "") for k, _ in CAMPOS_EDITOR[aid]}
     if aid == "tipografia-cinetica":
         palabras = datos.get("palabras") or []
         subrayado = (str(datos["subrayado"]) if "subrayado" in datos else
@@ -180,7 +209,7 @@ def contenido_de(aid, datos):
 
 def validar_edicion(edicion, escena):
     if (not isinstance(edicion, dict) or not isinstance(edicion.get("id"), str)
-            or edicion["id"] not in {*CATALOGO, "sin-animacion"}):
+            or edicion["id"] not in {*CATALOGO_EDITOR, "sin-animacion"}):
         raise ValueError("elige una animación del catálogo")
     if edicion.get("ancla") != ancla_de(escena):
         raise ValueError("la escena ha cambiado; vuelve a abrir su animación")
@@ -189,7 +218,7 @@ def validar_edicion(edicion, escena):
         if contenido != {}:
             raise ValueError("Sin animación no admite campos de contenido")
         return {"id": aid, "ancla": ancla_de(escena), "contenido": {}}
-    campos = {k for k, _ in CAMPOS[aid]}
+    campos = {k for k, _ in CAMPOS_EDITOR[aid]}
     # Las ediciones anteriores solo guardaban la frase. Leerlas mantiene el
     # resaltado automático sin escribir defaults ni cambiar sus firmas.
     if aid == "tipografia-cinetica" and isinstance(contenido, dict) and "subrayado" not in contenido:
@@ -197,15 +226,30 @@ def validar_edicion(edicion, escena):
     if not isinstance(contenido, dict) or set(contenido) != campos:
         raise ValueError("faltan campos de la animación o hay campos desconocidos")
     limpio = {}
-    for k, nombre in CAMPOS[aid]:
+    for k, nombre in CAMPOS_EDITOR[aid]:
         if k not in campos:
             continue
         valor = contenido[k]
         if not isinstance(valor, str) or len(valor) > 500:
             raise ValueError(f"{nombre}: utiliza como máximo 500 caracteres")
-        limpio[k] = " ".join(valor.split())
-    principal = CAMPOS[aid][1][0] if aid.startswith("ficha-") else CAMPOS[aid][0][0]
-    if not limpio[principal]:
+        limpio[k] = ("\n".join(" ".join(v.split()) for v in valor.splitlines())
+                     if es_cartela_editor(aid) else " ".join(valor.split()))
+    if es_cartela_editor(aid):
+        ficha = CATALOGO_EDITOR[aid]
+        datos = datos_cartela(aid, limpio)
+        lista = ficha.get("lista")
+        for k, (obligatorio, tope) in ficha["campos"].items():
+            valores = datos[k] if lista and k == lista[0] else [datos[k]]
+            if obligatorio and (not valores or any(not v for v in valores)):
+                raise ValueError(f"{NOMBRES_CARTELA[k]}: escribe el contenido obligatorio")
+            if any(len(v) > tope for v in valores):
+                raise ValueError(f"{NOMBRES_CARTELA[k]}: máximo {tope} caracteres por renglón")
+        if lista and not lista[1] <= len(datos[lista[0]]) <= lista[2]:
+            raise ValueError(f"escribe entre {lista[1]} y {lista[2]} renglones")
+        if datos.get("icono") and datos["icono"] not in cartelas.ICONOS:
+            raise ValueError("elige un icono conocido o deja el campo vacío")
+    principal = CAMPOS_EDITOR[aid][1][0] if aid.startswith("ficha-") else CAMPOS_EDITOR[aid][0][0]
+    if not es_cartela_editor(aid) and not limpio[principal]:
         raise ValueError("el texto principal no puede estar vacío")
     if aid == "comparacion-tarjetas" and not limpio["derecha"]:
         raise ValueError("escribe las dos etiquetas")
@@ -215,7 +259,7 @@ def validar_edicion(edicion, escena):
             raise ValueError("escribe una cifra válida, por ejemplo 45% o 1200")
     resultado = {"id": aid, "ancla": ancla_de(escena), "contenido": limpio}
     if "imagenes" in edicion:
-        if not CATALOGO[aid].get("requiere_imagenes"):
+        if not CATALOGO_EDITOR[aid].get("requiere_imagenes"):
             raise ValueError("esta animación no utiliza tarjetas con imágenes")
         resultado["imagenes"] = imagenes_animacion.validar_referencias(edicion["imagenes"])
     return resultado
@@ -243,7 +287,20 @@ def opciones_de(escena, actual=None, idioma=None):
                     if ficha.get("requiere_imagenes") else [])
         opciones.append({"id": aid, "nombre": ficha["nombre"], "descripcion": ficha["descripcion"],
                          "campos": [{"id": k, "nombre": n} for k, n in CAMPOS[aid]],
-                         "contenido": contenido, "imagenes": tarjetas})
+                          "contenido": contenido, "imagenes": tarjetas})
+    for pid, ficha in cartelas.PLANTILLAS.items():
+        aid = f"cartela-{pid}"
+        contenido = contenido_de(aid, ficha["ejemplo"])
+        if actual and actual["id"] == aid:
+            contenido = actual["contenido"]
+        lista = (ficha.get("lista") or [None])[0]
+        opciones.append({"id": aid, "nombre": ficha["nombre"], "descripcion": ficha["descripcion"],
+                         "contenido": contenido,
+                         "campos": [{"id": k, "nombre": n,
+                                     "maxlength": 500 if k == lista else ficha["campos"][k][1],
+                                     "ayuda": ("Una entrada por renglón; entre 2 y 4 entradas." if k == lista
+                                               else "Iconos: " + ", ".join(sorted(cartelas.ICONOS)) if k == "icono" else "")}
+                                    for k, n in CAMPOS_EDITOR[aid]]})
     return opciones
 
 
@@ -283,6 +340,9 @@ def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=No
         aid = edicion["id"]
         if aid == "sin-animacion":
             salida.pop(sid, None)
+            continue
+        if es_cartela_editor(aid):
+            salida[sid] = {"animacion": aid, "datos": datos_cartela(aid, edicion["contenido"])}
             continue
         datos = dict(edicion["contenido"], desde=0.0, hasta=min(1.0, _duracion(escena)))
         if aid == "infografia-cifra":
@@ -1484,7 +1544,16 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
     plano de debajo (ver JS_FONDO). Cadena vacia si la animacion no se sabe
     dibujar: el plano sale sin ella, que es lo que habria salido sin pedirla.
     """
-    dibujar = _DIBUJANTES.get((asignacion or {}).get("animacion"))
+    aid = (asignacion or {}).get("animacion")
+    if es_cartela_editor(aid):
+        lienzo = (864, 1536) if salida[1] > salida[0] else (1536, 864)
+        svg = cartelas.svg_capa({"plantilla": aid.removeprefix("cartela-"),
+                                 "datos": asignacion["datos"]}, paleta,
+                                duracion=float(duracion), lienzo=lienzo, salida=salida)
+        svg = re.sub(r'width="\d+" height="\d+"',
+                     f'width="{int(salida[0])}" height="{int(salida[1])}"', svg, count=1)
+        return svg, None
+    dibujar = _DIBUJANTES.get(aid)
     if not dibujar:
         return "", None
     ancho, alto = int(salida[0]), int(salida[1])

@@ -532,7 +532,7 @@ with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
         editor = servidor.leer_animacion_escena(proyecto.id, "S001")
         igual("abrir el editor no escribe defaults", {p: estado.params(p) for p in anteriores}, anteriores)
         igual("una escena vacia ofrece todo el catalogo", [o["id"] for o in editor["opciones"]],
-              ["sin-animacion", *animaciones.CATALOGO])
+              ["sin-animacion", *animaciones.CATALOGO_EDITOR])
         for opcion in editor["opciones"]:
             if opcion["id"] == "sin-animacion":
                 continue
@@ -596,6 +596,16 @@ with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
             capturadas.clear()
             p8_render.ejecutar(proyecto, params_render, unidades=["escena:S001"])
             igual("rehacer una escena respeta los ids de unidad", [t["id"] for t in capturadas], ["S001"])
+            opcion_cartela = next(o for o in editor["opciones"] if o["id"] == "cartela-enumeracion")
+            manual = {"id": opcion_cartela["id"], "ancla": editor["ancla"],
+                      "contenido": opcion_cartela["contenido"]}
+            params_cartela = dict(params_render, unidades={"escena:S001": {"animacion": manual}})
+            capturadas.clear()
+            p8_render.ejecutar(proyecto, params_cartela, unidades=["escena:S001"])
+            igual("la nueva cartela llega a la tarea real de montaje",
+                  capturadas[0]["capa_anim"],
+                  animaciones.capas(plan["escenas"], params_cartela, salida=(1280, 720))["S001"]["svg"])
+            igual("el render identifica la cartela manual", capturadas[0]["animacion"], "cartela-enumeracion")
         antes = estado.params("render")
         for mala in (dict(edicion, id="no-existe"), dict(edicion, ancla="otro texto"),
                      dict(edicion, contenido={"nombre": "incompleto"}),
@@ -822,6 +832,89 @@ for malo, por_que in ((["nada"], "una que no existe"), ("ficha-ui", "algo que no
     except presets_canal.ErrorPreset:
         comprobar(f"se rechaza {por_que}", True)
 comprobar("el montaje declara la clave", "animaciones" in presets_canal.TIPOS["montaje"]["claves"])
+
+print("\n== cartelas optativas desde Motion animation ==")
+import cartelas  # noqa: E402
+import p7_callouts  # noqa: E402
+from nucleo.proyecto import escribir_json  # noqa: E402
+
+with patch.object(cartelas, "_llamar_claude", side_effect=AssertionError("no debe llamar a IA")):
+    igual("sin cartelas no se consulta al redactor",
+          cartelas.proponer([{"id": "S001"}], plantillas=[])["plan"], {})
+for seleccion in ([], ["tesis", "cifra", "enumeracion"]):
+    limpio = presets_canal._limpiar_datos("montaje", {"plantillas_cartela": seleccion})
+    cambios = presets_canal.cambios_para({"tipo": "montaje", "datos": limpio})
+    igual("el estilo transmite las cartelas a capas, no a imágenes ni voz",
+          cambios, {"callouts": {"plantillas_cartela": seleccion}})
+
+with tempfile.TemporaryDirectory(prefix="cartelas_optativas_") as carpeta:
+    proyecto, estado = juguete.construir(carpeta, animaciones=[], etiquetas={})
+    ctx = SimpleNamespace(proyecto=proyecto, estado=estado, bitacora=MagicMock())
+    firmas = {paso: estado.firma_global(paso) for paso in ("guion", "voz", "assets")}
+    servidor._sembrar_video_light(ctx, {"plantillas_cartela": []})
+    igual("la selección vacía se conserva al reabrir el vídeo",
+          type(estado)(proyecto).params("callouts")["plantillas_cartela"], [])
+    igual("elegir cartelas conserva las firmas de guion, voz e imágenes",
+          {paso: estado.firma_global(paso) for paso in firmas}, firmas)
+    ruta_plan = proyecto.ruta("pasos", "assets", "v1", "plan.json")
+    plan = p7_callouts.medios.leer_json(ruta_plan)
+    escena = plan["escenas"][0]
+    escena["cartela"] = {"plantilla": "tesis", "datos": {"texto": "UNA CONTRASEÑA ERA TODA LA CERRADURA"}}
+    plan["escenas"] = [escena]
+    escribir_json(ruta_plan, plan)
+    original = p7_callouts.medios.leer_json(ruta_plan)
+    for seleccion, visible in ((None, True), ([], False), (["cifra"], False), (["tesis"], True)):
+        params = {"previsualizar": False, "escala_hyper": 1}
+        if seleccion is not None:
+            params["plantillas_cartela"] = seleccion
+        resultado = p7_callouts.ejecutar(proyecto, params)
+        with open(os.path.join(proyecto.ruta_trabajo("callouts"), "capas", "S001.svg"), encoding="utf-8") as fh:
+            svg = fh.read()
+        igual(f"la cartela solo llega al montaje si está habilitada ({seleccion})",
+              "CONTRASEÑA" in svg, visible)
+        ficha = resultado["unidades"]["escena:S001"]
+        comprobar("al quitar la cartela vuelven los subtítulos", visible or bool(ficha["elementos"]))
+    igual("activar y desactivar no altera el plan ni sus tiempos",
+          p7_callouts.medios.leer_json(ruta_plan), original)
+    estado.actualizar_params("callouts", {"plantillas_cartela": ["tesis"]})
+    gestor = MagicMock()
+    gestor.listar.return_value = []
+    ctx.gestor = gestor
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        antes = estado.params("callouts")
+        editor = servidor.leer_animacion_escena(proyecto.id, "S001")
+        igual("el popup reconoce la cartela automática existente", editor["actual"]["id"], "cartela-tesis")
+        igual("abrir una cartela automática no escribe params", estado.params("callouts"), antes)
+        opcion = next(o for o in editor["opciones"] if o["id"] == "cartela-enumeracion")
+        edicion = {"id": opcion["id"], "ancla": editor["ancla"],
+                   "contenido": dict(opcion["contenido"], titulo="Lista corregida",
+                                     lineas="Primera entrada\nSegunda entrada\nTercera entrada")}
+        previa = servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+        hecha = previa["escenas"][0]["animacion"]
+        igual("las listas conservan los renglones al guardar", hecha["contenido"]["lineas"], edicion["contenido"]["lineas"])
+        igual("una cartela manual no duplica los subtítulos", previa["escenas"][0]["subtitulos"], [])
+        capas = animaciones.capas([escena], estado.params("render"), salida=(1280, 720))
+        igual("la cartela editada se dibuja igual en previa y montaje", capas["S001"]["svg"], hecha["svg"])
+        resultado = p7_callouts.ejecutar(proyecto, dict(estado.params("callouts"), previsualizar=False))
+        igual("sustituir una cartela elimina su capa automática anterior",
+              resultado["unidades"]["escena:S001"]["cartela"], None)
+        ctx.estado = estado = type(estado)(proyecto)
+        igual("la lista corregida reaparece al abrir el popup",
+              servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]["contenido"], edicion["contenido"])
+        for lineas in ("Solo una línea", "\n".join(["Una línea"] * 5)):
+            try:
+                servidor.editar_animacion_escena(proyecto.id, "S001",
+                    dict(edicion, contenido=dict(edicion["contenido"], lineas=lineas)))
+                comprobar("rechaza listas fuera de 2–4 entradas", False)
+            except servidor.ErrorApi:
+                igual("una lista inválida conserva la cartela guardada",
+                      estado.params("render")["unidades"]["escena:S001"]["animacion"], edicion)
+        sin = servidor.editar_animacion_escena(proyecto.id, "S001",
+            {"id": "sin-animacion", "ancla": editor["ancla"], "contenido": {}})
+        comprobar("Sin animación también suprime la cartela automática", "animacion" not in sin["escenas"][0])
+        igual("editar cartelas no modifica guion, voz ni imágenes",
+              {paso: estado.firma_global(paso) for paso in firmas}, firmas)
 
 print()
 if fallos:

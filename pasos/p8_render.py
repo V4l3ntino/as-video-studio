@@ -1640,6 +1640,9 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                 with open(ruta_fija, "r", encoding="utf-8") as fh:
                     fija = fh.read()
 
+        if animaciones.es_cartela_editor((animadas.get(sid) or {}).get("animacion")):
+            fija = ""
+
         tareas.append({
             "id": sid, "escena": {"id": sid, "t_in": escena["t_in"],
                                   "t_out": escena["t_out"]},

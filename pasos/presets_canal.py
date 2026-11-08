@@ -166,8 +166,8 @@ TIPOS = {
         "nombre": "Montaje",
         "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
         "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas",
-                   "animaciones", "generar_personajes", "incorporar_voz"),
-        "pasos": ("voz", "assets", "render"),
+                   "animaciones", "plantillas_cartela", "generar_personajes", "incorporar_voz"),
+        "pasos": ("voz", "assets", "callouts", "render"),
     },
     "canal": {
         "nombre": "Canal",
@@ -255,6 +255,12 @@ def _limpiar_datos(tipo, datos):
             if not isinstance(valores, list) or any(
                     not isinstance(v, str) or v not in CATALOGO for v in valores):
                 raise ErrorPreset("transiciones debe ser una lista de efectos conocidos")
+        if "plantillas_cartela" in limpios:
+            from pasos.cartelas import PLANTILLAS
+            valores = limpios["plantillas_cartela"]
+            if not isinstance(valores, list) or any(
+                    not isinstance(v, str) or v not in PLANTILLAS for v in valores):
+                raise ErrorPreset("plantillas_cartela debe ser una lista de cartelas conocidas")
         if "animaciones" in limpios:
             from pasos.animaciones import CATALOGO as ANIMACIONES
             valores = limpios["animaciones"]
@@ -1098,8 +1104,10 @@ def cambios_para(ficha, params_actuales=None):
 
     if tipo == "montaje":
         render = {k: copy.deepcopy(v) for k, v in datos.items()
-                  if k not in ("bibliotecas", "generar_personajes", "incorporar_voz")}
+                  if k not in ("bibliotecas", "generar_personajes", "incorporar_voz", "plantillas_cartela")}
         cambios = {"render": render} if render else {}
+        if "plantillas_cartela" in datos:
+            cambios["callouts"] = {"plantillas_cartela": copy.deepcopy(datos["plantillas_cartela"])}
         assets = {k: copy.deepcopy(datos[k]) for k in ("bibliotecas", "generar_personajes")
                   if k in datos}
         if assets:
@@ -1191,6 +1199,8 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
         render = params.get("render") or {}
         bloque = {c: copy.deepcopy(render[c]) for c in TIPOS["montaje"]["claves"]
                   if c in render}
+        if "plantillas_cartela" in callouts:
+            bloque["plantillas_cartela"] = copy.deepcopy(callouts["plantillas_cartela"])
         if "bibliotecas" in assets:
             bloque["bibliotecas"] = copy.deepcopy(assets["bibliotecas"])
         if "generar_personajes" in assets:

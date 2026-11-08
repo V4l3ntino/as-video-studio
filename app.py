@@ -1616,6 +1616,8 @@ def _validar_params(paso_id, nuevos, ctx=None):
                    "plantillas de cartela"))
         for clave, catalogo, comose in listas:
             valores = (nuevos or {}).get(clave)
+            if clave == "plantillas_cartela" and clave in nuevos and not isinstance(valores, list):
+                raise ErrorApi(400, "plantillas_cartela debe ser una lista")
             if not isinstance(valores, list):
                 continue
             fuera = [str(v) for v in valores if str(v) not in catalogo]
@@ -5057,7 +5059,7 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
                              for e in previa["escenas"] if e.get("imagen_tarjeta")})
             params = {"unidades": {f"escena:{sid}": {"animacion": edicion}}}
             subidas = anim.urls_imagenes(ctx.proyecto, params, plan["escenas"], lambda ruta: ruta)
-            necesita_tarjetas = anim.CATALOGO.get(edicion["id"], {}).get("requiere_imagenes")
+            necesita_tarjetas = anim.CATALOGO_EDITOR.get(edicion["id"], {}).get("requiere_imagenes")
             if necesita_tarjetas:
                 # Validar el contenido ahora; la segunda imagen se obtiene en
                 # assets, nunca en una petición de edición ni al montar.
@@ -5069,6 +5071,11 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
         unidad = dict(((ctx.estado.params("render") or {}).get("unidades") or {}).get(uid) or {})
         unidad["animacion"] = edicion
         ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+        if escena.get("cartela"):
+            # Sustituye la capa automática ya planificada, sin tocar sus assets.
+            capa = dict(((ctx.estado.params("callouts") or {}).get("unidades") or {}).get(uid) or {})
+            capa["omitir_cartela"] = anim.ancla_de(escena)
+            ctx.estado.actualizar_params("callouts", {"unidades": {uid: capa}})
         if (necesita_tarjetas and sid + "__tarjeta" not in {
                 e["id"] + "__tarjeta" for e in previa["escenas"] if e.get("imagen_tarjeta")}
                 and "otra" not in (edicion.get("imagenes") or {})):
@@ -5197,6 +5204,7 @@ def leer_previsualizacion(pid: str):
                                  + PASOS_MODULOS.animaciones.pedidas_de(ctx.proyecto)
                                  + list(render.get("animaciones") or [])))
     resumen_animaciones = None
+    paleta = {}
     if pedidas or etiquetas or PASOS_MODULOS.animaciones.ediciones_de(render):
         try:
             p_medios = PASOS_MODULOS.medios
@@ -5235,11 +5243,35 @@ def leer_previsualizacion(pid: str):
             if hecha:
                 e["animacion"] = {
                     "id": hecha["animacion"],
-                    "nombre": PASOS_MODULOS.animaciones.CATALOGO[hecha["animacion"]]["nombre"],
+                    "nombre": PASOS_MODULOS.animaciones.CATALOGO_EDITOR[hecha["animacion"]]["nombre"],
                     "contenido": hecha["contenido"],
                     "imagenes_usuario": hecha["imagenes_usuario"], "tarjetas": hecha["tarjetas"],
                     "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
                     "elementos": hecha.get("elementos")}
+    # Las cartelas automáticas también se pueden abrir y sustituir en el editor.
+    anim = PASOS_MODULOS.animaciones
+    ediciones = anim.ediciones_de(render)
+    originales = {e["id"]: e for e in escenas_plan if e.get("id")}
+    for e in escenas:
+        original = originales[e["id"]]
+        edicion = ediciones.get(e["id"])
+        if edicion and edicion.get("ancla") == anim.ancla_de(original):
+            if anim.es_cartela_editor(edicion.get("id")):
+                e["subtitulos"] = []
+            continue
+        efectiva = PASOS_MODULOS.cartelas.escena_para_montaje(original, params_callouts)
+        if not efectiva.get("cartela"):
+            continue
+        pid_cartela, datos_cartela = PASOS_MODULOS.cartelas._desmontar(efectiva["cartela"])
+        aid = f"cartela-{pid_cartela}"
+        svg, fondo = anim.svg_de({"animacion": aid, "datos": datos_cartela},
+                                 e["duracion"], plan.get("resolucion") or [1920, 1080],
+                                 paleta or params_callouts.get("paleta"))
+        e["animacion"] = {"id": aid, "nombre": anim.CATALOGO_EDITOR[aid]["nombre"],
+                          "contenido": anim.contenido_de(aid, datos_cartela),
+                          "svg": svg, "fondo": fondo, "pico": anim.pico_de(svg, e["duracion"]),
+                          "imagenes_usuario": {}, "tarjetas": {}}
+        e["subtitulos"] = []
     return {
         "escenas": escenas,
         "audio": audio,
@@ -5886,7 +5918,12 @@ def catalogo_animaciones():
     """Animaciones de motion graphics disponibles, con su GIF de muestra."""
     if PASOS_MODULOS is None:
         raise ErrorApi(503, f"los pasos no se han podido cargar: {ERROR_PASOS}")
-    return {"animaciones": PASOS_MODULOS.animaciones.catalogo_para_pantalla()}
+    return {"animaciones": PASOS_MODULOS.animaciones.catalogo_para_pantalla(),
+            "cartelas": [{"id": pid, "nombre": ficha["nombre"],
+                          "descripcion": ficha["descripcion"],
+                          "tecnica": "Cartela animada sobre la imagen",
+                          "gif": f"anim_cartela-{pid}.gif"}
+                         for pid, ficha in PASOS_MODULOS.cartelas.PLANTILLAS.items()]}
 
 
 @app.get("/api/proyectos/{pid}/transiciones")
@@ -10495,6 +10532,8 @@ def crear_video_light(preset_id: str, cuerpo: dict = Body(default=None)):
     # camino que copiara las claves a mano se quedaria viejo el dia que un
     # preset guarde una mas.
     aplicado = aplicar_preset_canal(proyecto.id, preset_id)
+    if "plantillas_cartela" not in (ctx.estado.params("callouts") or {}):
+        ctx.estado.actualizar_params("callouts", {"plantillas_cartela": []})
     _referencias_propias_del_video(ctx)
     _calidad_de_partida(ctx)
     avisos = _sembrar_video_light(ctx, datos)
@@ -10577,6 +10616,10 @@ def _sembrar_video_light(ctx, datos):
     if guion:
         _validar_params("guion", guion, ctx)
         ctx.estado.actualizar_params("guion", guion)
+    if "plantillas_cartela" in datos:
+        callouts = {"plantillas_cartela": datos["plantillas_cartela"]}
+        _validar_params("callouts", callouts, ctx)
+        ctx.estado.actualizar_params("callouts", callouts)
     assets = {k: datos[k] for k in ("bibliotecas", "generar_personajes") if k in datos}
     if assets:
         _validar_params("assets", assets, ctx)
