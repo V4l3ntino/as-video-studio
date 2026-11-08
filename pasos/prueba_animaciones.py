@@ -148,12 +148,15 @@ comprobar("una frase sin conector no es contraste",
 comprobar("«pero» no basta: esta en media frase del mundo",
           "contraste" not in animaciones.senales(escena(1, "Era sano pero estaba cansado de todo.", 0), "es"))
 
-print("\n== las que ensenan la imagen del plano siguiente ==")
+print("\n== dos imagenes exclusivas de la misma escena ==")
 vecinas = [escena(1, "Las raíces sanas crecen profundas mientras que las raíces atrofiadas apenas avanzan.", 0, duracion=6.0),
            escena(2, "Y despues vino la calma de siempre.", 6, duracion=4.0)]
-urls = {"S001": "file:///a.png", "S002": "file:///b.png"}
+urls = {"S001": "file:///a.png", "S001__tarjeta": "file:///b.png", "S002": "file:///vecina.png"}
+igual("la imagen vecina no sirve como segunda tarjeta",
+      animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es",
+                           imagenes={"S001": "a", "S002": "b"}), {})
 con = animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls)
-igual("con la imagen del vecino, la comparacion entra", con.get("S001", {}).get("animacion"), "comparacion-tarjetas")
+igual("con dos imagenes propias, la comparacion entra", con.get("S001", {}).get("animacion"), "comparacion-tarjetas")
 igual("y lleva las dos imagenes", sorted((con.get("S001") or {}).get("imagenes", {})), ["otra", "propia"])
 invertidas = [dict(vecinas[0], nombre_imagen="S001-camaleonagitado.png"),
              dict(vecinas[1], nombre_imagen="S002-camaleontranquilo.png")]
@@ -172,11 +175,13 @@ igual("los nombres antiguos ambiguos tampoco condicionan la comparacion",
                             "es", imagenes=urls), con_nombres)
 igual("sin imagenes no entra",
       animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es"), {})
-igual("al ultimo plano le falta vecino: tampoco",
+igual("sin segunda imagen propia no entra aunque exista la imagen de otra escena",
       animaciones.repartir(vecinas[1:], {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls), {})
 cartela_vecina = [vecinas[0], dict(vecinas[1], cartela={"plantilla": "titulo"})]
-igual("si el vecino es una cartela, tampoco",
-      animaciones.repartir(cartela_vecina, {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls), {})
+igual("una cartela vecina no afecta a las imagenes propias",
+      animaciones.repartir(cartela_vecina, {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls), con)
+igual("funciona tambien sin ninguna escena vecina",
+      animaciones.repartir(vecinas[:1], {"animaciones": ["comparacion-tarjetas"]}, "es", imagenes=urls), con)
 nombre_vecinas = [escena(1, "Entonces llegó Cristóbal Colón con tres naves hacia el oeste.", 0, duracion=6.0),
                   escena(2, "Y despues vino la calma de siempre.", 6, duracion=4.0)]
 collage = animaciones.capas(nombre_vecinas, {"animaciones": ["collage-titulo"]}, "es", None,
@@ -302,7 +307,7 @@ animaciones.validar_textos(eleccion_nombre, "es")
 igual("Claude puede escoger el segundo nombre propio del mismo plano",
       eleccion_nombre[0].get("animacion_texto"), "Nature Communications")
 elegido_nombre = animaciones.repartir([dos_nombres, escena(12, "Y continuó.", 7)],
-    {"animaciones": ["collage-titulo"]}, "es", imagenes={"S011": "a", "S012": "b"},
+    {"animaciones": ["collage-titulo"]}, "es", imagenes={"S011": "a", "S011__tarjeta": "b"},
     etiquetas={"B011": "collage-titulo"}, textos={"B011": "Nature Communications"})
 igual("el titulo sigue la seleccion de Claude y no el nombre mas largo",
       elegido_nombre.get("S011", {}).get("datos", {}).get("nombre"), "Nature Communications")
@@ -338,7 +343,7 @@ for tipo, texto, fragmento, campo, esperado in (
     e["origen"] = {"bloque": "B009"}
     vecino = escena(10, "Y la historia siguió.", 7, 4)
     elegido = animaciones.repartir([e, vecino], {"animaciones": [tipo]}, "es",
-        imagenes={"S009": "a", "S010": "b"}, etiquetas={"B009": tipo},
+        imagenes={"S009": "a", "S009__tarjeta": "b"}, etiquetas={"B009": tipo},
         textos={"B009": bloque.get("animacion_texto")})
     igual(f"{tipo}: el plano usa el fragmento elegido", elegido["S009"]["datos"][campo], esperado)
 
@@ -413,11 +418,11 @@ tarjetas = [escena(1, "Las raíces sanas crecen mientras que las atrofiadas muer
             escena(2, "Y asi termina.", 6)]
 for i, e in enumerate(tarjetas):
     e["origen"] = {"bloque": f"B{i + 1:03d}"}
-ult = animaciones.repartir(tarjetas[::-1], {}, "es", imagenes={"S001": "a", "S002": "b"},
+ult = animaciones.repartir(tarjetas[::-1], {}, "es", imagenes={"S001": "a", "S001__tarjeta": "b"},
                            etiquetas={"B001": "comparacion-tarjetas"})
-igual("las tarjetas usan la escena de al lado (la anterior si no hay siguiente)",
-      (ult.get("S001") or {}).get("elementos"), {"propia": "S001", "otra": "S002"})
-igual("y con un solo plano sin vecina no entran",
+igual("las tarjetas conservan su propia segunda imagen al cambiar el orden",
+       (ult.get("S001") or {}).get("elementos"), {"propia": "S001", "otra": "S001__tarjeta"})
+igual("con un solo recurso propio no entran",
        animaciones.repartir(tarjetas[:1], {}, "es", imagenes={"S001": "a"},
                             etiquetas={"B001": "comparacion-tarjetas"}), {})
 for tipo, texto in (("collage-titulo", "Entonces llegó Cristóbal Colón con tres naves."),
@@ -425,7 +430,7 @@ for tipo, texto in (("collage-titulo", "Entonces llegó Cristóbal Colón con tr
     entrada = escena(7, texto, 0, 8.5)
     entrada["origen"] = {"bloque": "B007"}
     vecina = escena(8, "A continuación vemos el resultado.", 8.5, 4)
-    foto = {"S007": "file:///a.png", "S008": "file:///b.png"}
+    foto = {"S007": "file:///a.png", "S007__tarjeta": "file:///b.png"}
     capa = animaciones.capas([entrada, vecina], {"animaciones": [tipo]}, "es",
                              imagenes=foto, etiquetas={"B007": tipo})["S007"]
     igual(f"{tipo} empieza a atenuar desde el inicio del plano", capa["fondo"]["t"][0], 0.0)
@@ -470,9 +475,9 @@ with tempfile.TemporaryDirectory(prefix="previa_anim_") as carpeta_previa:
     comprobar("y su svg, su nombre y su instante de reposo",
               all((por_id["S001"].get("animacion") or {}).get(k) for k in ("svg", "nombre", "pico")))
     igual("las de tarjetas dicen con que otro elemento se hacen",
-          (por_id["S003"].get("animacion") or {}).get("elementos"), {"propia": "S003", "otra": "S004"})
-    igual("la ultima comparte con la anterior si no hay siguiente",
-          (por_id["S004"].get("animacion") or {}).get("elementos"), {"propia": "S004", "otra": "S005"})
+           (por_id["S003"].get("animacion") or {}).get("elementos"), {"propia": "S003", "otra": "S003__tarjeta"})
+    igual("la comparacion lleva su segunda imagen exclusiva",
+          (por_id["S004"].get("animacion") or {}).get("elementos"), {"propia": "S004", "otra": "S004__tarjeta"})
     resumen = previa["animaciones"]
     igual("la previa dice cuales de las elegidas NO han encontrado sitio", resumen["faltan"], ["ficha-ui"])
     igual("y cuantas se han colocado", sum(resumen["colocadas"].values()), 5)
@@ -736,6 +741,9 @@ with tempfile.TemporaryDirectory(prefix="tarjetas_anim_") as carpeta_tarjetas:
                 igual(f"{aid} conserva las imagenes al reabrir", servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]["imagenes_usuario"], seleccion)
                 urls = animaciones.urls_imagenes(proyecto, estado.params("render"), plan["escenas"], p8_render._url_local)
                 imagenes = {e["id"]: p8_render._url_local(proyecto.ruta_paso("assets", 1) + "/escenas/" + e["id"] + ".png") for e in plan["escenas"]}
+                imagenes.update({e["id"] + "__tarjeta": p8_render._url_local(
+                    os.path.join(proyecto.ruta_paso("assets", 1), e["tarjetas_animacion"]["otra"]))
+                    for e in plan["escenas"] if e.get("tarjetas_animacion")})
                 render = animaciones.capas(plan["escenas"], estado.params("render"), imagenes=imagenes, imagenes_usuario=urls)
                 for referencia in seleccion.values():
                     comprobar("el render precarga tambien la imagen subida", urls[referencia] in render["S001"]["imagenes"])

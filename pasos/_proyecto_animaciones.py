@@ -76,9 +76,13 @@ def construir(carpeta, animaciones=ELEGIDAS, etiquetas=ETIQUETAS):
         estado.actualizar_params("guion", {"animaciones": list(animaciones)})
     trabajo = proyecto.ruta_trabajo("assets")
     os.makedirs(os.path.join(trabajo, "escenas"), exist_ok=True)
-    escribir_json(os.path.join(trabajo, "plan.json"), plan)
     for i, e in enumerate(escenas):
         _imagen(os.path.join(trabajo, "escenas", f"{e['id']}.png"), i)
+        e["tarjetas_animacion"] = {"otra": f"escenas/{e['id']}__tarjeta.png"}
+        _imagen(os.path.join(trabajo, "escenas", f"{e['id']}__tarjeta.png"), i + 0.4)
+        escribir_json(os.path.join(trabajo, "escenas", f"{e['id']}__tarjeta.json"),
+                      {"narracion": e["narracion"], "tarjeta_extra": True})
+    escribir_json(os.path.join(trabajo, "plan.json"), plan)
     estado.completar("assets", {"plan": "plan.json"})
     return proyecto, estado
 

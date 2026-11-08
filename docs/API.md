@@ -36,7 +36,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `PUT` | `/api/proyectos/{pid}` | Cambia el nombre VISIBLE del proyecto. -> la ficha. |
 | `POST` | `/api/proyectos/{pid}/duplicar` | Copia un proyecto entero con lo que tiene puesto HOY. -> el nuevo. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Contenido editable y catálogo completo de animaciones para una escena. |
-| `PUT` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Asigna o edita una animación manual; solo deja pendiente el montaje. |
+| `PUT` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Edita una animación; reserva una imagen propia adicional si el tipo la necesita. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes` | Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |

@@ -222,13 +222,20 @@ e **Imagen derecha**. Arrastra una imagen o pulsa en la zona para elegirla. El
 de guardar. Puedes sustituir una o ambas tarjetas y volver con **Usar imagen
 automática**. Las sustituciones se aplican al pulsar **Guardar**.
 
-Cada tarjeta que no sustituyas usa la imagen de la escena o de una escena
-contigua. Si no hay imágenes disponibles, sube las dos para crear la animación.
+Las escenas con **Collage con título** o **Comparación de tarjetas** obtienen
+**dos imágenes propias y exclusivas**, en lugar de una. Ninguna tarjeta toma
+la imagen de una escena anterior o posterior, y la imagen adicional no se usa
+como plano en otro momento del vídeo. La comparación prepara cada imagen para
+el elemento de su etiqueta; el collage prepara dos composiciones complementarias.
+Las dos se conservan al retomar una tanda y cuentan en el progreso de imágenes.
+Si asignas una de estas animaciones a una escena que aún solo tiene una imagen,
+genera las imágenes de esa escena antes de montar, o sube la segunda tarjeta.
 Estas subidas no sustituyen el fondo de la escena ni regeneran recursos; se
 conservan al duplicar, exportar e importar el vídeo.
 
-Los cambios se conservan al reabrir el vídeo y se aplican al **volver a montarlo**,
-sin regenerar narración ni imágenes. Abrir el editor no modifica el proyecto.
+Los cambios de texto y las subidas se conservan al reabrir el vídeo y se aplican
+al **volver a montarlo**, sin regenerar narración ni imágenes. Abrir el editor
+no modifica el proyecto.
 La asignación manual queda vinculada al texto de la escena para no reutilizarla
 por error si ese identificador pasa a representar otra frase.
 

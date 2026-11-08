@@ -1554,6 +1554,29 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             ruta_ = ruta_ if os.path.isabs(ruta_) else os.path.join(base_callouts, ruta_)
             if os.path.exists(ruta_):
                 imagenes[sid_] = _url_local(ruta_)
+    ediciones_tarjetas = animaciones.ediciones_de(p)
+    for escena in escenas:
+        tarjeta = (escena.get("tarjetas_animacion") or {}).get("otra")
+        edicion_tarjeta = ediciones_tarjetas.get(escena["id"], {})
+        if edicion_tarjeta.get("ancla") != animaciones.ancla_de(escena):
+            edicion_tarjeta = {}
+        if edicion_tarjeta and (not animaciones.CATALOGO.get(
+                edicion_tarjeta["id"], {}).get("requiere_imagenes")
+                or "otra" in (edicion_tarjeta.get("imagenes") or {})):
+            continue
+        if tarjeta:
+            ruta_tarjeta = os.path.join(os.path.dirname(ruta_plan), tarjeta)
+            if os.path.isfile(ruta_tarjeta):
+                imagenes[escena["id"] + "__tarjeta"] = _url_local(ruta_tarjeta)
+            else:
+                raise RuntimeError(f"{escena['id']}: falta la segunda imagen de la animación; genera las imágenes de esta escena antes de montar")
+    anclas_tarjetas = {e["id"]: animaciones.ancla_de(e) for e in escenas}
+    for sid_, edicion_ in ediciones_tarjetas.items():
+        if (edicion_.get("ancla") == anclas_tarjetas.get(sid_)
+                and animaciones.CATALOGO.get(edicion_["id"], {}).get("requiere_imagenes")
+                and sid_ + "__tarjeta" not in imagenes
+                and "otra" not in (edicion_.get("imagenes") or {})):
+            raise RuntimeError(f"{sid_}: genera las dos imágenes propias de la animación antes de montar")
     # LO QUE EL GUION DEJO PREVISTO manda (`animaciones.etiquetas_de`); un video de
     # antes del plan -- sin etiquetas -- reparte por lo que se dice, con las que
     # pida el render (`animaciones` en sus params).

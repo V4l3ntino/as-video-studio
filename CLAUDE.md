@@ -386,9 +386,18 @@ modela. Lo que no se deduce del código:
   («✦ 5 de 6 animaciones · faltan: …»).
 
 **Las que enseñan dos elementos** (`collage-titulo`, `comparacion-tarjetas`,
-`requiere_imagenes`): usan la imagen de su escena y la de la de al lado (la
-siguiente, o la anterior si no hay; `elementos` en la asignación). NO se genera una
-imagen extra: sería gasto y tocaría el motor de imágenes. `p8` pasa `imagenes`
+`requiere_imagenes`): usan DOS imágenes exclusivas de SU escena. Nunca toman
+prestada una imagen anterior ni posterior. `p6_assets._planificar_tarjetas`
+reserva la pareja antes de generar usando el mismo reparto que previa/render.
+`_generar_escenas` obtiene el recurso adicional `Sxxx__tarjeta.png` con el mismo
+proveedor, caché y recuperación; lo agrupa como `tarjeta` en la salida de la unidad
+original, sin añadir una escena al audio o al montaje. `tarjetas_animacion.otra`
+del plan apunta al PNG. Los dos recursos pasan el guardián de duplicados y las
+fichas extra llevan `tarjeta_extra` para que la recolocación no los intercambie
+con imágenes principales con la misma narración. Retomar conserva lo ya pagado;
+rehacer una escena rehace únicamente su pareja. Las asignaciones manuales que
+necesitan una imagen nueva guardan la reserva en params de ESA unidad de assets.
+`p8` pasa `imagenes`
 (URL de cada hyperframe) y la página las PRECARGA en `#precarga`: un `<image>`
 dentro de un SVG no lo espera `Navegador.abrir` y la primera captura saldría vacía.
 
@@ -419,8 +428,10 @@ haría reaparecer la animación del guion. Las ediciones viven en
 Nunca uses un mapa global indexado por escena: el núcleo lo rechaza cuando las
 unidades están declaradas y contaminaría todas sus firmas. Conserva los demás
 params de la unidad al guardar. `animaciones.capas` las aplica DESPUÉS del
-reparto automático, sin desplazar las animaciones de otras escenas ni tocar guion,
-voz o assets. En `p8_render.ejecutar`, `pedidas` contiene ids de UNIDADES: usa
+reparto automático, sin desplazar las animaciones de otras escenas ni tocar guion
+o voz. Editar textos o subir tarjetas solo afecta al render; cambiar a un tipo
+de dos imágenes sin pareja disponible reserva el recurso en la unidad de assets.
+En `p8_render.ejecutar`, `pedidas` contiene ids de UNIDADES: usa
 `animaciones_pedidas` para los tipos del catálogo; sobrescribir la primera saltaba
 clips ya existentes y sellaba mal las unidades. La regresión del remontaje con
 clips previos está en `prueba_animaciones` y la cadena real en `prueba_pasos_visuales`.
@@ -441,7 +452,7 @@ viaja con `medios_usuario` al duplicar/exportar. No borres imágenes anteriores:
 pueden estar referenciadas por versiones históricas. `animaciones.urls_imagenes`
 resuelve las referencias para previa y render; `capas` mezcla cada lado con el
 respaldo automático y precarga ambas imágenes. Con dos subidas no necesita una
-imagen de la escena ni de su vecina. Los borradores se aplican solo con Guardar.
+imagen de fondo de la escena. Los borradores se aplican solo con Guardar.
 `aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
 (`prueba_animaciones` compara las dos). Las URL de otras imágenes viajan como
 `proyecto://ruta`: solo el navegador sabe el prefijo del proxy.

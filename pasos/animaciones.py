@@ -31,8 +31,8 @@ No se alternan a ciegas. Cada tecnica pide una SENAL en lo que se dice:
 Cuando una senal tiene varias animaciones, se rota entre las elegidas con una
 semilla (como las transiciones), sin repetir la del plano animado anterior.
 
-Dos de ellas -- collage-titulo y comparacion-tarjetas -- ensenan TAMBIEN la
-imagen del plano siguiente, asi que solo se reparten si esa imagen existe (ver
+Dos de ellas -- collage-titulo y comparacion-tarjetas -- ensenan dos imagenes
+exclusivas de su escena, asi que solo se reparten si ambas existen (ver
 `repartir`, parametro `imagenes`). Y tres atenuan o desenfocan el plano de
 fondo: eso no lo puede hacer una capa SVG, asi que viaja aparte como `fondo` y
 lo aplica la pagina de render con la misma funcion de t (`JS_FONDO`).
@@ -105,13 +105,13 @@ CATALOGO = {
     },
     "collage-titulo": {
         "nombre": "Collage con título",
-        "descripcion": "El fondo se oscurece, entran dos fotos una tras otra y el título se escribe encima. Por defecto usa también la imagen del plano siguiente.",
+        "descripcion": "El fondo se oscurece, entran dos fotos exclusivas de esta escena una tras otra y el título se escribe encima.",
         "tecnica": "Collage Animation", "senal": "termino", "defecto": False, "tiempo": 3.6,
         "requiere_imagenes": True,
     },
     "comparacion-tarjetas": {
         "nombre": "Comparación de tarjetas",
-        "descripcion": "Una tarjeta sube desde abajo y otra cae desde arriba, cada una con su etiqueta. Por defecto usa también la imagen del plano siguiente.",
+        "descripcion": "Una tarjeta sube desde abajo y otra cae desde arriba, cada una con su etiqueta y una imagen exclusiva de esta escena.",
         "tecnica": "Split-Screen Animation", "senal": "contraste", "defecto": False, "tiempo": 3.2,
         "requiere_imagenes": True,
     },
@@ -255,11 +255,8 @@ def ediciones_de(params):
 
 
 def tarjetas_de(escenas, sid, imagenes):
-    lista = list(escenas or [])
-    i = next((i for i, e in enumerate(lista) if e.get("id") == sid), None)
-    j = _vecina(lista, i, imagenes or {}) if i is not None else None
     return {"propia": (imagenes or {}).get(sid),
-            "otra": (imagenes or {}).get(lista[j]["id"]) if j is not None else None}
+            "otra": (imagenes or {}).get(sid + "__tarjeta")}
 
 
 def urls_imagenes(proyecto, params, escenas, convertir):
@@ -274,7 +271,7 @@ def urls_imagenes(proyecto, params, escenas, convertir):
     return urls
 
 
-def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=None):
+def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=None, estricto=True):
     salida = dict(reparto)
     lista = list(escenas or [])
     for i, escena in enumerate(lista):
@@ -300,16 +297,18 @@ def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=No
             for lado, referencia in referencias.items():
                 tarjetas[lado] = (imagenes_usuario or {}).get(referencia)
             if not all(tarjetas.values()):
-                raise ValueError("faltan imágenes para las tarjetas: sube las dos imágenes o usa las de la escena y una contigua")
-            j = _vecina(lista, i, imagenes or {})
+                if not estricto:
+                    salida.pop(sid, None)
+                    continue
+                raise ValueError("falta la segunda imagen propia de esta escena; genera sus imágenes o sube una imagen para la tarjeta")
             ficha = {"animacion": aid, "senal": CATALOGO[aid]["senal"], "datos": datos,
                      "imagenes": tarjetas, "imagenes_usuario": referencias,
                      "elementos": {"propia": sid, "otra": "imagen subida" if "otra" in referencias
-                                   else lista[j]["id"] if j is not None else "imagen subida"}}
+                                    else sid + "__tarjeta"}}
         else:
             ficha = _ficha_de(lista, i, aid, CATALOGO[aid]["senal"], datos, imagenes or {})
         if ficha is None:
-            raise ValueError("esta animación necesita la imagen de la escena y la de una escena contigua")
+            raise ValueError("esta animación necesita dos imágenes propias de la escena")
         salida[sid] = ficha
     return salida
 
@@ -584,33 +583,16 @@ def _es_cartela(escena):
     return bool(escena.get("cartela")) or bool(escena.get("capitulo_svg"))
 
 
-def _vecina(lista, indice, imagenes):
-    """Con QUE otra escena comparte tarjetas la del `indice`. -> indice | None
-
-    La siguiente si tiene imagen y no es una cartela; si no, la anterior. Es la
-    segunda ficha de la animacion: la escena trae la suya y esta es «el otro
-    elemento» del collage o de la comparacion. Un clip de usuario aporta su
-    poster, que es lo que `imagenes` ya trae.
-    """
-    for j in (indice + 1, indice - 1):
-        if 0 <= j < len(lista):
-            otra = lista[j]
-            if otra.get("id") and not _es_cartela(otra) and imagenes.get(otra["id"]):
-                return j
-    return None
-
-
 def _ficha_de(lista, indice, animacion, senal, datos, imagenes):
     """La asignacion de UN plano. None si no tiene con que hacer sus tarjetas."""
     ficha = {"animacion": animacion, "senal": senal, "datos": datos}
     if CATALOGO[animacion].get("requiere_imagenes"):
         sid = lista[indice].get("id")
-        j = _vecina(lista, indice, imagenes)
-        if j is None or not imagenes.get(sid):
+        tarjetas = tarjetas_de(lista, sid, imagenes)
+        if not all(tarjetas.values()):
             return None
-        otra = lista[j]["id"]
-        ficha["imagenes"] = {"propia": imagenes[sid], "otra": imagenes[otra]}
-        ficha["elementos"] = {"propia": sid, "otra": otra}
+        ficha["imagenes"] = tarjetas
+        ficha["elementos"] = {"propia": sid, "otra": sid + "__tarjeta"}
     return ficha
 
 
@@ -711,8 +693,8 @@ def repartir(escenas, params=None, idioma=None, imagenes=None, semilla=0, etique
     reparte mirando la narracion de cada plano, con aire entre dos animadas
     (HUECO_ENTRE_ANIMACIONES).
 
-    `imagenes` es {id_de_plano: url de su imagen}. Sin ella -- o si al plano le
-    falta con quien compartir tarjetas -- las animaciones que ensenan una SEGUNDA
+    `imagenes` es {id_de_plano: url, id_de_plano + '__tarjeta': segunda url}.
+    Sin las dos imagenes propias, las animaciones que ensenan una SEGUNDA
     imagen no entran. `semilla` desempata entre las que comparten senal sin usar
     random: rehacer un plano suelto no puede cambiarle la animacion a otro.
     """
@@ -813,7 +795,7 @@ PIDE = {
     "comparacion-tarjetas": "UNA frase que compare dos elementos concretos del material "
                             "con «mientras que» o «frente a» (por ejemplo, «las raíces "
                             "sanas crecen mientras que las atrofiadas...»). Sus dos "
-                            "etiquetas deben describir las imágenes de esta escena y la vecina",
+                            "etiquetas deben describir dos imágenes distintas y exclusivas de esta escena",
     "tipografia-cinetica": "una frase CORTA y contundente, de 3 a 9 palabras, que se sostenga "
                            "sola y resuma el momento",
 }
@@ -1528,7 +1510,8 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
     """
     reparto = repartir(escenas, params, idioma, imagenes=imagenes, semilla=semilla,
                        etiquetas=etiquetas, textos=textos)
-    reparto = aplicar_ediciones(reparto, escenas, ediciones_de(params), imagenes, imagenes_usuario)
+    reparto = aplicar_ediciones(reparto, escenas, ediciones_de(params), imagenes, imagenes_usuario,
+                                estricto=False)
     por_id = {e.get("id"): e for e in escenas or []}
     resultado = {}
     for sid, asignacion in reparto.items():

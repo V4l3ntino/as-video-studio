@@ -66,6 +66,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cartelas  # noqa: E402
+import animaciones  # noqa: E402
 try:
     from . import bibliotecas
 except ImportError:
@@ -188,7 +189,7 @@ def describir(params):
                 "(caben diagramas y pantallas)")
     return (f"Corta la narracion en planos de {p['min_s']:.0f}-{p['max_s']:.0f} s, "
             f"{encuadre} y {len(catalogo.get('reparto') or {})} fichas de "
-            f"reparto, y produce una imagen por plano {motor}.")
+            f"reparto, y produce una imagen por plano (dos si lleva collage o comparación) {motor}.")
 
 
 def _con_defectos(params):
@@ -1430,6 +1431,7 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         "corte": corte_crudo,
         "informe": informe,
     }
+    _planificar_tarjetas(proyecto, plan, p)
     plan["assets"] = _assets_necesarios(plan, catalogo, p)
     medios_escena.aplicar_al_plan(plan, p)
     anteriores = {}
@@ -1489,6 +1491,29 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         "replanteado": bool(replantear),
     }
     return plan
+
+
+def _planificar_tarjetas(proyecto, plan, params=None):
+    """Reserva dos recursos por escena antes de obtener ninguna imagen."""
+    escenas = plan["escenas"]
+    candidatas = {clave: clave for e in escenas if not _sin_imagen(e)
+                  for clave in (e["id"], e["id"] + "__tarjeta")}
+    reparto = animaciones.repartir(
+        escenas, {"animaciones": animaciones.pedidas_de(proyecto)},
+        idioma=plan.get("idioma"), imagenes=candidatas,
+        semilla=plan.get("semilla", 0), etiquetas=animaciones.etiquetas_de(proyecto),
+        textos=animaciones.textos_de(proyecto))
+    for escena in escenas:
+        ficha = reparto.get(escena["id"], {})
+        manual = _ajustes_unidad(params or {}, f"escena:{escena['id']}").get("tarjetas_animacion")
+        if manual and manual.get("ancla") == animaciones.ancla_de(escena):
+            ficha = {"animacion": manual["id"], "datos": manual["contenido"]}
+        if animaciones.CATALOGO.get(ficha.get("animacion"), {}).get("requiere_imagenes"):
+            escena.pop("sigue_a", None)
+            escena.pop("componente", None)
+            escena["tarjetas_animacion"] = {
+                "id": ficha["animacion"], "datos": ficha["datos"],
+                "otra": f"escenas/{escena['id']}__tarjeta.png"}
 
 
 def _encadenar(escenas, duracion_audio=None, adelanto=0.25, cola=0.45,
@@ -3606,7 +3631,7 @@ def _recolocar_escenas(carpeta, escenas):
             ficha = medios.leer_json(os.path.join(carpeta, nombre), {}) or {}
             texto = _texto_clave(ficha)
             if texto:
-                guardadas.append([nombre[:-5], texto])
+                guardadas.append([nombre[:-5], texto, bool(ficha.get("tarjeta_extra"))])
 
     # DOS VUELTAS, Y EN ESTE ORDEN: primero las que dicen EXACTAMENTE lo mismo
     # y luego las parecidas. En una sola vuelta un plano parecido se lleva la
@@ -3631,6 +3656,8 @@ def _recolocar_escenas(carpeta, escenas):
                 continue
             texto = _texto_clave(escena)
             for par in guardadas:
+                if par[2] != bool(escena.get("tarjeta_extra")):
+                    continue
                 if par[1] is None:
                     continue
                 if (par[1] == texto if exacta else _mismo_dicho(texto, par[1])):
@@ -3682,6 +3709,75 @@ def _recolocar_escenas(carpeta, escenas):
     return informe
 
 def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
+                     forzar=False, notas_repaso=None, proyecto=None, recuperacion=None):
+    if not any(e.get("tarjetas_animacion") for e in plan["escenas"]):
+        return _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados,
+                              avisar, forzar, notas_repaso, proyecto, recuperacion)
+    # Los recursos extra recorren el mismo proveedor, caché, recuperación y
+    # control de duplicados que los planos. No son escenas del vídeo ni audio.
+    ampliado = dict(plan, escenas=[], dependencias=dict(plan["dependencias"]))
+    params = copy.deepcopy(p)
+    seleccion = list(unidades) if unidades is not None else None
+    extras = {}
+    for original in plan["escenas"]:
+        escena = copy.deepcopy(original)
+        ampliado["escenas"].append(escena)
+        tarjetas = escena.get("tarjetas_animacion")
+        if not tarjetas:
+            continue
+        sid = escena["id"]
+        if (unidades is not None and f"escena:{sid}" not in unidades
+                and not os.path.isfile(os.path.join(trabajo, tarjetas["otra"]))):
+            # Una petición dirigida no completa parejas pendientes de otras
+            # escenas: cada imagen adicional también consume cuota.
+            continue
+        datos = tarjetas["datos"]
+        izquierda = datos.get("izquierda") or datos.get("nombre") or escena["narracion"]
+        derecha = datos.get("derecha") or datos.get("nombre") or escena["narracion"]
+        base = escena.get("prompt") or ""
+        escena["prompt"] = (base + f"\nStandalone first image for this scene only. Subject: {izquierda}. "
+                            "Do not draw a collage, cards, labels or split screen.")
+        extra = copy.deepcopy(escena)
+        extra["id"] = sid + "__tarjeta"
+        extra["tarjeta_extra"] = True
+        extra["prompt"] = (base + f"\nStandalone SECOND image for this scene only. Subject: {derecha}. "
+                           "Show a distinct composition and complementary subject, "
+                           f"not the first image ({izquierda}). "
+                           "Do not draw a collage, cards, labels or split screen.")
+        for clave in ("medio_usuario", "medio_biblioteca", "recurso_biblioteca",
+                      "audio_biblioteca", "sigue_a", "componente"):
+            extra.pop(clave, None)
+        # Las tarjetas son fotografías, incluso si las bibliotecas del vídeo
+        # permiten clips; no añadir otra petición de audio para la misma escena.
+        ampliado["escenas"].append(extra)
+        uid, extra_uid = f"escena:{sid}", f"escena:{extra['id']}"
+        ampliado["dependencias"][extra_uid] = plan["dependencias"].get(uid, [])
+        params.setdefault("unidades", {})[extra_uid] = copy.deepcopy(_ajustes_unidad(p, uid))
+        if seleccion is not None and uid in seleccion:
+            seleccion.append(extra_uid)
+        extras[extra_uid] = uid
+    obtenidos = {}
+    coste = _generar_planos(ampliado, dirs, params, trabajo, toca, seleccion,
+                            obtenidos, avisar, forzar, notas_repaso, proyecto, recuperacion)
+    repetidos = _planos_repetidos(obtenidos, trabajo,
+        copiados={e["id"] for e in ampliado["escenas"] if e.get("sigue_a")})
+    if repetidos and extras:
+        raise RuntimeError("las tarjetas deben tener imágenes exclusivas; recursos repetidos: "
+                           + str(repetidos))
+    for uid, ficha in obtenidos.items():
+        if uid not in extras:
+            resultados[uid] = ficha
+    for extra_uid, uid in extras.items():
+        if extra_uid in obtenidos and uid in resultados:
+            resultados[uid]["tarjeta"] = obtenidos[extra_uid]
+    principales = [e for e in ampliado["escenas"] if not e.get("tarjeta_extra")]
+    for original, generada in zip(plan["escenas"], principales):
+        bibliotecas.restaurar(original, generada)
+        _aplicar_alternativa_visual(original, generada)
+    return coste
+
+
+def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                      forzar=False, notas_repaso=None, proyecto=None, recuperacion=None):
     """Genera los planos y devuelve el coste. En fila o en cadenas paralelas.
 
@@ -3772,7 +3868,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             cambio_audio = guardada_biblioteca.get("bibliotecas_audio_config") != configuracion_audio
             if cambio_audio or not opciones_audio:
                 escena.pop("audio_biblioteca", None)
-            if biblioteca:
+            if biblioteca and not escena.get("tarjeta_extra"):
                 biblioteca.audio(escena)
 
             # Una cartela no deja PNG, asi que su ficha en disco es lo unico
@@ -4048,6 +4144,7 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 previas[sid] = destino
                 orden_cadena.append(sid)
             ficha = {"tipo": "escena", "id": sid,
+                     **({"tarjeta_extra": True} if escena.get("tarjeta_extra") else {}),
                      # sin 'png' si es cartela: no hay fichero, y anunciar uno
                      # que no existe deja la rejilla con un hueco roto
                      **({} if cartelas.sin_imagen(escena)
@@ -4799,6 +4896,9 @@ def unidades_pendientes(proyecto, params):
     for escena in plan["escenas"]:
         if not os.path.exists(os.path.join(dirs["escenas"], f"{escena['id']}.png")):
             faltan.append(f"escena:{escena['id']}")
+        elif escena.get("tarjetas_animacion") and not os.path.exists(
+                os.path.join(trabajo, escena["tarjetas_animacion"]["otra"])):
+            faltan.append(f"escena:{escena['id']}")
     return faltan
 
 
@@ -5134,7 +5234,9 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
         rehechas = {uid: ficha for uid, ficha in resultados.items() if uid in pedidas}
     conservadas = sorted(uid for uid in resultados if uid not in rehechas)
 
-    generadas = sum(1 for r in resultados.values() if r.get("origen") == "generada")
+    generadas = sum(int(r.get("origen") == "generada")
+                    + int((r.get("tarjeta") or {}).get("origen") == "generada")
+                    for r in resultados.values())
     camaras = plan["informe"]["camaras"]
     # los planos que se han quedado sin dirigir en un video dirigido: antes no
     # los contaba nadie (ver `planificar`)

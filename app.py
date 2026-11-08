@@ -5011,6 +5011,8 @@ def leer_animacion_escena(pid: str, sid: str):
     actual = next((e.get("animacion") for e in previa["escenas"] if e["id"] == sid), None)
     anim = PASOS_MODULOS.animaciones
     imagenes = {e["id"]: e["imagen"] for e in previa["escenas"] if e.get("imagen")}
+    imagenes.update({e["id"] + "__tarjeta": e["imagen_tarjeta"]
+                     for e in previa["escenas"] if e.get("imagen_tarjeta")})
     return {"ancla": anim.ancla_de(escena), "actual": actual,
             "tarjetas": anim.tarjetas_de(plan["escenas"], sid, imagenes),
             "opciones": anim.opciones_de(escena, actual, plan.get("idioma"))}
@@ -5037,7 +5039,7 @@ def subir_imagen_animacion(pid: str, sid: str, archivo: UploadFile = File(...)):
 
 @app.put("/api/proyectos/{pid}/escenas/{sid}/animacion")
 def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
-    """Asigna o edita una animación manual; solo deja pendiente el montaje."""
+    """Edita una animación; reserva una imagen propia adicional si el tipo la necesita."""
     ctx = contexto(pid)
     with _LOCK:
         if ctx.gestor.listar(activos=True):
@@ -5051,8 +5053,15 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
             edicion = anim.validar_edicion(datos, escena)
             previa = leer_previsualizacion(pid)
             imagenes = {e["id"]: e["imagen"] for e in previa["escenas"] if e.get("imagen")}
+            imagenes.update({e["id"] + "__tarjeta": e["imagen_tarjeta"]
+                             for e in previa["escenas"] if e.get("imagen_tarjeta")})
             params = {"unidades": {f"escena:{sid}": {"animacion": edicion}}}
             subidas = anim.urls_imagenes(ctx.proyecto, params, plan["escenas"], lambda ruta: ruta)
+            necesita_tarjetas = anim.CATALOGO.get(edicion["id"], {}).get("requiere_imagenes")
+            if necesita_tarjetas:
+                # Validar el contenido ahora; la segunda imagen se obtiene en
+                # assets, nunca en una petición de edición ni al montar.
+                imagenes.setdefault(sid + "__tarjeta", "pendiente de generar")
             anim.aplicar_ediciones({}, plan["escenas"], {sid: edicion}, imagenes, subidas)
         except ValueError as exc:
             raise ErrorApi(400, str(exc)) from exc
@@ -5060,6 +5069,12 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
         unidad = dict(((ctx.estado.params("render") or {}).get("unidades") or {}).get(uid) or {})
         unidad["animacion"] = edicion
         ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+        if (necesita_tarjetas and sid + "__tarjeta" not in {
+                e["id"] + "__tarjeta" for e in previa["escenas"] if e.get("imagen_tarjeta")}
+                and "otra" not in (edicion.get("imagenes") or {})):
+            ajustes = dict(((ctx.estado.params("assets") or {}).get("unidades") or {}).get(uid) or {})
+            ajustes["tarjetas_animacion"] = {k: edicion[k] for k in ("id", "ancla", "contenido")}
+            ctx.estado.actualizar_params("assets", {"unidades": {uid: ajustes}})
     return leer_previsualizacion(pid)
 
 
@@ -5121,6 +5136,11 @@ def leer_previsualizacion(pid: str):
         medio_usuario = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
         if medio_usuario:
             imagen = medio_usuario.get("poster") or imagen
+        tarjeta = hechos.get(sid + "__tarjeta") or {}
+        imagen_tarjeta = None
+        if (escena.get("tarjetas_animacion") and tarjeta.get("ruta")
+                and p6._mismo_dicho(p6._texto_clave(tarjeta), dice)):
+            imagen_tarjeta = tarjeta["ruta"]
         escenas.append({
             "id": sid,
             "t_in": round(float(escena.get("t_in") or 0.0), 3),
@@ -5130,6 +5150,7 @@ def leer_previsualizacion(pid: str):
             "bloque": (escena.get("origen") or {}).get("bloque") or "",
             "cartela": (escena.get("cartela") or {}).get("plantilla") or "",
             "imagen": _ruta_publica_proyecto(ctx, imagen),
+            "imagen_tarjeta": imagen_tarjeta,
             "clip": _ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
                     if medio_usuario.get("tipo") == "video" else None,
             "medio_usuario": medio_usuario or None,
@@ -5187,6 +5208,8 @@ def leer_previsualizacion(pid: str):
             # solo el navegador sabe donde cuelga este servidor (el prefijo del
             # proxy), asi que es el quien las completa
             urls = {e["id"]: "proyecto://" + e["imagen"] for e in escenas if e.get("imagen")}
+            urls.update({e["id"] + "__tarjeta": "proyecto://" + e["imagen_tarjeta"]
+                         for e in escenas if e.get("imagen_tarjeta")})
             cuadro = plan.get("resolucion") or [1920, 1080]
             animadas = PASOS_MODULOS.animaciones.capas(
                 escenas_plan, {"animaciones": pedidas,
@@ -9720,7 +9743,8 @@ def _planos_previstos(ctx):
         con_imagen = [e for e in escenas
                       if not cartelas.sin_imagen(e)
                       and not e.get("sigue_a")]
-        return {"total": len(escenas), "con_imagen": len(con_imagen),
+        extras = sum(bool(e.get("tarjetas_animacion")) for e in con_imagen)
+        return {"total": len(escenas), "con_imagen": len(con_imagen) + extras,
                 "origen": "el plan de este video"}
     brief = PASOS_MODULOS.comun.leer_salida(ctx.proyecto, "brief", "brief.json",
                                             obligatorio=False) or {}
@@ -9865,6 +9889,9 @@ def _imagenes_ya_generadas(ctx, planos):
             continue
         if any(os.path.exists(os.path.join(c, f"{escena['id']}.png"))
                for c in carpetas):
+            hechas += 1
+        if escena.get("tarjetas_animacion") and any(
+                os.path.exists(os.path.join(c, f"{escena['id']}__tarjeta.png")) for c in carpetas):
             hechas += 1
     return hechas
 

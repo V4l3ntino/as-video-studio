@@ -215,6 +215,8 @@ class Biblioteca:
         candidatos = []
         for proveedor in self.p["proveedores"]:
             for tipo, marcado in (("imagen", self.p["imagenes"]), ("video", self.p["video"])):
+                if tipo == "video" and escena.get("tarjetas_animacion"):
+                    continue
                 if marcado:
                     candidatos.extend(buscar(proveedor, tipo, consulta, self.vertical, self.cache))
         with self.lock:
@@ -225,7 +227,8 @@ class Biblioteca:
             seleccion = _agente("Elige el recurso que mejor representa la escena sin inventar "
                 "hechos. No confundas personas, lugares ni épocas. Devuelve JSON "
                 "{\"indice\":0,\"motivo\":\"...\"}; indice=-1 si ninguno es adecuado. "
-                "Escena: " + escena.get("narracion", "") + "\nCandidatos: " + json.dumps([
+                "Escena: " + escena.get("narracion", "") + "\nDirección visual: "
+                + str(escena.get("prompt") or "") + "\nCandidatos: " + json.dumps([
                     {"indice": i, **{k: r.get(k) for k in ("tipo", "descripcion", "duracion")}}
                     for i, r in enumerate(candidatos)], ensure_ascii=False))
             indice = seleccion.get("indice", -1)

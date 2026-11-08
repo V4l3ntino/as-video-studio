@@ -93,12 +93,11 @@ def _pagina(destino, fondo, svg, fondo_anim, precarga):
 
 def generar(aid, carpeta, navegador):
     primera = _escena("S001", MUESTRAS[aid])
-    segunda = _escena("S002", "Y despues vino la calma.", DURACION)
     fondo = _paisaje(os.path.join(carpeta, "fondo.png"))
-    vecina = _paisaje(os.path.join(carpeta, "vecina.png"), cielo=(70, 40, 60), sol=(250, 235, 200),
+    otra = _paisaje(os.path.join(carpeta, "tarjeta.png"), cielo=(70, 40, 60), sol=(250, 235, 200),
                       lomas=((50, 30, 40), (24, 14, 20)))
-    imagenes = {"S001": p8_render._url_local(fondo), "S002": p8_render._url_local(vecina)}
-    capas = animaciones.capas([primera, segunda], {"animaciones": [aid]}, "es", PALETA,
+    imagenes = {"S001": p8_render._url_local(fondo), "S001__tarjeta": p8_render._url_local(otra)}
+    capas = animaciones.capas([primera], {"animaciones": [aid]}, "es", PALETA,
                               (ANCHO, ALTO), imagenes=imagenes)
     if "S001" not in capas:
         raise RuntimeError(f"{aid}: la muestra no dispara su animacion")
