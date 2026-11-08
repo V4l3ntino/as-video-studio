@@ -253,6 +253,7 @@ class Biblioteca:
         escena["medio_biblioteca"] = medio
         escena["recurso_biblioteca"] = recurso
         return {"origen": "biblioteca", "coste": 0, "medio_biblioteca": medio,
+                "busqueda_visual": consulta,
                 "recurso_biblioteca": recurso, "firma": medios.huella(recurso),
                 "bibliotecas_peticion": medios.huella({k: escena.get(k) for k in
                                                        ("narracion", "direccion", "prompt")})}
