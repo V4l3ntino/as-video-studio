@@ -166,7 +166,7 @@ TIPOS = {
         "nombre": "Montaje",
         "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
         "claves": ("subtitulos", "transiciones", "transiciones_personalizadas", "bibliotecas",
-                   "animaciones"),
+                   "animaciones", "generar_personajes"),
         "pasos": ("assets", "render"),
     },
     "canal": {
@@ -246,7 +246,7 @@ def _limpiar_datos(tipo, datos):
                 limpios["bibliotecas"] = bibliotecas.normalizar(limpios["bibliotecas"])
             except ValueError as fallo:
                 raise ErrorPreset(str(fallo)) from fallo
-        for clave in ("subtitulos", "transiciones_personalizadas"):
+        for clave in ("subtitulos", "transiciones_personalizadas", "generar_personajes"):
             if clave in limpios and not isinstance(limpios[clave], bool):
                 raise ErrorPreset(f"{clave} debe ser un booleano")
         if "transiciones" in limpios:
@@ -1093,10 +1093,13 @@ def cambios_para(ficha, params_actuales=None):
         return cambios
 
     if tipo == "montaje":
-        render = {k: copy.deepcopy(v) for k, v in datos.items() if k != "bibliotecas"}
+        render = {k: copy.deepcopy(v) for k, v in datos.items()
+                  if k not in ("bibliotecas", "generar_personajes")}
         cambios = {"render": render} if render else {}
-        if "bibliotecas" in datos:
-            cambios["assets"] = {"bibliotecas": copy.deepcopy(datos["bibliotecas"])}
+        assets = {k: copy.deepcopy(datos[k]) for k in ("bibliotecas", "generar_personajes")
+                  if k in datos}
+        if assets:
+            cambios["assets"] = assets
         return cambios
 
     if tipo == "voz":
@@ -1184,6 +1187,8 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
                   if c in render}
         if "bibliotecas" in assets:
             bloque["bibliotecas"] = copy.deepcopy(assets["bibliotecas"])
+        if "generar_personajes" in assets:
+            bloque["generar_personajes"] = assets["generar_personajes"]
         if bloque:
             datos["montaje"] = bloque
 

@@ -426,6 +426,14 @@ def avisador(etiqueta):
 def probar_assets(proyecto, estado, params):
     print("\n  PASO 6 · assets y escenas")
     plan_previo = p6_assets.planificar(proyecto, params)
+    sin_personajes = p6_assets.planificar(
+        proyecto, dict(params, generar_personajes=False))
+    ok(any(e.get("personajes") for e in plan_previo["escenas"]),
+       "el catálogo de prueba asigna personajes cuando la opción no existe")
+    ok(all(not e.get("personajes") for e in sin_personajes["escenas"]),
+       "desactivar personajes quita el reparto de todos los planos")
+    ok(not any(a.get("tipo") == "reparto" for a in sin_personajes["assets"].values()),
+       "no se preparan hojas de personajes para la tanda")
     ids = [e["id"] for e in plan_previo["escenas"]]
     ok(len(ids) >= 6,
        f"la locucion de {locucion_falsa()[1]:.0f} s da varios planos ({len(ids)})")

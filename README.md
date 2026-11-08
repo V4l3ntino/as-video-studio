@@ -180,6 +180,12 @@ pedir otra imagen se regenera explícitamente la escena elegida.
 Las imágenes muestran su autor y un enlace a la biblioteca en la revisión.
 Sin proveedores seleccionados, se mantiene la generación habitual con IA.
 
+En **Estilos → Personajes**, desmarca **Generar personajes** si no necesitas
+hojas de referencia para las imágenes con IA. Los vídeos nuevos heredan esa
+decisión: no se dibujan hojas de reparto ni se adjuntan a sus planos, aunque el
+catálogo visual identifique personas en el relato. Los vídeos anteriores siguen
+con su configuración; las imágenes ya creadas no se borran.
+
 En **Imágenes**, el botón **Regenerar imagen** de un apunte genera una imagen
 con IA para esa escena usando la nota, aunque antes tuviera un recurso de
 biblioteca o una sustitución manual. El medio anterior deja de estar seleccionado;

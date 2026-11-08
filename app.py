@@ -1599,6 +1599,8 @@ def _validar_params(paso_id, nuevos, ctx=None):
                 raise ErrorApi(400, str(fallo)) from fallo
         if "subtitulos" in nuevos and not isinstance(nuevos["subtitulos"], bool):
             raise ErrorApi(400, "subtitulos debe ser un booleano")
+        if "generar_personajes" in nuevos and not isinstance(nuevos["generar_personajes"], bool):
+            raise ErrorApi(400, "generar_personajes debe ser un booleano")
         if "transiciones_personalizadas" in nuevos and not isinstance(
                 nuevos["transiciones_personalizadas"], bool):
             raise ErrorApi(400, "transiciones_personalizadas debe ser un booleano")
@@ -10465,8 +10467,8 @@ def _sembrar_video_light(ctx, datos):
     if guion:
         _validar_params("guion", guion, ctx)
         ctx.estado.actualizar_params("guion", guion)
-    if "bibliotecas" in datos:
-        assets = {"bibliotecas": datos["bibliotecas"]}
+    assets = {k: datos[k] for k in ("bibliotecas", "generar_personajes") if k in datos}
+    if assets:
         _validar_params("assets", assets, ctx)
         ctx.estado.actualizar_params("assets", assets)
     render = {k: datos[k] for k in ("transiciones", "transiciones_personalizadas", "subtitulos")

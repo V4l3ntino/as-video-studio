@@ -1234,6 +1234,12 @@ def planificar(proyecto, params, inventario=None, replantear=False,
     _tramos_de_beats(catalogo, meta)
     _capitulos_por_escena(catalogo, escenas)
     beats = _asignar_sets(escenas, catalogo, p)
+    # Las hojas solo tienen sentido como referencias de planos generados con IA.
+    # Sin reparto, los planos pueden seguir dibujando personas genéricas según
+    # su dirección, pero no se crean fichas ni se adjuntan identidades fijas.
+    if p.get("generar_personajes") is False:
+        for escena in escenas:
+            escena["personajes"] = []
     # UN CATALOGO SENCILLO: planos limpios, cartas faciles y la cara escrita en
     # la linea (ver `_marcar_sencillo`). Sin la marca no cambia nada.
     sencillo = bool(catalogo.get("sencillo"))
@@ -4529,7 +4535,8 @@ def _referencias_escena(escena, plan, dirs, p, cache, hechas, anteriores=None,
     # por un lado y de los params por otro es como se acaba con una hoja
     # enmascarada y unos planos que la destapan.
     fichas_asset = (plan or {}).get("assets") or {}
-    for personaje in escena.get("personajes") or []:
+    personajes = (escena.get("personajes") or []) if p.get("generar_personajes") is not False else []
+    for personaje in personajes:
         hoja = os.path.join(dirs["reparto"], f"{personaje}.png")
         if os.path.exists(hoja):
             # SI LA HOJA VA CON LA CARA TAPADA, EL PLANO TIENE QUE SABERLO. Es
@@ -4587,7 +4594,9 @@ def _referencias_escena(escena, plan, dirs, p, cache, hechas, anteriores=None,
     # el resultado seguia siendo Jensen. Van detras de las del plano y se
     # anuncian como lo que son (ver _prompt_completo, papel reparto + de_nota).
     ya = {r.get("nombre") for r in referencias if r.get("papel") == "reparto"}
-    for quien in _reparto_en_la_nota(_texto_de_la_nota(escena, p, notas), p, escena):
+    nombrados = (_reparto_en_la_nota(_texto_de_la_nota(escena, p, notas), p, escena)
+                 if p.get("generar_personajes") is not False else [])
+    for quien in nombrados:
         hoja = os.path.join(dirs["reparto"], f"{quien}.png")
         if quien in ya or not os.path.exists(hoja):
             continue

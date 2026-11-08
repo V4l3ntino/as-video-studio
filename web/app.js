@@ -5037,7 +5037,8 @@ function encargoLight() {
       // agente por la descripción
       voz_id: '',
       ritmo: '',            // lo pone el servidor al cargar la galería
-      montaje: { subtitulos: true, transiciones: [], transiciones_personalizadas: false,
+      montaje: { subtitulos: true, generar_personajes: true,
+        transiciones: [], transiciones_personalizadas: false,
         animaciones: [],
         bibliotecas: bibliotecasPorDefectoLight() },
     };
@@ -6065,6 +6066,7 @@ function montajeDelEstiloLight(ficha) {
   const montaje = ((ficha || {}).datos || {}).montaje || {};
   return {
     subtitulos: montaje.subtitulos !== false,
+    generar_personajes: montaje.generar_personajes !== false,
     transiciones: [...(montaje.transiciones || [])],
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
     animaciones: [...(montaje.animaciones || [])],
@@ -6768,6 +6770,23 @@ function subtitulosDelEncargo(e, alCambiar, esEstilo = false) {
             : 'Cambiar esta opción solo afecta al montaje.'))));
 }
 
+function personajesDelEncargo(e, alCambiar, esEstilo = false) {
+  return bloqueLight('Personajes', 'hojas de referencia para imágenes con IA',
+    h('label', { clase: 'efecto-encargo' },
+      h('input', {
+        type: 'checkbox', checked: e.generar_personajes !== false,
+        'data-foco': 'encargo-generar-personajes',
+        onchange: ev => {
+          e.generar_personajes = ev.target.checked;
+          if (alCambiar) alCambiar();
+        },
+      }),
+      h('span', {}, h('b', {}, 'Generar personajes'),
+        h('span', { clase: 'meta' }, esEstilo
+          ? 'Los vídeos nuevos heredarán esta selección.'
+          : 'Desactívalo si no necesitas hojas de personajes como referencia para las imágenes con IA.'))));
+}
+
 /* El catálogo viene del motor: nombres, descripciones y las seis de fábrica.
    La marca distingue «ninguna» del [] histórico que significa «por defecto». */
 let CATALOGO_EFECTOS = null;
@@ -7074,6 +7093,7 @@ async function crearYGenerarLight(estilo) {
         transiciones_personalizadas: e.transiciones_personalizadas,
         animaciones: e.animaciones || [],
         subtitulos: e.subtitulos !== false,
+        generar_personajes: e.generar_personajes !== false,
         bibliotecas: e.bibliotecas,
       },
     });
@@ -7141,6 +7161,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'animaciones', paso: 'guion', param: 'animaciones' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
+  { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
 ];
 
 /* Las tres ranuras completas a partir de lo guardado, que puede faltar entero
@@ -7179,6 +7200,7 @@ function pedidoDelVideoLight() {
     /* las del guion; un vídeo de antes del plan las tenía en el render */
     animaciones: [...(params('guion').animaciones || params('render').animaciones || [])],
     subtitulos: params('render').subtitulos !== false,
+    generar_personajes: params('assets').generar_personajes !== false,
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
   v.pedido = {
@@ -10888,6 +10910,7 @@ function vistaCrearLight() {
     sliderRitmo(e.ritmo, v => { e.ritmo = v; tocarEncargoLight(); })));
 
   cajas.appendChild(bibliotecasDelEncargo(e.montaje, tocarEncargoLight, true));
+  cajas.appendChild(personajesDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(subtitulosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(animacionesDelEncargo(e.montaje, tocarEncargoLight, true));
@@ -11354,6 +11377,7 @@ function vistaPresetLight() {
     guardarPresetLight(ficha.id, { montaje: datos.montaje });
   };
   caja.appendChild(bibliotecasDelEncargo(montaje, guardarMontaje, true));
+  caja.appendChild(personajesDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(subtitulosDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(efectosDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(animacionesDelEncargo(montaje, guardarMontaje, true));

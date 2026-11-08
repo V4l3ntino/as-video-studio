@@ -80,11 +80,24 @@ def probar_encargo():
     igual(congelado.get("montaje"), montaje,
           "congelar el taller conserva False y la lista vacia en el estilo")
     igual(presets_canal.cambios_para({"tipo": "canal", "datos": congelado}),
-          {"render": montaje}, "el estilo aplica esas mismas decisiones al video")
+           {"render": montaje}, "el estilo aplica esas mismas decisiones al video")
+    sin_personajes = dict(montaje, generar_personajes=False)
+    con_personajes = light.validar_encargo(dict(ENCARGO_VIDEO, montaje=sin_personajes))
+    igual(con_personajes["montaje"]["generar_personajes"], False,
+           "el estilo guarda la decision de no generar personajes")
+    congelado = presets_canal.datos_de_params({
+        "render": montaje, "assets": {"generar_personajes": False}})
+    igual(congelado["montaje"]["generar_personajes"], False,
+           "la decision sobrevive al guardar el estilo desde el taller")
+    igual(presets_canal.cambios_para({"tipo": "canal", "datos": congelado}),
+           {"render": montaje, "assets": {"generar_personajes": False}},
+           "el video nuevo hereda la decision en assets, no en render")
 
     casos = [
         (dict(ENCARGO_VIDEO, montaje={"subtitulos": "false"}),
          "con subtitulos no booleanos"),
+        (dict(ENCARGO_VIDEO, montaje={"generar_personajes": "false"}),
+         "con generacion de personajes no booleana"),
         (dict(ENCARGO_VIDEO, montaje={"transiciones": ["inventada"]}),
          "con un efecto desconocido"),
         (dict(ENCARGO_VIDEO, nombre=""), "sin nombre"),
