@@ -5393,8 +5393,22 @@ function devolverFoco(guardado) {
 
 function pintarLight() {
   const foco = recordarFoco();
+  const galeriaAnterior = document.querySelector('.previa-galeria');
+  const scrollGaleria = galeriaAnterior ? galeriaAnterior.scrollTop : 0;
+  const seleccionAnterior = galeriaAnterior && galeriaAnterior.querySelector('[aria-pressed="true"]');
   try {
     pintarLightAhora();
+    const galeria = document.querySelector('.previa-galeria');
+    if (galeria) {
+      galeria.scrollTop = scrollGaleria;
+      const seleccion = galeria.querySelector('[aria-pressed="true"]');
+      if (seleccion && (!seleccionAnterior || seleccionAnterior.dataset.escena !== seleccion.dataset.escena)) {
+        const limite = galeria.getBoundingClientRect();
+        const tarjeta = seleccion.getBoundingClientRect();
+        if (tarjeta.top < limite.top) galeria.scrollTop += tarjeta.top - limite.top - 8;
+        else if (tarjeta.bottom > limite.bottom) galeria.scrollTop += tarjeta.bottom - limite.bottom + 8;
+      }
+    }
   } finally {
     devolverFoco(foco);
   }
@@ -5513,7 +5527,10 @@ function pintarLightAhora() {
         contenido.appendChild(cajaError(APP.light.video.error));
       } else if (sub === 'video') contenido.appendChild(vistaVideoLight());
       else if (sub === 'shorts') contenido.appendChild(vistaShortsLight());
-      else if (sub === 'previa') contenido.appendChild(vistaPreviaLight());
+      else if (sub === 'previa') {
+        contenido.classList.add('con-galeria-previa');
+        contenido.appendChild(vistaPreviaLight());
+      }
       else if (sub === 'guion') contenido.appendChild(vistaGuionLight());
       else if (sub === 'encargo_video') contenido.appendChild(vistaEncargoVideoLight());
       else contenido.appendChild(vistaElegidoLight());
@@ -9108,6 +9125,35 @@ function animarPrevia() {
   paso();
 }
 
+function galeriaImagenesPrevia(escenas) {
+  const pid = videoAbierto().pid;
+  const generadas = escenas.filter(e => e.imagen);
+  const rejilla = h('div', { clase: 'previa-galeria',
+    role: 'region', 'aria-label': 'Imágenes generadas', tabindex: '0' });
+  escenas.forEach((escena, i) => {
+    if (!escena.imagen) return;
+    rejilla.appendChild(h('button', {
+      clase: 'previa-miniatura', 'aria-pressed': String(i === PREVIA.i),
+      'aria-label': `Ver escena ${escena.id}`, 'data-escena': escena.id,
+      title: `${escena.id} · ${escena.duracion.toFixed(1)} s`
+        + (escena.bloque ? ` · ${escena.bloque}` : ''),
+      onclick: () => {
+        pararPrevia();
+        PREVIA.i = i;
+        PREVIA.t = escena.t_in;
+        prebufferPrevia();
+        repintarVideo();
+      },
+    }, h('img', { src: `${API.archivo(pid, escena.imagen)}?mini=256`,
+      alt: '', loading: 'lazy' }), h('span', {}, escena.id)));
+  });
+  if (!generadas.length) rejilla.appendChild(h('p', { clase: 'meta' },
+    'Las imágenes aparecerán aquí cuando estén generadas.'));
+  return h('aside', { clase: 'previa-lateral', 'aria-label': 'Galería de escenas' },
+    h('div', { clase: 'previa-galeria-cab' }, h('h3', {}, 'Imágenes generadas'),
+      h('span', { clase: 'meta' }, `${generadas.length} de ${escenas.length}`)), rejilla);
+}
+
 function vistaPreviaLight() {
   const v = videoAbierto();
   const caja = h('div', { clase: 'light-previa' });
@@ -9138,6 +9184,9 @@ function vistaPreviaLight() {
       'no hay ninguna escena que mirar todavía'));
     return caja;
   }
+
+  const disposicion = h('div', { clase: 'previa-disposicion' },
+    galeriaImagenesPrevia(escenas), caja);
 
   /* EL PLANO: la imagen, su capa de rótulos encima y el subtítulo debajo del
      todo. Las tres en el MISMO cuadro y en el orden en el que se dibujan en el
@@ -9309,7 +9358,7 @@ function vistaPreviaLight() {
   const montar = botonRenderizarLight();
   if (montar) mandos.insertBefore(montar, ultima());
   BARRA_INFERIOR.nodo = mandos;
-  return caja;
+  return disposicion;
 }
 
 /* EL SUBTÍTULO QUE TOCA AHORA. Sus tiempos vienen en el reloj DEL PLANO, así
@@ -9602,20 +9651,6 @@ function vistaVideoLight() {
       trabajoVideoLight() ? 'montando los planos…' : 'todavía no hay vídeo'));
   }
   caja.appendChild(marco);
-
-  /* LA TIRA DE VINETAS SOLO MIENTRAS SE GENERA.
-     Con el video ya montado esta pantalla es para VERLO y comentarlo, y
-     cuarenta miniaturas debajo del reproductor empujan el repaso fuera de
-     pantalla y repiten lo que ya se mira mejor en las diapositivas. Mientras
-     se genera si valen: son lo unico que ensena que algo esta pasando. */
-  if (v.planos.length && trabajoVideoLight() && !hayMp4Light()) {
-    const tira = h('div', { clase: 'tira-planos' });
-    v.planos.slice(-40).forEach(plano => tira.appendChild(h('img', {
-      src: API.archivo(v.pid, plano.ruta || ''), alt: plano.id || '',
-      loading: 'lazy', title: plano.id || '',
-    })));
-    caja.appendChild(tira);
-  }
 
   /* AQUI SE MONTA EL MP4, ASI QUE LA TANDA ES 'render' Y NO 'video'.
    *
