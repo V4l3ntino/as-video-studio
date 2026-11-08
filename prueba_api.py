@@ -2657,6 +2657,7 @@ function textoDelPlan() {return '';}
 function conAyuda(_texto, boton) {return boton;}
 function pastillaObsoletoLight() {return null;}
 function reproductorLight() {return h('audio', {});}
+function pedidoDelVideoLight() {return {copia: {incorporar_voz: !APP.light.video.sinVoz}};}
 function cancelar() {}
 function textos(n) {
   if (typeof n === 'string') return n;
@@ -2686,13 +2687,56 @@ for (const estado of ['error', 'cancelado', 'listo']) {
     && textos(pieLight()).includes('Generar imágenes')
     && textos(botonRenderizarLight()).includes('Continuar imágenes');
 }
+function botones(n) {
+  if (!n || typeof n !== 'object') return [];
+  return (n.tag === 'button' ? [n] : []).concat((n.hijos || []).flat().flatMap(botones));
+}
+for (const sinVoz of [false, true]) {
+  APP.light.video.sinVoz = sinVoz;
+  APP.light.video.audio = null;
+  const lista = botones(pieLight());
+  resultados[sinVoz ? 'sin_voz' : 'con_voz'] =
+    !!lista.find(b => textos(b) === 'Generar Audio').props.disabled === sinVoz
+    && !!lista.find(b => textos(b) === 'Generar imágenes').props.disabled === !sinVoz;
+}
 console.log(JSON.stringify(resultados));
 """
     resultado = _correr_node("prueba_barra_reintentos.js", guion)
     if resultado is None:
         return
-    for estado in ("pendiente", "ejecutando", "error", "cancelado", "listo"):
+    for estado in ("pendiente", "ejecutando", "error", "cancelado", "listo",
+                   "sin_voz", "con_voz"):
         ok(bool(resultado.get(estado)), f"barra y botones coherentes con trabajo {estado}")
+
+    # Ejecutar el autoguardado real: el mapa incluía voz pero el bucle que
+    # enviaba los cambios la omitía, así que una prueba solo de API no lo veía.
+    campos = fuente[fuente.index("const CAMPOS_ENCARGO = ["):]
+    campos = campos[:campos.index("\n];") + 3]
+    guardado = _correr_node("prueba_guardado_voz_encargo.js", r"""
+const APP = {light: {video: {pid: 'P'}}};
+const API = {params: (pid, paso) => `${pid}:${paso}`};
+const llamadas = [];
+async function pedir(url, datos) {llamadas.push({url, datos}); return {};}
+async function refrescarFichasLight() {}
+function refrescarPlanLight() {}
+function repintarPieDeEncargo() {}
+function toast(error) {throw new Error(error);}
+""" + campos + cuerpo_de("async function volcarEncargoLight(") + r"""
+(async () => {
+  const pedido = {pid: 'P', copia: {incorporar_voz: false},
+    guardado: {incorporar_voz: true}, reloj: null};
+  await volcarEncargoLight(pedido);
+  const primera = llamadas[0] || {};
+  const persiste = primera.url === 'P:voz'
+    && primera.datos.cuerpo.params.incorporar_voz === false
+    && pedido.guardado.incorporar_voz === false;
+  await volcarEncargoLight(pedido);
+  console.log(JSON.stringify({persiste, sinCambios: llamadas.length === 1}));
+})().catch(e => {console.error(e); process.exit(1);});
+""")
+    if guardado is not None:
+        ok(guardado.get("persiste"), "desmarcar voz se envía y se confirma en el autoguardado")
+        ok(guardado.get("sinCambios"), "releer sin editar no escribe params por defecto")
 
 
 def probar_value_de_los_textarea():
@@ -3415,6 +3459,17 @@ def probar_video_light(cliente):
        f"montar el vídeo alcanza a los rótulos, que es de donde salen los "
        f"movimientos que el render exige: {tareas}")
     ok("render" in tareas, "y al render, claro")
+
+    cliente.put(f"/api/proyectos/{vid}/pasos/voz/params",
+                {"params": {"incorporar_voz": False}})
+    _, voz_guardada = cliente.get(f"/api/proyectos/{vid}/pasos/voz")
+    igual(voz_guardada["params"]["incorporar_voz"], False,
+          "la selección sin voz se conserva al releer el proyecto")
+    _, plan_mudo = cliente.get(f"/api/proyectos/{vid}/generar?tanda=video")
+    igual(plan_mudo["pestanas"], ["voz", "video"],
+          "generar imágenes sin voz prepara primero los tiempos mudos")
+    cliente.put(f"/api/proyectos/{vid}/pasos/voz/params",
+                {"params": {"incorporar_voz": True}})
 
     # ---- y en un proyecto NUEVO del modo editor tambien: nunca ha pagado una
     # imagen, asi que encenderla no repaga nada. Donde sigue

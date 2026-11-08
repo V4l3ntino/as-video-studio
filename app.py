@@ -10205,6 +10205,13 @@ def _con_origen(ctx, pestanas):
     una entrada que no ha cambiado.
     """
     lista = list(pestanas)
+    # Sin narración no hay botón de audio: la tanda de imágenes prepara la
+    # pista muda y sus marcas antes del corte. GET y POST comparten esta lista.
+    if "video" in lista and "voz" not in lista \
+            and ctx.estado.params("voz").get("incorporar_voz") is False \
+            and not (ctx.estado.al_dia("voz")
+                     and ctx.estado.al_dia("revision_audio")):
+        lista.insert(0, "voz")
     if "guion" not in lista or "origen" in lista:
         return lista
     if ctx.estado.al_dia("ingesta"):

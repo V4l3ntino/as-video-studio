@@ -7427,7 +7427,7 @@ async function volcarEncargoLight(pedido) {
   const renombrar = !!nombre && nombre !== guardado.nombre;
   if (!Object.keys(porPaso).length && !renombrar) return;
   try {
-    for (const paso of ['ingesta', 'brief', 'guion', 'assets', 'render']) {
+    for (const paso of ['ingesta', 'brief', 'guion', 'voz', 'assets', 'render']) {
       if (!porPaso[paso]) continue;
       await pedir(API.params(pid, paso),
         { method: 'PUT', cuerpo: { params: porPaso[paso] } });
@@ -7453,6 +7453,8 @@ async function volcarEncargoLight(pedido) {
        escribiendo en él). El pie sí, que es lo que cambia a la vista. */
     await refrescarFichasLight();
     refrescarPlanLight('guion', true);
+    refrescarPlanLight('voz', true);
+    refrescarPlanLight('video', true);
     repintarPieDeEncargo();
   } catch (e) {
     toast(`no se ha podido guardar el encargo: ${e.message}`, true);
@@ -7482,6 +7484,7 @@ async function lanzarTandaLight(tanda, modo) {
   if (!v.pid) return;
   limpiarError(CLAVE_VIDEO_LIGHT);
   try {
+    if (v.pedido) await volcarEncargoLight(v.pedido);
     const datos = await pedir(`${API.proyecto(v.pid)}/generar`, {
       method: 'POST',
       cuerpo: { tanda, modo: modo || 'pendientes' },
@@ -8401,6 +8404,7 @@ function pieLight() {
   refrescarPlanLight('video');
   const hayGuion = !!v.guion;
   const hayAudio = !!v.audio;
+  const sinVoz = pedidoDelVideoLight().copia.incorporar_voz === false;
   const hayVideo = hayMp4Light();
   const obsoleto = videoObsoletoLight();
   /* SE PIDEN LOS DOS PLANES SIEMPRE, no solo mientras algo corre.
@@ -8416,10 +8420,12 @@ function pieLight() {
   const quedaVoz = quedaTandaLight('voz');
   const quedaVideo = quedaTandaLight('video');
   return h('div', { clase: 'pie-guion' },
-    conAyuda(unirAyuda(ayudaAudio(hayAudio, quedaVoz), textoDelPlan('voz')),
+    conAyuda(sinVoz
+      ? 'La voz está desactivada en el encargo. Generar imágenes preparará los tiempos sin narración.'
+      : unirAyuda(ayudaAudio(hayAudio, quedaVoz), textoDelPlan('voz')),
       h('button', {
         clase: 'primario',
-        disabled: corriendo || !hayGuion || quedaVoz === false,
+        disabled: corriendo || sinVoz || !hayGuion || quedaVoz === false,
         onclick: () => lanzarTandaLight('voz', hayAudio ? 'todo' : 'pendientes'),
       }, hayAudio ? 'Regenerar Audio' : 'Generar Audio')),
     /* EN MEDIO Y A TODO EL HUECO QUE SOBRE: es lo unico de la barra que cambia
@@ -8448,14 +8454,17 @@ function pieLight() {
       h('button', {
         clase: 'mini peligro', onclick: () => cancelar(CLAVE_VIDEO_LIGHT),
       }, 'Parar')) : null,
-    corriendo ? null : conAyuda(!hayAudio
+    corriendo ? null : conAyuda(sinVoz
+      ? unirAyuda('Prepara los tiempos del guion sin narración y genera las imágenes.',
+                  textoDelPlan('video'))
+      : !hayAudio
       ? 'Primero hace falta el audio: los subtitulos se colocan con sus '
         + 'tiempos, asi que sin voz no hay donde ponerlos.'
       : unirAyuda(ayudaDiapositivas(hayVideo, obsoleto, quedaVideo),
                   textoDelPlan('video')),
       h('button', {
         clase: 'primario',
-        disabled: corriendo || !hayAudio || (hayVideo && !obsoleto)
+        disabled: corriendo || !hayGuion || (!sinVoz && !hayAudio) || (hayVideo && !obsoleto)
                   || quedaVideo === false,
         onclick: () => lanzarTandaLight('video'),
       }, (hayVideo && obsoleto) ? 'Poner al día las imágenes'
