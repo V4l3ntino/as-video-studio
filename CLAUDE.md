@@ -562,3 +562,11 @@ TTS, incluso si pierde puntuación; si no coinciden las letras, falla en lugar d
 inventar tiempos. Regresión offline: `python pasos/prueba_escenas_frases.py`.
 No añadas el indicador como param por defecto ni lo inyectes en guiones antiguos:
 abrirlos o retomar sus imágenes debe conservar el corte y los recursos pagados.
+
+## Nombres de los recursos visuales
+
+Los planos usan sus identificadores técnicos (`S001.png`, `S002.png`, etc.). Se
+retiró el nombrado descriptivo con Claude y la creación de alias en `nombres/`.
+Las animaciones tampoco interpretan esos nombres: usan el orden de las escenas.
+Los metadatos `nombre_imagen` de versiones antiguas se ignoran; no es necesario
+reescribir proyectos ni regenerar recursos para adoptar este comportamiento.

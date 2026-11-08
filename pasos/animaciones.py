@@ -58,7 +58,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import medios  # noqa: E402
-import nombres_imagen  # noqa: E402
 import subtitulos  # noqa: E402
 import tipografia  # noqa: E402
 
@@ -435,30 +434,6 @@ def _ficha_de(lista, indice, animacion, senal, datos, imagenes):
         otra = lista[j]["id"]
         ficha["imagenes"] = {"propia": imagenes[sid], "otra": imagenes[otra]}
         ficha["elementos"] = {"propia": sid, "otra": otra}
-        if animacion == "comparacion-tarjetas":
-            nombre_propio = lista[indice].get("nombre_imagen")
-            nombre_otro = lista[j].get("nombre_imagen")
-            if nombre_propio or nombre_otro:
-                izquierda, derecha = datos["izquierda"], datos["derecha"]
-                comunes = set(nombres_imagen.palabras(izquierda)) & set(
-                    nombres_imagen.palabras(derecha))
-
-                def coincide(nombre, etiqueta):
-                    if not nombre:
-                        return False
-                    # No usar S001 ni la extensión como evidencia semántica.
-                    tema = "".join(nombres_imagen.palabras(os.path.splitext(
-                        os.path.basename(nombre))[0].removeprefix(
-                            lista[indice]["id"] + "-").removeprefix(otra + "-")))
-                    return any(len(p) >= 4 and p not in comunes and p in tema
-                               for p in nombres_imagen.palabras(etiqueta))
-
-                directo = coincide(nombre_propio, izquierda) and coincide(nombre_otro, derecha)
-                inverso = coincide(nombre_propio, derecha) and coincide(nombre_otro, izquierda)
-                if directo == inverso:
-                    return None  # un nombre ambiguo no justifica un rótulo posiblemente falso
-                if inverso:
-                    ficha["datos"] = dict(datos, izquierda=derecha, derecha=izquierda)
     return ficha
 
 

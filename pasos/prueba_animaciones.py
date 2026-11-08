@@ -33,7 +33,6 @@ os.environ["ESTUDIO_AJUSTES"] = os.path.join(_DATOS, "ajustes.json")
 os.environ["ESTUDIO_ESTADISTICAS"] = os.path.join(_DATOS, "estadisticas.json")
 
 import animaciones  # noqa: E402
-import nombres_imagen  # noqa: E402
 import p8_render  # noqa: E402
 import presets_canal  # noqa: E402
 
@@ -149,20 +148,6 @@ comprobar("«pero» no basta: esta en media frase del mundo",
           "contraste" not in animaciones.senales(escena(1, "Era sano pero estaba cansado de todo.", 0), "es"))
 
 print("\n== las que ensenan la imagen del plano siguiente ==")
-original_claude = nombres_imagen.cli_claude.ejecutar
-try:
-    nombres_imagen.cli_claude.ejecutar = lambda *args, **kwargs: ("Camaleón agitado naranja", {})
-    nombrada = nombres_imagen.nombre("S001", "Camaleón agitado naranja")
-    igual("Claude propone un nombre descriptivo con identificador técnico",
-          nombrada, "S001-camaleon-agitado-naranja.png")
-    ruta_nombre = os.path.join(_DATOS, "S001.png")
-    with open(ruta_nombre, "wb") as archivo:
-        archivo.write(b"imagen de prueba")
-    nombres_imagen.guardar_alias(ruta_nombre, nombrada)
-    with open(os.path.join(_DATOS, "nombres", nombrada), "rb") as archivo:
-        igual("el archivo de nombre descriptivo conserva la imagen", archivo.read(), b"imagen de prueba")
-finally:
-    nombres_imagen.cli_claude.ejecutar = original_claude
 vecinas = [escena(1, "Las raíces sanas crecen profundas mientras que las raíces atrofiadas apenas avanzan.", 0, duracion=6.0),
            escena(2, "Y despues vino la calma de siempre.", 6, duracion=4.0)]
 urls = {"S001": "file:///a.png", "S002": "file:///b.png"}
@@ -176,14 +161,14 @@ invertidas[0]["marcas"] = [[0.3 + i * 0.4, 0.6 + i * 0.4]
                             for i in range(len(invertidas[0]["narracion"].split()))]
 con_nombres = animaciones.repartir(invertidas, {"animaciones": ["comparacion-tarjetas"]},
                                   "es", imagenes=urls)
-igual("la etiqueta se asigna por nombre, no por orden de escenas",
-      con_nombres["S001"]["datos"]["izquierda"], "UNO AGITADO")
+igual("los nombres antiguos no cambian el orden habitual de las etiquetas",
+      con_nombres["S001"]["datos"]["izquierda"], "CAMALEÓN TRANQUILO")
 igual("la otra etiqueta queda debajo de la otra foto",
-      con_nombres["S001"]["datos"]["derecha"], "CAMALEÓN TRANQUILO")
+      con_nombres["S001"]["datos"]["derecha"], "UNO AGITADO")
 ambiguas = [dict(invertidas[0], nombre_imagen="S001-camaleon.png"), invertidas[1]]
-igual("sin nombres que distingan las dos fotos no se pone una comparacion falsa",
+igual("los nombres antiguos ambiguos tampoco condicionan la comparacion",
       animaciones.repartir(ambiguas, {"animaciones": ["comparacion-tarjetas"]},
-                           "es", imagenes=urls), {})
+                            "es", imagenes=urls), con_nombres)
 igual("sin imagenes no entra",
       animaciones.repartir(vecinas, {"animaciones": ["comparacion-tarjetas"]}, "es"), {})
 igual("al ultimo plano le falta vecino: tampoco",

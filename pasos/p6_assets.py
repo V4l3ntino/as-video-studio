@@ -77,7 +77,6 @@ import estadisticas  # noqa: E402
 import marcas_tts  # noqa: E402
 import medios  # noqa: E402
 import medios_escena  # noqa: E402
-import nombres_imagen  # noqa: E402
 import moodboard  # noqa: E402
 # p2_brief por su tabla de nombres de idioma (la del generador de imagen va en
 # ingles) y p4_voz por idioma_de_salida, que es el accesor oficial del idioma
@@ -4048,31 +4047,6 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             if not _sin_imagen(escena) and not escena.get("recurso_biblioteca"):
                 previas[sid] = destino
                 orden_cadena.append(sid)
-            nombre_archivo = (guardada_biblioteca.get("nombre_imagen")
-                              if guardada_biblioteca.get("prompt") == prompt
-                              and guardada_biblioteca.get("recurso_biblioteca") == escena.get("recurso_biblioteca")
-                              else None)
-            if not nombre_archivo and os.path.isfile(destino) and not escena.get("sigue_a"):
-                recurso_nombre = escena.get("recurso_biblioteca") or {}
-                descripcion = ((f"Búsqueda: {meta.get('busqueda_visual')}. "
-                                f"Recurso elegido: {recurso_nombre.get('descripcion')}")
-                               if recurso_nombre else prompt)
-                try:
-                    nombre_archivo = nombres_imagen.nombre(sid, descripcion)
-                except Exception as fallo:  # el nombre no debe perder una imagen ya pagada
-                    avisar(None, f"{sid}: no se pudo nombrar la imagen: {fallo}")
-            if nombre_archivo:
-                try:
-                    nombres_imagen.guardar_alias(destino, nombre_archivo)
-                    medio_visual = escena.get("medio_biblioteca") or {}
-                    if medio_visual.get("tipo") == "video":
-                        nombres_imagen.guardar_alias(
-                            medio_visual["archivo"],
-                            os.path.splitext(nombre_archivo)[0] + ".mp4")
-                except OSError as fallo:
-                    avisar(None, f"{sid}: no se pudo guardar el nombre de imagen: {fallo}")
-            if nombre_archivo:
-                escena["nombre_imagen"] = nombre_archivo
             ficha = {"tipo": "escena", "id": sid,
                      # sin 'png' si es cartela: no hay fichero, y anunciar uno
                      # que no existe deja la rejilla con un hueco roto
@@ -4087,7 +4061,6 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                      "zoom": escena.get("zoom"),
                      "assets": plan["dependencias"].get(uid, []),
                       "prompt": prompt,
-                      **({"nombre_imagen": nombre_archivo} if nombre_archivo else {}),
                      **({"bibliotecas_config": configuracion_bibliotecas}
                         if configuracion_bibliotecas else {}),
                      **({"bibliotecas_audio_config": configuracion_audio}
@@ -5146,12 +5119,6 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
                 f"Sus prompts salieron identicos y la cache devolvio el mismo "
                 f"fichero. Revisa que la narracion de cada plano entre en su prompt.")
 
-    # El nombre pertenece al recurso obtenido, no al texto del guion. También
-    # sirve al recuperar unidades ya pagadas sin volver a consultar a Claude.
-    for escena in escenas:
-        ficha = resultados.get(f"escena:{escena['id']}") or {}
-        if ficha.get("nombre_imagen"):
-            escena["nombre_imagen"] = ficha["nombre_imagen"]
     avisar(0.97, "escribiendo el plan")
     medios.escribir_json(os.path.join(trabajo, "plan.json"), plan)
     medios.escribir_json(os.path.join(trabajo, "assets.json"),
