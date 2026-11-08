@@ -7496,7 +7496,13 @@ async function lanzarTandaLight(tanda, modo) {
     // regeneraciones de un plano suelto (`soltarCola`), y sin esto la cuenta
     // atras de una imagen se pintaba con el previsto de la ultima tanda.
     v.planDe = tid;
-    if (tanda === 'video') v.planos = [];
+    if (tanda === 'video' && APP.light.video === v) {
+      pararPrevia();
+      v.planos = [];
+      PREVIA.ficha = null;
+      PREVIA.error = '';
+      v.vista = 'previa';
+    }
     seguirTrabajo(CLAVE_VIDEO_LIGHT, tid, async trabajo => {
       if (trabajo.estado === 'listo') {
         await cargarVideoLight(v.pid);
@@ -7537,6 +7543,7 @@ async function refrescarPlanosLight() {
     // pregunta una vez por imagen generada: unos 900 MB por tanda para acabar
     // comparando `planos.length`.
     const datos = await pedir(API.planosHechos(v.pid, true));
+    if (APP.light.video !== v) return;
     /* Llega como {S001: {ruta, sello, ...}} y se filtra por el PLAN de ahora:
        la carpeta de trabajo conserva lo de pasadas anteriores —es lo que
        permite retomar una tanda cortada— así que ahí hay PNG de planos que este
@@ -7550,16 +7557,29 @@ async function refrescarPlanosLight() {
       .filter(([id]) => !delPlan.size || delPlan.has(id))
       .map(([id, ficha]) => Object.assign({ id }, ficha))
       .sort((a, b) => (a.sello || 0) - (b.sello || 0));
-    if (planos.length !== v.planos.length) {
+    const firma = lista => JSON.stringify(lista.map(p => [p.id, p.ruta, p.sello]));
+    if (firma(planos) !== firma(v.planos || [])
+        || !((PREVIA.ficha || {}).escenas || []).length || PREVIA.error) {
+      const anteriores = new Map((v.planos || []).map(p => [p.id, firma([p])]));
+      const nuevos = planos.filter(p => anteriores.get(p.id) !== firma([p]));
+      const actualizada = await refrescarLoDibujado();
+      if (APP.light.video !== v) return;
+      if (!actualizada) return;
       v.planos = planos;
-      /* SOLO LA PANTALLA DEL VIDEO LOS ENSENA (el plano grande y el «N
-         planos»). Desde las diapositivas esto corre mientras se aplican las
-         notas, y repintar ahi por cada imagen nueva se llevaba por delante lo
-         que estuvieras escribiendo sin cambiar nada de lo que se ve. */
-      if (v.vista === 'video') pintarLight(); else refrescarVivosLight();
+      // La última imagen resuelta también se ve en grande mientras se genera.
+      // No se interrumpe una escucha ni se mueve el foco de una nota en edición.
+      if (v.vista === 'previa' && !PREVIA.sonando
+          && !document.activeElement?.matches('textarea, input, [contenteditable="true"]')) {
+        const ultima = nuevos[nuevos.length - 1];
+        const i = ((PREVIA.ficha || {}).escenas || [])
+          .findIndex(e => e.id === (ultima || {}).id && e.imagen);
+        if (i >= 0) { PREVIA.i = i; PREVIA.t = escenaPrevia().t_in; }
+      }
+      if (v.vista === 'video' || v.vista === 'previa') pintarLight();
+      else refrescarVivosLight();
     }
   } catch (e) { /* mientras corre, un fallo puntual no es noticia */ }
-  v.pidiendoPlanos = false;
+  finally { v.pidiendoPlanos = false; }
 }
 
 function trabajoVideoLight() {
@@ -8582,7 +8602,10 @@ async function cargarPreviaLight() {
     await refrescarNotasPrevia();
     prebufferPrevia();
   } catch (err) {
-    PREVIA.error = err.message;
+    if (trabajoVideoLight() && /todavia no hay plan de planos/i.test(err.message)) {
+      // Es una fase normal del arranque: el seguimiento volverá a pedir el plan.
+      if (!PREVIA.ficha) PREVIA.ficha = { escenas: [] };
+    } else PREVIA.error = err.message;
   }
   PREVIA.cargando = false;
   repintarVideo();
@@ -9373,6 +9396,17 @@ function vistaPreviaLight() {
     costeLight()));
 
   if (PREVIA.error) { caja.appendChild(cajaError(PREVIA.error)); return caja; }
+  if (!e && trabajoVideoLight()) {
+    if (!PREVIA.ficha && !PREVIA.cargando) setTimeout(cargarPreviaLight, 0);
+    const marco = h('div', { clase: `previa-marco ${formatoDelVideo()}` },
+      h('div', { clase: 'previa-sin-imagen', role: 'status' },
+        'Preparando las escenas… Las imágenes aparecerán aquí conforme se generen.'));
+    caja.appendChild(marco);
+    BARRA_INFERIOR.nodo = h('div', { clase: 'previa-mandos' },
+      botonRenderizarLight());
+    return h('div', { clase: 'previa-disposicion' },
+      galeriaImagenesPrevia(escenas), caja);
+  }
   if (!PREVIA.ficha) {
     // SE PIDE DESPUES DE PINTAR, no en mitad del pintado: `cargarPreviaLight`
     // llama a `pintarLight` para enseñar el «cargando», y hacerlo desde dentro
@@ -10665,6 +10699,7 @@ async function refrescarLoDibujado() {
   try {
     const fresca = await pedir(`${API.proyecto(pid)}/previsualizacion`);
     if (videoAbierto().pid !== pid) return;      // se cambio de video mientras
+    PREVIA.error = '';
     if (!PREVIA.ficha) PREVIA.ficha = fresca;
     else {
       const suyas = {};
@@ -10684,13 +10719,15 @@ async function refrescarLoDibujado() {
           e.medio_usuario = suya.medio_usuario;
           e.recurso_biblioteca = suya.recurso_biblioteca;
           e.compuesto = suya.compuesto;
+          e.animacion = suya.animacion;
           if (suya.obsoleta) { e.obsoleta = true; e.dibujada_para = suya.dibujada_para; }
           else { delete e.obsoleta; delete e.dibujada_para; }
         });
         PREVIA.ficha.con_cartelas = fresca.con_cartelas;
+        PREVIA.ficha.animaciones = fresca.animaciones;
       }
     }
-  } catch (err) { /* sin previa nueva se sigue viendo la de antes */ }
+  } catch (err) { return false; /* se reintentará en el siguiente avance */ }
   /* Y la ficha del paso, que es la que sabe si el video quedo obsoleto: sin
      esto «Montar el vídeo» seguiria diciendo que esta al dia. Es una llamada,
      no las seis de recargar el proyecto. */
@@ -10698,6 +10735,7 @@ async function refrescarLoDibujado() {
     const ficha = await pedir(API.paso(pid, 'assets'));
     if (videoAbierto().pid === pid) videoAbierto().fichas.assets = ficha;
   } catch (err) { /* igual: no poder leerla no puede tumbar la pantalla */ }
+  return true;
 }
 
 /* SE ESCRIBE EN LA NOTA QUE SU IMAGEN YA SE REHIZO, y con qué texto. Es lo que
