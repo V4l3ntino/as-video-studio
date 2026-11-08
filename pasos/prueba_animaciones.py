@@ -15,6 +15,7 @@ Lo que se protege aqui, por orden de lo que costaria si se rompe:
 No necesita red, ni navegador, ni ffmpeg.
 """
 import json
+import io
 import os
 import re
 import sys
@@ -688,6 +689,91 @@ with tempfile.TemporaryDirectory(prefix="subrayado_anim_") as carpeta_subrayado:
         nueva["contenido"]["subrayado"] = ""
         previa = servidor.editar_animacion_escena(proyecto.id, "S001", nueva)
         igual("borrar Subrayado se conserva como vacio", previa["escenas"][0]["animacion"]["contenido"]["subrayado"], "")
+
+print("\n== imagenes propias en comparacion y collage ==")
+from PIL import Image
+from fastapi import UploadFile
+from pasos import paquete_video
+
+with tempfile.TemporaryDirectory(prefix="tarjetas_anim_") as carpeta_tarjetas:
+    proyecto, estado = juguete.construir(carpeta_tarjetas, animaciones=[], etiquetas={})
+    estado.actualizar_params("render", {"unidades": {"escena:S001": {}, "escena:S002": {}}})
+    gestor = MagicMock()
+    gestor.listar.return_value = []
+    ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=gestor)
+    anteriores = {p: estado.params(p) for p in ("guion", "voz", "assets", "callouts", "render")}
+    with patch.object(servidor, "contexto", return_value=ctx), \
+            patch.object(servidor, "_audio_de_la_toma", return_value=None):
+        referencias = []
+        for color in ("red", "blue"):
+            contenido = io.BytesIO()
+            Image.new("RGB", (80, 40), color).save(contenido, "PNG")
+            subida = servidor.subir_imagen_animacion(proyecto.id, "S001",
+                UploadFile(file=io.BytesIO(contenido.getvalue()), filename="misma.png"))
+            referencias.append(subida["ruta"])
+            with Image.open(proyecto.ruta(*subida["ruta"].split("/"))) as guardada:
+                igual(f"la imagen {color} se normaliza conservando proporcion", guardada.size, (80, 40))
+        comprobar("dos subidas con el mismo nombre conservan ambos archivos", referencias[0] != referencias[1]
+                  and all(os.path.isfile(proyecto.ruta(*r.split("/"))) for r in referencias))
+        igual("subir prepara archivos pero no cambia parametros", {p: estado.params(p) for p in anteriores}, anteriores)
+        editor = servidor.leer_animacion_escena(proyecto.id, "S001")
+        firma_global = estado.firma_global("render")
+        firma_vecina = estado.firma_unidad("render", "escena:S002")
+        plan = servidor._plan_de_previsualizacion(ctx)
+        for aid in ("comparacion-tarjetas", "collage-titulo"):
+            opcion = next(o for o in editor["opciones"] if o["id"] == aid)
+            igual(f"{aid} ofrece las dos imagenes", [i["nombre"] for i in opcion["imagenes"]],
+                  ["Imagen izquierda", "Imagen derecha"])
+            for seleccion in ({"propia": referencias[0]}, {"otra": referencias[1]},
+                              dict(zip(("propia", "otra"), referencias)), {}):
+                edicion = {"id": aid, "ancla": editor["ancla"], "contenido": opcion["contenido"], "imagenes": seleccion}
+                previa = servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+                hecha = previa["escenas"][0]["animacion"]
+                igual(f"{aid} conserva la seleccion de cada lado", hecha["imagenes_usuario"], seleccion)
+                for lado, referencia in seleccion.items():
+                    comprobar(f"{aid} usa la imagen subida en {lado}", "proyecto://" + referencia in hecha["svg"])
+                ctx.estado = estado = type(estado)(proyecto)
+                igual(f"{aid} conserva las imagenes al reabrir", servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]["imagenes_usuario"], seleccion)
+                urls = animaciones.urls_imagenes(proyecto, estado.params("render"), plan["escenas"], p8_render._url_local)
+                imagenes = {e["id"]: p8_render._url_local(proyecto.ruta_paso("assets", 1) + "/escenas/" + e["id"] + ".png") for e in plan["escenas"]}
+                render = animaciones.capas(plan["escenas"], estado.params("render"), imagenes=imagenes, imagenes_usuario=urls)
+                for referencia in seleccion.values():
+                    comprobar("el render precarga tambien la imagen subida", urls[referencia] in render["S001"]["imagenes"])
+                igual("solo cambia la firma de la escena editada", estado.firma_unidad("render", "escena:S002"), firma_vecina)
+                igual("las imagenes propias no cambian la firma global", estado.firma_global("render"), firma_global)
+            edicion["imagenes"] = dict(zip(("propia", "otra"), referencias))
+            servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
+            urls = animaciones.urls_imagenes(proyecto, estado.params("render"), plan["escenas"], p8_render._url_local)
+            sola = animaciones.capas([plan["escenas"][0]], estado.params("render"), imagenes_usuario=urls)
+            comprobar(f"{aid} admite dos subidas sin imagen de fondo ni vecina", "S001" in sola)
+        igual("las subidas no sustituyen la imagen de fondo", previa["escenas"][0]["imagen"],
+              editor["tarjetas"]["propia"])
+        igual("se conservan voz, guion, assets y callouts", {p: estado.params(p) for p in anteriores if p != "render"},
+              {p: v for p, v in anteriores.items() if p != "render"})
+        antes = estado.params("render")
+        for referencia in ("../secreto.png", "https://example.com/foto.png", "file:///foto.png",
+                           "medios_usuario/animaciones/" + "f" * 32 + ".png"):
+            try:
+                servidor.editar_animacion_escena(proyecto.id, "S001", dict(edicion, imagenes={"propia": referencia}))
+                comprobar("rechaza una imagen ajena o inexistente", False)
+            except servidor.ErrorApi:
+                igual("una imagen invalida no modifica la animacion guardada", estado.params("render"), antes)
+        for nombre, datos in (("foto.png", b"no es PNG"), ("foto.svg", b"<svg/>"),
+                              ("foto.png", b"x" * (animaciones.imagenes_animacion.MAX_BYTES + 1))):
+            try:
+                servidor.subir_imagen_animacion(proyecto.id, "S001", UploadFile(file=io.BytesIO(datos), filename=nombre))
+                comprobar("rechaza archivos invalidos o demasiado grandes", False)
+            except servidor.ErrorApi:
+                igual("un error de subida conserva los parametros", estado.params("render"), antes)
+        copia = proyecto.duplicar(carpeta_tarjetas, "Copia tarjetas")
+        comprobar("duplicar conserva las dos imagenes de tarjetas", all(os.path.isfile(copia.ruta(*r.split("/"))) for r in referencias))
+        ruta_zip = os.path.join(carpeta_tarjetas, "tarjetas.video.zip")
+        paquete_video.exportar(proyecto, ruta_zip)
+        importado = paquete_video.importar(ruta_zip, os.path.join(carpeta_tarjetas, "importados"))
+        comprobar("exportar e importar conserva las imagenes propias", all(os.path.isfile(importado.ruta(*r.split("/"))) for r in referencias))
+        params_importados = type(estado)(importado).params("render")
+        igual("el traslado conserva la seleccion de cada tarjeta",
+              params_importados["unidades"]["escena:S001"]["animacion"]["imagenes"], edicion["imagenes"])
 
 print("\n== la pagina de render las lleva ==")
 comprobar("la pagina tiene su capa", 'id="capaanim"' in p8_render.PAGINA)

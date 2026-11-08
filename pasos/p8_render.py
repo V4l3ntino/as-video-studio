@@ -1566,7 +1566,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                   "unidades": p.get("unidades")},
         idioma=plan.get("idioma"), paleta=paleta, salida=(ancho, alto), imagenes=imagenes,
         semilla=(plan.get("semilla") or 0), etiquetas=animaciones.etiquetas_de(proyecto),
-        textos=animaciones.textos_de(proyecto))
+        textos=animaciones.textos_de(proyecto),
+        imagenes_usuario=animaciones.urls_imagenes(proyecto, p, escenas, _url_local))
     pagina_trans = transiciones.pagina(
         os.path.join(trabajo, "transicion.html"), ancho, alto, paleta)
     resultados = {}

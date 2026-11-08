@@ -5010,8 +5010,29 @@ def leer_animacion_escena(pid: str, sid: str):
     previa = leer_previsualizacion(pid)
     actual = next((e.get("animacion") for e in previa["escenas"] if e["id"] == sid), None)
     anim = PASOS_MODULOS.animaciones
+    imagenes = {e["id"]: e["imagen"] for e in previa["escenas"] if e.get("imagen")}
     return {"ancla": anim.ancla_de(escena), "actual": actual,
+            "tarjetas": anim.tarjetas_de(plan["escenas"], sid, imagenes),
             "opciones": anim.opciones_de(escena, actual, plan.get("idioma"))}
+
+
+@app.post("/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes", status_code=201)
+def subir_imagen_animacion(pid: str, sid: str, archivo: UploadFile = File(...)):
+    """Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar."""
+    from pasos import imagenes_animacion
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine el trabajo del vídeo o páralo antes de subir una imagen")
+        plan = _plan_de_previsualizacion(ctx)
+        if not any(e.get("id") == sid for e in plan.get("escenas") or []):
+            raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+        try:
+            ruta = imagenes_animacion.guardar(ctx.proyecto,
+                archivo.file.read(imagenes_animacion.MAX_BYTES + 1), archivo.filename)
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
+    return {"ruta": ruta}
 
 
 @app.put("/api/proyectos/{pid}/escenas/{sid}/animacion")
@@ -5030,7 +5051,9 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
             edicion = anim.validar_edicion(datos, escena)
             previa = leer_previsualizacion(pid)
             imagenes = {e["id"]: e["imagen"] for e in previa["escenas"] if e.get("imagen")}
-            anim.aplicar_ediciones({}, plan["escenas"], {sid: edicion}, imagenes)
+            params = {"unidades": {f"escena:{sid}": {"animacion": edicion}}}
+            subidas = anim.urls_imagenes(ctx.proyecto, params, plan["escenas"], lambda ruta: ruta)
+            anim.aplicar_ediciones({}, plan["escenas"], {sid: edicion}, imagenes, subidas)
         except ValueError as exc:
             raise ErrorApi(400, str(exc)) from exc
         uid = f"escena:{sid}"
@@ -5170,7 +5193,10 @@ def leer_previsualizacion(pid: str):
                                "unidades": render.get("unidades")}, idioma=idioma, paleta=paleta,
                 salida=(int(cuadro[0]), int(cuadro[1])), imagenes=urls,
                 semilla=(plan.get("semilla") or 0), etiquetas=etiquetas,
-                textos=PASOS_MODULOS.animaciones.textos_de(ctx.proyecto))
+                textos=PASOS_MODULOS.animaciones.textos_de(ctx.proyecto),
+                imagenes_usuario=PASOS_MODULOS.animaciones.urls_imagenes(
+                    ctx.proyecto, render, escenas_plan,
+                    lambda ruta: "proyecto://" + _ruta_publica_proyecto(ctx, ruta)))
         except Exception:                                     # noqa: BLE001
             animadas = {}
         # QUE SALEN TODAS, o cual falta. Es lo que se le dice a quien mira: una
@@ -5188,6 +5214,7 @@ def leer_previsualizacion(pid: str):
                     "id": hecha["animacion"],
                     "nombre": PASOS_MODULOS.animaciones.CATALOGO[hecha["animacion"]]["nombre"],
                     "contenido": hecha["contenido"],
+                    "imagenes_usuario": hecha["imagenes_usuario"], "tarjetas": hecha["tarjetas"],
                     "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
                     "elementos": hecha.get("elementos")}
     return {

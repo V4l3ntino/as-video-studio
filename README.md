@@ -215,8 +215,17 @@ elegir las palabras resaltadas. Sepáralas con espacios o comas: se resaltan tod
 las coincidencias de palabras completas, sin distinguir mayúsculas y sin que la
 puntuación afecte. Las palabras que no estén en la frase se ignoran; vacío no
 resalta ninguna. Los proyectos anteriores conservan su resaltado al abrirse.
-El collage y la comparación necesitan la imagen de la escena y la de una escena
-contigua; si falta alguna, el editor indica el motivo y conserva lo guardado.
+En **Comparación de tarjetas**, encima de cada etiqueta aparecen **Imagen izquierda**
+e **Imagen derecha**. Arrastra una imagen o pulsa en la zona para elegirla. El
+**Collage con título** ofrece las mismas dos zonas encima del título. Se admiten
+**PNG, JPG y WebP**, hasta **20 MiB** por imagen; se muestra una miniatura antes
+de guardar. Puedes sustituir una o ambas tarjetas y volver con **Usar imagen
+automática**. Las sustituciones se aplican al pulsar **Guardar**.
+
+Cada tarjeta que no sustituyas usa la imagen de la escena o de una escena
+contigua. Si no hay imágenes disponibles, sube las dos para crear la animación.
+Estas subidas no sustituyen el fondo de la escena ni regeneran recursos; se
+conservan al duplicar, exportar e importar el vídeo.
 
 Los cambios se conservan al reabrir el vídeo y se aplican al **volver a montarlo**,
 sin regenerar narración ni imágenes. Abrir el editor no modifica el proyecto.

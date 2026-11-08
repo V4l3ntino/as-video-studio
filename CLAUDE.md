@@ -431,6 +431,17 @@ ni puntuación; vacío = ninguna. Si el campo no existe (guiones o ediciones
 anteriores), mantiene la elección automática de una palabra sin mutar params.
 El editor muestra esa elección inicial y solo persiste al pulsar Guardar.
 GET del editor es solo lectura y PUT valida antes de actualizar params.
+Comparación y collage permiten subir las imágenes izquierda/derecha antes de
+Guardar. `animacion.imagenes` contiene referencias relativas `propia`/`otra` a
+`medios_usuario/animaciones/<uuid>.png`; no son las imágenes de fondo del plano.
+`imagenes_animacion` valida y normaliza las subidas (PNG/JPG/WebP, 20 MiB, 40 MP,
+lado máximo 2048 px), conserva archivos inmutables y comprueba la pertenencia al
+proyecto al resolverlos. Subir solo prepara archivos: no cambia params. La carpeta
+viaja con `medios_usuario` al duplicar/exportar. No borres imágenes anteriores:
+pueden estar referenciadas por versiones históricas. `animaciones.urls_imagenes`
+resuelve las referencias para previa y render; `capas` mezcla cada lado con el
+respaldo automático y precarga ambas imágenes. Con dos subidas no necesita una
+imagen de la escena ni de su vecina. Los borradores se aplican solo con Guardar.
 `aplicarFondo` de `app.js` es COPIA de `animaciones.JS_FONDO`
 (`prueba_animaciones` compara las dos). Las URL de otras imágenes viajan como
 `proyecto://ruta`: solo el navegador sabe el prefijo del proxy.

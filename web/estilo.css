@@ -2626,6 +2626,14 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .anim-editor .campo { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
 .anim-editor textarea, .anim-editor select, .anim-editor input { width: 100%; box-sizing: border-box; }
 .anim-editor-previa { width: 100%; min-height: 0; margin-top: 16px; pointer-events: none; }
+.anim-imagen-campo { margin: 16px 0; }
+.anim-imagen-titulo { display: block; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; color: var(--tenue); }
+.anim-imagen-zona { position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 12px; border: 1px dashed var(--linea); border-radius: 9px; cursor: pointer; text-align: center; }
+.anim-imagen-zona:hover, .anim-imagen-zona:focus-within, .anim-imagen-zona.arrastrando { border-color: var(--acento); background: var(--hover); }
+.anim-imagen-zona img { max-width: 100%; width: 180px; height: 90px; object-fit: contain; border-radius: 5px; }
+.anim-imagen-zona .anim-imagen-archivo { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.anim-imagen-campo > button { margin-top: 6px; }
 @media (max-width: 720px) {
   .anim-editor { padding: 16px; }
   .anim-editor-disposicion { grid-template-columns: minmax(0, 1fr); gap: 8px; }

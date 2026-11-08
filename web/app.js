@@ -9082,8 +9082,9 @@ async function abrirAnimacionEscena(escena) {
   const campos = h('div', { clase: 'anim-editor-campos' });
   const muestra = h('div', { clase: `previa-marco anim-editor-previa ${formatoDelVideo()}` });
   const descripcion = h('p', { clase: 'meta' });
-  let ficha, elegido = '', sucio = false, guardando = false;
+  let ficha, elegido = '', sucio = false, guardando = false, subiendo = false;
   const borradores = new Map();
+  const imagenesElegidas = new Map();
   const selector = h('select', { 'aria-label': 'Tipo de animación', disabled: true,
     onchange: () => {
       elegido = selector.value;
@@ -9093,7 +9094,7 @@ async function abrirAnimacionEscena(escena) {
   const botonGuardar = h('button', { clase: 'primario', disabled: true,
     onclick: guardar }, 'Guardar');
   const cerrar = () => {
-    if (guardando) return;
+    if (guardando || subiendo) return;
     dialogo.close();
     dialogo.remove();
     repintarVideo();
@@ -9141,8 +9142,13 @@ async function abrirAnimacionEscena(escena) {
     descripcion.textContent = opcion ? opcion.descripcion : 'Selecciona una animación para asignarla a esta escena.';
     if (!opcion) return;
     if (!borradores.has(elegido)) borradores.set(elegido, { ...opcion.contenido });
+    if (!imagenesElegidas.has(elegido)) imagenesElegidas.set(elegido,
+      ficha.actual && ficha.actual.id === elegido ? { ...ficha.actual.imagenes_usuario } : {});
     const contenido = borradores.get(elegido);
     opcion.campos.forEach(campo => {
+      (opcion.imagenes || []).filter(imagen => imagen.antes === campo.id).forEach(imagen => {
+        campos.appendChild(campoImagenTarjeta(imagen));
+      });
       const subrayado = campo.id === 'subrayado';
       const entrada = h(subrayado ? 'input' : 'textarea', {
         type: subrayado ? 'text' : null, rows: subrayado ? null : (campo.id === 'definicion' ? 3 : 2),
@@ -9156,6 +9162,71 @@ async function abrirAnimacionEscena(escena) {
     });
   }
 
+  function campoImagenTarjeta(imagen) {
+    const seleccion = imagenesElegidas.get(elegido);
+    const ruta = seleccion[imagen.id] || (ficha.tarjetas || {})[imagen.id];
+    const entrada = h('input', { type: 'file', clase: 'anim-imagen-archivo',
+      accept: '.png,.jpg,.jpeg,.webp', 'aria-label': imagen.nombre,
+      onchange: ev => {
+        const archivos = Array.from(ev.target.files);
+        ev.target.value = '';
+        subirImagenTarjeta(archivos, imagen.id);
+      } });
+    const zona = h('label', { clase: 'anim-imagen-zona',
+      ondragover: ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        if (!guardando && !subiendo) zona.classList.add('arrastrando');
+      },
+      ondragleave: () => zona.classList.remove('arrastrando'),
+      ondrop: ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        zona.classList.remove('arrastrando');
+        subirImagenTarjeta(ev.dataTransfer.files, imagen.id);
+      } },
+    ruta ? h('img', { src: `${API.archivo(pid, ruta)}?mini=256`, alt: '' }) : null,
+    h('span', {}, 'Arrastra una imagen o pulsa para elegir'),
+    h('span', { clase: 'meta' }, 'PNG, JPG o WebP · hasta 20 MiB'), entrada);
+    return h('div', { clase: 'anim-imagen-campo' }, h('span', { clase: 'anim-imagen-titulo' }, imagen.nombre),
+      zona, seleccion[imagen.id] ? h('button', { clase: 'mini fantasma',
+        onclick: () => {
+          if (guardando || subiendo) return;
+          delete seleccion[imagen.id];
+          marcarCambio(); pintarCampos();
+        } }, 'Usar imagen automática') : null);
+  }
+
+  async function subirImagenTarjeta(archivos, lado) {
+    if (guardando || subiendo || !archivos.length) return;
+    if (archivos.length !== 1 || !/\.(png|jpe?g|webp)$/i.test(archivos[0].name)) {
+      estado.textContent = 'Elige una sola imagen PNG, JPG o WebP para esta tarjeta.';
+      return;
+    }
+    if (archivos[0].size > 20 * 1024 * 1024) {
+      estado.textContent = 'La imagen supera el límite de 20 MiB.';
+      return;
+    }
+    subiendo = true;
+    botonGuardar.disabled = true;
+    selector.disabled = true;
+    campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = true; });
+    estado.textContent = 'Subiendo imagen…';
+    const formulario = new FormData();
+    formulario.append('archivo', archivos[0]);
+    try {
+      const subida = await pedir(`${url}/imagenes`, { method: 'POST', cuerpo: formulario });
+      imagenesElegidas.get(elegido)[lado] = subida.ruta;
+      marcarCambio();
+      pintarCampos();
+    } catch (error) {
+      estado.textContent = `No se ha podido subir la imagen: ${error.message}`;
+    } finally {
+      subiendo = false;
+      botonGuardar.disabled = !sucio;
+      selector.disabled = false;
+      campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = false; });
+    }
+  }
+
   function marcarCambio() {
     sucio = true;
     estado.textContent = 'Cambios sin guardar. Pulsa Guardar para aplicarlos.';
@@ -9163,17 +9234,20 @@ async function abrirAnimacionEscena(escena) {
   }
 
   async function guardar() {
-    if (guardando || !sucio || !ficha || !elegido) return;
+    if (guardando || subiendo || !sucio || !ficha || !elegido) return;
     const datos = { id: elegido, ancla: ficha.ancla, contenido: { ...borradores.get(elegido) } };
+    const opcion = ficha.opciones.find(o => o.id === elegido);
+    if ((opcion.imagenes || []).length) datos.imagenes = { ...imagenesElegidas.get(elegido) };
     guardando = true;
     botonGuardar.disabled = true;
     botonGuardar.textContent = 'Guardando…';
     selector.disabled = true;
-    campos.querySelectorAll('textarea, input').forEach(c => { c.disabled = true; });
+    campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = true; });
     estado.textContent = 'Guardando…';
     try {
       const previa = await pedir(url, { method: 'PUT', cuerpo: datos });
       PREVIA.ficha = previa;
+      ficha.actual = previa.escenas.find(e => e.id === escena.id).animacion || null;
       sucio = false;
       pintarMuestra(previa.escenas.find(e => e.id === escena.id));
       estado.textContent = elegido === 'sin-animacion' ? 'Escena guardada sin animación' : 'Animación guardada';
@@ -9184,7 +9258,7 @@ async function abrirAnimacionEscena(escena) {
       botonGuardar.disabled = !sucio;
       botonGuardar.textContent = 'Guardar';
       selector.disabled = false;
-      campos.querySelectorAll('textarea, input').forEach(c => { c.disabled = false; });
+      campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = false; });
     }
   }
 

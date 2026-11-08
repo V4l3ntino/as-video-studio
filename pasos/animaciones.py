@@ -59,6 +59,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import medios  # noqa: E402
+import imagenes_animacion  # noqa: E402
 import subtitulos  # noqa: E402
 import tipografia  # noqa: E402
 
@@ -104,13 +105,13 @@ CATALOGO = {
     },
     "collage-titulo": {
         "nombre": "Collage con título",
-        "descripcion": "El fondo se oscurece, entran dos fotos una tras otra y el título se escribe encima. Usa la imagen del plano siguiente.",
+        "descripcion": "El fondo se oscurece, entran dos fotos una tras otra y el título se escribe encima. Por defecto usa también la imagen del plano siguiente.",
         "tecnica": "Collage Animation", "senal": "termino", "defecto": False, "tiempo": 3.6,
         "requiere_imagenes": True,
     },
     "comparacion-tarjetas": {
         "nombre": "Comparación de tarjetas",
-        "descripcion": "Una tarjeta sube desde abajo y otra cae desde arriba, cada una con su etiqueta. Usa la imagen del plano siguiente.",
+        "descripcion": "Una tarjeta sube desde abajo y otra cae desde arriba, cada una con su etiqueta. Por defecto usa también la imagen del plano siguiente.",
         "tecnica": "Split-Screen Animation", "senal": "contraste", "defecto": False, "tiempo": 3.2,
         "requiere_imagenes": True,
     },
@@ -212,7 +213,12 @@ def validar_edicion(edicion, escena):
         partes = _partes_cifra(limpio["texto"])
         if not partes or not math.isfinite(partes[1]):
             raise ValueError("escribe una cifra válida, por ejemplo 45% o 1200")
-    return {"id": aid, "ancla": ancla_de(escena), "contenido": limpio}
+    resultado = {"id": aid, "ancla": ancla_de(escena), "contenido": limpio}
+    if "imagenes" in edicion:
+        if not CATALOGO[aid].get("requiere_imagenes"):
+            raise ValueError("esta animación no utiliza tarjetas con imágenes")
+        resultado["imagenes"] = imagenes_animacion.validar_referencias(edicion["imagenes"])
+    return resultado
 
 
 def opciones_de(escena, actual=None, idioma=None):
@@ -230,9 +236,14 @@ def opciones_de(escena, actual=None, idioma=None):
         contenido = contenido_de(aid, dict(respaldo, **datos))
         if actual and actual["id"] == aid:
             contenido = actual["contenido"]
+        tarjetas = ([{"id": "propia", "nombre": "Imagen izquierda",
+                      "antes": "izquierda" if aid == "comparacion-tarjetas" else "nombre"},
+                     {"id": "otra", "nombre": "Imagen derecha",
+                      "antes": "derecha" if aid == "comparacion-tarjetas" else "nombre"}]
+                    if ficha.get("requiere_imagenes") else [])
         opciones.append({"id": aid, "nombre": ficha["nombre"], "descripcion": ficha["descripcion"],
                          "campos": [{"id": k, "nombre": n} for k, n in CAMPOS[aid]],
-                         "contenido": contenido})
+                         "contenido": contenido, "imagenes": tarjetas})
     return opciones
 
 
@@ -243,7 +254,27 @@ def ediciones_de(params):
             if uid.startswith("escena:") and isinstance(unidad, dict) and unidad.get("animacion")}
 
 
-def aplicar_ediciones(reparto, escenas, ediciones, imagenes):
+def tarjetas_de(escenas, sid, imagenes):
+    lista = list(escenas or [])
+    i = next((i for i, e in enumerate(lista) if e.get("id") == sid), None)
+    j = _vecina(lista, i, imagenes or {}) if i is not None else None
+    return {"propia": (imagenes or {}).get(sid),
+            "otra": (imagenes or {}).get(lista[j]["id"]) if j is not None else None}
+
+
+def urls_imagenes(proyecto, params, escenas, convertir):
+    """Resuelve solo referencias de las escenas cuyo texto sigue vigente."""
+    anclas = {e.get("id"): ancla_de(e) for e in escenas or []}
+    urls = {}
+    for sid, edicion in ediciones_de(params).items():
+        if edicion.get("ancla") != anclas.get(sid):
+            continue
+        for referencia in imagenes_animacion.validar_referencias(edicion.get("imagenes") or {}).values():
+            urls[referencia] = convertir(imagenes_animacion.ruta_de(proyecto, referencia))
+    return urls
+
+
+def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=None):
     salida = dict(reparto)
     lista = list(escenas or [])
     for i, escena in enumerate(lista):
@@ -263,7 +294,20 @@ def aplicar_ediciones(reparto, escenas, ediciones, imagenes):
             datos["palabras"] = datos.pop("texto").split()
             paso = max(0.01, min(0.42, (_duracion(escena) - 0.8) / len(datos["palabras"])))
             datos["tiempos"] = [[k * paso, (k + 1) * paso] for k in range(len(datos["palabras"]))]
-        ficha = _ficha_de(lista, i, aid, CATALOGO[aid]["senal"], datos, imagenes or {})
+        if CATALOGO[aid].get("requiere_imagenes"):
+            tarjetas = tarjetas_de(lista, sid, imagenes)
+            referencias = edicion.get("imagenes") or {}
+            for lado, referencia in referencias.items():
+                tarjetas[lado] = (imagenes_usuario or {}).get(referencia)
+            if not all(tarjetas.values()):
+                raise ValueError("faltan imágenes para las tarjetas: sube las dos imágenes o usa las de la escena y una contigua")
+            j = _vecina(lista, i, imagenes or {})
+            ficha = {"animacion": aid, "senal": CATALOGO[aid]["senal"], "datos": datos,
+                     "imagenes": tarjetas, "imagenes_usuario": referencias,
+                     "elementos": {"propia": sid, "otra": "imagen subida" if "otra" in referencias
+                                   else lista[j]["id"] if j is not None else "imagen subida"}}
+        else:
+            ficha = _ficha_de(lista, i, aid, CATALOGO[aid]["senal"], datos, imagenes or {})
         if ficha is None:
             raise ValueError("esta animación necesita la imagen de la escena y la de una escena contigua")
         salida[sid] = ficha
@@ -1473,7 +1517,7 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
 
 
 def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
-          imagenes=None, semilla=0, etiquetas=None, textos=None):
+          imagenes=None, semilla=0, etiquetas=None, textos=None, imagenes_usuario=None):
     """Todo lo que hace falta para el render.
     -> {id_de_plano: {"svg", "animacion", "fondo", "imagenes"}}
 
@@ -1484,7 +1528,7 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
     """
     reparto = repartir(escenas, params, idioma, imagenes=imagenes, semilla=semilla,
                        etiquetas=etiquetas, textos=textos)
-    reparto = aplicar_ediciones(reparto, escenas, ediciones_de(params), imagenes)
+    reparto = aplicar_ediciones(reparto, escenas, ediciones_de(params), imagenes, imagenes_usuario)
     por_id = {e.get("id"): e for e in escenas or []}
     resultado = {}
     for sid, asignacion in reparto.items():
@@ -1493,6 +1537,8 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
             resultado[sid] = {"svg": svg, "animacion": asignacion["animacion"], "fondo": fondo,
                               "contenido": contenido_de(asignacion["animacion"], asignacion["datos"]),
                               "elementos": asignacion.get("elementos"),
+                              "tarjetas": asignacion.get("imagenes") or {},
+                              "imagenes_usuario": asignacion.get("imagenes_usuario") or {},
                               "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
                               "pico": pico_de(svg, _duracion(por_id[sid]))}
     return resultado
