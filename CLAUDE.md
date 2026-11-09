@@ -537,6 +537,17 @@ de alto y hacen scroll por dentro (`.anim-recuadro`). Los GIF son `web/anim_<id>
 si cambias una animación, `python herramientas/gifs_animaciones.py` los regenera
 (por PowerShell: Edge headless; no usa ffmpeg, escribe Pillow).
 
+**Transición por escena**: el botón edita la salida de la escena actual hacia
+la siguiente, pero `render.params.unidades["escena:<siguiente>"].transicion`
+guarda `{tipo, ancla}` porque p8 cuece la transición en el clip que ENTRA.
+`transiciones.ancla_de` vincula ids y narraciones de ambos planos; validar usa
+`_plan_de_previsualizacion`, igual que la pantalla. `resolver` aplica las
+ediciones después del reparto para no cambiar los vecinos, incluso si la
+paleta global está vacía. `tipo: "corte"` suprime explícitamente el efecto.
+GET del editor y los borradores WebGL son de lectura; solo PUT guarda, conserva
+otros params de esa unidad y no cambia assets/callouts. La última escena no
+tiene salida. Prueba offline: `python pasos/prueba_transiciones_escena.py`.
+
 **Probar sin pagar**: `pasos/_proyecto_animaciones.py` fabrica un proyecto de
 juguete con guion etiquetado, plan e imágenes (lo usa `prueba_animaciones`); para
 verlo en la interfaz, arranca un servidor aparte con `--proyectos <carpeta>` y las

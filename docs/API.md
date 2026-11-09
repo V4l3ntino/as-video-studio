@@ -42,6 +42,8 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Configuración efectiva del parallax de una imagen, sin modificar el proyecto. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
+| `GET` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar. |
+| `PUT` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Guarda el efecto de salida; solo deja pendiente el clip que entra y el montaje. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |
 | `GET` | `/api/proyectos/{pid}/exportar` | Descarga el proyecto completo: fuentes, versiones y trabajo parcial en un ZIP. |
 | `POST` | `/api/proyectos/{pid}/exportar` | Prepara el ZIP en segundo plano; el trabajo informa de su progreso real. |
@@ -294,4 +296,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**180 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**182 endpoints.** Escrito por `generar_api.py` desde `app.py`.

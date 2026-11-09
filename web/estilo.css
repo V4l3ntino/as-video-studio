@@ -2685,6 +2685,21 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   .anim-editor-disposicion { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
 /* Parallax usa el mismo bloque y las mismas casillas que voz/subtítulos. */
+.transicion-editor-disposicion { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 1.6fr); gap: 24px; }
+.transicion-opciones { border: 0; padding: 0 8px 0 0; margin: 0; min-width: 0; max-height: 530px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.transicion-opciones legend { font-weight: 600; margin-bottom: 12px; }
+.transicion-opciones .efecto-encargo { flex: 0 0 auto; }
+.transicion-opciones input[type="checkbox"] { width: auto; }
+.transicion-opciones:disabled { opacity: .55; }
+.transicion-previa { background: #000; border: 1px solid var(--linea); border-radius: 8px; overflow: hidden; }
+.transicion-previa canvas { display: block; width: 100%; aspect-ratio: 16 / 9; }
+.transicion-previa.vertical { max-width: 300px; margin: auto; }
+.transicion-previa.vertical canvas { aspect-ratio: 9 / 16; }
+@media (max-width: 720px) {
+  .transicion-editor-disposicion { grid-template-columns: minmax(0, 1fr); }
+  .transicion-editor-disposicion > div { grid-row: 1; }
+  .transicion-opciones { max-height: 280px; }
+}
 .parallax-cuerpo { display: grid; gap: 16px; margin-top: 16px; }
 .parallax-panel fieldset { border: 0; padding: 0; min-width: 0; }
 .parallax-panel legend { font-weight: 600; margin-bottom: 8px; padding: 0; }

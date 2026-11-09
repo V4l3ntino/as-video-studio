@@ -42,6 +42,7 @@ la guia de estilo (ver p7_callouts.paleta_de_guia). Por eso el destello de un
 `light-leak` sale del mismo color que los rotulos: la transicion pertenece a
 ESTE video y no es un efecto de catalogo pegado encima.
 """
+import hashlib
 import json
 import os
 import sys
@@ -246,6 +247,43 @@ def _sin_repetir_familia(bolsa, arranque, familias_recientes):
     return (libres or orden)[0]
 
 
+def ancla_de(desde, hasta):
+    """Identifica el límite visible, no solo un id que se puede renumerar."""
+    textos = [(e.get("id"), " ".join(str(e.get("narracion") or "").split()))
+              for e in (desde, hasta)]
+    return hashlib.sha256(json.dumps(textos, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def validar_edicion(datos, desde, hasta):
+    if not isinstance(datos, dict) or set(datos) - {"tipo", "ancla"}:
+        raise ValueError("Opciones de transición desconocidas")
+    if datos.get("ancla") != ancla_de(desde, hasta):
+        raise ValueError("Las escenas han cambiado; vuelve a abrir su transición")
+    if not isinstance(datos.get("tipo"), str) or datos["tipo"] not in CATALOGO:
+        raise ValueError("Elige una transición conocida o Sin transición")
+    return {k: datos[k] for k in ("tipo", "ancla")}
+
+
+def duracion_de(tipo, escena, params=None):
+    base = float((params or {}).get("duracion_transicion") or 0.4)
+    duracion = base * float(CATALOGO[tipo]["factor"])
+    plano = float(escena.get("duracion") or
+                  (float(escena.get("t_out") or 0) - float(escena.get("t_in") or 0)))
+    if plano > 0:
+        duracion = min(duracion, plano * FRACCION_MAXIMA)
+    return round(max(0.0, duracion), 3)
+
+
+def edicion_de(params, desde, hasta):
+    unidad = ((params or {}).get("unidades") or {}).get(f"escena:{hasta['id']}") or {}
+    edicion = unidad.get("transicion") or {}
+    if (isinstance(edicion, dict) and isinstance(edicion.get("tipo"), str)
+            and edicion.get("ancla") == ancla_de(desde, hasta)
+            and edicion.get("tipo") in CATALOGO):
+        return edicion
+    return None
+
+
 def resolver(escenas, params=None, semilla=0):
     """Que transicion concreta lleva cada plano. Determinista.
 
@@ -259,7 +297,6 @@ def resolver(escenas, params=None, semilla=0):
     p = params or {}
     elegidas = elegidas_de(p)
     suaves, acentos = _bolsas(elegidas)
-    base = float(p.get("duracion_transicion") or 0.4)
 
     salida, familias = {}, []
     for indice, escena in enumerate(escenas or []):
@@ -294,13 +331,21 @@ def resolver(escenas, params=None, semilla=0):
         nombre = _sin_repetir_familia(bolsa, arranque,
                                       set(familias[-VENTANA_FAMILIA:]))
         familias.append(CATALOGO[nombre]["familia"])
-        duracion = base * float(CATALOGO[nombre]["factor"])
-        plano = float(escena.get("duracion") or
-                      (float(escena.get("t_out") or 0) - float(escena.get("t_in") or 0)))
-        if plano > 0:
-            duracion = min(duracion, plano * FRACCION_MAXIMA)
         salida[sid] = {"tipo": nombre, "shader": frag_de(nombre),
-                       "duracion": round(max(0.0, duracion), 3), "ranura": ranura}
+                       "duracion": duracion_de(nombre, escena, p), "ranura": ranura}
+    # DESPUÉS del reparto: editar un límite no cambia la familia de sus vecinos.
+    # La transición se cuece en el clip que ENTRA, por eso vive en su unidad.
+    for desde, hasta in zip(escenas or [], (escenas or [])[1:]):
+        if not desde.get("id") or not hasta.get("id"):
+            continue
+        edicion = edicion_de(p, desde, hasta)
+        if not edicion:
+            continue
+        tipo = edicion["tipo"]
+        salida[hasta["id"]] = {"tipo": tipo, "shader": frag_de(tipo),
+            "duracion": duracion_de(tipo, hasta, p),
+            "ranura": "corte" if tipo == "corte" else
+                      "acento" if CATALOGO[tipo]["fuerza"] >= 3 else "suave"}
     return salida
 
 

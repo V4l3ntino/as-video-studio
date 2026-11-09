@@ -5111,6 +5111,54 @@ def previsualizar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
         raise ErrorApi(400, str(exc)) from exc
 
 
+def _limite_transicion(ctx, sid):
+    plan = _plan_de_previsualizacion(ctx)
+    escenas = plan.get("escenas") or []
+    indice = next((i for i, e in enumerate(escenas) if e.get("id") == sid), None)
+    if indice is None:
+        raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+    if indice + 1 == len(escenas):
+        raise ErrorApi(400, "la última escena no tiene transición de salida")
+    return escenas[indice], escenas[indice + 1]
+
+
+@app.get("/api/proyectos/{pid}/escenas/{sid}/transicion")
+def leer_transicion_escena(pid: str, sid: str):
+    """Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar."""
+    ctx = contexto(pid)
+    desde, hasta = _limite_transicion(ctx, sid)
+    trans = PASOS_MODULOS.transiciones
+    render = ctx.estado.params("render") or {}
+    previa = leer_previsualizacion(pid)
+    ficha = trans.catalogo_para_pantalla(trans.elegidas_de(render))
+    for efecto in ficha["transiciones"]:
+        efecto["duracion"] = trans.duracion_de(efecto["id"], hasta, render)
+    return dict(ficha, ancla=trans.ancla_de(desde, hasta),
+                actual=next(e["transicion"] for e in previa["escenas"] if e["id"] == sid),
+                escenas=[next(e for e in previa["escenas"] if e["id"] == s["id"])
+                         for s in (desde, hasta)],
+                resolucion=previa["resolucion"], acento=trans.acentos(_paleta_del_video(ctx)))
+
+
+@app.put("/api/proyectos/{pid}/escenas/{sid}/transicion")
+def editar_transicion_escena(pid: str, sid: str, datos: dict = Body(...)):
+    """Guarda el efecto de salida; solo deja pendiente el clip que entra y el montaje."""
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine el trabajo del vídeo o páralo antes de editar su transición")
+        desde, hasta = _limite_transicion(ctx, sid)
+        try:
+            edicion = PASOS_MODULOS.transiciones.validar_edicion(datos, desde, hasta)
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
+        uid = f"escena:{hasta['id']}"
+        unidad = dict(((ctx.estado.params("render") or {}).get("unidades") or {}).get(uid) or {})
+        unidad["transicion"] = edicion
+        ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+    return leer_previsualizacion(pid)
+
+
 @app.get("/api/proyectos/{pid}/escenas/{sid}/parallax")
 def leer_parallax_escena(pid: str, sid: str):
     """Configuración efectiva del parallax de una imagen, sin modificar el proyecto."""
@@ -5437,6 +5485,13 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
                           "svg": svg, "fondo": fondo, "pico": anim.pico_de(svg, e["duracion"]),
                           "imagenes_usuario": {}, "tarjetas": {}}
         e["subtitulos"] = []
+    trans = PASOS_MODULOS.transiciones
+    cortes = trans.resolver(escenas_plan, render, semilla=plan.get("semilla") or 0)
+    for desde, hasta in zip(escenas, escenas[1:]):
+        corte = cortes.get(hasta["id"]) or {}
+        desde["transicion"] = {k: v for k, v in corte.items() if k != "shader"}
+        desde["transicion"]["personalizada"] = bool(trans.edicion_de(
+            render, originales[desde["id"]], originales[hasta["id"]]))
     return {
         "escenas": escenas,
         "audio": audio,

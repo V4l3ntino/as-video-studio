@@ -9463,6 +9463,245 @@ function animacionesEnLaCabecera(resumen) {
     + (faltan.length ? ` · faltan: ${faltan.map(a => nombres[a] || a).join(', ')}` : ''));
 }
 
+/* El mismo GLSL del montaje, sobre el último cuadro del plano actual y el
+   primero del siguiente. Los medios y el contexto WebGL duran solo el popup. */
+async function fotogramaTransicion(escena, pid, final, ancho, alto, contenedor) {
+  const clip = !!escena.clip;
+  const ruta = escena.clip || escena.imagen || escena.compuesto;
+  if (!ruta) throw new Error(`La escena ${escena.id} todavía no tiene imagen.`);
+  const medio = h(clip ? 'video' : 'img', clip
+    ? { muted: true, playsInline: true, preload: 'auto' } : { alt: '' });
+  contenedor.appendChild(medio);
+  const esperar = (evento, iniciar) => new Promise((resolver, rechazar) => {
+    const limpiar = () => {
+      clearTimeout(plazo);
+      medio.removeEventListener(evento, listo);
+      medio.removeEventListener('error', error);
+    };
+    const listo = () => { limpiar(); resolver(); };
+    const error = () => { limpiar(); rechazar(new Error(`No se ha podido cargar el medio de ${escena.id}.`)); };
+    const plazo = setTimeout(error, 15000);
+    medio.addEventListener(evento, listo, { once: true });
+    medio.addEventListener('error', error, { once: true });
+    iniciar();
+  });
+  await esperar(clip ? 'loadeddata' : 'load', () => { medio.src = API.archivo(pid, ruta); });
+  if (clip && final) {
+    const t = Math.max(0, Math.min(escena.duracion || medio.duration, medio.duration) - 1 / 30);
+    if (t > 0) await esperar('seeked', () => { medio.currentTime = t; });
+  }
+  const cuadro = h('canvas', { width: ancho, height: alto });
+  const w = clip ? medio.videoWidth : medio.naturalWidth;
+  const a = clip ? medio.videoHeight : medio.naturalHeight;
+  if (!w || !a) throw new Error(`El medio de ${escena.id} está vacío.`);
+  const escala = Math.max(ancho / w, alto / a);
+  cuadro.getContext('2d').drawImage(medio, (ancho - w * escala) / 2,
+    (alto - a * escala) / 2, w * escala, a * escala);
+  return cuadro;
+}
+
+function pintorTransicion(canvas, ficha, cuadros) {
+  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, preserveDrawingBuffer: true });
+  if (!gl) throw new Error('WebGL no está disponible para previsualizar la transición.');
+  const programas = new Map();
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const texturas = cuadros.map((cuadro, i) => {
+    const textura = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + i);
+    gl.bindTexture(gl.TEXTURE_2D, textura);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, cuadro);
+    return textura;
+  });
+  const compilar = (tipo, fuente) => {
+    const shader = gl.createShader(tipo);
+    gl.shaderSource(shader, fuente);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      const mensaje = gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      throw new Error(`No se ha podido dibujar el efecto: ${mensaje}`);
+    }
+    return shader;
+  };
+  const programa = tipo => {
+    // Para los extremos y el corte seco basta el fundido en 0 o 1.
+    const id = tipo === 'corte' ? 'fundido' : tipo;
+    if (programas.has(id)) return programas.get(id);
+    const efecto = ficha.transiciones.find(t => t.id === id);
+    const pr = gl.createProgram();
+    const vert = compilar(gl.VERTEX_SHADER, ficha.vertices);
+    const frag = compilar(gl.FRAGMENT_SHADER, efecto.frag);
+    gl.attachShader(pr, vert);
+    gl.attachShader(pr, frag);
+    gl.bindAttribLocation(pr, 0, 'a_pos');
+    gl.linkProgram(pr);
+    gl.deleteShader(vert);
+    gl.deleteShader(frag);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) {
+      gl.deleteProgram(pr);
+      throw new Error('No se ha podido preparar el efecto de transición.');
+    }
+    programas.set(id, pr);
+    return pr;
+  };
+  return {
+    pintar(tipo, progreso) {
+      const extremo = progreso <= 0 || progreso >= 1;
+      const pr = programa(extremo ? 'fundido' : tipo);
+      gl.useProgram(pr);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      const u = nombre => gl.getUniformLocation(pr, nombre);
+      gl.uniform1i(u('u_from'), 0);
+      gl.uniform1i(u('u_to'), 1);
+      gl.uniform1f(u('u_progress'), progreso);
+      gl.uniform2f(u('u_resolution'), canvas.width, canvas.height);
+      gl.uniform3fv(u('u_accent'), ficha.acento.acento);
+      gl.uniform3fv(u('u_accent_dark'), ficha.acento.oscuro);
+      gl.uniform3fv(u('u_accent_bright'), ficha.acento.claro);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    },
+    cerrar() {
+      texturas.forEach(t => gl.deleteTexture(t));
+      programas.forEach(pr => gl.deleteProgram(pr));
+      gl.deleteBuffer(buffer);
+      const extension = gl.getExtension('WEBGL_lose_context');
+      if (extension) extension.loseContext();
+    },
+  };
+}
+
+async function abrirTransicionEscena(escena) {
+  if ($('#editor-transicion')) return;
+  pararPrevia();
+  const pid = videoAbierto().pid;
+  const url = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/transicion`;
+  let ficha, tipo, guardando = false, sucio = false, pintor, cuadro = 0;
+  let inicio = performance.now();
+  const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando transiciones…');
+  const estadoPrevia = h('p', { clase: 'meta', role: 'status' }, 'Cargando previsualización…');
+  const opciones = h('fieldset', { clase: 'transicion-opciones', disabled: true },
+    h('legend', {}, 'Efecto de salida (elige uno)'));
+  const canvas = h('canvas', { 'aria-label': 'Transición de la escena actual a la siguiente' });
+  const muestra = h('div', { clase: `transicion-previa ${formatoDelVideo()}` }, canvas);
+  const medios = h('div', { hidden: true });
+  const guardarBoton = h('button', { clase: 'primario', disabled: true, onclick: guardar }, 'Guardar');
+  const cerrar = () => {
+    if (guardando) return;
+    cancelAnimationFrame(cuadro);
+    if (pintor) pintor.cerrar();
+    medios.querySelectorAll('video, img').forEach(m => { m.removeAttribute('src'); if (m.tagName === 'VIDEO') m.load(); });
+    dialogo.close();
+    dialogo.remove();
+    repintarVideo();
+  };
+  const dialogo = h('dialog', { id: 'editor-transicion', clase: 'anim-editor transicion-editor',
+    'aria-labelledby': 'transicion-editor-titulo',
+    oncancel: ev => { ev.preventDefault(); cerrar(); },
+    onkeydown: ev => {
+      ev.stopPropagation();
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') { ev.preventDefault(); guardar(); }
+    } },
+    h('div', { clase: 'anim-editor-cab' },
+      h('h2', { id: 'transicion-editor-titulo' }, `Transición · ${escena.id}`),
+      h('button', { clase: 'mini', onclick: cerrar, 'aria-label': 'Cerrar editor de transición' }, 'Cerrar')),
+    h('p', { clase: 'meta' }, 'Elige la transición de esta escena a la siguiente. '
+      + 'La vista previa cambia al seleccionar un efecto. Guardar aplica los cambios; cerrar los descarta.'),
+    h('div', { clase: 'transicion-editor-disposicion' }, opciones,
+      h('div', {}, muestra, estadoPrevia,
+        h('button', { clase: 'mini', onclick: () => { inicio = performance.now(); } }, '↻ Repetir transición'))),
+    medios, h('div', { clase: 'anim-editor-pie' }, estado, guardarBoton));
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
+
+  function seleccionar(id) {
+    if (guardando) return;
+    tipo = id;
+    opciones.querySelectorAll('input').forEach(i => { i.checked = i.value === tipo; });
+    sucio = tipo !== ficha.actual.tipo;
+    guardarBoton.disabled = !sucio;
+    estado.textContent = sucio ? 'Cambios sin guardar.' : 'Selección actual.';
+    inicio = performance.now();
+  }
+
+  function animar(ahora) {
+    if (!dialogo.isConnected) return;
+    const efecto = ficha.transiciones.find(t => t.id === tipo);
+    const duracion = tipo === 'corte' ? 0 : efecto.duracion * 1000;
+    const t = (ahora - inicio) % (1400 + duracion);
+    const progreso = t < 700 ? 0 : duracion ? Math.min(1, (t - 700) / duracion) : 1;
+    try {
+      pintor.pintar(tipo, progreso);
+      cuadro = requestAnimationFrame(animar);
+    } catch (error) {
+      estadoPrevia.textContent = error.message;
+    }
+  }
+
+  async function guardar() {
+    if (!ficha || !sucio || guardando) return;
+    guardando = true;
+    opciones.disabled = true;
+    guardarBoton.disabled = true;
+    estado.textContent = 'Guardando…';
+    try {
+      const previa = await pedir(url, { method: 'PUT', cuerpo: { tipo, ancla: ficha.ancla } });
+      if (videoAbierto().pid === pid) {
+        PREVIA.ficha = previa;
+        try { await refrescarFichasLight(); } catch (error) { /* la transición ya está guardada */ }
+      }
+      guardando = false;
+      cerrar();
+      toast('Transición guardada. Se aplicará al volver a montar el vídeo.');
+    } catch (error) {
+      estado.textContent = `No se ha guardado: ${error.message}`;
+    } finally {
+      guardando = false;
+      opciones.disabled = false;
+      guardarBoton.disabled = !sucio;
+    }
+  }
+
+  try {
+    ficha = await pedir(url);
+    if (!dialogo.isConnected) return;
+    tipo = ficha.actual.tipo;
+    const lista = [{ id: 'corte', nombre: 'Sin transición', descripcion: 'Corte directo a la escena siguiente.' },
+      ...ficha.transiciones];
+    lista.forEach(t => opciones.appendChild(h('label', { clase: 'efecto-encargo' },
+      h('input', { type: 'checkbox', value: t.id, checked: t.id === tipo,
+        onchange: () => seleccionar(t.id) }),
+      h('span', {}, h('b', {}, t.nombre), h('span', { clase: 'meta' }, t.descripcion)))));
+    opciones.disabled = false;
+    estado.textContent = ficha.actual.personalizada ? 'Transición propia de estas escenas.' : 'Transición elegida por el montaje.';
+    const [desde, hasta] = ficha.escenas;
+    const [w, a] = ficha.resolucion;
+    const escala = Math.min(1, 960 / Math.max(w, a));
+    canvas.width = Math.round(w * escala);
+    canvas.height = Math.round(a * escala);
+    const cuadros = await Promise.all([
+      fotogramaTransicion(desde, pid, true, canvas.width, canvas.height, medios),
+      fotogramaTransicion(hasta, pid, false, canvas.width, canvas.height, medios),
+    ]);
+    if (!dialogo.isConnected) return;
+    pintor = pintorTransicion(canvas, ficha, cuadros);
+    estadoPrevia.textContent = `Final de ${desde.id} → inicio de ${hasta.id} · Vista previa en bucle, sin sonido.`;
+    inicio = performance.now();
+    cuadro = requestAnimationFrame(animar);
+  } catch (error) {
+    if (!dialogo.isConnected) return;
+    if (ficha) estadoPrevia.textContent = `No se ha podido mostrar la transición: ${error.message}`;
+    else estado.textContent = `No se ha podido abrir la transición: ${error.message}`;
+  }
+}
+
 async function abrirParallaxEscena(escena) {
   if ($('#editor-parallax')) return;
   pararPrevia();
@@ -10341,6 +10580,13 @@ function vistaPreviaLight() {
       title: 'Configurar o quitar el efecto parallax solo en esta imagen',
       disabled: (e.medio_usuario || {}).tipo === 'video',
     }, 'Efecto Parallax'),
+    h('button', {
+      clase: (e.transicion || {}).personalizada ? 'mini primario' : 'mini',
+      onclick: () => abrirTransicionEscena(e),
+      title: PREVIA.i >= escenas.length - 1 ? 'La última escena no tiene transición de salida'
+        : 'Configurar la transición de esta escena a la siguiente',
+      disabled: PREVIA.i >= escenas.length - 1,
+    }, 'Transición'),
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`
       + (e.bloque ? ` · ${e.bloque}` : '')

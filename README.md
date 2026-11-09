@@ -426,6 +426,15 @@ sin transiciones. La selección se guarda por vídeo; cambiarla solo deja pendie
 el montaje, sin regenerar el guion, la voz ni las imágenes. En los vídeos existentes
 se guarda automáticamente al mover las tarjetas.
 
+En **Imágenes**, el botón **Transición**, junto a **Efecto Parallax**, configura
+la salida de la escena actual hacia la siguiente. El popup muestra la lista de
+efectos y **Sin transición**; solo puede estar marcada una opción. Al elegirla,
+la vista previa reproduce el efecto en bucle entre el último fotograma de la
+escena actual y el primero de la siguiente, con sus imágenes o clips reales.
+Pulsa **Guardar** para aplicar la selección; cerrar descarta el borrador.
+La última escena no tiene transición de salida. La selección se conserva al
+reabrir y se aplica al volver a montar, sin regenerar guion, voz ni imágenes.
+
 ### Listo para YouTube
 
 Al terminar la receta de montaje se preparan el **título**, la **descripción**
