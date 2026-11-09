@@ -5025,6 +5025,8 @@ def leer_animacion_escena(pid: str, sid: str):
     imagenes.update({e["id"] + "__tarjeta": e["imagen_tarjeta"]
                      for e in previa["escenas"] if e.get("imagen_tarjeta")})
     return {"ancla": anim.ancla_de(escena), "actual": actual,
+            "audio": previa.get("audio"), "t_in": escena.get("t_in", 0),
+            "duracion": escena.get("duracion", 0),
             "tarjetas": anim.tarjetas_de(plan["escenas"], sid, imagenes),
             "opciones": anim.opciones_de(escena, actual, plan.get("idioma"))}
 
@@ -5403,6 +5405,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
                     "nombre": PASOS_MODULOS.animaciones.CATALOGO_EDITOR[hecha["animacion"]]["nombre"],
                     "contenido": hecha["contenido"],
                     "posiciones": hecha["posiciones"], "duracion": hecha["duracion"],
+                    "inicio": hecha["inicio"],
                     "imagenes_usuario": hecha["imagenes_usuario"], "tarjetas": hecha["tarjetas"],
                     "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
                     "elementos": hecha.get("elementos")}

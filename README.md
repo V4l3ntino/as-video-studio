@@ -295,6 +295,13 @@ sus entradas y salidas, entre **0,1 s** y la duración de la escena; vacío cons
 el tiempo automático. No cambia la duración de la escena ni de la narración.
 Las posiciones y la duración se aplican al pulsar **Guardar**, se conservan al
 reabrir el editor y se utilizan en el montaje final.
+Debajo del visualizador, la **línea de tiempo** muestra la forma de onda de la
+voz y el bloque de la animación. Pulsa **Reproducir** para oír la narración y
+seguir el cabezal, o pulsa sobre la pista para elegir un instante y ver ese
+fotograma. Arrastra el bloque para cambiar su inicio y tira de sus extremos para
+ajustar el comienzo o el final; se muestran los tiempos de inicio, fin y duración.
+El bloque no puede salir de la escena. Estos ajustes forman parte del borrador:
+**Guardar** los aplica a la previsualización y al montaje; cerrar los descarta.
 Para quitarla, selecciona **Sin animación** y pulsa **Guardar**. La escena queda
 sin animación también al volver a montar, aunque antes tuviera una automática.
 En **Tipografía cinética**, el campo **Subrayado**, debajo de **Frase**, permite

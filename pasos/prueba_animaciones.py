@@ -599,6 +599,33 @@ with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
         plan = servidor._plan_de_previsualizacion(ctx)
         capas_manuales = animaciones.capas(plan["escenas"], estado.params("render"), salida=(1280, 720))
         igual("el motor del render produce exactamente el SVG de la previa", capas_manuales["S001"]["svg"], svg)
+        # El timeline desplaza el reloj entero, no solo el bloque de la interfaz.
+        desplazada = dict(edicion, inicio=1.0, duracion=2.0)
+        antes_timeline = estado.params("render")
+        ensayo = servidor.previsualizar_animacion_escena(proyecto.id, "S001", desplazada)["animacion"]
+        igual("mover el bloque no guarda el borrador", estado.params("render"), antes_timeline)
+        resultado_timeline = servidor.editar_animacion_escena(proyecto.id, "S001", desplazada)
+        movida = resultado_timeline["escenas"][0]["animacion"]
+        igual("el inicio se conserva al reabrir", servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]["inicio"], 1.0)
+        igual("la vista previa y el montaje comparten el nuevo reloj", movida["svg"], ensayo["svg"])
+        raiz_movida = xml.dom.minidom.parseString(movida["svg"])
+        fines_movidos = [float(n.getAttribute("begin")[:-1]) + float(n.getAttribute("dur")[:-1] or 0)
+                         for tag in ("animate", "animateTransform", "set")
+                         for n in raiz_movida.getElementsByTagName(tag)
+                         if n.getAttribute("begin").endswith("s") and n.getAttribute("dur").endswith("s")]
+        comprobar("la animación desplazada termina a los tres segundos", abs(max(fines_movidos) - 3) < 0.002)
+        igual("el render usa el mismo SVG desplazado", animaciones.capas(
+            plan["escenas"], estado.params("render"), salida=(1280, 720))["S001"]["svg"], movida["svg"])
+        largo_escena = plan["escenas"][0]["duracion"]
+        for fuera in ({"inicio": -0.1}, {"inicio": largo_escena}, {"inicio": float("nan")},
+                      {"inicio": largo_escena - 1, "duracion": 2.0}):
+            try:
+                servidor.previsualizar_animacion_escena(proyecto.id, "S001", dict(edicion, **fuera))
+                comprobar("el inicio queda dentro de la escena", False)
+            except servidor.ErrorApi:
+                igual("un tiempo inválido no modifica los params", estado.params("render"),
+                      type(estado)(proyecto).params("render"))
+        servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
         # Un MP4 anterior ya tiene clips: remontar debe volver a dibujar la
         # animación editada, no confundir ids de animación con ids de unidades.
         trabajo_render = proyecto.ruta_trabajo("render")

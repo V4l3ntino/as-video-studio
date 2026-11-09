@@ -9430,21 +9430,61 @@ async function abrirAnimacionEscena(escena) {
   const campos = h('div', { clase: 'anim-editor-campos' });
   const muestra = h('div', { clase: `previa-marco anim-editor-previa ${formatoDelVideo()}` });
   const descripcion = h('p', { clase: 'meta' });
+  const timeline = h('section', { clase: 'anim-timeline', 'aria-label': 'Línea de tiempo de la escena' });
+  const reproducir = h('button', { clase: 'mini', type: 'button', disabled: true,
+    'aria-label': 'Reproducir voz de la escena', onclick: alternarAudio }, '▶ Reproducir');
+  const reloj = h('span', { clase: 'anim-timeline-reloj' }, '0.000 s');
+  const datosTiempo = h('span', { clase: 'anim-timeline-datos' });
+  const onda = h('canvas', { clase: 'anim-timeline-onda', 'aria-label': 'Forma de onda de la voz' });
+  const regla = h('div', { clase: 'anim-timeline-regla' });
+  const pistaAudio = h('div', { clase: 'anim-timeline-pista audio' }, onda);
+  const bloque = h('div', { clase: 'anim-timeline-bloque', role: 'group', 'aria-label': 'Animación',
+    onpointerdown: arrastrarTiempo },
+    h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'izquierdo', title: 'Ajustar inicio' }),
+    h('span', { clase: 'anim-timeline-nombre' }, 'Animación'),
+    h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'derecho', title: 'Ajustar final' }));
+  const pistaAnimacion = h('div', { clase: 'anim-timeline-pista animacion' }, bloque);
+  const cabezal = h('div', { clase: 'anim-timeline-cabezal', 'aria-hidden': 'true' });
+  const pistas = h('div', { clase: 'anim-timeline-pistas', onpointerdown: buscarTiempo },
+    regla, pistaAudio, pistaAnimacion, cabezal);
+  timeline.appendChild(h('div', { clase: 'anim-timeline-cab' }, reproducir,
+    h('span', { clase: 'meta' }, 'Voz de la escena'), reloj));
+  timeline.appendChild(h('div', { clase: 'anim-timeline-fila' },
+    h('div', { clase: 'anim-timeline-etiquetas' }, h('span', {}, 'Audio'), h('span', {}, 'Animación')), pistas));
+  timeline.appendChild(datosTiempo);
   let ficha, elegido = '', sucio = false, guardando = false, subiendo = false;
   const borradores = new Map();
   const imagenesElegidas = new Map();
   const ajustes = new Map();
   const historial = [];
-  let firmaGuardada, arrastrando = false;
-  let temporizador, revision = 0;
+  let firmaGuardada, arrastrando = false, ultimoTipoAnimado = null;
+  let temporizador, revision = 0, tiempo = 0, audioEditor, cuadroAudio = 0, muestraActual;
   const duracion = h('input', { type: 'number', min: '0.1', max: escena.duracion,
     step: 'any', disabled: true, 'aria-label': 'Duración de la animación en segundos',
-    oninput: () => { recordarEstado(); ajustes.get(elegido).duracion = duracion.value === '' ? null : Number(duracion.value); marcarCambio(); } });
+    oninput: () => {
+      recordarEstado();
+      const ajuste = ajustes.get(elegido);
+      ajuste.duracion = duracion.value === '' ? null : Number(duracion.value);
+      if (ajuste.duracion == null) ajuste.inicio = 0;
+      if (ajuste.duracion != null && ajuste.inicio + ajuste.duracion > ficha.duracion)
+        ajuste.inicio = Math.max(0, ficha.duracion - ajuste.duracion);
+      pintarTimeline(); marcarCambio();
+    } });
   const selector = h('select', { 'aria-label': 'Tipo de animación', disabled: true,
     onchange: () => {
       recordarEstado();
+      const tiemposAnteriores = ajustes.get(elegido !== 'sin-animacion' ? elegido : ultimoTipoAnimado);
+      if (elegido !== 'sin-animacion') ultimoTipoAnimado = elegido;
       elegido = selector.value;
       pintarCampos();
+      if (elegido !== 'sin-animacion' && tiemposAnteriores) {
+        const nuevos = ajustes.get(elegido);
+        nuevos.inicio = tiemposAnteriores.inicio;
+        nuevos.duracion = tiemposAnteriores.duracion;
+        duracion.value = nuevos.duracion == null ? '' : Number(nuevos.duracion.toFixed(3));
+        ultimoTipoAnimado = elegido;
+      }
+      pintarTimeline();
       if (elegido) marcarCambio();
     } });
   const botonGuardar = h('button', { clase: 'primario', disabled: true,
@@ -9457,6 +9497,8 @@ async function abrirAnimacionEscena(escena) {
     if (guardando || subiendo) return;
     clearTimeout(temporizador);
     revision++;
+    if (audioEditor) { audioEditor.pause(); audioEditor.removeAttribute('src'); audioEditor.load(); }
+    cancelAnimationFrame(cuadroAudio);
     dialogo.close();
     dialogo.remove();
     repintarVideo();
@@ -9484,12 +9526,14 @@ async function abrirAnimacionEscena(escena) {
     h('div', {}, h('label', { clase: 'campo' }, 'Tipo de animación', selector), descripcion,
       h('label', { clase: 'campo' }, 'Duración (segundos)', duracion),
       h('p', { clase: 'meta' }, `Máximo: ${escena.duracion} s (duración de la escena).`), campos),
-    h('div', {}, muestra, h('p', { clase: 'meta' }, 'Arrastra cualquier parte de la animación para mover todo el conjunto. Deshaz cambios con ↶ o Ctrl+Z.'))),
+    h('div', {}, muestra, timeline,
+      h('p', { clase: 'meta' }, 'Arrastra la animación para moverla sobre la imagen; usa la línea de tiempo para sincronizarla con la voz. Deshaz cambios con ↶ o Ctrl+Z.'))),
   h('div', { clase: 'anim-editor-pie' }, estado, botonGuardar));
   document.body.appendChild(dialogo);
   dialogo.showModal();
 
   function pintarMuestra(e) {
+    muestraActual = e;
     vaciar(muestra);
     muestra.classList.toggle('con-animacion', !!e.animacion);
     if (e.imagen) muestra.appendChild(h('img', { src: `${API.archivo(pid, e.imagen)}?mini=1024`, alt: e.id }));
@@ -9499,9 +9543,9 @@ async function abrirAnimacionEscena(escena) {
       muestra.appendChild(capa);
       const svg = capa.querySelector('svg');
       if (svg && svg.pauseAnimations) svg.pauseAnimations();
-      if (svg && svg.setCurrentTime) svg.setCurrentTime(e.animacion.pico);
+      if (svg && svg.setCurrentTime) svg.setCurrentTime(tiempo);
       const imagen = muestra.querySelector('img');
-      if (imagen) aplicarFondo(imagen, e.animacion.fondo, e.animacion.pico);
+      if (imagen) aplicarFondo(imagen, e.animacion.fondo, tiempo);
       capa.querySelectorAll('[data-conjunto]').forEach(elemento => {
         elemento.addEventListener('pointerdown', ev => {
           if (guardando || subiendo || e.animacion.id !== elegido || !ajustes.has(elegido) || ev.button !== 0) return;
@@ -9560,7 +9604,8 @@ async function abrirAnimacionEscena(escena) {
     if (!opcion) return;
     if (!ajustes.has(elegido)) ajustes.set(elegido, {
       posiciones: ficha.actual && ficha.actual.id === elegido ? structuredClone(ficha.actual.posiciones || {}) : {},
-      duracion: ficha.actual && ficha.actual.id === elegido ? ficha.actual.duracion : null });
+      duracion: ficha.actual && ficha.actual.id === elegido ? ficha.actual.duracion : null,
+      inicio: ficha.actual && ficha.actual.id === elegido ? (ficha.actual.inicio || 0) : 0 });
     duracion.disabled = elegido === 'sin-animacion';
     duracion.value = ajustes.get(elegido).duracion || '';
     duracion.placeholder = 'Automática';
@@ -9585,6 +9630,152 @@ async function abrirAnimacionEscena(escena) {
         + 'para resaltarlas juntas. Se resaltan todas las coincidencias, sin distinguir '
         + 'mayúsculas. Déjalo vacío para no subrayar ninguna palabra.'));
     });
+  }
+
+  function pintarReloj() {
+    const total = Number(ficha?.duracion) || 1;
+    cabezal.style.left = `${Math.min(100, Math.max(0, tiempo / total * 100))}%`;
+    reloj.textContent = `${tiempo.toFixed(3)} / ${total.toFixed(3)} s`;
+    if (muestraActual?.animacion) {
+      const svg = muestra.querySelector('.previa-anim svg');
+      if (svg?.setCurrentTime) svg.setCurrentTime(tiempo);
+      const imagen = muestra.querySelector('img');
+      if (imagen) aplicarFondo(imagen, muestraActual.animacion.fondo, tiempo);
+    }
+  }
+
+  function pintarTimeline() {
+    if (!ficha) return;
+    const activo = elegido !== 'sin-animacion';
+    bloque.hidden = !activo;
+    if (activo) {
+      const ajuste = ajustes.get(elegido);
+      const total = Number(ficha.duracion) || 1;
+      const inicio = ajuste.inicio || 0;
+      const largo = ajuste.duracion == null ? total - inicio : ajuste.duracion;
+      bloque.style.left = `${inicio / total * 100}%`;
+      bloque.style.width = `${largo / total * 100}%`;
+      bloque.querySelector('.anim-timeline-nombre').textContent = selector.selectedOptions[0]?.textContent || 'Animación';
+      datosTiempo.textContent = `Inicio ${inicio.toFixed(3)} s · Fin ${(inicio + largo).toFixed(3)} s · Duración ${largo.toFixed(3)} s`;
+    } else datosTiempo.textContent = 'Elige una animación para editar su posición y duración.';
+    pintarReloj();
+  }
+
+  function fijarTiempo(valor) {
+    tiempo = Math.max(0, Math.min(Number(ficha.duracion) || 0, valor));
+    if (audioEditor && audioEditor.readyState) audioEditor.currentTime = Number(ficha.t_in || 0) + tiempo;
+    pintarReloj();
+  }
+
+  function buscarTiempo(ev) {
+    if (!ficha || ev.button !== 0 || ev.target.closest('.anim-timeline-bloque')) return;
+    ev.preventDefault();
+    const mover = evento => fijarTiempo((evento.clientX - pistas.getBoundingClientRect().left) /
+      pistas.getBoundingClientRect().width * Number(ficha.duracion));
+    mover(ev);
+    pistas.setPointerCapture(ev.pointerId);
+    const terminar = () => {
+      pistas.removeEventListener('pointermove', mover);
+      pistas.removeEventListener('pointerup', terminar);
+      pistas.removeEventListener('pointercancel', terminar);
+      pistas.removeEventListener('lostpointercapture', terminar);
+    };
+    pistas.addEventListener('pointermove', mover);
+    pistas.addEventListener('pointerup', terminar);
+    pistas.addEventListener('pointercancel', terminar);
+    pistas.addEventListener('lostpointercapture', terminar);
+  }
+
+  function arrastrarTiempo(ev) {
+    if (!ficha || elegido === 'sin-animacion' || guardando || subiendo || ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const ajuste = ajustes.get(elegido);
+    const total = Number(ficha.duracion);
+    const origen = ajuste.inicio || 0;
+    const largo = ajuste.duracion == null ? total - origen : ajuste.duracion;
+    const extremo = ev.target.dataset.extremo || 'centro';
+    const x = ev.clientX;
+    let movido = false;
+    bloque.setPointerCapture(ev.pointerId);
+    arrastrando = true; actualizarDeshacer();
+    const mover = evento => {
+      const desplazamiento = (evento.clientX - x) / pistas.getBoundingClientRect().width * total;
+      if (!movido && Math.abs(evento.clientX - x) < 2) return;
+      if (!movido) { recordarEstado(); movido = true; }
+      if (extremo === 'izquierdo') {
+        ajuste.inicio = Math.max(0, Math.min(origen + largo - 0.1, origen + desplazamiento));
+        ajuste.duracion = origen + largo - ajuste.inicio;
+      } else if (extremo === 'derecho') {
+        ajuste.duracion = Math.max(0.1, Math.min(total - origen, largo + desplazamiento));
+      } else {
+        ajuste.inicio = Math.max(0, Math.min(total - largo, origen + desplazamiento));
+        ajuste.duracion = largo;
+      }
+      duracion.value = ajuste.duracion.toFixed(3);
+      pintarTimeline(); marcarCambio();
+    };
+    const terminar = () => {
+      arrastrando = false; actualizarDeshacer();
+      bloque.removeEventListener('pointermove', mover);
+      bloque.removeEventListener('pointerup', terminar);
+      bloque.removeEventListener('pointercancel', terminar);
+      bloque.removeEventListener('lostpointercapture', terminar);
+      if (movido) marcarCambio();
+    };
+    bloque.addEventListener('pointermove', mover);
+    bloque.addEventListener('pointerup', terminar);
+    bloque.addEventListener('pointercancel', terminar);
+    bloque.addEventListener('lostpointercapture', terminar);
+  }
+
+  function alternarAudio() {
+    if (!audioEditor) return;
+    if (!audioEditor.paused) { audioEditor.pause(); return; }
+    if (tiempo >= Number(ficha.duracion) - 0.02) fijarTiempo(0);
+    audioEditor.currentTime = Number(ficha.t_in || 0) + tiempo;
+    audioEditor.play().catch(() => { estado.textContent = 'No se ha podido reproducir la voz.'; });
+  }
+
+  function dibujarOnda(valores) {
+    const ancho = onda.clientWidth * (window.devicePixelRatio || 1);
+    const alto = onda.clientHeight * (window.devicePixelRatio || 1);
+    if (!ancho || !alto) return;
+    onda.width = ancho; onda.height = alto;
+    const ctx = onda.getContext('2d');
+    ctx.clearRect(0, 0, ancho, alto);
+    ctx.fillStyle = '#879af0';
+    valores.forEach((v, i) => {
+      const x = i / valores.length * ancho;
+      const h = Math.max(2, v * alto * 0.9);
+      ctx.fillRect(x, (alto - h) / 2, Math.max(1, ancho / valores.length - 1), h);
+    });
+  }
+
+  async function cargarOnda(url) {
+    try {
+      const respuesta = await fetch(url);
+      if (!respuesta.ok) throw new Error('audio no disponible');
+      const contexto = new (window.AudioContext || window.webkitAudioContext)();
+      let datos;
+      try { datos = await contexto.decodeAudioData(await respuesta.arrayBuffer()); }
+      finally { await contexto.close(); }
+      if (!dialogo.isConnected) return;
+      const muestras = datos.getChannelData(0);
+      const inicio = Math.floor(Number(ficha.t_in || 0) * datos.sampleRate);
+      const fin = Math.min(muestras.length, Math.floor((Number(ficha.t_in || 0) + Number(ficha.duracion)) * datos.sampleRate));
+      const columnas = 180;
+      const valores = Array.from({ length: columnas }, (_, i) => {
+        const desde = inicio + Math.floor(i * (fin - inicio) / columnas);
+        const hasta = inicio + Math.floor((i + 1) * (fin - inicio) / columnas);
+        let maximo = 0;
+        for (let j = desde; j < hasta; j += Math.max(1, Math.floor((hasta - desde) / 80)))
+          maximo = Math.max(maximo, Math.abs(muestras[j] || 0));
+        return Math.min(1, Math.sqrt(maximo));
+      });
+      dibujarOnda(valores);
+    } catch (error) {
+      if (dialogo.isConnected) estado.textContent = 'La forma de onda no está disponible; puedes seguir editando la animación.';
+    }
   }
 
   function campoImagenTarjeta(imagen) {
@@ -9680,7 +9871,7 @@ async function abrirAnimacionEscena(escena) {
 
   function recordarEstado() {
     historial.push(structuredClone({ elegido, borradores: [...borradores],
-      imagenes: [...imagenesElegidas], ajustes: [...ajustes] }));
+      imagenes: [...imagenesElegidas], ajustes: [...ajustes], ultimoTipoAnimado }));
     if (historial.length > 100) historial.shift();
     actualizarDeshacer();
   }
@@ -9689,6 +9880,7 @@ async function abrirAnimacionEscena(escena) {
     if (!historial.length || guardando || subiendo || arrastrando) return;
     const anterior = historial.pop();
     elegido = anterior.elegido;
+    ultimoTipoAnimado = anterior.ultimoTipoAnimado;
     [[borradores, anterior.borradores], [imagenesElegidas, anterior.imagenes],
       [ajustes, anterior.ajustes]].forEach(([mapa, entradas]) => {
       mapa.clear();
@@ -9696,6 +9888,7 @@ async function abrirAnimacionEscena(escena) {
     });
     selector.value = elegido;
     pintarCampos();
+    pintarTimeline();
     marcarCambio();
     actualizarDeshacer();
   }
@@ -9705,6 +9898,7 @@ async function abrirAnimacionEscena(escena) {
     if (elegido !== 'sin-animacion') {
       datos.posiciones = structuredClone(ajustes.get(elegido).posiciones);
       if (ajustes.get(elegido).duracion != null) datos.duracion = ajustes.get(elegido).duracion;
+      if (ajustes.get(elegido).inicio) datos.inicio = ajustes.get(elegido).inicio;
     }
     const opcion = ficha.opciones.find(o => o.id === elegido);
     if ((opcion.imagenes || []).length) datos.imagenes = { ...imagenesElegidas.get(elegido) };
@@ -9732,6 +9926,7 @@ async function abrirAnimacionEscena(escena) {
       sucio = false;
       firmaGuardada = JSON.stringify(datos);
       pintarMuestra(previa.escenas.find(e => e.id === escena.id));
+      pintarTimeline();
       estado.textContent = elegido === 'sin-animacion' ? 'Escena guardada sin animación' : 'Animación guardada';
     } catch (error) {
       estado.textContent = `No se ha guardado: ${error.message}`;
@@ -9748,13 +9943,36 @@ async function abrirAnimacionEscena(escena) {
 
   try {
     ficha = await pedir(url);
+    if (!dialogo.isConnected) return;
     elegido = ficha.actual ? ficha.actual.id : 'sin-animacion';
+    ultimoTipoAnimado = elegido === 'sin-animacion' ? null : elegido;
+    tiempo = Math.max(0, Math.min(Number(ficha.duracion) || 0, ficha.actual?.pico || 0));
     ficha.opciones.forEach(o => selector.appendChild(h('option', { value: o.id }, o.nombre)));
     selector.value = elegido;
     selector.disabled = false;
     pintarCampos();
+    pintarTimeline();
     firmaGuardada = JSON.stringify(datosBorrador());
     pintarMuestra({ ...escena, animacion: ficha.actual });
+    if (ficha.audio) {
+      const rutaAudio = API.archivo(pid, ficha.audio);
+      audioEditor = new Audio(rutaAudio);
+      audioEditor.preload = 'auto';
+      reproducir.disabled = false;
+      const avanzar = () => {
+        if (!dialogo.isConnected || !audioEditor || audioEditor.paused) return;
+        tiempo = Math.max(0, Math.min(Number(ficha.duracion), audioEditor.currentTime - Number(ficha.t_in || 0)));
+        pintarReloj();
+        if (audioEditor.currentTime >= Number(ficha.t_in || 0) + Number(ficha.duracion) - 0.015) {
+          audioEditor.pause(); return;
+        }
+        cuadroAudio = requestAnimationFrame(avanzar);
+      };
+      audioEditor.addEventListener('play', () => { reproducir.textContent = 'Ⅱ Pausa'; avanzar(); });
+      audioEditor.addEventListener('pause', () => { reproducir.textContent = '▶ Reproducir'; cancelAnimationFrame(cuadroAudio); });
+      audioEditor.addEventListener('error', () => { reproducir.disabled = true; });
+      cargarOnda(rutaAudio);
+    }
     estado.textContent = 'Edita los textos o elige otro tipo de animación.';
   } catch (error) {
     estado.textContent = `No se ha podido abrir la animación: ${error.message}`;

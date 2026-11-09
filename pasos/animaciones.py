@@ -286,6 +286,14 @@ def validar_edicion(edicion, escena):
                 or not math.isfinite(valor) or not 0.1 <= valor <= _duracion(escena)):
             raise ValueError("la duración debe estar entre 0,1 segundos y la duración de la escena")
         resultado["duracion"] = float(valor)
+    if "inicio" in edicion:
+        valor = edicion["inicio"]
+        if (isinstance(valor, bool) or not isinstance(valor, (int, float))
+                or not math.isfinite(valor) or valor < 0 or valor >= _duracion(escena)):
+            raise ValueError("el inicio debe estar dentro de la escena")
+        if valor + resultado.get("duracion", _duracion(escena)) > _duracion(escena) + 1e-6:
+            raise ValueError("la animación no puede superar el final de la escena")
+        resultado["inicio"] = float(valor)
     if "posiciones" in edicion:
         posiciones = edicion["posiciones"]
         if not isinstance(posiciones, dict) or len(posiciones) > 500:
@@ -409,7 +417,7 @@ def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=No
             ficha = _ficha_de(lista, i, aid, CATALOGO[aid]["senal"], datos, imagenes or {})
         if ficha is None:
             raise ValueError("esta animación necesita dos imágenes propias de la escena")
-        salida[sid] = dict(ficha, **{k: edicion[k] for k in ("posiciones", "duracion") if k in edicion})
+        salida[sid] = dict(ficha, **{k: edicion[k] for k in ("posiciones", "duracion", "inicio") if k in edicion})
     return salida
 
 
@@ -1648,6 +1656,23 @@ def ajustar_svg(svg, fondo, asignacion, duracion):
                 "begin": _s(limite - salida_cartela), "dur": _s(salida_cartela), "fill": "freeze"}))
             conjunto.append(ET.Element(f"{{{ns}}}set", {
                 "attributeName": "display", "to": "none", "begin": _s(limite), "fill": "freeze"}))
+    inicio = asignacion.get("inicio", 0)
+    if inicio:
+        # Desplazar el reloj SMIL completo, incluidos los grupos y las cartelas.
+        # El fondo usa el mismo reloj, tanto en la previa como en el montaje.
+        for el in raiz.iter():
+            valor = el.get("begin", "")
+            if re.fullmatch(r"[\d.]+s", valor):
+                el.set("begin", _s(float(valor[:-1]) + inicio))
+        if fondo:
+            fondo = dict(fondo, t=[t + inicio for t in fondo["t"]])
+        conjunto.insert(0, ET.Element(f"{{{ns}}}set", {
+            "attributeName": "display", "to": "none", "begin": "0s", "fill": "freeze"}))
+        conjunto.insert(1, ET.Element(f"{{{ns}}}set", {
+            "attributeName": "display", "to": "inline", "begin": _s(inicio), "fill": "freeze"}))
+    if "duracion" in asignacion and not es_cartela_editor(asignacion.get("animacion")):
+        conjunto.append(ET.Element(f"{{{ns}}}set", {
+            "attributeName": "display", "to": "none", "begin": _s(inicio + asignacion["duracion"]), "fill": "freeze"}))
     return ET.tostring(raiz, encoding="unicode"), fondo
 
 
@@ -1708,7 +1733,7 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
                               "tarjetas": asignacion.get("imagenes") or {},
                                "imagenes_usuario": asignacion.get("imagenes_usuario") or {},
                                "posiciones": asignacion.get("posiciones") or {},
-                               "duracion": asignacion.get("duracion"),
+                               "duracion": asignacion.get("duracion"), "inicio": asignacion.get("inicio", 0),
                               "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
                               "pico": pico_de(svg, _duracion(por_id[sid]))}
     return resultado
