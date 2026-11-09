@@ -140,7 +140,20 @@ El navegador que rasteriza los planos (**Chromium** o **Microsoft Edge**) y las
 fuentes se instalan aparte; `ESTUDIO_EDGE` y `ESTUDIO_FUENTES` permiten fijar
 sus rutas.
 
-En Windows:
+En Windows, el script equivalente crea el servicio y, salvo que lo omitas, el
+motor de parallax:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\instalar_dependencias.ps1
+.\.venv\Scripts\python.exe app.py --puerto 8020
+```
+
+`-SinDepthflow` instala solo el servicio y `-Python C:\ruta\python.exe` elige el
+intérprete. El script no borra los entornos que ya existan y se puede volver a
+lanzar. También comprueba ffmpeg/ffprobe, Edge o Chrome y los CLI de Node,
+Claude y Codex, y dice qué falta y cómo instalarlo.
+
+Si prefieres hacerlo a mano:
 
 ```powershell
 python -m venv .venv
@@ -357,7 +370,8 @@ las imágenes; también puedes activarlo solo en una imagen con la opción globa
 apagada. Las demás escenas, sus animaciones y la narración se conservan.
 
 El motor es opcional y se instala en un entorno **separado** del servicio. En
-Linux/macOS, `bash instalar_dependencias.sh` ya lo deja en `.depthflow`. A mano:
+Linux/macOS, `bash instalar_dependencias.sh` ya lo deja en `.depthflow`; en
+Windows, `instalar_dependencias.ps1` hace lo mismo. A mano:
 
 ```bash
 python3 -m venv .depthflow

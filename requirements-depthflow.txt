@@ -8,7 +8,8 @@
 #
 # O todo de una vez (servicio + motor):
 #
-#   bash instalar_dependencias.sh
+#   Linux/macOS:  bash instalar_dependencias.sh
+#   Windows:      powershell -NoProfile -ExecutionPolicy Bypass -File .\instalar_dependencias.ps1
 #
 # El Estudio detecta .depthflow automaticamente; ESTUDIO_DEPTHFLOW_PYTHON
 # permite situarlo fuera del programa. Probado con Python 3.12.

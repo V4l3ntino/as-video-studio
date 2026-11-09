@@ -10,9 +10,10 @@
 # EL MOTOR OPCIONAL DE PARALLAX NO VA AQUI: DepthFlow arrastra torch, CUDA y
 # OpenGL, ocupa varios GB y vive en su propio entorno (.depthflow). Sus
 # dependencias estan en requirements-depthflow.txt. Para instalar el servicio
-# y el motor de una sola vez en Linux/macOS:
+# y el motor de una sola vez:
 #
-#   bash instalar_dependencias.sh
+#   Linux/macOS:  bash instalar_dependencias.sh
+#   Windows:      powershell -NoProfile -ExecutionPolicy Bypass -File .\instalar_dependencias.ps1
 
 fastapi==0.141.1
 starlette==1.6.0
