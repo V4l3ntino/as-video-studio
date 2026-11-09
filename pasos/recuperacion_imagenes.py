@@ -24,6 +24,8 @@ def _causas(fallo):
 
 def clasificar(fallo):
     """Reintenta entregas y cuota renovable, no rechazos ni errores de acceso."""
+    if getattr(fallo, "fallos", None):
+        return any(clasificar(f) for f in fallo.fallos)
     cadena = list(_causas(fallo))
     tipos = {str(getattr(f, "tipo", "")) for f in cadena}
     clases = {type(f).__name__.lower() for f in cadena}

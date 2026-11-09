@@ -202,20 +202,21 @@ aparece **Obtener recursos de bibliotecas**:
 - Si quieres imágenes de IA periódicas, marca **Incorporar imágenes ia** y ajusta
   **Una imagen con IA cada N escenas** (inicialmente 5).
 
-Con esa opción marcada, las escenas ilustradas N, 2N, 3N… usan **Codex**;
+Con esa opción marcada, las escenas ilustradas N, 2N, 3N… usan **IA** con el
+método principal y el respaldo ordenados en Configuración;
 las demás buscan recursos de los tipos y proveedores elegidos. Las cartelas de
 fondo sólido, los componentes
 ya construidos y las sustituciones manuales conservan su tratamiento propio.
 El selector prepara búsquedas para la escena y elige entre los resultados;
-si ninguno encaja o el archivo no es utilizable, se genera una imagen con Codex
+si ninguno encaja o el archivo no es utilizable, se genera una imagen con IA
 y se indica en el progreso. Los vídeos se descargan y normalizan **sin audio**.
 Sin la opción de IA periódica, todas las escenas buscan primero en las
-bibliotecas seleccionadas; Codex solo interviene si no hay un recurso adecuado.
-Sin bibliotecas visuales seleccionadas, las escenas se ilustran con Codex.
+bibliotecas seleccionadas; la IA solo interviene si no hay un recurso adecuado.
+Sin bibliotecas visuales seleccionadas, las escenas se ilustran con IA.
 Los proyectos anteriores conservan su cadencia de IA al abrirse.
 
 Configura las claves de los proveedores elegidos en **⚙ Configuración →
-Bibliotecas, música y efectos** y la sesión de Codex para las imágenes de IA.
+Bibliotecas, música y efectos** y los métodos de generación para las imágenes de IA.
 Las claves también admiten `PIXABAY_API_KEY` y `PEXELS_API_KEY` por entorno.
 Una biblioteca visual sin clave detiene la tarea con el motivo, antes de generar
 los recursos.
@@ -514,7 +515,7 @@ Short sin remontar el vídeo largo. Abrir la pantalla no descarta nada.
 | Las **fuentes** de los subtítulos y las cartelas | medir y dibujar el texto | ver el aviso de `motores/README.md` |
 | **DepthFlow** en `.depthflow` *(opcional)* | el efecto parallax | el vídeo sale sin parallax |
 | El **CLI de Claude**, con sesión | el guion, el catálogo visual, los rótulos | no hay vídeo |
-| **Codex CLI**, con sesión de ChatGPT | las imágenes con la cuota del plan | no hay vídeo |
+| **Codex CLI** con sesión de ChatGPT y/o **OpenAI API Key** | imágenes con cuota del plan o API por uso; ordenables como principal y respaldo | hace falta al menos un método disponible para generar imágenes |
 | Una **clave de Cartesia** | la voz | no hay vídeo |
 | Las de **Jamendo** y **FreeSound** | música y efectos | el vídeo sale sin ellos; son las únicas prescindibles |
 
@@ -611,19 +612,31 @@ claude login
 
 Para las imágenes, instala el CLI oficial con `npm install -g @openai/codex`
 (probado con **0.165.0**) y conecta ChatGPT en la guía de inicio o en
-**Configuración → ChatGPT / Codex — imágenes**. También reconoce una sesión
+**Configuración → ChatGPT / Codex CLI**. También reconoce una sesión
 ya abierta con `codex login`. El acceso desde la web usa un código de dispositivo:
 se introduce en la página de OpenAI, no se pega ningún token en el Estudio.
 Si OpenAI lo solicita, activa el acceso por código de dispositivo en la seguridad
 de tu cuenta de ChatGPT.
 
 Codex genera las imágenes con `gpt-image-2` y consume los límites de Codex de tu
-plan, sin cargos de la API de imágenes. No es una cuota ilimitada: si se agota,
-la tanda espera su renovación y vuelve a consultar periódicamente mientras los
-reintentos estén activados. Puedes detenerla con **Parar** y retomar después.
-No pasa automáticamente
-a una API de pago. Calidad y tamaño se solicitan al agente; el PNG se normaliza
+plan, sin cargos de la API de imágenes. No es una cuota ilimitada. Calidad y
+tamaño se solicitan al agente; el PNG se normaliza
 al tamaño que espera el motor de vídeo.
+
+Tanto **Configuración** como la **guía de inicio** muestran dos recuadros
+verticales: **ChatGPT / Codex CLI** (conectar, cambiar de cuenta y comprobar
+sesión) y **OpenAI API Key** (introducir, guardar y validar una clave). La
+validación comprueba la autenticación sin generar imágenes; el saldo de API
+solo se confirma al generar.
+
+Las flechas **↑ / ↓** intercambian los recuadros y guardan la prioridad al
+instante, compartida por toda la instalación. El superior es el principal y
+el inferior el respaldo automático: si el primero falla, no está disponible,
+agota su cuota/saldo o tiene errores de autenticación, se intenta el segundo
+para la misma imagen pendiente. Esto funciona en ambos sentidos. **La API
+factura por uso cuando entra en funcionamiento**, también como respaldo de
+Codex. Si ninguno puede generar, se conservan ambos diagnósticos y se aplica
+la recuperación de incidencias descrita abajo. Las imágenes ya hechas no se repiten.
 
 La herramienta admite **cinco imágenes de referencia por petición**. Si un
 plano necesita más, el adaptador conserva las primeras cuatro y agrupa las
@@ -646,8 +659,9 @@ límites generales que devuelve Codex no garantizan cuota de imágenes.
 La sesión se guarda y renueva mediante el propio CLI (`CODEX_HOME` o `~/.codex`).
 `ESTUDIO_CODEX_HOME` permite aislarla por instalación y `ESTUDIO_CODEX` indicar
 el ejecutable. Usa la misma variable para un login manual y para el servicio.
-En instalaciones que ya tenían una clave se conserva el motor anterior hasta
-pulsar **Usar ChatGPT**; el cambio no modifica firmas ni regenera imágenes hechas.
+En instalaciones que ya tenían una clave se conserva la API como principal;
+las nuevas sin clave empiezan con Codex. Cambiar el orden o iniciar sesión no
+modifica firmas ni regenera imágenes hechas. Cambiar de cuenta no altera el orden.
 
 ### Incidencias de imágenes: recuperación y correo
 
@@ -662,10 +676,12 @@ cadena siga generando planos. **Generar imágenes** y **Continuar imágenes** so
 aparecen cuando la tanda ha terminado o se ha detenido de verdad; mientras está
 activa se ofrecen el progreso y **Parar**. Durante la incidencia no se muestra
 una cuenta atrás de finalización, porque no se sabe cuándo volverá el servicio.
-No se generan imágenes de prueba ni se cambia a un motor de pago. Los errores
-de sesión, referencias o modelo incompatible se notifican y se detienen para
-corregir su causa.
-Los límites renovables de **ChatGPT/Codex** mantienen la tanda en espera: la barra
+Primero se intenta el otro método configurado; si ninguno resuelve la imagen,
+los errores no recuperables se notifican y se detienen para corregir su causa.
+No se generan imágenes de prueba. Los rechazos de contenido siguen el circuito
+de revisión, sin reenviar el mismo encargo al otro proveedor.
+Los límites renovables de **ChatGPT/Codex**, cuando la API tampoco puede generar,
+mantienen la tanda en espera: la barra
 indica «Uso de ChatGPT no disponible» y el tiempo hasta la siguiente comprobación.
 Si Codex indica que el uso general sigue bloqueado, solo se consultan sus límites,
 sin abrir un turno de generación. Cuando vuelve a estar permitido, se solicita la

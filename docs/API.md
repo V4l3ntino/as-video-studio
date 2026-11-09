@@ -284,11 +284,14 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/avisos/correo` | Configuración de reintentos y avisos SMTP, sin devolver la contraseña. |
 | `PUT` | `/api/avisos/correo` | Guarda Gmail/SMTP y los intervalos de reintento fuera de los proyectos. |
 | `POST` | `/api/avisos/correo/probar` | Envía un correo de prueba real al destinatario configurado. |
+| `POST` | `/api/imagenes/api/probar` | Valida la clave OpenAI guardada sin generar imágenes ni cobrar por uso. |
 | `GET` | `/api/imagenes/codex` | Estado de la sesión de ChatGPT para imágenes, sin tokens ni claves. |
 | `POST` | `/api/imagenes/codex/activar` | Usa la suscripción de ChatGPT sin cambiar firmas ni regenerar imágenes. |
 | `POST` | `/api/imagenes/codex/login` | Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex. |
+| `GET` | `/api/imagenes/proveedores` | Métodos de imagen en orden: principal y respaldo automático. |
+| `PUT` | `/api/imagenes/proveedores` | Guarda la prioridad de Codex y API sin modificar los proyectos. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**177 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**180 endpoints.** Escrito por `generar_api.py` desde `app.py`.

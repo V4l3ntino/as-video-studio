@@ -1850,6 +1850,7 @@ def probar_claves(cliente):
     ok(all("clave" not in c for c in ficha.get("openai", [])),
        "ni las de OpenAI: solo etiqueta y los cuatro ultimos")
     ok("max_openai" in ficha, "dice cuantas cuentas admite")
+    _, prioridad_inicial = cliente.get("/api/imagenes/proveedores")
 
     # UNA SOLA CLAVE DE OPENAI. Con varias habia un reparto que convertia una
     # clave mal puesta en «va mas lento» en vez de en un error, y una segunda
@@ -1861,6 +1862,25 @@ def probar_claves(cliente):
     igual(len(ficha["openai"]), 1, "y guarda UNA")
     ok(ficha["openai"][0]["cola"].endswith("aaaa"),
        f"con su cola, que es lo unico que se ensena: {ficha['openai']}")
+    _, prioridad_tras_clave = cliente.get("/api/imagenes/proveedores")
+    igual(prioridad_tras_clave, prioridad_inicial, "añadir una clave no mueve las tarjetas")
+
+    respuesta, prioridad = cliente.get("/api/imagenes/proveedores")
+    igual(respuesta.status_code, 200, "se lee la prioridad de imágenes")
+    for orden in (["api", "codex"], ["codex", "api"]):
+        respuesta, guardada = cliente.put("/api/imagenes/proveedores", {"orden": orden})
+        igual(respuesta.status_code, 200, "se puede cambiar el principal de imágenes")
+        igual(guardada.get("orden"), orden, "el servidor confirma el orden")
+        _, releida = cliente.get("/api/imagenes/proveedores")
+        igual(releida.get("orden"), orden, "la siguiente lectura conserva el orden")
+    for orden in (["api"], ["api", "api"], ["otro", "codex"], "api", None):
+        respuesta, _ = cliente.put("/api/imagenes/proveedores", {"orden": orden})
+        igual(respuesta.status_code, 400, "una prioridad inválida se rechaza")
+    respuesta, validacion = cliente.post("/api/imagenes/api/probar")
+    igual(respuesta.status_code, 200, "se valida la clave API independientemente del principal")
+    igual(validacion.get("estado"), "ok", "la validación usa el doble simulado")
+    ok("sk-" + "a" * 40 not in json.dumps(validacion), "validar nunca devuelve la clave")
+    cliente.put("/api/imagenes/proveedores", prioridad)
 
     respuesta, _ = cliente.put("/api/claves", {"openai": [
         {"clave": "sk-" + "a" * 40}, {"clave": "sk-" + "b" * 40}]})
@@ -2141,8 +2161,8 @@ def probar_salud_de_las_cuentas(cliente):
     respuesta, ficha = cliente.post("/api/claves/probar", {"claude": True})
     igual(respuesta.status_code, 200, f"probar todas las claves responde 200: {str(ficha)[:200]}")
     proveedores = [p["proveedor"] for p in ficha.get("pruebas") or []]
-    ok(proveedores[:4] == ["openai", "cartesia", "jamendo", "freesound"],
-       f"con los cuatro servicios en orden: {proveedores}")
+    ok(proveedores[:5] == ["openai", "codex", "cartesia", "jamendo", "freesound"],
+       f"con API y Codex comprobados por separado: {proveedores}")
     ok("claude" in proveedores, "y Claude cuando se pide")
     ok(isinstance(ficha.get("resumen"), str) and "todo_bien" in ficha,
        "con un resumen legible y un veredicto")
@@ -2775,7 +2795,7 @@ async function refrescarFichasLight() {}
 function refrescarPlanLight() {}
 function repintarPieDeEncargo() {}
 function toast(error) {throw new Error(error);}
-""" + campos + cuerpo_de("async function volcarEncargoLight(") + r"""
+""" + campos + cuerpo_de("async function volcarEncargoLight(") + cuerpo_de("async function ejecutarVolcadoEncargoLight(") + r"""
 (async () => {
   const pedido = {pid: 'P', copia: {incorporar_voz: false},
     guardado: {incorporar_voz: true}, reloj: null};

@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -354,24 +355,60 @@ def codex():
     return _CODEX
 
 
-def proveedor_imagen():
-    """Instalaciones nuevas usan ChatGPT; las claves existentes siguen legibles."""
+def prioridades_imagen():
+    """Preferencia de instalación; conserva el principal de formatos anteriores."""
     try:
         with open(RUTA_PROVEEDOR, encoding="utf-8") as fh:
-            if json.load(fh).get("proveedor") == "codex":
-                return "codex"
+            datos = json.load(fh)
+            orden = datos.get("orden")
+            if orden in (["codex", "api"], ["api", "codex"]):
+                return list(orden)
+            if datos.get("proveedor") == "codex":
+                return ["codex", "api"]
     except (OSError, ValueError, AttributeError):
         pass
-    return "api" if _claves_declaradas() else "codex"
+    return ["api", "codex"] if _claves_declaradas() else ["codex", "api"]
+
+
+def proveedor_imagen():
+    """Principal configurado, no necesariamente el que resuelva cada imagen."""
+    return prioridades_imagen()[0]
+
+
+_PRIORIDADES_LOCK = threading.RLock()
+
+
+def guardar_prioridades(orden):
+    with _PRIORIDADES_LOCK:
+        _guardar_prioridades(orden)
+
+
+def conservar_prioridades_actuales():
+    """Añadir/quitar una clave no debe mover las tarjetas heredadas sin orden."""
+    with _PRIORIDADES_LOCK:
+        _guardar_prioridades(prioridades_imagen())
+
+
+def _guardar_prioridades(orden):
+    if orden not in (["codex", "api"], ["api", "codex"]):
+        raise ValueError("El orden debe contener codex y api, una vez cada uno.")
+    os.makedirs(CARPETA_SECRETOS, exist_ok=True)
+    temporal = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=CARPETA_SECRETOS,
+                                         suffix=".tmp", delete=False) as fh:
+            temporal = fh.name
+            json.dump({"orden": orden, "proveedor": orden[0]}, fh)
+        os.replace(temporal, RUTA_PROVEEDOR)
+        temporal = None
+    finally:
+        if temporal and os.path.exists(temporal):
+            os.unlink(temporal)
 
 
 def activar_codex():
     """Preferencia de instalación, nunca params ni firmas de los vídeos."""
-    os.makedirs(CARPETA_SECRETOS, exist_ok=True)
-    ruta = RUTA_PROVEEDOR + ".tmp"
-    with open(ruta, "w", encoding="utf-8") as fh:
-        json.dump({"proveedor": "codex"}, fh)
-    os.replace(ruta, RUTA_PROVEEDOR)
+    guardar_prioridades(["codex", "api"])
 
 #: Cuanto se deja fuera del reparto una cuenta que dijo "sin credito". No es
 #: para siempre a proposito: una cuenta que se agoto a las diez y se recargo a
@@ -774,6 +811,66 @@ def _al_dia(destino, origen):
 
 def generar(prompt, referencias, *, quality="low", tamano="apaisado",
             api_key=None, reintentos=6):
+    """Intenta principal y respaldo para esta imagen, sin repetir las ya hechas."""
+    referencias = list(referencias or [])
+    faltan = [r for r in referencias if not os.path.exists(r)]
+    if faltan:
+        raise ValueError("estas imagenes de referencia no existen: "
+                         + ", ".join(str(f) for f in faltan[:5]))
+    # Los consumidores que pasan una clave explícita piden esa cuenta concreta.
+    if api_key is not None:
+        return _generar_api(prompt, referencias, quality=quality, tamano=tamano,
+                            api_key=api_key, reintentos=reintentos)
+    fallos = []
+    for proveedor in prioridades_imagen():
+        try:
+            if proveedor == "codex":
+                png, meta = codex().generar(prompt, referencias, quality, TAMANOS[tamano])
+            else:
+                if not _claves_declaradas():
+                    raise RuntimeError("No hay una API key de OpenAI configurada.")
+                # Con respaldo no se encadenan seis esperas ante un 429/5xx:
+                # el otro método puede resolver ya la imagen pendiente.
+                png, meta = _generar_api(prompt, referencias, quality=quality,
+                                         tamano=tamano, reintentos=0)
+            meta = dict(meta, proveedor=proveedor)
+            if fallos:
+                meta["respaldo_de"] = fallos[0][0]
+            return png, meta
+        except (Exception, SystemExit) as fallo:
+            if isinstance(fallo, SystemExit) and "OPENAI_API_KEY" not in str(fallo):
+                raise
+            # Un rechazo sigue el circuito de revisión/adaptación visual, nunca
+            # se reenvía a otro proveedor para saltarse su decisión.
+            if type(fallo).__name__ == "Cancelado" or getattr(fallo, "tipo", "") in {
+                    "rechazo", "referencias", "respuesta_ambigua"}:
+                raise
+            fallos.append((proveedor, fallo))
+    raise ErrorProveedores(fallos) from None
+
+
+class ErrorProveedores(RuntimeError):
+    """Conserva ambos diagnósticos y la espera de cuota renovable de ChatGPT."""
+
+    def __init__(self, fallos):
+        self.fallos = [f for _, f in fallos]
+        renovable = next((f for f in self.fallos if getattr(f, "cuota_renovable", False)), None)
+        self.cuota_renovable = renovable is not None
+        self.tipo = "cuota" if renovable else getattr(self.fallos[-1], "tipo", "sin_clasificar")
+        self.diagnostico = getattr(renovable or self.fallos[-1], "diagnostico", None)
+        super().__init__("No se pudo generar con ninguno de los métodos. " + " · ".join(
+            f"{'ChatGPT / Codex CLI' if p == 'codex' else 'OpenAI API Key'}: {codex()._limpiar(f)}"
+            for p, f in fallos))
+
+
+class ErrorImagenAPI(RuntimeError):
+    def __init__(self, mensaje, tipo):
+        super().__init__(mensaje)
+        self.tipo = tipo
+
+
+def _generar_api(prompt, referencias, *, quality="low", tamano="apaisado",
+                 api_key=None, reintentos=6):
     # SIN REFERENCIAS SE DIBUJA SOLO CON EL TEXTO, por /generations. Aqui habia
     # un ValueError: requests solo pone 'multipart/form-data' cuando `files` no
     # esta vacio, asi que una lista vacia mandada a /edits salia como formulario
@@ -788,9 +885,6 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
         raise ValueError("estas imagenes de referencia no existen: "
                           + ", ".join(str(f) for f in faltan[:5]))
 
-    if api_key is None and proveedor_imagen() == "codex":
-        return codex().generar(prompt, referencias, quality, TAMANOS[tamano])
-
     # con api_key explicita se respeta esa clave (una cuenta efimera con su
     # propio cubo); sin ella, cada intento elige la cuenta con hueco -- que es
     # lo que reparte una tanda entre dos claves sin tocar a quien llama
@@ -801,6 +895,8 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
 
     for intento in range(reintentos + 1):
         cuenta = cuenta_fija or _elegir_cuenta(len(referencias))
+        if reintentos == 0 and cuenta.espera_estimada(len(referencias)) > 0:
+            raise ErrorImagenAPI("La API está limitada temporalmente; se intenta el respaldo.", "saturacion")
         # si otra cadena se ha comido la ventana del limite de ESTA cuenta,
         # aqui se espera: salir a llamar igualmente es gastar otro 429
         _esperar_turno(cuenta)
@@ -855,6 +951,10 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
                          "usage": payload.get("usage") or {}}
 
         ultimo_error = f"HTTP {r.status_code}: {r.text[:200]}"
+        if any(c in r.text.lower() for c in (
+                "content_policy", "safety_viol", "moderation_blocked")):
+            raise ErrorImagenAPI("OpenAI ha rechazado este encargo de imagen. Revisa su descripción.",
+                                 "rechazo")
         # UNA CLAVE QUE NO VALE aparta SU cuenta y se sigue con las demas. Es el
         # gemelo del «sin credito» de abajo, y existe por un caso real: una de
         # tres claves rotada en OpenAI y cada tanda con un tercio de
@@ -893,7 +993,7 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
                 "https://platform.openai.com/settings/organization/billing y "
                 "retoma la generacion: lo ya generado NO se pierde ni se vuelve "
                 "a pagar.")
-        if r.status_code == 429 and intento < reintentos:
+        if r.status_code == 429:
             # el freno es de todas las cadenas DE ESA CUENTA: si lo pone una,
             # las demas tampoco salen a llamar con esa clave hasta que su
             # ventana se renueve; el proximo intento puede elegir otra cuenta
@@ -902,7 +1002,8 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
             # y lo que dijo, aprendido y guardado (ver «lo que se aprende»)
             if cuenta_fija is None:
                 _aprender_del_429(cuenta, techo_antes)
-            continue
+            if intento < reintentos:
+                continue
         if r.status_code in (500, 502, 503, 504) and intento < reintentos:
             time.sleep(min(3 * (intento + 1), 30))
             continue
@@ -923,12 +1024,12 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
         break
 
     if r is not None and r.status_code == 429:
-        raise RuntimeError(
+        raise ErrorImagenAPI(
             "la API de imagen sigue diciendo que vamos demasiado rapido despues "
             f"de {reintentos} esperas. Su limite que salta es el de IMAGENES DE "
             "ENTRADA por minuto, y cada plano manda entre 8 y 14: baja las "
             "cadenas en paralelo (params de assets, 'cadenas') o espera unos "
-            f"minutos y retoma -- lo ya generado no se vuelve a pagar. {ultimo_error}")
+            f"minutos y retoma -- lo ya generado no se vuelve a pagar. {ultimo_error}", "saturacion")
     raise RuntimeError(ultimo_error)
 
 

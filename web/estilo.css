@@ -1260,6 +1260,21 @@ video { width: 100%; border-radius: 9px; border: 1px solid var(--linea); backgro
   border-radius: 10px; padding: 12px; margin-bottom: 12px;
 }
 .bloque-config h3 { margin: 0 0 4px; font-size: 14px; }
+.imagen-proveedores { display: flex; flex-direction: column; gap: 12px; }
+.imagen-proveedores > .pista { margin: 0; }
+.imagen-proveedores .imagen-proveedor {
+  margin: 0; padding: 14px; border: 1px solid var(--linea);
+  border-radius: 10px; background: var(--panel); min-width: 0;
+}
+.imagen-proveedor-orden {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--linea-suave);
+  color: var(--tenue); font-size: 12px;
+}
+.imagen-proveedor-orden button { min-width: 32px; min-height: 32px; }
+.imagen-proveedor .fila { flex-wrap: wrap; }
+.imagen-proveedor > .fila-clave { margin: 12px 0; }
+.inicio-cuerpo .imagen-proveedores .imagen-proveedor { margin: 0; }
 
 /* Una fila de clave: etiqueta + valor + lo que se puede hacer con ella. En
    pantalla estrecha se apila, porque tres campos en 375 px son tres campos de

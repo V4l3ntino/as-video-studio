@@ -155,7 +155,7 @@ class Bibliotecas(unittest.TestCase):
         self.assertIn('"video"', lectura.stdout)
         self.assertTrue(Path(medio["poster"]).is_file())
 
-    def test_ia_del_modo_mixto_usa_codex_incluso_con_api_configurada(self):
+    def test_ia_del_modo_mixto_respeta_el_motor_con_prioridad_y_respaldo(self):
         p = p6_assets._con_defectos(self.params)
         p["banco_imagenes"] = str(Path(self.temporal.name) / "cache_ia")
         png = io.BytesIO()
@@ -163,13 +163,17 @@ class Bibliotecas(unittest.TestCase):
         motor = Mock()
         motor.TAMANOS = {"apaisado": [1536, 1024]}
         motor.proveedor_imagen.return_value = "api"
-        motor.codex.return_value.generar.return_value = (png.getvalue(), {"coste": 0, "segundos": 1})
+        motor.generar.return_value = (png.getvalue(), {"coste": .02, "segundos": 1,
+                                                     "proveedor": "api", "respaldo_de": "codex"})
         with patch.object(p6_assets.medios, "motor", return_value=motor), patch.object(
                 p6_assets, "_adoptar", return_value=None):
-            p6_assets._producir_imagen("S003", "forest", [],
+            ficha = p6_assets._producir_imagen("S003", "forest", [],
                 str(Path(self.temporal.name) / "ia.png"), p)
-        motor.codex.return_value.generar.assert_called_once()
-        motor.generar.assert_not_called()
+        motor.generar.assert_called_once_with("forest", [], quality=p["calidad"], tamano="apaisado")
+        motor.codex.return_value.generar.assert_not_called()
+        self.assertEqual(ficha["proveedor"], "api")
+        self.assertEqual(ficha["respaldo_de"], "codex")
+        self.assertEqual(ficha["coste"], .02)
 
     def test_efectos_locales_sin_surtido_y_limitados_a_su_escena(self):
         ficha = {"fuente": "freesound", "id": "17", "archivo": "sonido-local.mp3"}

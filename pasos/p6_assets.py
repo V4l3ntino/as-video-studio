@@ -3415,9 +3415,6 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
 
     def generar_actual():
         try:
-            if bibliotecas.activa(p):
-                return imagen.codex().generar(prompt_actual, referencias, p["calidad"],
-                                               imagen.TAMANOS[tamano])
             return imagen.generar(prompt_actual, referencias, quality=p["calidad"], tamano=tamano)
         except RuntimeError as fallo:
             if adaptacion and _rechazo_de_seguridad(fallo):
@@ -3457,8 +3454,8 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
                                                    "alternativa_visual": adaptacion})
                 return generar_actual()
             if bibliotecas.activa(p):
-                raise RuntimeError(f"{nombre}: Codex rechazó este plano. Revisa su dirección; "
-                                   "no se utiliza una API de pago como alternativa.") from rechazo
+                raise RuntimeError(f"{nombre}: el proveedor rechazó este plano. Revisa su dirección; "
+                                   "el rechazo de contenido no se reenvía al otro método.") from rechazo
             if not prompt_seguro or prompt_seguro == prompt:
                 raise RuntimeError(
                     f"{nombre}: OpenAI rechaza este plano con su filtro de "
@@ -3498,7 +3495,8 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
     with open(destino, "wb") as fh:
         fh.write(png)
     hecho = {"origen": "generada", "firma": firma, "coste": meta["coste"],
-              "segundos": meta["segundos"]}
+               "segundos": meta["segundos"]}
+    hecho.update({k: meta[k] for k in ("proveedor", "respaldo_de", "facturacion") if k in meta})
     if adaptacion:
         hecho["alternativa_visual"] = adaptacion
         hecho["prompt_enviado"] = prompt_actual

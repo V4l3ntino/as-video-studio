@@ -442,6 +442,146 @@ class PruebaCodex(unittest.TestCase):
                 self.assertFalse(reutilizada)
 
 
+class PruebaPrioridadesImagen(unittest.TestCase):
+    def setUp(self):
+        carpeta = tempfile.TemporaryDirectory(dir=CARPETA.name)
+        self.addCleanup(carpeta.cleanup)
+        self.carpeta = carpeta.name
+        for nombre, valor in (("CARPETA_SECRETOS", self.carpeta),
+                              ("RUTA_PROVEEDOR", os.path.join(self.carpeta, "imagenes.json"))):
+            parche = mock.patch.object(motor, nombre, valor)
+            parche.start()
+            self.addCleanup(parche.stop)
+        self.claves = mock.patch.object(motor, "_claves_declaradas", return_value=[("", "sk-prueba")]).start()
+        self.api = mock.patch.object(motor, "_generar_api", return_value=(b"api", {"coste": .01})).start()
+        self.codex = mock.Mock()
+        self.codex.generar.return_value = (b"codex", {"coste": 0, "facturacion": "suscripcion_chatgpt"})
+        self.codex._limpiar.side_effect = str
+        self.codex.ErrorCodex = codex.ErrorCodex
+        self.adaptador = mock.patch.object(motor, "codex", return_value=self.codex).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def test_conserva_principal_antiguo_y_persiste_ambos_ordenes(self):
+        self.assertEqual(motor.prioridades_imagen(), ["api", "codex"])
+        self.claves.return_value = []
+        self.assertEqual(motor.prioridades_imagen(), ["codex", "api"])
+        for orden in (["api", "codex"], ["codex", "api"]):
+            motor.guardar_prioridades(orden)
+            self.assertEqual(motor.prioridades_imagen(), orden)
+            reiniciado = cargar("motor_reiniciado", "imagen.py")
+            reiniciado.RUTA_PROVEEDOR = motor.RUTA_PROVEEDOR
+            self.assertEqual(reiniciado.prioridades_imagen(), orden)
+        with open(motor.RUTA_PROVEEDOR, "w", encoding="utf-8") as fh:
+            json.dump({"proveedor": "codex"}, fh)
+        self.assertEqual(motor.proveedor_imagen(), "codex")
+
+    def test_rechaza_orden_incompleto_o_duplicado_sin_sobrescribir(self):
+        motor.guardar_prioridades(["api", "codex"])
+        for orden in (None, "api", [], ["api"], ["api", "api"], ["api", "otro"]):
+            with self.assertRaises(ValueError):
+                motor.guardar_prioridades(orden)
+            self.assertEqual(motor.prioridades_imagen(), ["api", "codex"])
+
+    def test_anadir_o_quitar_una_clave_no_cambia_la_prioridad(self):
+        self.claves.return_value = []
+        motor.conservar_prioridades_actuales()
+        self.claves.return_value = [("", "sk-nueva")]
+        self.assertEqual(motor.prioridades_imagen(), ["codex", "api"])
+        motor.guardar_prioridades(["api", "codex"])
+        motor.conservar_prioridades_actuales()
+        self.claves.return_value = []
+        self.assertEqual(motor.prioridades_imagen(), ["api", "codex"])
+
+    def test_principal_sano_no_llama_al_respaldo(self):
+        for orden in (["api", "codex"], ["codex", "api"]):
+            motor.guardar_prioridades(orden)
+            self.api.reset_mock()
+            self.codex.generar.reset_mock()
+            png, meta = motor.generar("plano", [])
+            self.assertEqual(png.decode(), orden[0])
+            self.assertEqual(meta["proveedor"], orden[0])
+            self.assertNotIn("respaldo_de", meta)
+            (self.api if orden[1] == "api" else self.codex.generar).assert_not_called()
+
+    def test_codex_sin_cuota_sesion_o_servicio_recurre_a_api(self):
+        motor.guardar_prioridades(["codex", "api"])
+        for tipo in ("cuota", "sesion", "conexion", "tiempo", "servicio", "desconocido"):
+            self.codex.generar.side_effect = codex.ErrorCodex("no disponible", tipo)
+            png, meta = motor.generar("plano", [], quality="high", tamano="vertical")
+            self.assertEqual(png, b"api")
+            self.assertEqual(meta["respaldo_de"], "codex")
+            self.assertEqual(meta["coste"], .01)
+            self.api.assert_called_with("plano", [], quality="high", tamano="vertical", reintentos=0)
+
+    def test_api_sin_saldo_autenticacion_o_red_recurre_a_codex(self):
+        motor.guardar_prioridades(["api", "codex"])
+        for fallo in (motor.SinSaldo("sin crédito"), RuntimeError("401 Incorrect API key"),
+                      TimeoutError("timeout"), RuntimeError("HTTP 503")):
+            self.api.side_effect = fallo
+            png, meta = motor.generar("plano", [], quality="medium", tamano="cuadrado")
+            self.assertEqual(png, b"codex")
+            self.assertEqual(meta["respaldo_de"], "api")
+            self.assertEqual(meta["coste"], 0)
+            self.assertEqual(meta["facturacion"], "suscripcion_chatgpt")
+            self.codex.generar.assert_called_with("plano", [], "medium", "1024x1024")
+
+    def test_api_sin_clave_pasa_directamente_a_codex(self):
+        motor.guardar_prioridades(["api", "codex"])
+        self.claves.return_value = []
+        self.assertEqual(motor.generar("plano", [])[0], b"codex")
+        self.api.assert_not_called()
+
+    def test_si_fallan_ambos_conserva_diagnosticos_y_recuperacion(self):
+        from pasos.recuperacion_imagenes import clasificar
+        for orden in (["api", "codex"], ["codex", "api"]):
+            motor.guardar_prioridades(orden)
+            self.api.side_effect = motor.SinSaldo("sin crédito")
+            self.codex.generar.side_effect = codex.ErrorCodex("cuota agotada", "cuota", {"id": "diagnostico"})
+            with self.assertRaises(motor.ErrorProveedores) as error:
+                motor.generar("plano", [])
+            self.assertIn("sin crédito", str(error.exception))
+            self.assertIn("cuota agotada", str(error.exception))
+            self.assertTrue(clasificar(error.exception))
+            self.assertTrue(error.exception.cuota_renovable)
+            self.assertEqual(error.exception.diagnostico["id"], "diagnostico")
+        self.codex.generar.side_effect = codex.ErrorCodex("sesión caducada", "sesion")
+        with self.assertRaises(motor.ErrorProveedores) as error:
+            motor.generar("plano", [])
+        self.assertFalse(clasificar(error.exception))
+        self.api.side_effect = TimeoutError("timeout")
+        with self.assertRaises(motor.ErrorProveedores) as error:
+            motor.generar("plano", [])
+        self.assertTrue(clasificar(error.exception))
+
+    def test_cancelacion_y_rechazos_no_se_reenvian(self):
+        from nucleo.trabajos import Cancelado
+        motor.guardar_prioridades(["codex", "api"])
+        for fallo in (Cancelado("parar"), codex.ErrorCodex("revisar encargo", "rechazo")):
+            self.codex.generar.side_effect = fallo
+            with self.assertRaises(type(fallo)):
+                motor.generar("plano", [])
+            self.api.assert_not_called()
+
+    def test_api_real_429_pasa_al_respaldo_sin_esperar_ni_repetir(self):
+        # Quita solo el doble de transporte: se ejercita la respuesta HTTP real
+        # con una cuenta efímera, sin modificar claves ni límites del usuario.
+        self.api.side_effect = self.generar_api_real
+        motor.guardar_prioridades(["api", "codex"])
+        respuesta = mock.Mock(status_code=429, text='{"error":{"code":"rate_limit_exceeded"}}', headers={})
+        cuenta = motor._Cuenta("prueba", "sk-prueba")
+        with mock.patch.object(motor, "_elegir_cuenta", return_value=cuenta), \
+                mock.patch.object(motor, "_pedir_ficha"), \
+                mock.patch.object(motor, "_esperar_turno"), \
+                mock.patch.object(motor, "_aprender_del_429"), \
+                mock.patch.object(motor.requests, "post", return_value=respuesta) as post, \
+                mock.patch.object(motor.time, "sleep") as dormir:
+            self.assertEqual(motor.generar("plano", [])[0], b"codex")
+        post.assert_called_once()
+        dormir.assert_not_called()
+
+    generar_api_real = staticmethod(motor._generar_api)
+
+
 if __name__ == "__main__":
     try:
         unittest.main(verbosity=2)

@@ -16,10 +16,13 @@ tarde averiguar.
 
 **Actualización: imágenes con ChatGPT / Codex.** Las instalaciones nuevas sin
 clave usan la sesión de ChatGPT del CLI oficial, con la cuota de Codex, no cargos
-de la API. Las claves existentes conservan el camino anterior hasta activar
-«Usar ChatGPT». El adaptador es `motores/imagen_openai/codex.py`; ver el setup en
+de la API. Configuración y guía muestran Codex y OpenAI API Key en dos tarjetas:
+su orden (guardado en `secretos/imagenes.json`) determina principal y
+respaldo automático ante errores, falta de sesión o cuota. El adaptador es
+`motores/imagen_openai/codex.py`; ver el setup en
 `README.md` y `python pasos/prueba_codex_imagen.py`. No se pasan los tokens de
-login a `/v1/images` ni se hace fallback de pago. Las reglas de firmas, caché y
+login a `/v1/images`; la API usa su propia clave y factura por uso, también como
+respaldo. Un rechazo de contenido no pasa a otro proveedor. Las reglas de firmas, caché y
 orden de generación de abajo siguen siendo necesarias: la cuota también se agota.
 
 Una tanda de imágenes de un vídeo de cuatro minutos son ~126 imágenes y ~4,4 $.

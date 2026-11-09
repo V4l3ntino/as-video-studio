@@ -7303,6 +7303,8 @@ def guardar_claves(cuerpo: dict = Body(default=None)):
     datos = _cuerpo(cuerpo)
     modulo = _claves()
     try:
+        if "openai" in datos:
+            _motor_codex().conservar_prioridades_actuales()
         ficha = modulo.guardar(datos)
     except modulo.ErrorClaves as fallo:
         raise ErrorApi(400, str(fallo))
@@ -7328,7 +7330,36 @@ def estado_codex():
     motor = _motor_codex()
     ficha = motor.codex().estado()
     ficha["proveedor"] = motor.proveedor_imagen()
+    ficha["orden"] = motor.prioridades_imagen()
     return ficha
+
+
+@app.get("/api/imagenes/proveedores")
+def proveedores_imagen():
+    """Métodos de imagen en orden: principal y respaldo automático."""
+    return {"orden": _motor_codex().prioridades_imagen()}
+
+
+@app.put("/api/imagenes/proveedores")
+def guardar_proveedores_imagen(cuerpo: dict = Body(default=None)):
+    """Guarda la prioridad de Codex y API sin modificar los proyectos."""
+    try:
+        _motor_codex().guardar_prioridades(_cuerpo(cuerpo).get("orden"))
+    except ValueError as fallo:
+        raise ErrorApi(400, str(fallo))
+    return proveedores_imagen()
+
+
+@app.post("/api/imagenes/api/probar")
+def probar_api_imagen():
+    """Valida la clave OpenAI guardada sin generar imágenes ni cobrar por uso."""
+    cuentas = [c for c in _claves().leer()["openai"] if c["activa"]]
+    clave = cuentas[0]["clave"] if cuentas else ""
+    modulo = PASOS_MODULOS.comprobar_claves
+    if PASOS_MODULOS.salud_cli.simulado():
+        return {"proveedor": "openai", "estado": "ok" if clave else "sin_clave",
+                "mensaje": "simulado" if clave else "No hay clave de OpenAI puesta."}
+    return modulo.probar_openai(clave)
 
 
 @app.post("/api/imagenes/codex/activar")
@@ -7347,7 +7378,6 @@ def login_codex():
         intento = motor.codex().iniciar_login()
     except motor.codex().ErrorCodex as fallo:
         raise ErrorApi(400, str(fallo))
-    motor.activar_codex()
     return {"intento": intento}
 
 
