@@ -166,7 +166,7 @@ TIPOS = {
         "nombre": "Montaje",
         "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
         "claves": ("subtitulos", "parallax", "transiciones", "transiciones_personalizadas", "bibliotecas",
-                   "animaciones", "plantillas_cartela", "generar_personajes", "incorporar_voz"),
+                   "animaciones", "plantillas_cartela", "color_acento", "generar_personajes", "incorporar_voz"),
         "pasos": ("voz", "assets", "callouts", "render"),
     },
     "canal": {
@@ -273,6 +273,11 @@ def _limpiar_datos(tipo, datos):
             if not isinstance(valores, list) or any(
                     not isinstance(v, str) or v not in ANIMACIONES for v in valores):
                 raise ErrorPreset("animaciones debe ser una lista de animaciones conocidas")
+        if "color_acento" in limpios:
+            import re
+            if not isinstance(limpios["color_acento"], str) or not re.fullmatch(
+                    r"#[0-9a-fA-F]{6}", limpios["color_acento"]):
+                raise ErrorPreset("color_acento debe ser un color hexadecimal #RRGGBB")
     if tipo == "canal":
         # un canal es un paquete de los otros tipos: cada bloque se valida con
         # las reglas de SU tipo, o el paquete se convierte en el agujero por
@@ -1110,10 +1115,13 @@ def cambios_para(ficha, params_actuales=None):
 
     if tipo == "montaje":
         render = {k: copy.deepcopy(v) for k, v in datos.items()
-                  if k not in ("bibliotecas", "generar_personajes", "incorporar_voz", "plantillas_cartela")}
+                  if k not in ("bibliotecas", "generar_personajes", "incorporar_voz",
+                               "plantillas_cartela", "color_acento")}
         cambios = {"render": render} if render else {}
         if "plantillas_cartela" in datos:
             cambios["callouts"] = {"plantillas_cartela": copy.deepcopy(datos["plantillas_cartela"])}
+        if "color_acento" in datos:
+            cambios.setdefault("callouts", {})["color_acento"] = datos["color_acento"]
         assets = {k: copy.deepcopy(datos[k]) for k in ("bibliotecas", "generar_personajes")
                   if k in datos}
         if assets:
@@ -1207,6 +1215,8 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
                   if c in render}
         if "plantillas_cartela" in callouts:
             bloque["plantillas_cartela"] = copy.deepcopy(callouts["plantillas_cartela"])
+        if "color_acento" in callouts:
+            bloque["color_acento"] = callouts["color_acento"]
         if "bibliotecas" in assets:
             bloque["bibliotecas"] = copy.deepcopy(assets["bibliotecas"])
         if "generar_personajes" in assets:

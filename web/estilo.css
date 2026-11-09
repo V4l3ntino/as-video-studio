@@ -2566,6 +2566,9 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
    Izquierda: lo que hay. Derecha: lo que entra al montar. Pulsar una tarjeta la
    cambia de lado. En pantallas estrechas se apilan. */
 .anim-recuadros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.anim-color { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
+.anim-color input { width: 48px; height: 34px; padding: 2px; border: 1px solid var(--linea); border-radius: 6px; background: var(--panel); cursor: pointer; }
+.anim-color .meta { font-weight: 400; }
 /* SIEMPRE LA MISMA ALTURA (506 px, la que se ve bien con las ocho tarjetas): si
    hay mas tarjetas de las que caben, el recuadro hace scroll por dentro en vez
    de crecer, y asi los dos lados no se descuadran al mover una tarjeta. */

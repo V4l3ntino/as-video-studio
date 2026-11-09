@@ -1614,6 +1614,9 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, "transiciones_personalizadas debe ser un booleano")
         if "transiciones" in nuevos and not isinstance(nuevos["transiciones"], list):
             raise ErrorApi(400, "transiciones debe ser una lista")
+        if "color_acento" in nuevos and (not isinstance(nuevos["color_acento"], str)
+                or not re.fullmatch(r"#[0-9a-fA-F]{6}", nuevos["color_acento"])):
+            raise ErrorApi(400, "color_acento debe ser un color hexadecimal #RRGGBB")
         listas = (("transiciones", PASOS_MODULOS.transiciones.CATALOGO,
                    "transiciones"),
                   ("animaciones", PASOS_MODULOS.animaciones.CATALOGO,
@@ -5363,6 +5366,9 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
                                           patrones=(r"movimiento\.json",))
             paleta = ((p_medios.leer_json(ruta_mov, {}) or {}).get("paleta")
                       if ruta_mov else None) or {}
+            color_acento = params_callouts.get("color_acento")
+            paleta_animaciones = (dict(paleta, linea=color_acento, acento=color_acento)
+                                  if color_acento else paleta)
             # las URL de las tarjetas con otra imagen van como `proyecto://ruta`:
             # solo el navegador sabe donde cuelga este servidor (el prefijo del
             # proxy), asi que es el quien las completa
@@ -5372,7 +5378,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             cuadro = plan.get("resolucion") or [1920, 1080]
             animadas = PASOS_MODULOS.animaciones.capas(
                 escenas_plan, {"animaciones": pedidas,
-                               "unidades": render.get("unidades")}, idioma=idioma, paleta=paleta,
+                               "unidades": render.get("unidades")}, idioma=idioma, paleta=paleta_animaciones,
                 salida=(int(cuadro[0]), int(cuadro[1])), imagenes=urls,
                 semilla=(plan.get("semilla") or 0), etiquetas=etiquetas,
                 textos=PASOS_MODULOS.animaciones.textos_de(ctx.proyecto),
@@ -5416,9 +5422,13 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             continue
         pid_cartela, datos_cartela = PASOS_MODULOS.cartelas._desmontar(efectiva["cartela"])
         aid = f"cartela-{pid_cartela}"
+        color_acento = params_callouts.get("color_acento")
+        paleta_cartela = paleta or params_callouts.get("paleta") or {}
+        if color_acento:
+            paleta_cartela = dict(paleta_cartela, linea=color_acento, acento=color_acento)
         svg, fondo = anim.svg_de({"animacion": aid, "datos": datos_cartela},
                                  e["duracion"], plan.get("resolucion") or [1920, 1080],
-                                 paleta or params_callouts.get("paleta"))
+                                 paleta_cartela)
         e["animacion"] = {"id": aid, "nombre": anim.CATALOGO_EDITOR[aid]["nombre"],
                           "contenido": anim.contenido_de(aid, datos_cartela),
                           "svg": svg, "fondo": fondo, "pico": anim.pico_de(svg, e["duracion"]),
@@ -10768,8 +10778,8 @@ def _sembrar_video_light(ctx, datos):
     if guion:
         _validar_params("guion", guion, ctx)
         ctx.estado.actualizar_params("guion", guion)
-    if "plantillas_cartela" in datos:
-        callouts = {"plantillas_cartela": datos["plantillas_cartela"]}
+    if "plantillas_cartela" in datos or "color_acento" in datos:
+        callouts = {k: datos[k] for k in ("plantillas_cartela", "color_acento") if k in datos}
         _validar_params("callouts", callouts, ctx)
         ctx.estado.actualizar_params("callouts", callouts)
     assets = {k: datos[k] for k in ("bibliotecas", "generar_personajes") if k in datos}

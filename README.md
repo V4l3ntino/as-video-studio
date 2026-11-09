@@ -259,6 +259,11 @@ Solo se planifican las elegidas cuando la narración ofrece contenido adecuado.
 Los vídeos anteriores conservan su selección histórica al abrirse; puedes quitar
 las cartelas que no quieras y **volver a montar** para aplicar el cambio.
 Esto solo rehace las capas y el montaje, sin regenerar guion, voz ni imágenes.
+En el mismo recuadro, **Color de acento** abre una paleta para elegir el color de
+líneas, etiquetas y detalles de animaciones y cartelas. Sin elección se conserva
+el color anterior. El estilo lo transmite a vídeos nuevos; en uno existente,
+cambiarlo solo requiere volver a montar las capas y el vídeo, sin regenerar
+guion, voz ni imágenes.
 En un vídeo ya generado, volver a activar una cartela recupera las escenas que
 tenían ese contenido planificado. Las animaciones del guion conservan su selección
 independiente dentro de la misma sección.

@@ -1397,6 +1397,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
     if not (p["estilo"] or {}).get("guia") and (plan.get("estilo") or {}).get("guia"):
         p["estilo"] = plan["estilo"]
     paleta_video = paleta_de_guia((p.get("estilo") or {}).get("guia"), p["paleta"])
+    paleta_animaciones = (dict(paleta_video, linea=p["color_acento"], acento=p["color_acento"])
+                          if p.get("color_acento") else paleta_video)
     # El grafismo de este video: el MISMO set decide como se envuelve un rotulo
     # y como se escribe una cartela. Un video tiene un grafismo, no dos.
     _, ficha_diseno = diseno_de(p)
@@ -1487,7 +1489,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
             # quedaria flotando sobre una imagen que se mueve debajo, que es
             # exactamente lo que se quiere para el subtitulo y lo contrario de
             # lo que se quiere para una cabecera (PENDIENTE 38).
-            svg = cartelas.svg_capa(escena["cartela"], paleta_video, ficha_diseno,
+            svg = cartelas.svg_capa(escena["cartela"], paleta_animaciones, ficha_diseno,
                                     duracion=duracion_c,
                                     semilla=_semilla_de(plan),
                                     tiempos=tiempos, escrita=continua,
@@ -1562,6 +1564,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
                 # video. p8 no puede derivarla -- la guia esta en los params de
                 # assets-- y quien la tiene resuelta es este paso.
                 "paleta": paleta_video,
+                "color_acento": p.get("color_acento"),
                 "movimientos": [medios.leer_json(
                     os.path.join(dirs["movimiento"], f"{e['id']}.json"), {})
                     for e in escenas]}

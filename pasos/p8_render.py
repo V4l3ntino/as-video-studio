@@ -1544,7 +1544,11 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     # compila los shaders segun los va necesitando y se los queda, asi que
     # reabrirla por plano seria recompilarlos. Los colores de acento salen de la
     # paleta que dejo callouts (ver p7_callouts.ejecutar).
-    paleta = (medios.leer_json(ruta_mov, {}) or {}).get("paleta") or {}
+    grafismo = medios.leer_json(ruta_mov, {}) or {}
+    paleta = grafismo.get("paleta") or {}
+    color_acento = grafismo.get("color_acento")
+    paleta_animaciones = (dict(paleta, linea=color_acento, acento=color_acento)
+                          if color_acento else paleta)
     # LAS ANIMACIONES, repartidas UNA vez con todas las escenas delante: el
     # hueco entre dos animadas depende de las vecinas, y rehacer un plano suelto
     # no puede cambiarle la animacion a otro (misma razon que las transiciones).
@@ -1588,7 +1592,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     animadas = animaciones.capas(
         escenas, {"animaciones": animaciones_pedidas,
                   "unidades": p.get("unidades")},
-        idioma=plan.get("idioma"), paleta=paleta, salida=(ancho, alto), imagenes=imagenes,
+        idioma=plan.get("idioma"), paleta=paleta_animaciones, salida=(ancho, alto), imagenes=imagenes,
         semilla=(plan.get("semilla") or 0), etiquetas=animaciones.etiquetas_de(proyecto),
         textos=animaciones.textos_de(proyecto),
         imagenes_usuario=animaciones.urls_imagenes(proyecto, p, escenas, _url_local))

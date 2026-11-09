@@ -5328,7 +5328,17 @@ function navLight() {
       activa: sub === 'previa',
       porque: hayPlanos ? 'la imagen de cada plano, sola'
         : 'todavía no hay imágenes que mirar',
-      ir: () => { v.vista = 'previa'; pintarLight(); } },
+      ir: async () => {
+        const pid = v.pid;
+        // El color de acento se guarda con espera; leer la previa antes de ese
+        // guardado mostraría el SVG antiguo hasta recargar la página.
+        if (v.pedido) await volcarEncargoLight(v.pedido);
+        if (v.pid !== pid || APP.light.video !== v) return;
+        if (PREVIA.ficha) await refrescarLoDibujado();
+        if (v.pid !== pid || APP.light.video !== v) return;
+        v.vista = 'previa';
+        pintarLight();
+      } },
     { id: 'video', texto: 'Vídeo', puede: hayVideo, activa: sub === 'video',
       porque: hayVideo ? 'el montaje y el repaso' : 'todavía no hay nada montado',
       ir: () => { pararPrevia(); v.vista = 'video'; pintarLight(); } },
@@ -6090,6 +6100,7 @@ function montajeDelEstiloLight(ficha) {
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
     animaciones: [...(montaje.animaciones || [])],
     plantillas_cartela: [...(montaje.plantillas_cartela || [])],
+    ...(montaje.color_acento ? { color_acento: montaje.color_acento } : {}),
     bibliotecas: bibliotecasPorDefectoLight(montaje.bibliotecas),
   };
 }
@@ -6999,7 +7010,12 @@ function animacionesDelEncargo(e, alCambiar, esEstilo = false) {
   const disponibles = h('div', { clase: 'anim-tarjetas', role: 'list' });
   const elegidas = h('div', { clase: 'anim-tarjetas', role: 'list' });
   const resumen = h('p', { clase: 'pista', role: 'status' }, 'Cargando animaciones…');
+  const color = h('input', { type: 'color', value: e.color_acento || '#d8785a',
+    'aria-label': 'Color de acento de las animaciones',
+    onchange: ev => { e.color_acento = ev.target.value; if (alCambiar) alCambiar(); } });
   const caja = bloqueLight('Motion animation', 'animaciones gráficas al montar el vídeo',
+    h('label', { clase: 'anim-color' }, 'Color de acento', color,
+      h('span', { clase: 'meta' }, 'Líneas, textos y detalles de las animaciones y cartelas')),
     resumen,
     h('div', { clase: 'anim-recuadros' },
       h('section', { clase: 'anim-recuadro', 'aria-label': 'Animaciones disponibles' },
@@ -7251,6 +7267,7 @@ async function crearYGenerarLight(estilo) {
         transiciones_personalizadas: e.transiciones_personalizadas,
         animaciones: e.animaciones || [],
         plantillas_cartela: e.plantillas_cartela || [],
+        ...(e.color_acento ? { color_acento: e.color_acento } : {}),
         subtitulos: e.subtitulos !== false,
         parallax: parallaxPorDefectoLight(e.parallax),
         generar_personajes: e.generar_personajes !== false,
@@ -7322,6 +7339,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'transiciones_personalizadas', paso: 'render', param: 'transiciones_personalizadas' },
   { clave: 'animaciones', paso: 'guion', param: 'animaciones' },
   { clave: 'plantillas_cartela', paso: 'callouts', param: 'plantillas_cartela' },
+  { clave: 'color_acento', paso: 'callouts', param: 'color_acento' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'parallax', paso: 'render', param: 'parallax' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
@@ -7367,6 +7385,7 @@ function pedidoDelVideoLight() {
     animaciones: [...(params('guion').animaciones || params('render').animaciones || [])],
     ...(params('callouts').plantillas_cartela !== undefined
       ? { plantillas_cartela: [...params('callouts').plantillas_cartela] } : {}),
+    ...(params('callouts').color_acento ? { color_acento: params('callouts').color_acento } : {}),
     subtitulos: params('render').subtitulos !== false,
     parallax: parallaxPorDefectoLight(params('render').parallax),
     generar_personajes: params('assets').generar_personajes !== false,
@@ -7526,6 +7545,16 @@ function programarGuardadoEncargo() {
 async function volcarEncargoLight(pedido) {
   clearTimeout(pedido.reloj);
   pedido.reloj = null;
+  // Una navegación puede coincidir con el autoguardado ya iniciado. Esperar
+  // evita leer la previa entre dos escrituras o confirmar una copia anticuada.
+  if (pedido.guardando) await pedido.guardando;
+  const guardando = ejecutarVolcadoEncargoLight(pedido);
+  pedido.guardando = guardando;
+  try { await guardando; }
+  finally { if (pedido.guardando === guardando) pedido.guardando = null; }
+}
+
+async function ejecutarVolcadoEncargoLight(pedido) {
   const { pid, copia, guardado } = pedido;
   const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const porPaso = {};

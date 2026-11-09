@@ -871,10 +871,38 @@ for malo, por_que in ((["nada"], "una que no existe"), ("ficha-ui", "algo que no
         comprobar(f"se rechaza {por_que}", True)
 comprobar("el montaje declara la clave", "animaciones" in presets_canal.TIPOS["montaje"]["claves"])
 
+print("\n== color de acento de las animaciones ==")
+color = "#238bce"
+limpio = presets_canal._limpiar_datos("montaje", {"color_acento": color})
+igual("el estilo guarda el color", limpio["color_acento"], color)
+igual("el estilo lo transmite solo a capas", presets_canal.cambios_para(
+    {"tipo": "montaje", "datos": limpio}), {"callouts": {"color_acento": color}})
+for invalido in ("orange", "#12345g", "#123", 123):
+    try:
+        presets_canal._limpiar_datos("montaje", {"color_acento": invalido})
+        comprobar(f"se rechaza el color {invalido!r}", False)
+    except presets_canal.ErrorPreset:
+        comprobar(f"se rechaza el color {invalido!r}", True)
+paleta_base = {"texto": "#ffffff", "tenue": "#cccccc", "linea": "#d8a657", "acento": "#d8785a"}
+datos_cifra = {"animacion": "infografia-cifra", "datos": {"texto": "9500", "etiqueta": "años", "desde": 0}}
+normal, _ = animaciones.svg_de(datos_cifra, 5, paleta=paleta_base)
+elegido, _ = animaciones.svg_de(datos_cifra, 5, paleta=dict(paleta_base, linea=color, acento=color))
+comprobar("el SVG conserva el naranja sin elección", paleta_base["acento"] in normal)
+comprobar("el SVG usa el color elegido", color in elegido and paleta_base["acento"] not in elegido)
+
 print("\n== cartelas optativas desde Motion animation ==")
 import cartelas  # noqa: E402
 import p7_callouts  # noqa: E402
 from nucleo.proyecto import escribir_json  # noqa: E402
+
+with tempfile.TemporaryDirectory(prefix="acento_animaciones_") as carpeta:
+    proyecto_color, estado_color = juguete.construir(carpeta, animaciones=[], etiquetas={})
+    firmas_color = {paso: estado_color.firma_global(paso) for paso in ("guion", "voz", "assets")}
+    ctx_color = SimpleNamespace(proyecto=proyecto_color, estado=estado_color, bitacora=MagicMock())
+    servidor._sembrar_video_light(ctx_color, {"color_acento": color})
+    igual("el vídeo guarda el color en las capas", estado_color.params("callouts")["color_acento"], color)
+    igual("cambiar el color conserva guion, voz e imágenes",
+          {paso: estado_color.firma_global(paso) for paso in firmas_color}, firmas_color)
 
 with patch.object(cartelas, "_llamar_claude", side_effect=AssertionError("no debe llamar a IA")):
     igual("sin cartelas no se consulta al redactor",
