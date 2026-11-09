@@ -415,15 +415,16 @@ estimación real y MP4: `python pasos/prueba_parallax.py --real`.
 
 ### Elegir las transiciones del vídeo
 
-En **Encargo → Efectos**, marca los tipos de transición que puede usar el montaje.
-La lista incluye los quince efectos, con su nombre y descripción. Los vídeos
+En **Efectos**, tanto en el estilo como en el encargo, pulsa las tarjetas para
+mover las transiciones entre **Disponibles** y **Se usarán al montar**. Cada
+tarjeta muestra un GIF del efecto, su nombre y descripción. Hay quince efectos. Los vídeos
 nuevos parten de seis: fundido, destello blanco, fuga de luz, iris, zoom
-desenfocado y latigazo. Puedes desmarcarlos y elegir cualquier combinación.
+desenfocado y latigazo. Puedes quitarlos y elegir cualquier combinación.
 
-Si desmarcas todos, las imágenes se muestran secuencialmente con cortes directos,
+Si quitas todos, las imágenes se muestran secuencialmente con cortes directos,
 sin transiciones. La selección se guarda por vídeo; cambiarla solo deja pendiente
 el montaje, sin regenerar el guion, la voz ni las imágenes. En los vídeos existentes
-se guarda automáticamente al modificar las casillas.
+se guarda automáticamente al mover las tarjetas.
 
 ### Listo para YouTube
 

@@ -7079,9 +7079,15 @@ function vozParaVideoLight(e, estilo) {
    La marca distingue «ninguna» del [] histórico que significa «por defecto». */
 let CATALOGO_EFECTOS = null;
 function efectosDelEncargo(e, alCambiar, esEstilo = false) {
-  const lista = h('div', { clase: 'efectos-encargo' });
+  const disponibles = h('div', { clase: 'anim-tarjetas', role: 'list' });
+  const seleccionadas = h('div', { clase: 'anim-tarjetas', role: 'list' });
   const resumen = h('p', { clase: 'pista', role: 'status' }, 'Cargando efectos…');
-  const caja = bloqueLight('Efectos', 'transiciones entre imágenes', resumen, lista);
+  const caja = bloqueLight('Efectos', 'transiciones entre imágenes', resumen,
+    h('div', { clase: 'anim-recuadros' },
+      h('section', { clase: 'anim-recuadro', 'aria-label': 'Transiciones disponibles' },
+        h('h4', {}, 'Disponibles'), disponibles),
+      h('section', { clase: 'anim-recuadro anim-elegidas', 'aria-label': 'Transiciones seleccionadas' },
+        h('h4', {}, 'Se usarán al montar'), seleccionadas)));
   const cargar = async () => {
     try {
       if (!CATALOGO_EFECTOS) CATALOGO_EFECTOS = pedir(API.catalogoTransiciones)
@@ -7098,26 +7104,36 @@ function efectosDelEncargo(e, alCambiar, esEstilo = false) {
               : 'Cambiar esta selección solo afecta al montaje.')
           : 'Sin transiciones: las imágenes se muestran una detrás de otra, con cortes directos.';
       };
-      vaciar(lista);
-      catalogo.forEach(t => {
-        const check = h('input', {
-          type: 'checkbox', checked: elegidas.has(t.id),
-          'data-foco': `encargo-efecto-${t.id}`,
-          onchange: ev => {
-            if (ev.target.checked) elegidas.add(t.id); else elegidas.delete(t.id);
-            e.transiciones = catalogo.filter(f => elegidas.has(f.id)).map(f => f.id);
-            e.transiciones_personalizadas = true;
-            actualizarResumen();
-            if (alCambiar) alCambiar();
-          },
+      const pintar = () => {
+        vaciar(disponibles);
+        vaciar(seleccionadas);
+        catalogo.forEach(t => {
+          const dentro = elegidas.has(t.id);
+          const tarjeta = h('button', {
+            type: 'button', clase: 'anim-tarjeta', role: 'listitem',
+            'data-foco': `encargo-efecto-${t.id}`,
+            'aria-label': `${dentro ? 'Quitar' : 'Añadir'} ${t.nombre}`,
+            title: t.descripcion,
+            onclick: () => {
+              if (dentro) elegidas.delete(t.id); else elegidas.add(t.id);
+              e.transiciones = catalogo.filter(f => elegidas.has(f.id)).map(f => f.id);
+              e.transiciones_personalizadas = true;
+              pintar();
+              caja.querySelector(`[data-foco="encargo-efecto-${t.id}"]`).focus({ preventScroll: true });
+              if (alCambiar) alCambiar();
+            },
+          }, h('img', { src: `${BASE}/transicion_${t.id}.gif`, alt: '', loading: 'lazy' }),
+          h('b', {}, t.nombre), h('span', { clase: 'meta' }, t.descripcion));
+          (dentro ? seleccionadas : disponibles).appendChild(tarjeta);
         });
-        lista.appendChild(h('label', { clase: 'efecto-encargo' }, check,
-          h('span', {}, h('b', {}, t.nombre), h('span', { clase: 'meta' }, t.descripcion))));
-      });
-      actualizarResumen();
+        if (!disponibles.children.length) disponibles.appendChild(h('p', { clase: 'meta' }, 'Están todas elegidas.'));
+        if (!seleccionadas.children.length) seleccionadas.appendChild(h('p', { clase: 'meta' }, 'Pulsa una tarjeta para añadirla.'));
+        actualizarResumen();
+      };
+      pintar();
     } catch (err) {
       resumen.textContent = `No se han podido cargar los efectos: ${err.message}`;
-      vaciar(lista).appendChild(h('button', { clase: 'mini', onclick: cargar }, 'Reintentar'));
+      vaciar(disponibles).appendChild(h('button', { clase: 'mini', onclick: cargar }, 'Reintentar'));
     }
   };
   cargar();

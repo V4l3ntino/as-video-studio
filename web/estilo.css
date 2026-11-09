@@ -555,7 +555,6 @@ button.pastilla { cursor: pointer; }
 .tarjeta.cartela.apagado .muestra { filter: grayscale(1); }
 .tarjeta.transicion.apagado canvas { filter: grayscale(1); }
 
-.efectos-encargo { display: flex; flex-direction: column; gap: 8px; }
 .efecto-encargo { display: flex; align-items: flex-start; gap: 10px; padding: 10px;
   border: 1px solid var(--linea); border-radius: 8px; cursor: pointer;
   font-size: 14px; text-transform: none; letter-spacing: normal;
@@ -2577,7 +2576,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   .previa-marco .sustituir-medio { opacity: 1; pointer-events: auto; }
 }
 
-/* ------------------------------------------- Motion animation (dos recuadros)
+/* -------------------------------- Motion animation y Efectos (dos recuadros)
    Izquierda: lo que hay. Derecha: lo que entra al montar. Pulsar una tarjeta la
    cambia de lado. En pantallas estrechas se apilan. */
 .anim-recuadros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
