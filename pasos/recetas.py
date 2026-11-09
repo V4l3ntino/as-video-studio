@@ -194,7 +194,7 @@ TAREAS = [
     {"id": "render", "nombre": "El MP4", "pestana": "render",
      "paso": "render", "necesita": ["banda_sonora", "efectos"], "cuesta": False,
      "opcional": False,
-     "porque": "compone los clips y los muxea con la voz y la banda"},
+     "porque": "compone los clips y los muxea con la voz y la banda; si incorporas avatar, genera sus apariciones con Boson AI (de pago) antes de componer"},
     {"id": "publicacion", "nombre": "Listo para YouTube", "pestana": "render",
      "paso": "render", "necesita": ["render"], "cuesta": True,
      "opcional": True,

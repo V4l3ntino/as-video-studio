@@ -1488,6 +1488,10 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         proyecto, "voz", claves=("wav", "audio", "narracion"),
         patrones=(r"narracion\.wav", r".*\.wav"))
 
+    from pasos import avatar
+    clips_avatar = (avatar.preparar(proyecto, p, plan, audio, avisar)
+                    if not solo_montar else {})
+
     trabajo = medios.sembrar_trabajo(proyecto, "render")
     # DESPUES de sembrar, y eso es lo que lo hace robusto: todo lo que aparezca
     # en trabajo/ a partir de aqui lo ha escrito ESTE render. `sembrar_trabajo`
@@ -1652,7 +1656,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
 
         video = ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
                  if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None)
-        if sid in seleccion_parallax:
+        if sid in seleccion_parallax and sid not in clips_avatar:
             from pasos import clips_parallax
             mensaje = f"{sid}: creando efecto parallax con DepthFlow"
             avisar(0.02, mensaje)
@@ -1661,6 +1665,13 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             pedido = clips_parallax.preparar(proyecto, escena,
                 original if os.path.isfile(original) else hyper, seleccion_parallax[sid], fps)
             video = clips_parallax.generar(proyecto, pedido, latido=lambda: avisar(0.02, mensaje))
+
+        if sid in clips_avatar:
+            posicion_avatar = avatar.posicion_de(p, escena, (ancho, alto))
+            video = avatar.componer(proyecto, clips_avatar[sid], hyper,
+                                    lambda: avisar(.06, sid + ": incorporando el avatar"), (ancho, alto),
+                                    {k: posicion_avatar[k] for k in ("x", "y")})
+            mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1])
 
         tareas.append({
             "id": sid, "escena": {"id": sid, "t_in": escena["t_in"],

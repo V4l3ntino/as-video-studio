@@ -247,6 +247,52 @@ con IA para esa escena usando la nota, aunque antes tuviera un recurso de
 biblioteca o una sustitución manual. El medio anterior deja de estar seleccionado;
 las demás escenas se conservan. Puedes volver a elegir un archivo con **Sustituir**.
 
+### Incorporar un avatar IA
+
+En **crear/editar vídeo**, activa **Incorporar avatar IA**. Arrastra una imagen
+a la zona **4:3** o pulsa para subirla (PNG, JPG o WebP, hasta 10 MiB). A su lado,
+el chat **Generar imagen con IA** permite describir al presentador y generar su
+retrato antes de montar. La imagen aparece en el mismo lugar de la zona de
+subida. Puedes pedir cambios en el chat conservando el retrato como referencia;
+**Sustituir** aparece al pasar el cursor sobre la imagen (siempre visible en
+pantallas táctiles). Usa un rostro de frente, con los labios visibles.
+
+Introduce la clave en **Configuración → Boson AI**. Al abrir **Imágenes**, el Estudio elige
+automáticamente las explicaciones centrales del relato (aproximadamente una
+aparición por cada ocho escenas, hasta ocho) y envía a **Higgs Avatar** la misma
+imagen y el fragmento real de narración de cada escena. Requiere **Incorporar voz**.
+Las escenas de más de 60 segundos, las cartelas y las sustituciones manuales
+se conservan sin avatar. El presentador aparece en un recuadro superior derecho
+sobre la ilustración, conservando la narración y los subtítulos.
+
+En el **previsualizador de Imágenes** se preparan los clips y aparece el mismo
+avatar que se utilizará al montar. **Oírla** y **Todo seguido** sincronizan sus
+labios con el reloj de la narración; **Parar** detiene también el avatar. Durante
+la preparación se muestra el progreso y se puede parar o continuar tras un error.
+Los clips completados se conservan y el montaje los reutiliza sin volver a
+solicitarlos a Boson. La consulta de la previsualización no genera contenido:
+la preparación se solicita como un trabajo aparte desde la pantalla.
+
+Junto a **Transición**, pulsa **Incorporar avatar** para incluirlo en la escena
+que estés viendo, aunque no esté entre las elegidas automáticamente. Se genera
+su clip con Boson y el audio de esa escena; cuando termina aparece y se reproduce
+con la narración. Si ya está listo, el botón lo reproduce sin volver a generarlo.
+La elección queda guardada también para el montaje, vinculada al texto de esa
+escena. Requiere tener configurado el retrato y la voz en el encargo. El botón
+queda desactivado para cartelas, escenas de más de 60 segundos o clips de vídeo.
+
+Para **cambiar su posición**, pincha directamente sobre el avatar en el
+previsualizador de **Imágenes** y arrástralo por el cuadro. Funciona también con
+el dedo. Al soltarlo se guarda automáticamente para esa escena y se aplica en
+el montaje final. El avatar permanece dentro del cuadro. Moverlo no vuelve a
+generar su animación en Boson ni modifica las imágenes o la voz.
+
+Boson AI factura estas animaciones por uso; generar el retrato consume también
+el método de imágenes elegido. Los MP4 y los identificadores de trabajo remoto
+se guardan en `avatar/` para retomar sin volver a encargar clips completados.
+Cambiar la imagen o la voz genera los clips correspondientes de nuevo. El avatar
+viaja al duplicar o exportar el vídeo. Abrir proyectos anteriores no lo activa.
+
 ### Elegir las cartelas animadas del montaje
 
 En **Motion animation**, tanto en el estilo como en el encargo, puedes elegir

@@ -2339,6 +2339,7 @@ function pintarConfig() {
   caja.appendChild(seccionCartesia(ficha));
   caja.appendChild(seccionCLI());
   caja.appendChild(seccionOtrasClaves(ficha));
+  caja.appendChild(seccionBoson(ficha));
   caja.appendChild(seccionAvisosCorreo());
   caja.appendChild(h('div', { clase: 'fila' },
     h('button', {
@@ -3209,13 +3210,29 @@ function seccionOtrasClaves(ficha) {
   return caja;
 }
 
+function seccionBoson(ficha) {
+  const datos = ficha.boson || {};
+  const campo = campoClaveConfig('boson', datos.puesta ? `puesta (${datos.cola})` : 'API Key de Boson AI');
+  return h('section', { clase: 'bloque-config' },
+    h('h3', {}, 'Boson AI'),
+    h('p', { clase: 'pista' }, 'Anima el avatar con la narración de las escenas seleccionadas. El servicio factura por uso.'),
+    h('a', { href: 'https://www.boson.ai/workspace/api-key', target: '_blank', rel: 'noopener noreferrer' }, 'Obtener API Key'),
+    h('div', { clase: 'fila-clave' }, campo,
+      h('button', { clase: 'mini', onclick: () => {
+        if (!campo.value.trim()) { toast('escribe la clave de Boson AI', true); return; }
+        guardarClaves({ boson: { clave: campo.value.trim() } });
+      } }, 'Guardar clave'),
+      datos.puesta ? h('button', { clase: 'mini fantasma peligro',
+        onclick: () => guardarClaves({ boson: { clave: '' } }) }, 'Quitar') : null));
+}
+
 function campoClaveConfig(proveedor, placeholder) {
   const vista = estadoConfig();
   return h('input', {
     type: 'password', placeholder, autocomplete: 'new-password',
     'aria-label': `API key de ${proveedor === 'openai' ? 'OpenAI' : proveedor === 'cartesia' ? 'Cartesia'
       : proveedor === 'freesound' ? 'FreeSound' : proveedor === 'pexels' ? 'Pexels'
-        : proveedor === 'pixabay' ? 'Pixabay' : 'Jamendo'}`,
+        : proveedor === 'pixabay' ? 'Pixabay' : proveedor === 'boson' ? 'Boson AI' : 'Jamendo'}`,
     value: vista.clavesBorrador[proveedor] || '',
     disabled: vista.guardandoConfig || vista.guardandoClaves,
     oninput: ev => { vista.clavesBorrador[proveedor] = ev.target.value; },
@@ -3236,7 +3253,7 @@ async function guardarClaves(cambios, notificar = true) {
     const guardada = await pedir(API.claves(), {
       method: 'PUT', cuerpo: cambios,
     });
-    for (const proveedor of ['cartesia', 'jamendo', 'freesound', 'pixabay', 'pexels']) {
+    for (const proveedor of ['cartesia', 'jamendo', 'freesound', 'pixabay', 'pexels', 'boson']) {
       if (!(proveedor in cambios)) continue;
       const confirmacion = guardada[proveedor];
       if (!confirmacion || typeof confirmacion.puesta !== 'boolean') {
@@ -6413,6 +6430,7 @@ async function cargarVideoLight(pid) {
     pararPrevia();
     PREVIA.ficha = null;
     PREVIA.clip = null;
+    PREVIA.avatarClip = null;
     await reengancharTandaLight(pid);
     // y su cola de imágenes sigue donde la dejó (ver `reanudarColaLight`)
     reanudarColaLight(pid);
@@ -6786,6 +6804,7 @@ function vistaElegidoLight() {
   caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(incorporarVozDelEncargo(e, () => pintarLight(), false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, ficha)] : [])));
+  caja.appendChild(avatarDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(parallaxDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
@@ -6839,6 +6858,126 @@ function selectorFormato(valor, alCambiar) {
     }, (f.id === 'vertical' ? '▯ ' : '▭ ') + f.nombre));
   });
   return h('div', { clase: 'campo' }, h('label', {}, 'Formato'), tira);
+}
+
+const AVATARES_ENCARGO = new WeakMap();
+
+function avatarDelEncargo(e, alCambiar, pid) {
+  const opciones = () => e.avatar || { activo: false, metodo: 'subir', imagen: '', prompt: '' };
+  if (!AVATARES_ENCARGO.has(e)) AVATARES_ENCARGO.set(e, {
+    texto: opciones().prompt || '', mensajes: [], ocupado: false, error: '',
+  });
+  const estado = AVATARES_ENCARGO.get(e);
+  const cambiar = valores => {
+    e.avatar = { ...opciones(), ...valores };
+    if (alCambiar) alCambiar();
+  };
+  const contenido = h('div', { clase: 'avatar-opciones' });
+  const activar = h('input', { type: 'checkbox', checked: opciones().activo,
+    onchange: ev => { cambiar({ activo: ev.target.checked }); pintar(); } });
+  const seleccionar = async (nombre, prompt = '') => {
+    if (pid) {
+      const guardada = await pedir(`${API.proyecto(pid)}/avatar/imagen`,
+        { method: 'POST', cuerpo: { nombre } });
+      cambiar({ metodo: 'subir', imagen: guardada.ruta, subida: '', prompt });
+    } else cambiar({ metodo: 'subir', imagen: '', subida: nombre, prompt });
+  };
+  const subir = async archivo => {
+    if (!archivo || estado.ocupado) return;
+    if (archivo.size > 10 * 1024 * 1024) { estado.error = 'La imagen supera el límite de 10 MiB.'; estado.repintar(); return; }
+    estado.ocupado = true;
+    estado.error = '';
+    estado.repintar();
+    try {
+      const cuerpo = new FormData();
+      cuerpo.append('imagenes', archivo);
+      const subida = await pedir(API.imagenesLight(), { method: 'POST', cuerpo });
+      const foto = (subida.imagenes || [])[0];
+      if (!foto) throw new Error('No se pudo cargar la imagen.');
+      await seleccionar(foto.nombre);
+      estado.mensajes.push({ tipo: 'respuesta', texto: 'Imagen subida. Puedes utilizarla o pedirme cambios.' });
+    } catch (error) { estado.error = error.message; }
+    finally { estado.ocupado = false; estado.repintar(); }
+  };
+  const generar = async () => {
+    const prompt = estado.texto.trim();
+    if (!prompt || estado.ocupado) return;
+    estado.ocupado = true;
+    estado.error = '';
+    estado.mensajes.push({ tipo: 'usuario', texto: prompt });
+    estado.repintar();
+    try {
+      const inicio = await pedir(`${BASE}/api/avatar/imagenes/generar`, {
+        method: 'POST', cuerpo: { prompt, pid, imagen: opciones().imagen || '', subida: opciones().subida || '' },
+      });
+      for (;;) {
+        const trabajo = await pedir(`${BASE}/api/avatar/imagenes/trabajos/${encodeURIComponent(inicio.trabajo_id)}`);
+        if (trabajo.estado === 'listo') {
+          await seleccionar(trabajo.resultado.nombre, prompt);
+          estado.texto = '';
+          estado.mensajes.push({ tipo: 'respuesta', texto: 'Imagen lista. Ya puedes verla a la izquierda. Si quieres ajustarla, dime qué cambiar.' });
+          break;
+        }
+        if (trabajo.estado === 'error' || trabajo.estado === 'cancelado') {
+          throw new Error(trabajo.error || 'La generación se ha detenido.');
+        }
+        await new Promise(resolver => setTimeout(resolver, 1200));
+      }
+    } catch (error) { estado.error = error.message; }
+    finally { estado.ocupado = false; estado.repintar(); }
+  };
+  const pintar = () => {
+    activar.disabled = estado.ocupado;
+    vaciar(contenido);
+    if (!opciones().activo) return;
+    const foto = opciones().imagen && pid ? API.archivo(pid, opciones().imagen)
+      : opciones().subida ? API.imagenLight(opciones().subida) : '';
+    const archivo = h('input', { type: 'file', clase: 'oculto', accept: 'image/png,image/jpeg,image/webp',
+      'aria-label': 'Subir imagen del avatar', disabled: estado.ocupado,
+      onchange: ev => subir(ev.target.files[0]),
+    });
+    const zona = h('div', { clase: 'avatar-dropbox' + (foto ? ' con-imagen' : ''),
+      role: 'group', 'aria-label': 'Imagen del avatar, formato 4:3', 'aria-busy': String(estado.ocupado),
+      ondragover: ev => { ev.preventDefault(); if (!estado.ocupado) zona.classList.add('encima'); },
+      ondragleave: () => zona.classList.remove('encima'),
+      ondrop: ev => { ev.preventDefault(); zona.classList.remove('encima'); subir(ev.dataTransfer.files[0]); },
+    }, archivo);
+    if (foto) {
+      zona.appendChild(h('img', { src: foto, alt: 'Imagen seleccionada del avatar IA' }));
+      zona.appendChild(h('button', { type: 'button', clase: 'avatar-sustituir', disabled: estado.ocupado,
+        onclick: () => archivo.click() }, 'Sustituir'));
+    } else zona.appendChild(h('button', { type: 'button', clase: 'avatar-subir', disabled: estado.ocupado,
+      onclick: () => archivo.click() }, h('span', { clase: 'avatar-icono', 'aria-hidden': 'true' }, '＋'),
+      h('b', {}, 'Arrastra aquí la imagen del avatar'), h('span', {}, 'o pulsa para subir una imagen'),
+      h('span', { clase: 'pista' }, 'PNG, JPG o WebP · hasta 10 MiB')));
+    if (estado.ocupado) zona.appendChild(h('div', { clase: 'avatar-espera', role: 'status' }, 'Preparando imagen…'));
+    const mensajes = h('div', { clase: 'avatar-mensajes', role: 'log', 'aria-label': 'Chat de la imagen del avatar' });
+    mensajes.appendChild(h('p', { clase: 'avatar-respuesta' }, 'Describe a tu presentador y generaré su imagen. También puedes pedirme cambios sobre el retrato seleccionado.'));
+    estado.mensajes.forEach(m => mensajes.appendChild(h('p', {
+      clase: m.tipo === 'usuario' ? 'avatar-usuario' : 'avatar-respuesta',
+    }, m.texto)));
+    const enviar = h('button', { type: 'button', clase: 'mini primario',
+      disabled: estado.ocupado || !estado.texto.trim(), onclick: generar }, estado.ocupado ? 'Generando…' : 'Generar imagen');
+    const texto = h('textarea', { rows: 3, maxlength: 4000, value: estado.texto,
+      placeholder: 'Describe el avatar o pide un cambio…', 'aria-label': 'Mensaje para generar la imagen del avatar',
+      disabled: estado.ocupado,
+      oninput: ev => { estado.texto = ev.target.value; enviar.disabled = !estado.texto.trim(); },
+      onkeydown: ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); generar(); } },
+    });
+    contenido.appendChild(h('div', { clase: 'avatar-editor' }, zona,
+      h('div', { clase: 'avatar-chat' }, h('b', {}, 'Generar imagen con IA'), mensajes,
+        texto, h('div', { clase: 'avatar-chat-pie' }, h('span', { clase: 'pista' }, 'Enter para enviar · Mayús+Enter para nueva línea'), enviar))));
+    if (estado.error) contenido.appendChild(h('div', { clase: 'caja-error', role: 'alert' }, estado.error));
+    contenido.appendChild(h('p', { clase: 'pista' }, 'La generación utiliza el método de imágenes configurado. '
+      + 'Al montar, Boson AI anima el retrato con la narración de las escenas clave. Requiere voz y API Key de Boson AI.'));
+    mensajes.scrollTop = mensajes.scrollHeight;
+    if (e.incorporar_voz === false) contenido.appendChild(cajaError('Activa Incorporar voz para utilizar el avatar con lip-sync.'));
+  };
+  estado.repintar = pintar;
+  pintar();
+  return bloqueLight('Incorporar avatar IA', 'un presentador para las explicaciones clave',
+    h('label', { clase: 'efecto-encargo' }, activar,
+    h('span', {}, 'Incorporar avatar IA')), contenido);
 }
 
 function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
@@ -7388,6 +7527,15 @@ function materialLight(e) {
    decisión, así que un botón. */
 async function crearYGenerarLight(estilo) {
   const e = encargoVideoLight();
+  if ((AVATARES_ENCARGO.get(e) || {}).ocupado) {
+    toast('Espera a que termine de prepararse la imagen del avatar.', true);
+    return;
+  }
+  if (e.avatar && e.avatar.activo && !e.avatar.imagen && !e.avatar.subida
+      && !(e.avatar.metodo === 'generar' && String(e.avatar.prompt || '').trim())) {
+    toast('Sube una imagen o genera el avatar desde el chat antes de continuar.', true);
+    return;
+  }
   if (!String(e.material || '').trim()) {
     toast('No hay material: escribe o pega de qué va este vídeo', true);
     return;
@@ -7415,6 +7563,7 @@ async function crearYGenerarLight(estilo) {
         incorporar_voz: e.incorporar_voz !== false,
         ...(e.voz_id ? { voz_id: e.voz_id } : {}),
         bibliotecas: e.bibliotecas,
+        ...(e.avatar ? { avatar: e.avatar } : {}),
       },
     });
     const pid = (datos.proyecto || {}).id;
@@ -7483,6 +7632,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'color_acento', paso: 'callouts', param: 'color_acento' },
   { clave: 'subtitulos', paso: 'render', param: 'subtitulos' },
   { clave: 'parallax', paso: 'render', param: 'parallax' },
+  { clave: 'avatar', paso: 'render', param: 'avatar' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
   { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
   { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
@@ -7529,6 +7679,7 @@ function pedidoDelVideoLight() {
     ...(params('callouts').color_acento ? { color_acento: params('callouts').color_acento } : {}),
     subtitulos: params('render').subtitulos !== false,
     parallax: parallaxPorDefectoLight(params('render').parallax),
+    avatar: JSON.parse(JSON.stringify(params('render').avatar || { activo: false, metodo: 'subir', imagen: '', prompt: '' })),
     generar_personajes: params('assets').generar_personajes !== false,
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
@@ -7594,6 +7745,7 @@ function vistaEncargoVideoLight() {
   caja.appendChild(incorporarVozDelEncargo(e,
     () => { programarGuardadoEncargo(); pintarLight(); }, false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
+  caja.appendChild(avatarDelEncargo(e, programarGuardadoEncargo, v.pid));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(parallaxDelEncargo(e, programarGuardadoEncargo));
   caja.appendChild(efectosDelEncargo(e));
@@ -7729,7 +7881,7 @@ async function ejecutarVolcadoEncargoLight(pedido) {
       });
     }
     if (APP.light.video.pid !== pid) return;
-    if ((porPaso.render || {}).parallax !== undefined && PREVIA.ficha) {
+    if (((porPaso.render || {}).parallax !== undefined || (porPaso.render || {}).avatar !== undefined) && PREVIA.ficha) {
       await refrescarLoDibujado();
     }
     /* Los estados de los pasos han cambiado en cascada y la pantalla los lee
@@ -8814,6 +8966,7 @@ function videoAbierto() {
 ;
 
 function repintarVideo() {
+  if (PREVIA.arrastrandoAvatar) { PREVIA.repintadoAvatarPendiente = true; return; }
   pintarLight();
 }
 
@@ -8861,6 +9014,9 @@ const PREVIA = {
   error: '',
   audio: null,        // <audio> de la narración, reutilizado
   clip: null,         // <video> propio, reutilizado mientras no cambie la escena
+  avatarClip: null,   // clip Boson, por el mismo reloj de la narración
+  arrastrandoAvatar: false,
+  repintadoAvatarPendiente: false,
   musica: null,       // <audio> de la cama, solo para el play seguido
   efectos: null,
   seguido: false,     // ¿está sonando el play de todo?
@@ -8874,6 +9030,113 @@ const PREVIA = {
 };
 
 const PARALLAX_PREVIA = { actual: null };
+const AVATAR_PREVIA = { actual: null };
+const AVATAR_ESCENA = { ocupado: false, pid: '', sid: '' };
+
+async function incorporarAvatarEscena(escena) {
+  if (AVATAR_ESCENA.ocupado) return;
+  if ((escena.avatar || {}).clip) { sonarEscenaPrevia(); return; }
+  const pid = videoAbierto().pid;
+  AVATAR_ESCENA.ocupado = true;
+  AVATAR_ESCENA.pid = pid;
+  AVATAR_ESCENA.sid = escena.id;
+  pararPrevia();
+  repintarVideo();
+  try {
+    const respuesta = await pedir(`${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/avatar`, { method: 'POST' });
+    if (videoAbierto().pid !== pid) return;
+    await refrescarLoDibujado();
+    if (respuesta.listo) {
+      repintarVideo();
+      if (escenaPrevia().id === escena.id) sonarEscenaPrevia();
+    } else {
+      const anterior = AVATAR_PREVIA.actual;
+      if (anterior && anterior.tic) clearTimeout(anterior.tic);
+      const ficha = PREVIA.ficha.avatar;
+      const p = { pid, clave: `${pid}:${ficha.clave}`, tid: respuesta.trabajo_id,
+        estado: 'ejecutando', mensaje: `Preparando el avatar para ${escena.id}…`,
+        progreso: 0, ocupado: false, tic: null, reproducirSid: escena.id };
+      AVATAR_PREVIA.actual = p;
+      seguirAvatarPrevia(p);
+    }
+  } catch (error) { toast(error.message, true); }
+  finally { AVATAR_ESCENA.ocupado = false; if (videoAbierto().pid === pid) repintarVideo(); }
+}
+
+function asegurarAvatarPrevia() {
+  const pid = videoAbierto().pid;
+  const ficha = (PREVIA.ficha || {}).avatar;
+  if (!ficha || ficha.estado !== 'pendiente') return;
+  const clave = `${pid}:${ficha.clave}`;
+  let p = AVATAR_PREVIA.actual;
+  if (!p || p.clave !== clave) {
+    if (p && p.tic) clearTimeout(p.tic);
+    p = { pid, clave, tid: '', estado: 'ejecutando', mensaje: 'Preparando el avatar…',
+      progreso: 0, ocupado: false, tic: null };
+    AVATAR_PREVIA.actual = p;
+  }
+  if (!p.ocupado && !p.tic && p.estado === 'ejecutando') seguirAvatarPrevia(p);
+}
+
+async function seguirAvatarPrevia(p) {
+  if (AVATAR_PREVIA.actual !== p || videoAbierto().pid !== p.pid || videoAbierto().vista !== 'previa') return;
+  p.ocupado = true;
+  try {
+    if (!p.tid) {
+      const respuesta = await pedir(`${API.proyecto(p.pid)}/previsualizacion/avatar`, { method: 'POST' });
+      p.tid = respuesta.trabajo_id || '';
+      p.mensaje = respuesta.esperando ? 'El avatar se preparará al terminar la generación actual…'
+        : 'Preparando el avatar y sincronizando sus labios…';
+      if (respuesta.listo) p.estado = 'listo';
+    }
+    if (p.tid) {
+      const trabajo = await pedir(API.trabajo(p.tid));
+      p.progreso = trabajo.progreso || 0;
+      p.mensaje = trabajo.mensaje || p.mensaje;
+      if (['listo', 'error', 'cancelado'].includes(trabajo.estado)) {
+        p.estado = trabajo.estado;
+        if (trabajo.estado === 'error') p.mensaje = trabajo.error || 'No se pudo preparar el avatar.';
+        if (trabajo.estado === 'cancelado') p.mensaje = 'Preparación del avatar detenida.';
+      }
+    }
+    if (videoAbierto().pid === p.pid && AVATAR_PREVIA.actual === p) await refrescarLoDibujado();
+    if (p.estado === 'listo' && p.reproducirSid && videoAbierto().pid === p.pid
+        && AVATAR_PREVIA.actual === p && videoAbierto().vista === 'previa') {
+      const sid = p.reproducirSid;
+      p.reproducirSid = '';
+      if ((escenaPrevia() || {}).id === sid && ((escenaPrevia() || {}).avatar || {}).clip) {
+        repintarVideo();
+        sonarEscenaPrevia();
+      }
+    }
+  } catch (error) {
+    p.estado = 'error';
+    p.mensaje = `No se pudo preparar el avatar: ${error.message}`;
+  } finally { p.ocupado = false; }
+  if (AVATAR_PREVIA.actual !== p || videoAbierto().pid !== p.pid) return;
+  if (p.estado === 'ejecutando') {
+    p.tic = setTimeout(() => { p.tic = null; seguirAvatarPrevia(p); }, 1500);
+  }
+  repintarVideo();
+}
+
+function estadoAvatarPrevia() {
+  const ficha = (PREVIA.ficha || {}).avatar;
+  if (!ficha || ficha.estado !== 'pendiente') return null;
+  setTimeout(asegurarAvatarPrevia, 0);
+  const p = AVATAR_PREVIA.actual;
+  if (!p || p.pid !== videoAbierto().pid) return h('p', { clase: 'pista' }, 'Preparando el avatar…');
+  return h('div', { clase: 'parallax-previa-estado', role: 'status' }, h('span', {}, p.mensaje),
+    p.estado === 'ejecutando' ? h('progress', { max: 1, value: p.progreso, 'aria-label': 'Progreso del avatar' }) : null,
+    p.estado === 'ejecutando' && p.tid ? h('button', { clase: 'mini', onclick: async () => {
+      try { await pedir(API.cancelar(p.tid), { method: 'POST' }); }
+      catch (error) { toast(error.message, true); }
+    } }, 'Parar') : null,
+    ['error', 'cancelado', 'listo'].includes(p.estado) ? h('button', { clase: 'mini', onclick: () => {
+      AVATAR_PREVIA.actual = null;
+      asegurarAvatarPrevia();
+    } }, 'Continuar avatar') : null);
+}
 
 function asegurarParallaxPrevia() {
   const pid = videoAbierto().pid;
@@ -9201,8 +9464,7 @@ function sonarEscenaPrevia() {
 
 function pararPrevia() {
   if (PREVIA.audio) PREVIA.audio.pause();
-  const clip = document.querySelector('.previa-clip');
-  if (clip) clip.pause();
+  document.querySelectorAll('.previa-clip, .previa-avatar').forEach(clip => clip.pause());
   PREVIA.sonando = false;
   PREVIA.seguido = false;
   pararCamaPrevia();
@@ -9351,37 +9613,133 @@ function irAPrimeraObsoleta() {
   if (i >= 0) { PREVIA.i = i; PREVIA.t = 0; repintarVideo(); }
 }
 
+const ARRASTRES_AVATAR = new WeakMap();
+
+function colocarAvatarPrevia(nodo, posicion) {
+  nodo.style.setProperty('--avatar-x', `${posicion.x * 100}%`);
+  nodo.style.setProperty('--avatar-y', `${posicion.y * 100}%`);
+}
+
+function engancharArrastreAvatar(nodo, escena) {
+  let estado = ARRASTRES_AVATAR.get(nodo);
+  if (estado) {
+    estado.escena = escena;
+    if (!estado.arrastre && !estado.guardando) colocarAvatarPrevia(nodo, escena.avatar.posicion);
+    return;
+  }
+  estado = { escena, pid: videoAbierto().pid, arrastre: null, guardando: false };
+  ARRASTRES_AVATAR.set(nodo, estado);
+  colocarAvatarPrevia(nodo, escena.avatar.posicion);
+  nodo.title = 'Pincha y arrastra para colocar el avatar en esta escena';
+  nodo.setAttribute('aria-label', 'Avatar IA. Arrastra para cambiar su posición');
+  nodo.addEventListener('dragstart', ev => ev.preventDefault());
+  nodo.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 || !ev.isPrimary || estado.guardando || estado.arrastre) return;
+    const marco = nodo.closest('.previa-marco');
+    if (!marco) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const rect = nodo.getBoundingClientRect();
+    estado.arrastre = { id: ev.pointerId, marco, x0: ev.clientX, y0: ev.clientY,
+      dx: ev.clientX - rect.left, dy: ev.clientY - rect.top,
+      inicial: { ...estado.escena.avatar.posicion }, posicion: { ...estado.escena.avatar.posicion }, movido: false };
+    PREVIA.arrastrandoAvatar = true;
+    nodo.classList.add('avatar-arrastrando');
+    nodo.setPointerCapture(ev.pointerId);
+  });
+  nodo.addEventListener('pointermove', ev => {
+    const a = estado.arrastre;
+    if (!a || ev.pointerId !== a.id) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const rect = a.marco.getBoundingClientRect();
+    const x = (ev.clientX - rect.left - a.marco.clientLeft - a.dx) / a.marco.clientWidth;
+    const y = (ev.clientY - rect.top - a.marco.clientTop - a.dy) / a.marco.clientHeight;
+    a.posicion = { ...a.inicial, x: Math.max(0, Math.min(1 - a.inicial.ancho, x)),
+      y: Math.max(0, Math.min(1 - a.inicial.alto, y)) };
+    if (Math.hypot(ev.clientX - a.x0, ev.clientY - a.y0) >= 3) a.movido = true;
+    colocarAvatarPrevia(nodo, a.posicion);
+  });
+  const terminar = async ev => {
+    const a = estado.arrastre;
+    if (!a || ev.pointerId !== a.id) return;
+    estado.arrastre = null;
+    PREVIA.arrastrandoAvatar = false;
+    nodo.classList.remove('avatar-arrastrando');
+    if (nodo.hasPointerCapture(a.id)) nodo.releasePointerCapture(a.id);
+    const repintarPendiente = () => {
+      if (PREVIA.repintadoAvatarPendiente) { PREVIA.repintadoAvatarPendiente = false; repintarVideo(); }
+    };
+    if (ev.type !== 'pointerup' || !a.movido) {
+      colocarAvatarPrevia(nodo, a.inicial);
+      repintarPendiente();
+      return;
+    }
+    const elegida = estado.escena;
+    elegida.avatar.posicion = a.posicion;
+    estado.guardando = true;
+    nodo.classList.add('avatar-guardando');
+    try {
+      const respuesta = await pedir(`${API.proyecto(estado.pid)}/escenas/${encodeURIComponent(elegida.id)}/avatar/posicion`, {
+        method: 'PUT', cuerpo: { ancla: elegida.avatar.ancla, posicion: { x: a.posicion.x, y: a.posicion.y } },
+      });
+      elegida.avatar.posicion = respuesta.posicion;
+      if (videoAbierto().pid === estado.pid) {
+        const actual = ((PREVIA.ficha || {}).escenas || []).find(e => e.id === elegida.id);
+        if (actual && actual.avatar && actual.avatar.ancla === elegida.avatar.ancla) actual.avatar.posicion = respuesta.posicion;
+        colocarAvatarPrevia(nodo, respuesta.posicion);
+        try { await refrescarFichasLight(); } catch (error) { /* La posición ya está guardada. */ }
+      }
+    } catch (error) {
+      elegida.avatar.posicion = a.inicial;
+      colocarAvatarPrevia(nodo, a.inicial);
+      toast(`No se pudo guardar la posición del avatar: ${error.message}`, true);
+    } finally {
+      estado.guardando = false;
+      nodo.classList.remove('avatar-guardando');
+      repintarPendiente();
+    }
+  };
+  nodo.addEventListener('pointerup', terminar);
+  nodo.addEventListener('pointercancel', terminar);
+  nodo.addEventListener('lostpointercapture', terminar);
+}
+
 function sincronizarClipPrevia() {
-  const clip = document.querySelector('.previa-clip');
   const escena = escenaPrevia();
   // Sin escucha de la narracion, el clip tiene su propio reloj y controles.
   // Un audio pausado de otra escena no debe arrastrarlo al ultimo fotograma.
-  if (!clip || !escena || !PREVIA.sonando || !PREVIA.audio || !Number.isFinite(clip.duration)) return;
-  clip.loop = false;
+  if (!escena || !PREVIA.sonando || !PREVIA.audio) return;
   const t = Math.max(0, PREVIA.audio.currentTime - escena.t_in);
-  const destino = Math.min(t, Math.max(0, clip.duration - 1 / 30));
-  if (Math.abs(clip.currentTime - destino) > .2) clip.currentTime = destino;
-  if (!PREVIA.audio.paused && t < clip.duration && PREVIA.audio.currentTime < escena.t_out) {
-    clip.play().catch(() => {});
-  } else clip.pause();
+  document.querySelectorAll('.previa-clip, .previa-avatar').forEach(clip => {
+    if (!Number.isFinite(clip.duration)) return;
+    clip.loop = false;
+    const destino = Math.min(t, Math.max(0, clip.duration - 1 / 30));
+    if (Math.abs(clip.currentTime - destino) > .2) clip.currentTime = destino;
+    if (!PREVIA.audio.paused && t < clip.duration && PREVIA.audio.currentTime < escena.t_out) {
+      clip.play().catch(() => {});
+    } else clip.pause();
+  });
 }
 
-function clipPrevia(escena, poster) {
+function clipPrevia(escena, poster, esAvatar = false) {
   const pid = videoAbierto().pid;
-  const url = API.archivo(pid, escena.clip);
+  const url = API.archivo(pid, esAvatar ? escena.avatar.clip : escena.clip);
   const clave = `${pid}:${escena.id}:${url}`;
-  if (!PREVIA.clip || PREVIA.clip.dataset.clave !== clave) {
-    if (PREVIA.clip) PREVIA.clip.pause();
-    PREVIA.clip = h('video', {clase: 'previa-clip', src: url,
-      controls: true, playsinline: true, autoplay: true, loop: true, muted: true,
+  const campo = esAvatar ? 'avatarClip' : 'clip';
+  if (!PREVIA[campo] || PREVIA[campo].dataset.clave !== clave) {
+    if (PREVIA[campo]) PREVIA[campo].pause();
+    PREVIA[campo] = h('video', {clase: esAvatar ? 'previa-avatar' : 'previa-clip', src: url,
+      controls: !esAvatar, playsinline: true, autoplay: true, loop: true, muted: true,
       preload: 'auto', datos: {clave}, onloadedmetadata: sincronizarClipPrevia,
-      title: escena.parallax ? 'Parallax: vista previa sin sonido. Oírla lo sincroniza con la narración.'
+      title: esAvatar ? 'Avatar IA: Oírla sincroniza los labios con la narración.'
+        : escena.parallax ? 'Parallax: vista previa sin sonido. Oírla lo sincroniza con la narración.'
         : 'Clip de vídeo: vista previa sin sonido. Oírla lo sincroniza con la narración.'});
-    PREVIA.clip.muted = true;
-    PREVIA.clip.defaultMuted = true;
+    PREVIA[campo].muted = true;
+    PREVIA[campo].defaultMuted = true;
   }
-  PREVIA.clip.poster = poster ? API.archivo(pid, poster) : '';
-  return PREVIA.clip;
+  PREVIA[campo].poster = poster ? API.archivo(pid, poster) : '';
+  return PREVIA[campo];
 }
 
 function seguirSustitucionEscena(pid, tid, sid) {
@@ -10476,6 +10834,7 @@ function vistaPreviaLight() {
   const disposicion = h('div', { clase: 'previa-disposicion' },
     galeriaImagenesPrevia(escenas), caja);
   caja.appendChild(estadoParallaxPrevia() || document.createTextNode(''));
+  caja.appendChild(estadoAvatarPrevia() || document.createTextNode(''));
 
   /* EL PLANO: la imagen, su capa de rótulos encima y el subtítulo debajo del
      todo. Las tres en el MISMO cuadro y en el orden en el que se dibujan en el
@@ -10496,6 +10855,7 @@ function vistaPreviaLight() {
      revisiones distintas en la misma pantalla y hacia dudar de si una nota era
      del dibujo o del texto de encima. */
   marco.classList.add(formatoDelVideo());
+  if (e.avatar) marco.classList.add('con-avatar');
   const fondo = e.imagen;
   if (e.clip) {
     marco.appendChild(clipPrevia(e, fondo));
@@ -10515,6 +10875,12 @@ function vistaPreviaLight() {
     marco.appendChild(h('div', { clase: 'previa-sin-imagen' },
       'Esta escena todavía no tiene imagen generada.'));
   }
+  if ((e.avatar || {}).clip) {
+    const avatar = clipPrevia(e, null, true);
+    engancharArrastreAvatar(avatar, e);
+    marco.appendChild(avatar);
+  }
+  else if (PREVIA.avatarClip) PREVIA.avatarClip.pause();
   /* LA ANIMACIÓN DE MOTION GRAPHICS, ENCIMA DE LA IMAGEN. Es la excepción a
      «aquí solo se mira el dibujo»: la elige el motor mirando lo que se dice en
      la escena y no se puede juzgar sin verla sobre su imagen. El botón de los
@@ -10534,6 +10900,8 @@ function vistaPreviaLight() {
      del texto de encima. */
   engancharSwipePrevia(marco);
   caja.appendChild(marco);
+  if ((e.avatar || {}).clip) caja.appendChild(h('p', { clase: 'pista' },
+    'Pincha y arrastra el avatar para colocarlo. La posición se guarda para esta escena y se aplica al montaje.'));
 
   if (e.recurso_biblioteca) {
     const recurso = e.recurso_biblioteca;
@@ -10587,8 +10955,18 @@ function vistaPreviaLight() {
         : 'Configurar la transición de esta escena a la siguiente',
       disabled: PREVIA.i >= escenas.length - 1,
     }, 'Transición'),
+    h('button', {
+      clase: (e.avatar || {}).clip ? 'mini primario' : 'mini',
+      'aria-pressed': String(!!(e.avatar || {}).clip),
+      disabled: e.admite_avatar === false || (AVATAR_ESCENA.ocupado && AVATAR_ESCENA.pid === v.pid),
+      onclick: () => incorporarAvatarEscena(e),
+      title: e.admite_avatar === false ? 'Requiere una escena narrada de hasta 60 segundos, sin cartela ni clip de vídeo'
+        : (e.avatar || {}).clip ? 'El avatar ya está incorporado. Pulsa para oírlo.'
+          : 'Generar con Boson el avatar hablando con el audio de esta escena e incorporarlo al vídeo',
+    }, 'Incorporar avatar'),
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`
+      + (e.avatar ? ' · Avatar IA' : '')
       + (e.bloque ? ` · ${e.bloque}` : '')
       + (e.animacion ? ` · ${e.animacion.nombre}` : '')
       + (e.animacion && e.animacion.elementos
@@ -11782,6 +12160,8 @@ async function refrescarLoDibujado() {
           e.imagen = suya.imagen;
           e.clip = suya.clip;
           e.parallax = suya.parallax;
+          e.avatar = suya.avatar;
+          e.admite_avatar = suya.admite_avatar;
           e.medio_usuario = suya.medio_usuario;
           e.recurso_biblioteca = suya.recurso_biblioteca;
           e.compuesto = suya.compuesto;
@@ -11791,6 +12171,7 @@ async function refrescarLoDibujado() {
         });
         PREVIA.ficha.con_cartelas = fresca.con_cartelas;
         PREVIA.ficha.animaciones = fresca.animaciones;
+        PREVIA.ficha.avatar = fresca.avatar;
       }
     }
   } catch (err) { return false; /* se reintentará en el siguiente avance */ }

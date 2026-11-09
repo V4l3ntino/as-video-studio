@@ -2566,6 +2566,11 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .previa-feedback .zona-suelta { padding: 9px 11px; font-size: 12px; }
 /* Sustitucion del material del plano: visible al apuntar, con teclado y en tactil. */
 .previa-marco .previa-clip { width: 100%; height: 100%; object-fit: cover; display: block; }
+.previa-marco.con-avatar > img { object-fit: cover; }
+.previa-marco .previa-avatar { position: absolute; left: var(--avatar-x, 73.375%); top: var(--avatar-y, 4%); width: 23.625%; aspect-ratio: 1; object-fit: contain; background: #000; display: block; cursor: grab; touch-action: none; user-select: none; }
+.previa-marco.vertical .previa-avatar { width: 42%; left: var(--avatar-x, 55%); }
+.previa-marco .previa-avatar.avatar-arrastrando { cursor: grabbing; outline: 2px solid var(--acento, #8294ff); }
+.previa-marco .previa-avatar.avatar-guardando { cursor: progress; }
 .previa-marco .sustituir-medio {
   position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
   z-index: 4; opacity: 0; pointer-events: none; transition: opacity .15s;
@@ -2725,4 +2730,27 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .parallax-editor .parallax-avanzado fieldset { margin-bottom: 0; }
 @media (max-width: 540px) {
   .parallax-opciones { grid-template-columns: 1fr; }
+}
+.avatar-opciones { display: grid; gap: 12px; }
+.avatar-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.avatar-dropbox { position: relative; width: 100%; aspect-ratio: 4 / 3; align-self: start; overflow: hidden; border: 2px dashed var(--borde, #343844); border-radius: 12px; background: #111319; }
+.avatar-dropbox.encima { border-color: #8494ff; background: #22283d; }
+.avatar-dropbox.con-imagen { border-style: solid; }
+.avatar-dropbox > img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.avatar-subir { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; border: 0; background: transparent; color: inherit; white-space: normal; text-align: center; }
+.avatar-icono { font-size: 32px; color: #9caaff; }
+.avatar-sustituir { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); opacity: 0; pointer-events: none; background: #171b2eee; color: #fff; border: 1px solid #8795f4; transition: opacity .15s; }
+.avatar-dropbox:hover .avatar-sustituir, .avatar-dropbox:focus-within .avatar-sustituir { opacity: 1; pointer-events: auto; }
+.avatar-espera { position: absolute; inset: 0; display: grid; place-items: center; background: #111319ce; color: #fff; }
+.avatar-chat { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 10px; aspect-ratio: 4 / 3; min-width: 0; min-height: 0; padding: 14px; border: 1px solid var(--borde, #343844); border-radius: 12px; background: #111319; }
+.avatar-mensajes { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: start; gap: 8px; }
+.avatar-mensajes p { margin: 0; max-width: 95%; padding: 9px 11px; border-radius: 10px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.avatar-respuesta { background: #222630; }
+.avatar-usuario { align-self: end; background: #303b69; }
+.avatar-chat textarea { width: 100%; min-height: 64px; max-height: 100px; resize: vertical; }
+.avatar-chat-pie { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+@media (hover: none) { .avatar-sustituir { opacity: 1; pointer-events: auto; } }
+@media (max-width: 1100px) {
+  .avatar-editor { grid-template-columns: minmax(0, 1fr); }
+  .avatar-chat { aspect-ratio: auto; min-height: 320px; }
 }

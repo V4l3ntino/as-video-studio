@@ -110,6 +110,7 @@ def _vacio():
         "freesound": {"clave": ""},
         "pixabay": {"clave": ""},
         "pexels": {"clave": ""},
+        "boson": {"clave": ""},
         "claude_cli": {"cuentas": []},
     }
 
@@ -158,7 +159,7 @@ def _normalizar(datos):
     elif isinstance(cartesia, str):
         base["cartesia"]["clave"] = cartesia.strip()
 
-    for suelta in ("jamendo", "freesound", "pixabay", "pexels"):
+    for suelta in ("jamendo", "freesound", "pixabay", "pexels", "boson"):
         cruda = datos.get(suelta)
         if isinstance(cruda, dict):
             base[suelta]["clave"] = str(cruda.get("clave") or "").strip()
@@ -247,6 +248,7 @@ def adoptar_env():
     datos["freesound"]["clave"] = valores.get("FREESOUND_API_KEY", "") or ""
     datos["pixabay"]["clave"] = valores.get("PIXABAY_API_KEY", "") or ""
     datos["pexels"]["clave"] = valores.get("PEXELS_API_KEY", "") or ""
+    datos["boson"]["clave"] = valores.get("BOSON_API_KEY", "") or ""
     return datos
 
 
@@ -333,7 +335,7 @@ def _fusionar(actual, peticion):
     # es la que ya habia. Sin eso, editar la de Jamendo borraria la de Cartesia,
     # porque la clave de verdad no baja al navegador NUNCA y la pantalla manda
     # el centinela en su lugar.
-    for suelta in ("cartesia", "jamendo", "freesound", "pixabay", "pexels"):
+    for suelta in ("cartesia", "jamendo", "freesound", "pixabay", "pexels", "boson"):
         if suelta in peticion:
             ficha = peticion.get(suelta)
             clave = ficha.get("clave") if isinstance(ficha, dict) else ficha
@@ -477,14 +479,14 @@ def espejar_env(datos=None):
         nuestras["JAMENDO_CLIENT_ID"] = datos["jamendo"]["clave"]
     if datos["freesound"]["clave"]:
         nuestras["FREESOUND_API_KEY"] = datos["freesound"]["clave"]
-    for proveedor in ("pixabay", "pexels"):
+    for proveedor in ("pixabay", "pexels", "boson"):
         if datos[proveedor]["clave"]:
             nuestras[proveedor.upper() + "_API_KEY"] = datos[proveedor]["clave"]
 
     # Los nombres que ESTA pantalla escribe. Lo que no este aqui se conserva tal
     # cual y en su orden: un .env puede tener cosas que nadie de aqui gestiona.
     gestionadas = {"OPENAI_API_KEY", "CARTESIA_API_KEY",
-                   "JAMENDO_CLIENT_ID", "FREESOUND_API_KEY", "PIXABAY_API_KEY", "PEXELS_API_KEY"} | {
+                   "JAMENDO_CLIENT_ID", "FREESOUND_API_KEY", "PIXABAY_API_KEY", "PEXELS_API_KEY", "BOSON_API_KEY"} | {
         f"OPENAI_API_KEY_{i}" for i in range(2, MAX_OPENAI + 1)}
 
     lineas, puestas = [], set()
@@ -563,6 +565,8 @@ def resumen(datos=None):
         "pexels": {"puesta": bool(datos["pexels"]["clave"]),
                    "cola": tapar(datos["pexels"]["clave"])},
         "max_openai": MAX_OPENAI,
+        "boson": {"puesta": bool(datos["boson"]["clave"]),
+                  "cola": tapar(datos["boson"]["clave"])},
     }
 
 

@@ -34,11 +34,14 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `DELETE` | `/api/proyectos/{pid}` | Mueve el proyecto a la papelera. No borra nada. |
 | `GET` | `/api/proyectos/{pid}` | Estado del proyecto: los ocho pasos, sus params, versiones y trabajos. |
 | `PUT` | `/api/proyectos/{pid}` | Cambia el nombre VISIBLE del proyecto. -> la ficha. |
+| `POST` | `/api/proyectos/{pid}/avatar/imagen` | Copia una imagen del buzón al vídeo; devuelve su referencia inmutable. |
 | `POST` | `/api/proyectos/{pid}/duplicar` | Copia un proyecto entero con lo que tiene puesto HOY. -> el nuevo. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Contenido editable y catálogo completo de animaciones para una escena. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Edita una animación; reserva una imagen propia adicional si el tipo la necesita. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes` | Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/previsualizar` | Dibuja el borrador de una animación sin guardar cambios en el proyecto. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/avatar` | Incorpora y prepara el avatar hablando en la escena elegida, también para el MP4. |
+| `PUT` | `/api/proyectos/{pid}/escenas/{sid}/avatar/posicion` | Guarda la posición del avatar en el cuadro, sin regenerar el clip de Boson. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Configuración efectiva del parallax de una imagen, sin modificar el proyecto. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
@@ -51,6 +54,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/feedback` | Feedback general o sobre una unidad; rehace SOLO lo que apunta. |
 | `POST` | `/api/proyectos/{pid}/presets-canal/{preset_id}/aplicar` | Copia los valores del preset a los params de los pasos que toque. |
 | `GET` | `/api/proyectos/{pid}/previsualizacion` | Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto. |
+| `POST` | `/api/proyectos/{pid}/previsualizacion/avatar` | Prepara los mismos clips Boson del montaje para verlos en Imágenes. |
 | `POST` | `/api/proyectos/{pid}/previsualizacion/parallax` | Prepara los clips DepthFlow seleccionados sin cambiar versiones ni firmas. |
 | `PUT` | `/api/proyectos/{pid}/redactor` | Guarda el prompt escrito de cada plano. Un prompt vacío lo quita. |
 | `POST` | `/api/proyectos/{pid}/redactor/proponer` | Escribe el prompt de cada plano, con TODOS los planos delante de una vez. |
@@ -283,6 +287,8 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 |---|---|---|
 | `GET` | `/` | La interfaz del Estudio. |
 | `GET` | `/api/animaciones` | Animaciones de motion graphics disponibles, con su GIF de muestra. |
+| `POST` | `/api/avatar/imagenes/generar` | Genera un retrato 4:3 en segundo plano, antes o después de crear el vídeo. |
+| `GET` | `/api/avatar/imagenes/trabajos/{tid}` | Consulta el progreso y la imagen resultante de un retrato de avatar. |
 | `GET` | `/api/avisos/correo` | Configuración de reintentos y avisos SMTP, sin devolver la contraseña. |
 | `PUT` | `/api/avisos/correo` | Guarda Gmail/SMTP y los intervalos de reintento fuera de los proyectos. |
 | `POST` | `/api/avisos/correo/probar` | Envía un correo de prueba real al destinatario configurado. |
@@ -296,4 +302,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**182 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**188 endpoints.** Escrito por `generar_api.py` desde `app.py`.

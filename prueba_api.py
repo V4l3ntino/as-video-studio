@@ -4769,7 +4769,7 @@ let escena = {id: 'S001', clip: 'uno.mp4', t_in: 10, t_out: 20};
 function videoAbierto() { return {pid: 'video'}; }
 function escenaPrevia() { return escena; }
 const API = {archivo: (pid, ruta) => pid + '/' + ruta};
-const document = {querySelector: () => PREVIA.clip};
+const document = {querySelectorAll: () => [PREVIA.clip, PREVIA.avatarClip].filter(Boolean)};
 function h(_tag, attrs) {
   return {...attrs, dataset: attrs.datos, currentTime: 0, duration: 8, paused: false,
     play() { this.paused = false; return Promise.resolve(); },
@@ -4792,6 +4792,17 @@ r.congela_final = clip.paused && Math.abs(clip.currentTime - (8 - 1/30)) < .001;
 PREVIA.sonando = false;
 sincronizarClipPrevia();
 r.respeta_pausa = clip.paused;
+escena.avatar = {clip: 'avatar.mp4'};
+const avatar = clipPrevia(escena, null, true);
+r.avatar_sin_audio_duplicado = avatar.muted && !avatar.controls && avatar.clase === 'previa-avatar';
+PREVIA.sonando = true;
+PREVIA.audio = {currentTime: 13, paused: false};
+sincronizarClipPrevia();
+r.avatar_sincronizado = avatar.currentTime === 3 && !avatar.paused && !avatar.loop;
+PREVIA.audio.paused = true;
+sincronizarClipPrevia();
+r.avatar_pausado = avatar.paused;
+r.avatar_reutilizado = clipPrevia(escena, null, true) === avatar;
 escena = {...escena, clip: 'sustitucion.mp4'};
 const nuevo = clipPrevia(escena, 'otro.png');
 r.sustituido_nuevo = nuevo !== clip && clip.paused && nuevo.src.endsWith('sustitucion.mp4');
@@ -4806,6 +4817,10 @@ console.log(JSON.stringify(r));
         ("reutiliza", "repintar conserva el reproductor y su posicion"),
         ("sincronizado", "al escuchar la narracion el clip sigue su reloj sin bucle"),
         ("congela_final", "un clip corto conserva el ultimo fotograma durante la narracion"),
+        ("avatar_sin_audio_duplicado", "el avatar se superpone sin duplicar el sonido de la narración"),
+        ("avatar_sincronizado", "los labios del avatar siguen el reloj de Oírla"),
+        ("avatar_pausado", "el avatar se detiene al pausar la narración"),
+        ("avatar_reutilizado", "repintar no reinicia el clip del avatar"),
         ("respeta_pausa", "los controles conservan la pausa del clip"),
         ("sustituido_nuevo", "sustituir el archivo cambia el reproductor y detiene el anterior"),
     ):
@@ -5937,6 +5952,162 @@ def probar_configuracion_avisos(cliente):
     ok(clave not in json.dumps(datos), "la consulta posterior tampoco expone la contraseña")
 
 
+def probar_avatar(cliente):
+    from PIL import Image
+    seccion("AVATAR IA: CLAVE, SUBIDA Y PARAMS SIN CAMBIAR LA NARRACION")
+    respuesta, datos = cliente.put("/api/claves", {"boson": {"clave": "boson-secreto-de-prueba"}})
+    igual(respuesta.status_code, 200, "la clave de Boson se guarda")
+    ok(datos["boson"]["puesta"] and "boson-secreto-de-prueba" not in json.dumps(datos),
+       "Boson devuelve solo el estado y la cola de la clave")
+    _, creado = cliente.post("/api/proyectos", {"nombre": "Avatar de prueba"})
+    pid = creado["proyecto"]["id"]
+    url = f"/api/proyectos/{pid}"
+    _, antes = cliente.get(url)
+    png = io.BytesIO()
+    Image.new("RGB", (40, 40), "red").save(png, "PNG")
+    respuesta, subida = cliente.pedir("POST", "/api/presets-light/imagenes",
+        files={"imagenes": ("avatar.png", png.getvalue(), "image/png")})
+    igual(respuesta.status_code, 201, "el retrato puede subirse antes de crear el vídeo")
+    respuesta, imagen = cliente.post(url + "/avatar/imagen", {"nombre": subida["imagenes"][0]["nombre"]})
+    igual(respuesta.status_code, 201, "el retrato se copia al proyecto")
+    ruta = imagen["ruta"]
+    ok(ruta.startswith("medios_usuario/animaciones/"), "el retrato usa referencias inmutables portables")
+    respuesta, _ = cliente.put(url + "/pasos/render/params", {"params": {
+        "avatar": {"activo": True, "metodo": "subir", "imagen": ruta, "prompt": ""}}})
+    igual(respuesta.status_code, 200, "el encargo guarda la opción del avatar")
+    _, despues = cliente.get(url)
+    for paso in ("guion", "voz", "assets", "callouts"):
+        a = next(p for p in antes["pasos"] if p["id"] == paso)
+        b = next(p for p in despues["pasos"] if p["id"] == paso)
+        igual(a, b, "el avatar no cambia " + paso)
+    respuesta, _ = cliente.put(url + "/pasos/render/params", {"params": {
+        "avatar": {"activo": True, "imagen": "../fuera.png"}}})
+    igual(respuesta.status_code, 400, "una referencia fuera del proyecto se rechaza")
+    respuesta, _ = cliente.post(url + "/avatar/imagen", {"nombre": "../fuera.png"})
+    igual(respuesta.status_code, 400, "no puede copiarse un archivo fuera del buzón")
+    respuesta, _ = cliente.post("/api/avatar/imagenes/generar", {"prompt": " "})
+    igual(respuesta.status_code, 400, "generar un retrato exige una descripción")
+    respuesta, inicio = cliente.post("/api/avatar/imagenes/generar", {
+        "prompt": "Un presentador de frente con camisa azul", "pid": pid, "imagen": ruta})
+    igual(respuesta.status_code, 202, "el chat genera en segundo plano con el retrato de referencia")
+    for _ in range(100):
+        _, trabajo = cliente.get("/api/avatar/imagenes/trabajos/" + inicio["trabajo_id"])
+        if trabajo["estado"] in ("listo", "error", "cancelado"):
+            break
+        time.sleep(.05)
+    igual(trabajo["estado"], "listo", "el retrato termina antes del montaje")
+    if trabajo["estado"] == "listo":
+        nombre = trabajo["resultado"]["nombre"]
+        respuesta, _ = cliente.get("/api/presets-light/imagenes/" + nombre)
+        with Image.open(io.BytesIO(respuesta.content)) as retrato:
+            igual(retrato.size, (1024, 768), "la previsualización generada es una imagen 4:3")
+        respuesta, _ = cliente.post(url + "/avatar/imagen", {"nombre": nombre})
+        igual(respuesta.status_code, 201, "la imagen generada puede seleccionarse como avatar")
+
+
+def probar_avatar_en_imagenes(cliente):
+    import wave
+    from PIL import Image
+    from nucleo.proyecto import Proyecto, escribir_json
+    from nucleo.estado import Estado
+    from pasos import imagenes_animacion
+    seccion("AVATAR EN IMAGENES: PREPARACION, CACHE Y DESACTIVACION")
+    proyecto = Proyecto.crear(cliente.carpeta, "Previa avatar")
+    estado = Estado(proyecto)
+    voz = os.path.join(proyecto.ruta_trabajo("voz"), "narracion.wav")
+    with wave.open(voz, "wb") as fh:
+        fh.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
+        fh.writeframes(b"\0\0" * 48000)
+    estado.completar("voz", {"wav": "narracion.wav", "duracion": 2})
+    plan = {"generacion": [160, 90], "resolucion": [160, 90], "formato": "horizontal", "duracion_total": 2,
+            "escenas": [{"id": "S001", "t_in": 0, "t_out": 1, "duracion": 1, "narracion": "La explicación central."},
+                        {"id": "S002", "t_in": 1, "t_out": 2, "duracion": 1, "narracion": "Un detalle secundario."}]}
+    carpeta = proyecto.ruta_trabajo("assets")
+    os.makedirs(os.path.join(carpeta, "escenas"), exist_ok=True)
+    for escena in plan["escenas"]:
+        Image.new("RGB", (160, 90), "blue").save(os.path.join(carpeta, "escenas", escena["id"] + ".png"))
+    escribir_json(os.path.join(carpeta, "plan.json"), plan)
+    estado.completar("assets", {"plan": "plan.json"})
+    png = io.BytesIO()
+    Image.new("RGB", (40, 40), "red").save(png, "PNG")
+    retrato = imagenes_animacion.guardar(proyecto, png.getvalue(), "retrato.png")
+    estado.actualizar_params("render", {"avatar": {"activo": True, "metodo": "subir", "imagen": retrato}})
+    url = f"/api/proyectos/{proyecto.id}/previsualizacion"
+    respuesta, previa = cliente.get(url)
+    igual(respuesta.status_code, 200, "la previa acepta un vídeo con avatar")
+    igual((previa.get("avatar") or {}).get("estado"), "pendiente", "se publica la preparación pendiente")
+    ok(not os.path.isdir(proyecto.ruta("avatar")), "consultar la previa no genera ni escribe clips")
+    respuesta, inicio = cliente.post(url + "/avatar")
+    igual(respuesta.status_code, 202, "la pantalla puede preparar el avatar antes de montar")
+    if not inicio.get("trabajo_id"):
+        ok(False, "la preparación devuelve su trabajo")
+        return
+    fin = esperar_trabajo(cliente, inicio["trabajo_id"])
+    igual(fin["estado"], "listo", f"se prepara el clip del avatar: {fin.get('error')}")
+    _, previa = cliente.get(url)
+    igual(previa["avatar"]["estado"], "listo", "la previa actualizada muestra el avatar listo")
+    escena = previa["escenas"][0]
+    clip = escena["avatar"]["clip"]
+    ok(clip and not os.path.isabs(clip), "el clip del avatar se publica relativo al proyecto")
+    igual(previa["escenas"][1]["avatar"], None, "la escena no seleccionada conserva su imagen sin avatar")
+    respuesta, _ = cliente.get(f"/a/{proyecto.id}/{clip}")
+    igual(respuesta.status_code, 200, "el navegador puede reproducir el avatar")
+    fecha = os.stat(proyecto.ruta(clip)).st_mtime_ns
+    _, repetida = cliente.post(url + "/avatar")
+    ok(repetida.get("listo") and not repetida.get("trabajo_id"), "volver a abrir Imágenes reutiliza los clips sin otro trabajo")
+    igual(os.stat(proyecto.ruta(clip)).st_mtime_ns, fecha, "no se vuelve a generar el clip completado")
+    _, antes_manual = cliente.get(f"/api/proyectos/{proyecto.id}")
+    cliente.put(f"/api/proyectos/{proyecto.id}/pasos/render/params", {"params": {"unidades": {
+        "escena:S002": {"parallax": {"activo": False, "ancla": "Un detalle secundario."}}}}})
+    respuesta, incorporacion = cliente.post(f"/api/proyectos/{proyecto.id}/escenas/S002/avatar")
+    igual(respuesta.status_code, 202, "Incorporar avatar permite elegir una escena no seleccionada por la IA")
+    if incorporacion.get("trabajo_id"):
+        fin_manual = esperar_trabajo(cliente, incorporacion["trabajo_id"])
+        igual(fin_manual["estado"], "listo", "el botón prepara el avatar con el audio de la escena elegida")
+    _, manual = cliente.get(url)
+    ok((manual["escenas"][1].get("avatar") or {}).get("clip"), "el avatar hablando aparece en la escena elegida")
+    igual(manual["escenas"][0]["avatar"]["clip"], clip, "se conserva el clip de la primera escena")
+    igual(os.stat(proyecto.ruta(clip)).st_mtime_ns, fecha, "incorporar el avatar a otra escena no repite el clip ya generado")
+    _, despues_manual = cliente.get(f"/api/proyectos/{proyecto.id}")
+    for paso in ("guion", "voz", "assets", "callouts"):
+        igual(next(p for p in antes_manual["pasos"] if p["id"] == paso),
+              next(p for p in despues_manual["pasos"] if p["id"] == paso), "la incorporación manual conserva " + paso)
+    _, render_manual = cliente.get(f"/api/proyectos/{proyecto.id}/pasos/render")
+    unidad = render_manual["params"]["unidades"]["escena:S002"]
+    ok(unidad["avatar"]["activo"] and unidad["avatar"]["ancla"] == "un detalle secundario",
+       "el montaje conserva la incorporación vinculada al texto de esa escena")
+    ok(unidad["parallax"]["activo"] is False, "se conservan los demás ajustes de la escena")
+    _, repetida_manual = cliente.post(f"/api/proyectos/{proyecto.id}/escenas/S002/avatar")
+    ok(repetida_manual.get("listo") and not repetida_manual.get("trabajo_id"), "pulsar de nuevo no genera otro clip")
+    clave_antes = manual["avatar"]["clave"]
+    posicion_url = f"/api/proyectos/{proyecto.id}/escenas/S002/avatar/posicion"
+    ancla = manual["escenas"][1]["avatar"]["ancla"]
+    respuesta, posicion = cliente.put(posicion_url, {"ancla": ancla, "posicion": {"x": .1, "y": .2}})
+    igual(respuesta.status_code, 200, "arrastrar guarda la posición de la escena")
+    igual(posicion["posicion"]["x"], .1, "se conserva la coordenada horizontal")
+    _, movida = cliente.get(url)
+    igual(movida["avatar"]["clave"], clave_antes, "mover el avatar no cambia la firma de lip-sync")
+    igual(movida["avatar"]["estado"], "listo", "mover conserva los clips listos")
+    igual(movida["escenas"][1]["avatar"]["posicion"]["y"], .2, "la previa recupera la posición guardada")
+    igual(movida["escenas"][0]["avatar"]["posicion"]["x"], manual["escenas"][0]["avatar"]["posicion"]["x"],
+          "el arrastre no cambia la posición de otra escena")
+    cliente.post(f"/api/proyectos/{proyecto.id}/escenas/S002/avatar")
+    _, tras_incorporar = cliente.get(url)
+    igual(tras_incorporar["escenas"][1]["avatar"]["posicion"]["x"], .1,
+          "volver a incorporar no borra la posición")
+    respuesta, _ = cliente.put(posicion_url, {"ancla": "otra narración", "posicion": {"x": .2, "y": .2}})
+    igual(respuesta.status_code, 409, "el arrastre no se aplica sobre otro texto")
+    respuesta, _ = cliente.put(posicion_url, {"ancla": ancla, "posicion": {"x": -1, "y": .2}})
+    igual(respuesta.status_code, 400, "se rechazan coordenadas inválidas")
+    igual(os.stat(proyecto.ruta(clip)).st_mtime_ns, fecha, "el arrastre no vuelve a generar clips de Boson")
+    respuesta, _ = cliente.post(f"/api/proyectos/{proyecto.id}/escenas/NO_EXISTE/avatar")
+    igual(respuesta.status_code, 404, "no se incorpora el avatar a una escena inexistente")
+    cliente.put(f"/api/proyectos/{proyecto.id}/pasos/render/params", {"params": {"avatar": {"activo": False}}})
+    _, apagada = cliente.get(url)
+    igual(apagada["avatar"], None, "desactivar el avatar lo retira de la previa")
+    ok(all(e["avatar"] is None for e in apagada["escenas"]), "ninguna escena conserva un avatar desactivado")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prueba del servicio HTTP")
     parser.add_argument("--conservar", action="store_true",
@@ -5973,6 +6144,8 @@ def main():
         probar_escucha_de_voz_light(cliente)
         probar_muestras_recuperadas(cliente)
         probar_imagenes_de_apoyo(cliente)
+        probar_avatar(cliente)
+        probar_avatar_en_imagenes(cliente)
         probar_taller_oculto(cliente)
         probar_cartelas_y_transiciones(cliente, pid, os.path.join(carpeta, pid))
         probar_direccion(cliente, pid)
