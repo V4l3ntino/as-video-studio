@@ -711,6 +711,27 @@ igual("el editor muestra la palabra ya resaltada al abrir una animacion antigua"
 igual("el editor conserva un subrayado vacio explicito",
       animaciones.contenido_de("tipografia-cinetica", dict(datos_subrayado, subrayado=""))["subrayado"], "")
 
+frase_unida = "Canis lupus y otro canis lupus; un lobo solitario"
+palabras_unidas = frase_unida.split()
+datos_unidos = {"palabras": palabras_unidas,
+                "tiempos": [[i * .3, (i + 1) * .3] for i in range(len(palabras_unidas))],
+                "subrayado": "Canis-lupus, lobo"}
+igual("el guion une solo parejas consecutivas, aunque se repitan",
+      animaciones.grupos_subrayado_de(datos_unidos), [(0, 1), (4, 5), (7, 7)])
+igual("el acceso antiguo sigue devolviendo los indices elegidos",
+      animaciones.subrayadas_de(datos_unidos), {0, 1, 4, 5, 7})
+svg_unido, _ = animaciones.svg_de({"animacion": "tipografia-cinetica", "datos": datos_unidos}, 6)
+resaltados_unidos = [n for n in xml.dom.minidom.parseString(svg_unido).getElementsByTagName("rect")
+                    if n.getAttribute("fill-opacity") == "0.9"]
+igual("una banda por pareja y otra por palabra suelta", len(resaltados_unidos), 3)
+medida_canis = animaciones.tipografia.medir("Canis", animaciones.FUENTE_MEDIDA, 74, True)[0]
+comprobar("el ancho de la banda incluye la segunda palabra y el espacio",
+          float(resaltados_unidos[0].getElementsByTagName("animate")[0].getAttribute("to")) > medida_canis + 20)
+igual("una pareja inexistente no subraya palabras aisladas",
+      animaciones.grupos_subrayado_de(dict(datos_unidos, subrayado="lupus-lobo")), [])
+igual("la puntuación y mayúsculas no rompen la pareja",
+      animaciones.grupos_subrayado_de(dict(datos_unidos, subrayado="CANIS-LUPUS")), [(0, 1), (4, 5)])
+
 with tempfile.TemporaryDirectory(prefix="subrayado_anim_") as carpeta_subrayado:
     proyecto, estado = juguete.construir(carpeta_subrayado, animaciones=[], etiquetas={})
     estado.actualizar_params("render", {"unidades": {"escena:S001": {}, "escena:S002": {}}})
@@ -739,6 +760,12 @@ with tempfile.TemporaryDirectory(prefix="subrayado_anim_") as carpeta_subrayado:
         igual("previa y render comparten el subrayado elegido", render["S001"]["svg"], previa["escenas"][0]["animacion"]["svg"])
         igual("subrayar no cambia las otras escenas", estado.firma_unidad("render", "escena:S002"), firma_vecina)
         igual("subrayar no cambia la firma global", estado.firma_global("render"), firma_global)
+        nueva["contenido"] = {"texto": "Canis lupus y otro Canis lupus.", "subrayado": "Canis-lupus"}
+        previa = servidor.editar_animacion_escena(proyecto.id, "S001", nueva)
+        plan = servidor._plan_de_previsualizacion(ctx)
+        render = animaciones.capas(plan["escenas"], estado.params("render"), salida=(1280, 720))
+        igual("la pareja unida se pinta igual en previa y montaje",
+              render["S001"]["svg"], previa["escenas"][0]["animacion"]["svg"])
         nueva["contenido"]["subrayado"] = ""
         previa = servidor.editar_animacion_escena(proyecto.id, "S001", nueva)
         igual("borrar Subrayado se conserva como vacio", previa["escenas"][0]["animacion"]["contenido"]["subrayado"], "")

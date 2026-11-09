@@ -184,14 +184,36 @@ def ancla_de(escena):
 
 def subrayadas_de(datos):
     """Coincidencias de palabras completas; sin campo conserva la elección antigua."""
+    return {i for inicio, fin in grupos_subrayado_de(datos) for i in range(inicio, fin + 1)}
+
+
+def grupos_subrayado_de(datos):
+    """Tramos contiguos; un guion en la elección une palabras en un solo resaltado."""
     palabras = datos.get("palabras") or []
     if not palabras:
-        return set()
+        return []
     if "subrayado" not in datos:
-        return {max(range(len(palabras)), key=lambda k: (len(_limpio(palabras[k])), k))}
-    buscadas = set(re.findall(r"\w+", str(datos["subrayado"]).casefold()))
-    return {i for i, palabra in enumerate(palabras)
-            if buscadas.intersection(re.findall(r"\w+", str(palabra).casefold()))}
+        i = max(range(len(palabras)), key=lambda k: (len(_limpio(palabras[k])), k))
+        return [(i, i)]
+    seleccion = str(datos["subrayado"]).casefold()
+    compuestas = re.findall(r"\w+(?:-\w+)+", seleccion)
+    sueltas = set(re.findall(r"\w+", re.sub(r"\w+(?:-\w+)+", " ", seleccion)))
+    tokens = [re.findall(r"\w+", str(p).casefold()) for p in palabras]
+    grupos = []
+    ocupadas = set()
+    for compuesta in compuestas:
+        buscados = compuesta.split("-")
+        for inicio in range(len(palabras)):
+            for fin in range(inicio, len(palabras)):
+                tramo = [t for parte in tokens[inicio:fin + 1] for t in parte]
+                if len(tramo) >= len(buscados):
+                    if tramo == buscados and not ocupadas.intersection(range(inicio, fin + 1)):
+                        grupos.append((inicio, fin))
+                        ocupadas.update(range(inicio, fin + 1))
+                    break
+    grupos.extend((i, i) for i, parte in enumerate(tokens)
+                  if i not in ocupadas and sueltas.intersection(parte))
+    return sorted(grupos)
 
 
 def contenido_de(aid, datos):
@@ -1333,20 +1355,28 @@ def _svg_cinetica(datos, duracion, ancho, alto, c, ctx=None):
     x, y = 0.07 * ancho, 0.13 * alto
     inicio = max(0.0, tiempos[0][0] - 0.25)
     fin = min(duracion - 0.05, max(tiempos[-1][1] + 1.6, inicio + 2.6))
-    claves = subrayadas_de(datos)
+    grupos = grupos_subrayado_de(datos)
+    claves = {k for inicio_grupo, fin_grupo in grupos for k in range(inicio_grupo, fin_grupo + 1)}
     piezas = [f'<rect x="{-pad:.1f}" y="{-pad*0.55:.1f}" width="{caja_w + 2*pad:.1f}" '
               f'height="{caja_h + pad*0.4:.1f}" rx="{20*u:.1f}" fill="{c["sombra"]}" '
               f'fill-opacity="0.62"/>']
     for fila, ln in enumerate(lineas):
         cursor = 0.0
+        # Un tramo ocupa una banda por renglón; dentro de cada uno incluye
+        # también el espacio entre las palabras, sin mover ni redibujar textos.
+        segmentos = {max(inicio_grupo, ln[0]): min(fin_grupo, ln[-1])
+                     for inicio_grupo, fin_grupo in grupos
+                     if inicio_grupo <= ln[-1] and fin_grupo >= ln[0]}
         for k in ln:
             px, py = cursor, tam + fila * interlinea
             t0 = tiempos[k][0]
-            if k in claves:
+            if k in segmentos:
+                ultimo = segmentos[k]
+                ancho_resaltado = sum(medidas[j] for j in range(k, ultimo + 1)) + hueco * (ultimo - k)
                 piezas.append(
                     f'<rect x="{px - 10*u:.1f}" y="{py - tam*0.9:.1f}" width="0" '
                     f'height="{tam*1.15:.1f}" rx="{8*u:.1f}" fill="{c["acento"]}" '
-                    f'fill-opacity="0.9">{_anim("width", 0, f"{medidas[k] + 20*u:.1f}", t0, 0.4)}</rect>')
+                    f'fill-opacity="0.9">{_anim("width", 0, f"{ancho_resaltado + 20*u:.1f}", t0, 0.4)}</rect>')
             tinta = _sobre(c["acento"]) if k in claves else c["texto"]
             piezas.append(
                 f'<text x="{px:.1f}" y="{py:.1f}" fill-opacity="0" '

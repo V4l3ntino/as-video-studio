@@ -9581,8 +9581,9 @@ async function abrirAnimacionEscena(escena) {
       campos.appendChild(h('label', { clase: 'campo' }, campo.nombre, entrada));
       if (campo.ayuda) campos.appendChild(h('p', { clase: 'meta' }, campo.ayuda));
       if (subrayado) campos.appendChild(h('p', { clase: 'meta' },
-        'Separa las palabras con espacios o comas. Se resaltan todas las coincidencias, '
-        + 'sin distinguir mayúsculas. Déjalo vacío para no subrayar ninguna palabra.'));
+        'Separa palabras con espacios o comas; únelas con un guion (Canis-lupus) '
+        + 'para resaltarlas juntas. Se resaltan todas las coincidencias, sin distinguir '
+        + 'mayúsculas. Déjalo vacío para no subrayar ninguna palabra.'));
     });
   }
 

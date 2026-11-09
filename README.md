@@ -302,6 +302,8 @@ elegir las palabras resaltadas. Sepáralas con espacios o comas: se resaltan tod
 las coincidencias de palabras completas, sin distinguir mayúsculas y sin que la
 puntuación afecte. Las palabras que no estén en la frase se ignoran; vacío no
 resalta ninguna. Los proyectos anteriores conservan su resaltado al abrirse.
+Si unes dos palabras con un guion en **Subrayado** (por ejemplo, `Canis-lupus`),
+una sola banda resalta ambas palabras consecutivas, incluido el espacio entre ellas.
 En **Comparación de tarjetas**, encima de cada etiqueta aparecen **Imagen izquierda**
 e **Imagen derecha**. Arrastra una imagen o pulsa en la zona para elegirla. El
 **Collage con título** ofrece las mismas dos zonas encima del título. Se admiten
