@@ -1,0 +1,19 @@
+# Motor opcional de parallax (DepthFlow), en su PROPIO entorno.
+#
+# El servicio no lo necesita para arrancar y no debe compartir entorno con el:
+# arrastra torch, CUDA y OpenGL, y ocupa varios GB. En Linux/macOS:
+#
+#   python3 -m venv .depthflow
+#   .depthflow/bin/pip install -r requirements-depthflow.txt
+#
+# O todo de una vez (servicio + motor):
+#
+#   bash instalar_dependencias.sh
+#
+# El Estudio detecta .depthflow automaticamente; ESTUDIO_DEPTHFLOW_PYTHON
+# permite situarlo fuera del programa. Probado con Python 3.12.
+#
+# Para subir una version: cambiarla aqui, ejecutar
+# `python pasos/prueba_parallax.py --real` y volver a instalar en limpio.
+depthflow==1.0.1
+shaderflow==0.13.0

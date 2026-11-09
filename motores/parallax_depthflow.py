@@ -61,8 +61,9 @@ def _generar(imagen, carpeta, opciones, duracion, fps, resolucion, latido=None):
                 if codigo or not os.path.isfile(contrato["destino"]):
                     log.seek(0)
                     detalle = log.read()[-1800:]
-                    raise RuntimeError("DepthFlow no ha podido animar la imagen. Instala el motor "
-                        "según README.md y configura ESTUDIO_DEPTHFLOW_PYTHON. " + detalle)
+                    raise RuntimeError("DepthFlow no ha podido animar la imagen. Instala el motor con "
+                        "`bash instalar_dependencias.sh` (o según README.md) y configura "
+                        "ESTUDIO_DEPTHFLOW_PYTHON. " + detalle)
                 os.replace(contrato["destino"], destino)
             finally:
                 if proceso.poll() is None:

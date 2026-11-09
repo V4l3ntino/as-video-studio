@@ -109,8 +109,43 @@ en **[despliegue/LEEME.md](despliegue/LEEME.md)**.
 
 ## Arrancar en tu propia máquina
 
+### Linux
+
+En Ubuntu 24.04:
+
 ```bash
-python app.py --puerto 8020
+sudo apt update
+sudo apt install -y python3-venv ffmpeg
+```
+
+En cualquier Linux con Python 3.12 o superior, un solo comando instala el
+servicio y el motor opcional de parallax:
+
+```bash
+bash instalar_dependencias.sh
+.venv/bin/python app.py --puerto 8020
+```
+
+`instalar_dependencias.sh` crea `.venv` con las dependencias del servicio y
+`.depthflow` con DepthFlow, cada uno en su propio entorno; no borra los que ya
+existan y se puede volver a lanzar. Si no quieres el parallax, basta con
+instalar el servicio:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+El navegador que rasteriza los planos (**Chromium** o **Microsoft Edge**) y las
+fuentes se instalan aparte; `ESTUDIO_EDGE` y `ESTUDIO_FUENTES` permiten fijar
+sus rutas.
+
+En Windows:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py --puerto 8020
 ```
 
 Y abrir `http://127.0.0.1:8020/`. Con `--host 0.0.0.0` escucha en la red local;
@@ -308,22 +343,33 @@ ajustes. Quitar el efecto de una escena se conserva aunque el vídeo anime todas
 las imágenes; también puedes activarlo solo en una imagen con la opción global
 apagada. Las demás escenas, sus animaciones y la narración se conservan.
 
-El motor es opcional y se instala en un entorno **separado** del servicio:
+El motor es opcional y se instala en un entorno **separado** del servicio. En
+Linux/macOS, `bash instalar_dependencias.sh` ya lo deja en `.depthflow`. A mano:
+
+```bash
+python3 -m venv .depthflow
+.depthflow/bin/pip install -r requirements-depthflow.txt
+export ESTUDIO_DEPTHFLOW_PYTHON="$PWD/.depthflow/bin/python"   # opcional
+.venv/bin/python app.py --puerto 8020
+```
+
+En Windows:
 
 ```powershell
-uv venv --python 3.14 .depthflow
-uv pip install --python .depthflow/Scripts/python.exe depthflow==1.0.1
-$env:ESTUDIO_DEPTHFLOW_PYTHON = (Resolve-Path .depthflow/Scripts/python.exe).Path
-python app.py --puerto 8020
+python -m venv .depthflow
+.\.depthflow\Scripts\python.exe -m pip install -r requirements-depthflow.txt
+$env:ESTUDIO_DEPTHFLOW_PYTHON = (Resolve-Path .depthflow\Scripts\python.exe).Path
+.\.venv\Scripts\python.exe app.py --puerto 8020
 ```
 
 El Estudio detecta automáticamente `.depthflow`; `ESTUDIO_DEPTHFLOW_PYTHON`
-permite situarlo fuera del programa. En Linux usa `.depthflow/bin/python` al
-instalar y exportar la variable. Requiere FFmpeg y un contexto OpenGL headless funcional; la primera
-animación descarga el modelo de profundidad. Si falta el motor o falla, el montaje
-muestra el motivo y puede reintentarse tras corregirlo. No se sustituye por un zoom
-plano. Verificación offline: `python pasos/prueba_parallax.py`; prueba del motor
-con estimación real y MP4: `python pasos/prueba_parallax.py --real`.
+permite situarlo fuera del programa. Instalar DepthFlow descarga torch/CUDA y
+ocupa varios GB; el servicio no lo necesita para arrancar. Requiere FFmpeg y un
+contexto OpenGL headless funcional; la primera animación descarga el modelo de
+profundidad y tarda más. Si falta el motor o falla, el montaje muestra el motivo
+y puede reintentarse tras corregirlo. No se sustituye por un zoom plano.
+Verificación offline: `python pasos/prueba_parallax.py`; prueba del motor con
+estimación real y MP4: `python pasos/prueba_parallax.py --real`.
 
 ### Elegir las transiciones del vídeo
 
@@ -425,6 +471,7 @@ Short sin remontar el vídeo largo. Abrir la pantalla no descarta nada.
 | **ffmpeg** y **ffprobe** | la voz, la música y el MP4 | los pasos que los usan lo dicen |
 | **Microsoft Edge** (o Chrome) | rasterizar cada plano | igual |
 | Las **fuentes** de los subtítulos y las cartelas | medir y dibujar el texto | ver el aviso de `motores/README.md` |
+| **DepthFlow** en `.depthflow` *(opcional)* | el efecto parallax | el vídeo sale sin parallax |
 | El **CLI de Claude**, con sesión | el guion, el catálogo visual, los rótulos | no hay vídeo |
 | **Codex CLI**, con sesión de ChatGPT | las imágenes con la cuota del plan | no hay vídeo |
 | Una **clave de Cartesia** | la voz | no hay vídeo |
