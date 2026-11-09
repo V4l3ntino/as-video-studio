@@ -1595,9 +1595,16 @@ def ajustar_svg(svg, fondo, asignacion, duracion):
         # Escalar también los set y animateTransform: no cortar entradas largas.
         fin = max((float(el.get("begin", "0s")[:-1]) + float(el.get("dur", "0s")[:-1])
                    for el in raiz.iter() if el.tag.split("}")[-1] in {"animate", "animateTransform", "set"}
+                   and el.get("repeatCount") != "indefinite"
                    and re.fullmatch(r"[\d.]+s", el.get("begin", "0s"))
                    and re.fullmatch(r"[\d.]+s", el.get("dur", "0s"))), default=duracion)
-        escala = asignacion["duracion"] / max(fin, 0.001)
+        if es_cartela_editor(asignacion.get("animacion")):
+            # Las cartelas se escriben y permanecen: su ventana original es el
+            # plano completo, no la duración de la deriva decorativa en bucle.
+            fin = max(float(duracion), fin)
+        limite = asignacion["duracion"]
+        salida_cartela = min(0.25, limite * 0.1) if es_cartela_editor(asignacion.get("animacion")) else 0
+        escala = (limite - salida_cartela) / max(fin, 0.001)
         for el in raiz.iter():
             for atributo in ("begin", "dur"):
                 valor = el.get(atributo, "")
@@ -1605,6 +1612,12 @@ def ajustar_svg(svg, fondo, asignacion, duracion):
                     el.set(atributo, _s(float(valor[:-1]) * escala))
         if fondo:
             fondo = dict(fondo, t=[t * escala for t in fondo["t"]])
+        if es_cartela_editor(asignacion.get("animacion")):
+            conjunto.append(ET.Element(f"{{{ns}}}animate", {
+                "attributeName": "opacity", "from": "1", "to": "0",
+                "begin": _s(limite - salida_cartela), "dur": _s(salida_cartela), "fill": "freeze"}))
+            conjunto.append(ET.Element(f"{{{ns}}}set", {
+                "attributeName": "display", "to": "none", "begin": _s(limite), "fill": "freeze"}))
     return ET.tostring(raiz, encoding="unicode"), fondo
 
 
@@ -1621,7 +1634,7 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
         lienzo = (864, 1536) if salida[1] > salida[0] else (1536, 864)
         svg = cartelas.svg_capa({"plantilla": aid.removeprefix("cartela-"),
                                  "datos": asignacion["datos"]}, paleta,
-                                duracion=float(duracion), lienzo=lienzo, salida=salida)
+                                duracion=float(duracion), lienzo=lienzo, salida=salida, reloj_unico=True)
         svg = re.sub(r'width="\d+" height="\d+"',
                      f'width="{int(salida[0])}" height="{int(salida[1])}"', svg, count=1)
         return ajustar_svg(svg, None, asignacion, duracion)

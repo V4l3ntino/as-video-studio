@@ -503,6 +503,14 @@ Ctrl/Cmd+Z y ↶ usan la misma restauración, sin persistir hasta Guardar.
 `animacion.duracion`, si
 existe, escala todos los tiempos SMIL y el fondo a esos segundos (0,1 s hasta
 la duración de la escena). Previa y render pasan por el mismo `svg_de`.
+En las diez `cartela-*`, usa `svg_capa(reloj_unico=True)`: un SVG anidado crea
+otro reloj SMIL y buscar el tiempo en el padre no mueve sus palabras. La variante
+con grupos conserva escala, centrado y recorte. Al retimar, ignora los bucles
+`repeatCount="indefinite"` al calcular el plazo (el fantasma deriva en 14–18 s).
+Una duración manual reserva el fundido final y oculta todo el conjunto al
+cumplirse el tiempo; `fill="freeze"` en las palabras por sí solo las deja hasta
+el corte. Regresión offline y por fotogramas:
+`python pasos/prueba_animaciones.py --real` (navegador en `ESTUDIO_EDGE`).
 Comparación y collage permiten subir las imágenes izquierda/derecha antes de
 Guardar. `animacion.imagenes` contiene referencias relativas `propia`/`otra` a
 `medios_usuario/animaciones/<uuid>.png`; no son las imágenes de fondo del plano.

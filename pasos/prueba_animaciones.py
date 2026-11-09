@@ -12,7 +12,8 @@ Lo que se protege aqui, por orden de lo que costaria si se rompe:
      tiempos DENTRO del plano: SMIL fuera de rango se congela en un estado a medias;
   4. la pagina de render las lleva, y el estilo las guarda y rechaza las que no existen.
 
-No necesita red, ni navegador, ni ffmpeg.
+No necesita red, ni navegador, ni ffmpeg. Con --real comprueba también el reloj
+de las diez cartelas en el navegador del render (ESTUDIO_EDGE).
 """
 import json
 import io
@@ -952,6 +953,72 @@ with tempfile.TemporaryDirectory(prefix="cartelas_optativas_") as carpeta:
         comprobar("Sin animación también suprime la cartela automática", "animacion" not in sin["escenas"][0])
         igual("editar cartelas no modifica guion, voz ni imágenes",
               {paso: estado.firma_global(paso) for paso in firmas}, firmas)
+
+print("\n== cartelas: escritura secuencial y cierre al cumplir la duración ==")
+casos_reloj = []
+for plantilla, ficha in cartelas.PLANTILLAS.items():
+    for cuadro in ((1280, 720), (720, 1280)):
+        aid = f"cartela-{plantilla}"
+        asignacion = {"animacion": aid, "datos": ficha["ejemplo"]}
+        original, _ = animaciones.svg_de(asignacion, 6, cuadro)
+        original_xml = xml.dom.minidom.parseString(original)
+        comprobar(f"{aid} {cuadro}: solo un reloj SVG", len(original_xml.getElementsByTagName("svg")) == 1)
+        tiempos_originales = [float(n.getAttribute("begin")[:-1])
+                              for tspan in original_xml.getElementsByTagName("tspan")
+                              for n in tspan.getElementsByTagName("animate")]
+        comprobar(f"{aid} {cuadro}: palabras con tiempos sucesivos", len(set(tiempos_originales)) > 1)
+        for duracion_manual in (0.1, 1.2, 2.5, 5.5):
+            svg, _ = animaciones.svg_de(dict(asignacion, duracion=duracion_manual), 6, cuadro)
+            documento = xml.dom.minidom.parseString(svg)
+            grupo = next(n for n in documento.getElementsByTagName("g") if n.hasAttribute("data-conjunto"))
+            cierre = next(n for n in grupo.childNodes if n.nodeType == n.ELEMENT_NODE
+                          and n.tagName == "set" and n.getAttribute("attributeName") == "display")
+            igual(f"{aid} {cuadro} {duracion_manual}s: desaparece al cumplirse el plazo",
+                  cierre.getAttribute("begin"), f"{duracion_manual:.3f}s")
+            tiempos = [float(n.getAttribute("begin")[:-1])
+                       for tspan in documento.getElementsByTagName("tspan")
+                       for n in tspan.getElementsByTagName("animate")]
+            comprobar(f"{aid} {cuadro} {duracion_manual}s: conserva el orden de escritura",
+                      all(a < b for a, b in zip(tiempos, tiempos[1:])))
+            # Una deriva decorativa de 14–18 s no puede comprimir las palabras
+            # a un instante. En estos ejemplos la composición cabe en los 6 s.
+            escala = (duracion_manual - min(0.25, duracion_manual * 0.1)) / 6
+            comprobar(f"{aid} {cuadro} {duracion_manual}s: ritmo independiente de los bucles",
+                      all(abs(t - origen * escala) < 0.001 for t, origen in zip(tiempos, tiempos_originales)))
+            if duracion_manual == 2.5:
+                casos_reloj.append((aid, cuadro, svg, tiempos, duracion_manual))
+
+if "--real" in sys.argv:
+    print("\n== cartelas: fotogramas reales con el reloj del render ==")
+    navegador = p8_render.Navegador(640, 640)
+    try:
+        with tempfile.TemporaryDirectory(prefix="cartelas_reloj_") as carpeta:
+            for aid, cuadro, svg, tiempos, limite in casos_reloj:
+                pagina = os.path.join(carpeta, "cartela.html")
+                with open(pagina, "w", encoding="utf-8") as fh:
+                    fh.write('<!doctype html><html><head><meta charset="utf-8"><style>'
+                             'html,body{margin:0;background:#000}svg{width:640px;height:640px}'
+                             '</style></head><body>' + svg + '<script>'
+                             'const svg=document.querySelector("svg");svg.pauseAnimations();'
+                             'function pintar(t){svg.setCurrentTime(t);return 1;}'
+                             '</script></body></html>')
+                navegador.abrir(pagina)
+                navegador.pintar((min(tiempos) + max(tiempos)) / 2)
+                opacidades = navegador.evaluar('Array.from(document.querySelectorAll("tspan"), '
+                                              'el=>Number(getComputedStyle(el).opacity))')
+                comprobar(f"{aid} {cuadro}: aparecen palabras mientras otras siguen ocultas",
+                          any(o > 0.9 for o in opacidades) and any(o == 0 for o in opacidades))
+                navegador.pintar(limite - 0.3)
+                completo = Image.open(io.BytesIO(navegador.capturar())).convert("RGB")
+                comprobar(f"{aid} {cuadro}: visible antes de terminar", completo.getbbox() is not None)
+                navegador.pintar(limite)
+                vacio = Image.open(io.BytesIO(navegador.capturar())).convert("RGB")
+                comprobar(f"{aid} {cuadro}: sin texto ni adornos al terminar", vacio.getbbox() is None)
+                navegador.pintar((min(tiempos) + max(tiempos)) / 2)
+                igual(f"{aid} {cuadro}: volver atrás restaura el conjunto",
+                      navegador.evaluar('getComputedStyle(document.querySelector("[data-conjunto]")).display'), "inline")
+    finally:
+        navegador.cerrar()
 
 print()
 if fallos:

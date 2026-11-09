@@ -1909,7 +1909,7 @@ def _cuerpo(plantilla, datos, colores, diseno, duracion, animado=True, semilla=0
 
 # ------------------------------------------------------------ las salidas
 
-def _svg(interior, escala=1, lienzo=None, fuera="", salida=None, k=None):
+def _svg(interior, escala=1, lienzo=None, fuera="", salida=None, k=None, reloj_unico=False):
     """El SVG entero. `escala` cambia el TAMANO declarado, no las coordenadas.
 
     `lienzo` es el lienzo del VIDEO cuando no es el de siempre (vertical).
@@ -1951,6 +1951,15 @@ def _svg(interior, escala=1, lienzo=None, fuera="", salida=None, k=None):
     alto = h * k
     x = (lw - ancho) / 2.0
     y = (lh - alto) / 2.0
+    if reloj_unico:
+        # Un SVG anidado tiene su propio reloj SMIL: setCurrentTime del padre
+        # no adelanta sus palabras. Un grupo conserva la composición y comparte
+        # el reloj que controlan la previa y el render.
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {lw} {lh}" '
+                f'width="{int(lw * escala)}" height="{int(lh * escala)}">'
+                f'<defs><clipPath id="ct-reloj-lienzo"><rect width="{w}" height="{h}"/>'
+                f'</clipPath></defs>{fuera}<g transform="translate({x:.1f} {y:.1f}) scale({k:g})">'
+                f'<g clip-path="url(#ct-reloj-lienzo)">{interior}</g></g></svg>')
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {lw} {lh}" '
             f'width="{int(lw * escala)}" height="{int(lh * escala)}">'
             f'{fuera}'
@@ -2009,7 +2018,7 @@ def _velo(colores, animado=True, primera=None, tamano=None):
 
 
 def svg_capa(ficha, paleta=None, diseno=None, duracion=4.0, semilla=0,
-             tiempos=None, escrita=False, lienzo=None, salida=None):
+             tiempos=None, escrita=False, lienzo=None, salida=None, reloj_unico=False):
     """La capa del plano: el texto animado, y el velo si la cartela va sobre imagen.
 
     Sobre transparente en los dos casos. Con fondo negro el hyperframe ya trae
@@ -2019,6 +2028,8 @@ def svg_capa(ficha, paleta=None, diseno=None, duracion=4.0, semilla=0,
     `tiempos` son los segundos de cada palabra cuando la cartela va sincronizada
     con la voz (ver `alinear`). `escrita` es para el SEGUNDO plano de una
     cartela que dura dos: ahi ya no se escribe nada, sigue puesta.
+    `reloj_unico` evita SVG anidados cuando el consumidor controla la animación
+    con setCurrentTime, conservando el encuadre y el recorte de la composición.
     """
     plantilla, datos = _desmontar(ficha)
     colores = colores_de(paleta, plantilla)
@@ -2040,7 +2051,7 @@ def svg_capa(ficha, paleta=None, diseno=None, duracion=4.0, semilla=0,
         # texto va a tamano natural, centrado, compuesto en la banda visible:
         # ver ESCALA_VERTICAL y `_svg`
         return _svg(cuerpo, 1, lienzo, fuera=velo, salida=salida,
-                    k=ESCALA_VERTICAL)
+                    k=ESCALA_VERTICAL, reloj_unico=reloj_unico)
     return _svg(velo + cuerpo)
 
 
