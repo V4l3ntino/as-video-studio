@@ -2621,11 +2621,17 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .anim-editor::backdrop { background: #000b; }
 .anim-editor-cab { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .anim-editor-cab h2 { margin: 0; }
+.anim-editor-cab .anim-editor-deshacer { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.anim-editor-deshacer-icono { font-size: 22px; line-height: 1; }
 .anim-editor-pie { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
 .anim-editor-disposicion { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr); gap: 24px; }
 .anim-editor .campo { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
 .anim-editor textarea, .anim-editor select, .anim-editor input { width: 100%; box-sizing: border-box; }
-.anim-editor-previa { width: 100%; min-height: 0; margin-top: 16px; pointer-events: none; }
+.anim-editor-previa { width: 100%; min-height: 0; margin-top: 16px; }
+.anim-editor-previa .previa-anim { pointer-events: auto; touch-action: none; }
+.anim-editor-previa [data-conjunto] { cursor: grab; }
+.anim-editor-previa [data-conjunto]:active { cursor: grabbing; }
+.anim-editor-previa .seleccionado { outline: 2px dashed #94a8ff; }
 .anim-imagen-campo { margin: 16px 0; }
 .anim-imagen-titulo { display: block; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; color: var(--tenue); }
 .anim-imagen-zona { position: relative; display: flex; flex-direction: column; align-items: center;

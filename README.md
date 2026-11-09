@@ -262,8 +262,21 @@ El editor reconoce también las cartelas automáticas que ya tenga la escena;
 puedes corregirlas, sustituirlas o quitarlas con **Sin animación**.
 
 Si la escena no tiene animación, aparece **✦ Crear animación**. Elige un tipo y
-edita su contenido y pulsa **Guardar**. La vista previa se actualiza al guardar.
+edita su contenido y pulsa **Guardar**. La vista previa muestra el borrador mientras editas.
 Cerrar el editor descarta los cambios que todavía no hayas guardado.
+Haz clic sobre cualquier parte de la animación y **arrástrala** para cambiar
+su posición: el recuadro, los textos, las imágenes y las formas se mueven juntos
+como una única unidad. El botón **↶ Deshacer** o **Ctrl+Z** (**Cmd+Z** en Mac)
+recupera progresivamente los estados anteriores del editor: posiciones, textos,
+duración, tipo e imágenes. Cada arrastre completo cuenta como un solo cambio.
+El historial dura mientras el popup esté abierto; deshacer también permite
+recuperar un estado anterior a Guardar, que debe guardarse de nuevo para aplicarlo.
+El campo
+**Duración (segundos)** permite ajustar el tiempo total de la animación, incluidas
+sus entradas y salidas, entre **0,1 s** y la duración de la escena; vacío conserva
+el tiempo automático. No cambia la duración de la escena ni de la narración.
+Las posiciones y la duración se aplican al pulsar **Guardar**, se conservan al
+reabrir el editor y se utilizan en el montaje final.
 Para quitarla, selecciona **Sin animación** y pulsa **Guardar**. La escena queda
 sin animación también al volver a montar, aunque antes tuviera una automática.
 En **Tipografía cinética**, el campo **Subrayado**, debajo de **Frase**, permite

@@ -536,14 +536,25 @@ with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
         for opcion in editor["opciones"]:
             if opcion["id"] == "sin-animacion":
                 continue
-            edicion = {"id": opcion["id"], "contenido": dict(opcion["contenido"]), "ancla": editor["ancla"]}
+            edicion = {"id": opcion["id"], "contenido": dict(opcion["contenido"]), "ancla": editor["ancla"],
+                       "duracion": 2.5, "posiciones": {"conjunto": {"x": 0.1, "y": -0.05}}}
             resultado = servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
             hecha = resultado["escenas"][0].get("animacion") or {}
             igual(f"crear/cambiar a {opcion['id']} llega a la previa", hecha.get("id"), opcion["id"])
             ctx.estado = estado = type(estado)(proyecto)
             leida = servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]
             igual(f"{opcion['id']} conserva su contenido al reabrir", leida["contenido"], hecha["contenido"])
-            xml.dom.minidom.parseString(hecha["svg"])
+            igual(f"{opcion['id']} conserva duración y posición", (leida["duracion"], leida["posiciones"]),
+                  (2.5, edicion["posiciones"]))
+            raiz_conjunto = xml.dom.minidom.parseString(hecha["svg"])
+            grupos = [n for n in raiz_conjunto.getElementsByTagName("g") if n.hasAttribute("data-conjunto")]
+            igual(f"{opcion['id']} tiene un único conjunto desplazable", len(grupos), 1)
+            comprobar(f"{opcion['id']} agrupa todas las formas y textos",
+                      all(n is grupos[0] or n.tagName in {"defs", "style", "title", "desc", "metadata"}
+                          for n in raiz_conjunto.documentElement.childNodes if n.nodeType == n.ELEMENT_NODE))
+            cuadro_svg = [float(v) for v in raiz_conjunto.documentElement.getAttribute("viewBox").split()]
+            comprobar(f"{opcion['id']} desplaza el conjunto en el lienzo",
+                      grupos[0].getAttribute("transform") == f'translate({cuadro_svg[2] * 0.1:.6f} {cuadro_svg[3] * -0.05:.6f})')
             igual(f"{opcion['id']} no cambia la firma global", estado.firma_global("render"), firma_global)
             igual(f"{opcion['id']} no invalida otra escena", estado.firma_unidad("render", "escena:S002"), firma_vecina)
             igual("conserva los otros ajustes de la unidad",
@@ -552,10 +563,36 @@ with tempfile.TemporaryDirectory(prefix="editor_anim_") as carpeta_editor:
               {p: estado.params(p) for p in anteriores if p != "render"},
               {p: v for p, v in anteriores.items() if p != "render"})
         edicion = {"id": "ficha-cristal", "ancla": editor["ancla"],
-                   "contenido": {"etiqueta": "NOMBRE", "nombre": "Megalosaurus <grande>",
-                                 "definicion": "Una explicación corregida & propia."}}
+                    "contenido": {"etiqueta": "NOMBRE", "nombre": "Megalosaurus <grande>",
+                                  "definicion": "Una explicación corregida & propia."}}
+        edicion.update(duracion=2.5, posiciones={"e1": {"x": 0.2, "y": 0.15},
+                                               "conjunto": {"x": -0.1, "y": 0.2}})
+        params_antes = estado.params("render")
+        borrador = servidor.previsualizar_animacion_escena(proyecto.id, "S001", edicion)["animacion"]
+        igual("previsualizar posición y duración no guarda el borrador", estado.params("render"), params_antes)
         resultado = servidor.editar_animacion_escena(proyecto.id, "S001", edicion)
         svg = resultado["escenas"][0]["animacion"]["svg"]
+        igual("el borrador coincide con el resultado guardado", svg, borrador["svg"])
+        reabierta = servidor.leer_animacion_escena(proyecto.id, "S001")["actual"]
+        igual("la duración se conserva al reabrir", reabierta["duracion"], 2.5)
+        igual("las posiciones se conservan al reabrir", reabierta["posiciones"], edicion["posiciones"])
+        comprobar("el desplazamiento se aplica en coordenadas del lienzo",
+                  'data-elemento="e1" transform="translate(256.000000 108.000000)"' in svg)
+        comprobar("mover el conjunto respeta también las posiciones antiguas",
+                  'data-conjunto="animacion" transform="translate(-128.000000 144.000000)"' in svg)
+        raiz = xml.dom.minidom.parseString(svg)
+        fines = [float(n.getAttribute("begin")[:-1] or 0) + float(n.getAttribute("dur")[:-1] or 0)
+                 for tag in ("animate", "animateTransform", "set")
+                 for n in raiz.getElementsByTagName(tag) if n.getAttribute("begin").endswith("s")]
+        comprobar("la animación termina en los segundos elegidos", abs(max(fines) - 2.5) < 0.002)
+        for extra in ({"duracion": -1}, {"duracion": 7}, {"duracion": float("nan")},
+                      {"posiciones": {"e1": {"x": float("inf"), "y": 0}}}):
+            try:
+                servidor.previsualizar_animacion_escena(proyecto.id, "S001", dict(edicion, **extra))
+                comprobar("rechaza ajustes inválidos", False)
+            except servidor.ErrorApi:
+                igual("un borrador inválido conserva lo guardado", estado.params("render"),
+                      type(estado)(proyecto).params("render"))
         comprobar("los tres textos editados llegan al SVG y se escapan",
                   all(t in svg for t in ("NOMBRE", "Megalosaurus &lt;grande&gt;", "corregida &amp; propia")))
         plan = servidor._plan_de_previsualizacion(ctx)

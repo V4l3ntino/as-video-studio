@@ -38,6 +38,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Contenido editable y catálogo completo de animaciones para una escena. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Edita una animación; reserva una imagen propia adicional si el tipo la necesita. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes` | Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/previsualizar` | Dibuja el borrador de una animación sin guardar cambios en el proyecto. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Configuración efectiva del parallax de una imagen, sin modificar el proyecto. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
@@ -290,4 +291,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**176 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**177 endpoints.** Escrito por `generar_api.py` desde `app.py`.

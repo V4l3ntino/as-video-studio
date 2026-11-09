@@ -258,6 +258,24 @@ def validar_edicion(edicion, escena):
         if not partes or not math.isfinite(partes[1]):
             raise ValueError("escribe una cifra válida, por ejemplo 45% o 1200")
     resultado = {"id": aid, "ancla": ancla_de(escena), "contenido": limpio}
+    if "duracion" in edicion:
+        valor = edicion["duracion"]
+        if (isinstance(valor, bool) or not isinstance(valor, (int, float))
+                or not math.isfinite(valor) or not 0.1 <= valor <= _duracion(escena)):
+            raise ValueError("la duración debe estar entre 0,1 segundos y la duración de la escena")
+        resultado["duracion"] = float(valor)
+    if "posiciones" in edicion:
+        posiciones = edicion["posiciones"]
+        if not isinstance(posiciones, dict) or len(posiciones) > 500:
+            raise ValueError("posiciones de elementos no válidas")
+        resultado["posiciones"] = {}
+        for clave, punto in posiciones.items():
+            if (not re.fullmatch(r"e\d{1,4}|conjunto", str(clave)) or not isinstance(punto, dict)
+                    or set(punto) != {"x", "y"} or any(
+                        isinstance(v, bool) or not isinstance(v, (int, float))
+                        or not math.isfinite(v) or abs(v) > 2 for v in punto.values())):
+                raise ValueError("posición de elemento no válida")
+            resultado["posiciones"][clave] = dict(punto)
     if "imagenes" in edicion:
         if not CATALOGO_EDITOR[aid].get("requiere_imagenes"):
             raise ValueError("esta animación no utiliza tarjetas con imágenes")
@@ -342,7 +360,7 @@ def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=No
             salida.pop(sid, None)
             continue
         if es_cartela_editor(aid):
-            salida[sid] = {"animacion": aid, "datos": datos_cartela(aid, edicion["contenido"])}
+            salida[sid] = dict(edicion, animacion=aid, datos=datos_cartela(aid, edicion["contenido"]))
             continue
         datos = dict(edicion["contenido"], desde=0.0, hasta=min(1.0, _duracion(escena)))
         if aid == "infografia-cifra":
@@ -369,7 +387,7 @@ def aplicar_ediciones(reparto, escenas, ediciones, imagenes, imagenes_usuario=No
             ficha = _ficha_de(lista, i, aid, CATALOGO[aid]["senal"], datos, imagenes or {})
         if ficha is None:
             raise ValueError("esta animación necesita dos imágenes propias de la escena")
-        salida[sid] = ficha
+        salida[sid] = dict(ficha, **{k: edicion[k] for k in ("posiciones", "duracion") if k in edicion})
     return salida
 
 
@@ -1536,6 +1554,60 @@ _DIBUJANTES = {"infografia-cifra": _svg_cifra, "editorial-fecha": _svg_fecha,
                "collage-titulo": _svg_collage, "comparacion-tarjetas": _svg_comparacion}
 
 
+def ajustar_svg(svg, fondo, asignacion, duracion):
+    """Desplazamientos en coordenadas del lienzo y un único reloj para previa/render."""
+    import xml.etree.ElementTree as ET
+    ns = "http://www.w3.org/2000/svg"
+    ET.register_namespace("", ns)
+    ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
+    raiz = ET.fromstring(svg)
+    caja = [float(v) for v in raiz.attrib["viewBox"].split()]
+    posiciones = asignacion.get("posiciones") or {}
+    indice = 0
+
+    def envolver(padre):
+        nonlocal indice
+        for hijo in list(padre):
+            tipo = hijo.tag.split("}")[-1]
+            if tipo in {"defs", "clipPath", "mask", "filter"}:
+                continue
+            if tipo in {"text", "rect", "image", "path", "circle", "ellipse", "line", "polygon", "polyline"}:
+                clave = f"e{indice}"
+                indice += 1
+                punto = posiciones.get(clave) or {"x": 0, "y": 0}
+                grupo = ET.Element(f"{{{ns}}}g", {"data-elemento": clave,
+                    "transform": f'translate({punto["x"] * caja[2]:.6f} {punto["y"] * caja[3]:.6f})'})
+                padre.insert(list(padre).index(hijo), grupo)
+                padre.remove(hijo)
+                grupo.append(hijo)
+            else:
+                envolver(hijo)
+    envolver(raiz)
+    punto = posiciones.get("conjunto") or {"x": 0, "y": 0}
+    conjunto = ET.Element(f"{{{ns}}}g", {"data-conjunto": "animacion",
+        "transform": f'translate({punto["x"] * caja[2]:.6f} {punto["y"] * caja[3]:.6f})'})
+    for hijo in list(raiz):
+        if hijo.tag.split("}")[-1] not in {"defs", "style", "title", "desc", "metadata"}:
+            raiz.remove(hijo)
+            conjunto.append(hijo)
+    raiz.append(conjunto)
+    if "duracion" in asignacion:
+        # Escalar también los set y animateTransform: no cortar entradas largas.
+        fin = max((float(el.get("begin", "0s")[:-1]) + float(el.get("dur", "0s")[:-1])
+                   for el in raiz.iter() if el.tag.split("}")[-1] in {"animate", "animateTransform", "set"}
+                   and re.fullmatch(r"[\d.]+s", el.get("begin", "0s"))
+                   and re.fullmatch(r"[\d.]+s", el.get("dur", "0s"))), default=duracion)
+        escala = asignacion["duracion"] / max(fin, 0.001)
+        for el in raiz.iter():
+            for atributo in ("begin", "dur"):
+                valor = el.get(atributo, "")
+                if re.fullmatch(r"[\d.]+s", valor):
+                    el.set(atributo, _s(float(valor[:-1]) * escala))
+        if fondo:
+            fondo = dict(fondo, t=[t * escala for t in fondo["t"]])
+    return ET.tostring(raiz, encoding="unicode"), fondo
+
+
 def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
     """El SVG de la animacion de UN plano, a tamano del cuadro de salida.
 
@@ -1552,7 +1624,7 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
                                 duracion=float(duracion), lienzo=lienzo, salida=salida)
         svg = re.sub(r'width="\d+" height="\d+"',
                      f'width="{int(salida[0])}" height="{int(salida[1])}"', svg, count=1)
-        return svg, None
+        return ajustar_svg(svg, None, asignacion, duracion)
     dibujar = _DIBUJANTES.get(aid)
     if not dibujar:
         return "", None
@@ -1563,8 +1635,9 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
     except (KeyError, TypeError, ValueError, IndexError):
         return "", None
     interior, fondo = resultado if isinstance(resultado, tuple) else (resultado, None)
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{ancho}" height="{alto}" '
-            f'viewBox="0 0 {ancho} {alto}">{interior}</svg>'), fondo
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{ancho}" height="{alto}" '
+           f'viewBox="0 0 {ancho} {alto}">{interior}</svg>')
+    return ajustar_svg(svg, fondo, asignacion, duracion)
 
 
 def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
@@ -1590,7 +1663,9 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
                               "contenido": contenido_de(asignacion["animacion"], asignacion["datos"]),
                               "elementos": asignacion.get("elementos"),
                               "tarjetas": asignacion.get("imagenes") or {},
-                              "imagenes_usuario": asignacion.get("imagenes_usuario") or {},
+                               "imagenes_usuario": asignacion.get("imagenes_usuario") or {},
+                               "posiciones": asignacion.get("posiciones") or {},
+                               "duracion": asignacion.get("duracion"),
                               "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
                               "pico": pico_de(svg, _duracion(por_id[sid]))}
     return resultado

@@ -9404,16 +9404,30 @@ async function abrirAnimacionEscena(escena) {
   let ficha, elegido = '', sucio = false, guardando = false, subiendo = false;
   const borradores = new Map();
   const imagenesElegidas = new Map();
+  const ajustes = new Map();
+  const historial = [];
+  let firmaGuardada, arrastrando = false;
+  let temporizador, revision = 0;
+  const duracion = h('input', { type: 'number', min: '0.1', max: escena.duracion,
+    step: 'any', disabled: true, 'aria-label': 'Duración de la animación en segundos',
+    oninput: () => { recordarEstado(); ajustes.get(elegido).duracion = duracion.value === '' ? null : Number(duracion.value); marcarCambio(); } });
   const selector = h('select', { 'aria-label': 'Tipo de animación', disabled: true,
     onchange: () => {
+      recordarEstado();
       elegido = selector.value;
       pintarCampos();
       if (elegido) marcarCambio();
     } });
   const botonGuardar = h('button', { clase: 'primario', disabled: true,
     onclick: guardar }, 'Guardar');
+  const botonDeshacer = h('button', { clase: 'mini anim-editor-deshacer', disabled: true,
+    title: 'Deshacer (Ctrl+Z)', 'aria-label': 'Deshacer cambios (Ctrl+Z)',
+    onclick: deshacer }, h('span', { clase: 'anim-editor-deshacer-icono', 'aria-hidden': 'true' }, '↶'),
+    h('span', {}, 'Deshacer'));
   const cerrar = () => {
     if (guardando || subiendo) return;
+    clearTimeout(temporizador);
+    revision++;
     dialogo.close();
     dialogo.remove();
     repintarVideo();
@@ -9427,14 +9441,21 @@ async function abrirAnimacionEscena(escena) {
         ev.preventDefault();
         guardar();
       }
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && !ev.shiftKey) {
+        ev.preventDefault();
+        deshacer();
+      }
     } },
   h('div', { clase: 'anim-editor-cab' },
     h('h2', { id: 'anim-editor-titulo' }, `${escena.animacion ? 'Editar' : 'Crear'} animación · ${escena.id}`),
+    botonDeshacer,
     h('button', { clase: 'mini', onclick: cerrar, 'aria-label': 'Cerrar editor de animación' }, 'Cerrar')),
   h('p', { clase: 'meta' }, 'Pulsa Guardar para aplicar los cambios. Cerrar descarta los cambios sin guardar. Se verán en el vídeo al volver a montarlo.'),
   h('div', { clase: 'anim-editor-disposicion' },
-    h('div', {}, h('label', { clase: 'campo' }, 'Tipo de animación', selector), descripcion, campos),
-    h('div', {}, muestra, h('p', { clase: 'meta' }, 'Vista previa guardada · se actualiza al guardar'))),
+    h('div', {}, h('label', { clase: 'campo' }, 'Tipo de animación', selector), descripcion,
+      h('label', { clase: 'campo' }, 'Duración (segundos)', duracion),
+      h('p', { clase: 'meta' }, `Máximo: ${escena.duracion} s (duración de la escena).`), campos),
+    h('div', {}, muestra, h('p', { clase: 'meta' }, 'Arrastra cualquier parte de la animación para mover todo el conjunto. Deshaz cambios con ↶ o Ctrl+Z.'))),
   h('div', { clase: 'anim-editor-pie' }, estado, botonGuardar));
   document.body.appendChild(dialogo);
   dialogo.showModal();
@@ -9452,6 +9473,54 @@ async function abrirAnimacionEscena(escena) {
       if (svg && svg.setCurrentTime) svg.setCurrentTime(e.animacion.pico);
       const imagen = muestra.querySelector('img');
       if (imagen) aplicarFondo(imagen, e.animacion.fondo, e.animacion.pico);
+      capa.querySelectorAll('[data-conjunto]').forEach(elemento => {
+        elemento.addEventListener('pointerdown', ev => {
+          if (guardando || subiendo || e.animacion.id !== elegido || !ajustes.has(elegido) || ev.button !== 0) return;
+          clearTimeout(temporizador);
+          revision++;
+          ev.preventDefault();
+          const matriz = elemento.parentNode.getScreenCTM();
+          if (!matriz) return;
+          const inversa = matriz.inverse();
+          const inicio = new window.DOMPoint(ev.clientX, ev.clientY).matrixTransform(inversa);
+          const posiciones = ajustes.get(elegido).posiciones;
+          const clave = 'conjunto';
+          const origen = posiciones[clave] || { x: 0, y: 0 };
+          const caja = svg.viewBox.baseVal;
+          capa.querySelectorAll('.seleccionado').forEach(el => el.classList.remove('seleccionado'));
+          elemento.classList.add('seleccionado');
+          elemento.setPointerCapture(ev.pointerId);
+          arrastrando = true;
+          actualizarDeshacer();
+          let movido = false;
+          const mover = evento => {
+            const punto = new window.DOMPoint(evento.clientX, evento.clientY).matrixTransform(inversa);
+            if (!movido) {
+              if (Math.abs(punto.x - inicio.x) + Math.abs(punto.y - inicio.y) < 0.5) return;
+              recordarEstado();
+              movido = true;
+            }
+            posiciones[clave] = { x: origen.x + (punto.x - inicio.x) / caja.width,
+              y: origen.y + (punto.y - inicio.y) / caja.height };
+            elemento.setAttribute('transform', `translate(${posiciones[clave].x * caja.width} ${posiciones[clave].y * caja.height})`);
+            sucio = true;
+            botonGuardar.disabled = false;
+            estado.textContent = 'Posición modificada. Pulsa Guardar para aplicarla.';
+          };
+          const terminar = () => {
+            arrastrando = false;
+            actualizarDeshacer();
+            elemento.removeEventListener('pointermove', mover);
+            elemento.removeEventListener('pointerup', terminar);
+            elemento.removeEventListener('pointercancel', terminar);
+            elemento.removeEventListener('lostpointercapture', terminar);
+          };
+          elemento.addEventListener('pointermove', mover);
+          elemento.addEventListener('pointerup', terminar);
+          elemento.addEventListener('pointercancel', terminar);
+          elemento.addEventListener('lostpointercapture', terminar);
+        });
+      });
     }
   }
 
@@ -9460,6 +9529,12 @@ async function abrirAnimacionEscena(escena) {
     const opcion = ficha.opciones.find(o => o.id === elegido);
     descripcion.textContent = opcion ? opcion.descripcion : 'Selecciona una animación para asignarla a esta escena.';
     if (!opcion) return;
+    if (!ajustes.has(elegido)) ajustes.set(elegido, {
+      posiciones: ficha.actual && ficha.actual.id === elegido ? structuredClone(ficha.actual.posiciones || {}) : {},
+      duracion: ficha.actual && ficha.actual.id === elegido ? ficha.actual.duracion : null });
+    duracion.disabled = elegido === 'sin-animacion';
+    duracion.value = ajustes.get(elegido).duracion || '';
+    duracion.placeholder = 'Automática';
     if (!borradores.has(elegido)) borradores.set(elegido, { ...opcion.contenido });
     if (!imagenesElegidas.has(elegido)) imagenesElegidas.set(elegido,
       ficha.actual && ficha.actual.id === elegido ? { ...ficha.actual.imagenes_usuario } : {});
@@ -9473,7 +9548,7 @@ async function abrirAnimacionEscena(escena) {
         type: subrayado ? 'text' : null, rows: subrayado ? null : (campo.id === 'definicion' ? 3 : 2),
         placeholder: subrayado ? 'Ej.: noche, mil' : null,
         maxlength: campo.maxlength || 500, value: contenido[campo.id],
-        oninput: ev => { contenido[campo.id] = ev.target.value; marcarCambio(); } });
+        oninput: ev => { recordarEstado(); contenido[campo.id] = ev.target.value; marcarCambio(); } });
       campos.appendChild(h('label', { clase: 'campo' }, campo.nombre, entrada));
       if (campo.ayuda) campos.appendChild(h('p', { clase: 'meta' }, campo.ayuda));
       if (subrayado) campos.appendChild(h('p', { clase: 'meta' },
@@ -9510,6 +9585,7 @@ async function abrirAnimacionEscena(escena) {
       zona, seleccion[imagen.id] ? h('button', { clase: 'mini fantasma',
         onclick: () => {
           if (guardando || subiendo) return;
+          recordarEstado();
           delete seleccion[imagen.id];
           marcarCambio(); pintarCampos();
         } }, 'Usar imagen automática') : null);
@@ -9526,14 +9602,17 @@ async function abrirAnimacionEscena(escena) {
       return;
     }
     subiendo = true;
+    actualizarDeshacer();
     botonGuardar.disabled = true;
     selector.disabled = true;
     campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = true; });
     estado.textContent = 'Subiendo imagen…';
+    duracion.disabled = true;
     const formulario = new FormData();
     formulario.append('archivo', archivos[0]);
     try {
       const subida = await pedir(`${url}/imagenes`, { method: 'POST', cuerpo: formulario });
+      recordarEstado();
       imagenesElegidas.get(elegido)[lado] = subida.ruta;
       marcarCambio();
       pintarCampos();
@@ -9541,6 +9620,8 @@ async function abrirAnimacionEscena(escena) {
       estado.textContent = `No se ha podido subir la imagen: ${error.message}`;
     } finally {
       subiendo = false;
+      actualizarDeshacer();
+      duracion.disabled = elegido === 'sin-animacion';
       botonGuardar.disabled = !sucio;
       selector.disabled = false;
       campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = false; });
@@ -9548,19 +9629,69 @@ async function abrirAnimacionEscena(escena) {
   }
 
   function marcarCambio() {
-    sucio = true;
-    estado.textContent = 'Cambios sin guardar. Pulsa Guardar para aplicarlos.';
-    botonGuardar.disabled = false;
+    sucio = JSON.stringify(datosBorrador()) !== firmaGuardada;
+    estado.textContent = sucio ? 'Cambios sin guardar. Pulsa Guardar para aplicarlos.' : 'Sin cambios pendientes.';
+    botonGuardar.disabled = !sucio;
+    clearTimeout(temporizador);
+    const actual = ++revision;
+    temporizador = setTimeout(async () => {
+      try {
+        const e = await pedir(`${url}/previsualizar`, { method: 'POST', cuerpo: datosBorrador() });
+        if (actual === revision && dialogo.isConnected) pintarMuestra(e);
+      } catch (error) {
+        if (actual === revision) estado.textContent = `Vista previa: ${error.message}`;
+      }
+    }, 300);
+  }
+
+  function actualizarDeshacer() {
+    botonDeshacer.disabled = !historial.length || guardando || subiendo || arrastrando;
+  }
+
+  function recordarEstado() {
+    historial.push(structuredClone({ elegido, borradores: [...borradores],
+      imagenes: [...imagenesElegidas], ajustes: [...ajustes] }));
+    if (historial.length > 100) historial.shift();
+    actualizarDeshacer();
+  }
+
+  function deshacer() {
+    if (!historial.length || guardando || subiendo || arrastrando) return;
+    const anterior = historial.pop();
+    elegido = anterior.elegido;
+    [[borradores, anterior.borradores], [imagenesElegidas, anterior.imagenes],
+      [ajustes, anterior.ajustes]].forEach(([mapa, entradas]) => {
+      mapa.clear();
+      entradas.forEach(([clave, valor]) => mapa.set(clave, valor));
+    });
+    selector.value = elegido;
+    pintarCampos();
+    marcarCambio();
+    actualizarDeshacer();
+  }
+
+  function datosBorrador() {
+    const datos = { id: elegido, ancla: ficha.ancla, contenido: { ...borradores.get(elegido) } };
+    if (elegido !== 'sin-animacion') {
+      datos.posiciones = structuredClone(ajustes.get(elegido).posiciones);
+      if (ajustes.get(elegido).duracion != null) datos.duracion = ajustes.get(elegido).duracion;
+    }
+    const opcion = ficha.opciones.find(o => o.id === elegido);
+    if ((opcion.imagenes || []).length) datos.imagenes = { ...imagenesElegidas.get(elegido) };
+    return datos;
   }
 
   async function guardar() {
-    if (guardando || subiendo || !sucio || !ficha || !elegido) return;
-    const datos = { id: elegido, ancla: ficha.ancla, contenido: { ...borradores.get(elegido) } };
-    const opcion = ficha.opciones.find(o => o.id === elegido);
-    if ((opcion.imagenes || []).length) datos.imagenes = { ...imagenesElegidas.get(elegido) };
+    if (guardando || subiendo || arrastrando || !sucio || !ficha || !elegido) return;
+    if (elegido !== 'sin-animacion' && !duracion.reportValidity()) return;
+    const datos = datosBorrador();
+    clearTimeout(temporizador);
+    revision++;
     guardando = true;
+    actualizarDeshacer();
     botonGuardar.disabled = true;
     botonGuardar.textContent = 'Guardando…';
+    duracion.disabled = true;
     selector.disabled = true;
     campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = true; });
     estado.textContent = 'Guardando…';
@@ -9569,14 +9700,17 @@ async function abrirAnimacionEscena(escena) {
       PREVIA.ficha = previa;
       ficha.actual = previa.escenas.find(e => e.id === escena.id).animacion || null;
       sucio = false;
+      firmaGuardada = JSON.stringify(datos);
       pintarMuestra(previa.escenas.find(e => e.id === escena.id));
       estado.textContent = elegido === 'sin-animacion' ? 'Escena guardada sin animación' : 'Animación guardada';
     } catch (error) {
       estado.textContent = `No se ha guardado: ${error.message}`;
     } finally {
       guardando = false;
+      actualizarDeshacer();
       botonGuardar.disabled = !sucio;
       botonGuardar.textContent = 'Guardar';
+      duracion.disabled = elegido === 'sin-animacion';
       selector.disabled = false;
       campos.querySelectorAll('textarea, input, button').forEach(c => { c.disabled = false; });
     }
@@ -9589,6 +9723,7 @@ async function abrirAnimacionEscena(escena) {
     selector.value = elegido;
     selector.disabled = false;
     pintarCampos();
+    firmaGuardada = JSON.stringify(datosBorrador());
     pintarMuestra({ ...escena, animacion: ficha.actual });
     estado.textContent = 'Edita los textos o elige otro tipo de animación.';
   } catch (error) {

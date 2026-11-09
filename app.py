@@ -5091,6 +5091,21 @@ def editar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
     return leer_previsualizacion(pid)
 
 
+@app.post("/api/proyectos/{pid}/escenas/{sid}/animacion/previsualizar")
+def previsualizar_animacion_escena(pid: str, sid: str, datos: dict = Body(...)):
+    """Dibuja el borrador de una animación sin guardar cambios en el proyecto."""
+    ctx = contexto(pid)
+    escena = next((e for e in _plan_de_previsualizacion(ctx).get("escenas", []) if e.get("id") == sid), None)
+    if escena is None:
+        raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+    try:
+        edicion = PASOS_MODULOS.animaciones.validar_edicion(datos, escena)
+        previa = _leer_previsualizacion(pid, sid, edicion)
+        return next(e for e in previa["escenas"] if e["id"] == sid)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+
+
 @app.get("/api/proyectos/{pid}/escenas/{sid}/parallax")
 def leer_parallax_escena(pid: str, sid: str):
     """Configuración efectiva del parallax de una imagen, sin modificar el proyecto."""
@@ -5202,6 +5217,10 @@ def preparar_parallax_previa(pid: str):
 @app.get("/api/proyectos/{pid}/previsualizacion")
 def leer_previsualizacion(pid: str):
     """Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto."""
+    return _leer_previsualizacion(pid)
+
+
+def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
     ctx = contexto(pid)
     plan = _plan_de_previsualizacion(ctx)
     audio = _audio_de_la_toma(ctx)
@@ -5321,6 +5340,10 @@ def leer_previsualizacion(pid: str):
         })
     render = ctx.estado.params("render") or {}
     # LA ANIMACION DE MOTION GRAPHICS DE CADA ESCENA, la que montaria el render.
+    if borrador is not None:
+        unidades = dict(render.get("unidades") or {})
+        unidades[f"escena:{sid_borrador}"] = dict(unidades.get(f"escena:{sid_borrador}") or {}, animacion=borrador)
+        render = dict(render, unidades=unidades)
     # Se calcula con las MISMAS funciones y la misma semilla (`animaciones.capas`),
     # asi que lo que se ve aqui es lo que `p8_render` pinta encima de ese plano.
     # Va como SVG con sus tiempos en el reloj DEL PLANO, como los subtitulos: el
@@ -5373,6 +5396,7 @@ def leer_previsualizacion(pid: str):
                     "id": hecha["animacion"],
                     "nombre": PASOS_MODULOS.animaciones.CATALOGO_EDITOR[hecha["animacion"]]["nombre"],
                     "contenido": hecha["contenido"],
+                    "posiciones": hecha["posiciones"], "duracion": hecha["duracion"],
                     "imagenes_usuario": hecha["imagenes_usuario"], "tarjetas": hecha["tarjetas"],
                     "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
                     "elementos": hecha.get("elementos")}

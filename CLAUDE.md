@@ -492,6 +492,17 @@ ni puntuación; vacío = ninguna. Si el campo no existe (guiones o ediciones
 anteriores), mantiene la elección automática de una palabra sin mutar params.
 El editor muestra esa elección inicial y solo persiste al pulsar Guardar.
 GET del editor es solo lectura y PUT valida antes de actualizar params.
+El borrador usa POST `escenas/<sid>/animacion/previsualizar`, sin guardar params.
+`animacion.posiciones.conjunto` guarda el desplazamiento normalizado (`x`/`y`)
+de toda la animación. `ajustar_svg` envuelve su contenido visual en un único
+`data-conjunto`, fuera de defs; conserva la lectura de offsets `e<N>` anteriores,
+pero el editor solo deja arrastrar el conjunto. El arrastre convierte el puntero
+con la matriz inversa del padre. El historial local del popup captura tipo,
+contenido, imágenes y ajustes antes de cada cambio (un arrastre = una entrada);
+Ctrl/Cmd+Z y ↶ usan la misma restauración, sin persistir hasta Guardar.
+`animacion.duracion`, si
+existe, escala todos los tiempos SMIL y el fondo a esos segundos (0,1 s hasta
+la duración de la escena). Previa y render pasan por el mismo `svg_de`.
 Comparación y collage permiten subir las imágenes izquierda/derecha antes de
 Guardar. `animacion.imagenes` contiene referencias relativas `propia`/`otra` a
 `medios_usuario/animaciones/<uuid>.png`; no son las imágenes de fondo del plano.
