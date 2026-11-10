@@ -9433,7 +9433,7 @@ function sonarEscenaPrevia() {
 function pararPrevia() {
   EDITOR_GLOBAL?.pausar();
   if (PREVIA.audio) PREVIA.audio.pause();
-  document.querySelectorAll('.previa-clip, .previa-avatar').forEach(clip => clip.pause());
+  document.querySelectorAll('video.previa-clip, video.previa-avatar').forEach(clip => clip.pause());
   PREVIA.sonando = false;
   PREVIA.seguido = false;
   pararCamaPrevia();

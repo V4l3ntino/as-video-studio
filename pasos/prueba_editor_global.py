@@ -52,6 +52,9 @@ class EditorGlobal(unittest.TestCase):
                 voz.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
                 voz.writeframes(b''.join(struct.pack('<h', int(6000 * math.sin(i * .15))) for i in range(480000)))
             estado.completar('voz', {'pista': 'narracion.wav'})
+            if clip:
+                shutil.copyfile(clip, os.path.join(proyecto.ruta_trabajo('render'), 'video.mp4'))
+                estado.completar('render', {'mp4': 'video.mp4'})
             antes = Path(proyecto.ruta('estado.json')).read_bytes()
             with socket.socket() as sock:
                 sock.bind(('127.0.0.1', 0))
@@ -72,8 +75,19 @@ class EditorGlobal(unittest.TestCase):
                     pagina = navegador.new_page(viewport={'width': 1440, 'height': 1000})
                     errores = []
                     pagina.on('pageerror', lambda error: errores.append(str(error)))
+                    # Retrato sin clip de avatar: abrir el editor no genera Boson.
+                    def con_retrato(ruta):
+                        if ruta.request.method != 'GET':
+                            ruta.continue_()
+                            return
+                        respuesta = ruta.fetch()
+                        ficha = respuesta.json()
+                        ficha['avatar']['retrato'] = 'pasos/assets/v1/escenas/S001.png'
+                        ruta.fulfill(response=respuesta, json=ficha)
+                    pagina.route('**/escenas/*/editor', con_retrato)
                     pagina.goto(url)
                     pagina.wait_for_function('typeof editorGlobalImagenes === "function"')
+                    pagina.wait_for_function('APP.light.datos && !APP.light.cargando')
                     pagina.evaluate('''async pid => {
                         APP.light.video.pid = pid; APP.light.video.vista = 'previa';
                         PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
@@ -148,9 +162,27 @@ class EditorGlobal(unittest.TestCase):
                     self.assertEqual(pagina.evaluate('PREVIA.i'), 3)
                     cabecera.get_by_role('button', name='Descartar cambios', exact=True).click()
                     self.assertFalse(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    # Salir por la navegación real y volver reutiliza el editor.
+                    pagina.evaluate('''async pid => {
+                        await abrirVideoLight(pid);
+                        APP.light.video.vista = 'previa'; pintarLight();
+                    }''', proyecto.id)
+                    navegacion = pagina.get_by_role('navigation', name='Pasos del vídeo')
+                    destinos = ('Encargo', 'Guion', 'Vídeo', 'Shorts', 'Estilos') if clip else ('Encargo', 'Guion', 'Estilos')
+                    for destino in destinos:
+                        pagina.wait_for_selector('.editor-global-escena:not([hidden]) img.previa-avatar', state='attached')
+                        navegacion.get_by_role('button', name=destino, exact=True).click()
+                        pagina.wait_for_function('!document.querySelector(".editor-global")')
+                        if destino == 'Estilos':
+                            pagina.evaluate('pid => abrirVideoLight(pid)', proyecto.id)
+                        navegacion.get_by_role('button', name='Imágenes', exact=True).click()
+                        pagina.wait_for_selector('.editor-global')
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
+                    pagina.wait_for_selector('.editor-global-escena:not([hidden]) img.previa-avatar', state='attached')
                     pagina.set_viewport_size({'width': 390, 'height': 844})
                     self.assertTrue(pagina.evaluate('document.documentElement.scrollWidth <= innerWidth'))
                     self.assertFalse(errores, errores)
+                    pagina.unroute_all(behavior='wait')
                     navegador.close()
             finally:
                 proceso.terminate()
