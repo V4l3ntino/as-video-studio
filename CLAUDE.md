@@ -585,7 +585,18 @@ depende del banco global. `traer` serializa por fichero para evitar que escuchar
 y seleccionar a la vez compitan por el mismo `.parcial`. Pruebas offline de
 búsqueda, selección, reabrir, validación y audio en `prueba_editor_escena.py`.
 
-**Editor unificado de escena**: `abrirEditorEscena` reúne las cuatro pestañas y
+**Editor global de Imágenes**: `editorGlobalImagenes` monta `abrirEditorEscena`
+en la pantalla principal, con seis pestañas y seis pistas globales. Cada escena
+conserva su borrador e historial en un controlador; el árbol DOM se reutiliza al
+repintar. Solo Guardar escribe las pestañas modificadas mediante el contrato
+existente. La galería y la decodificación de la onda se comparten; los contextos
+WebGL se liberan al cambiar de escena y sus canvas se recrean (un contexto
+perdido no se reutiliza). El reloj local se convierte con `t_in` al global.
+`python pasos/prueba_editor_global.py --real` verifica selección, borradores entre
+escenas, deshacer global, guardado/reapertura, arrastre y reproducción continua
+en Chromium, con un proyecto sintético y datos aislados.
+
+**Contrato del editor de escena**: `abrirEditorEscena` reúne las pestañas y
 el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones
 antes de guardar y solo escriben pestañas modificadas. `animacion.bloques` conserva
 la primera ficha en la raíz para lectores antiguos; `animaciones.capas` aísla ids

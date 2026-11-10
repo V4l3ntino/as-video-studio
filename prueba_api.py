@@ -4758,71 +4758,49 @@ def probar_regrabar_un_tramo(cliente):
 
 
 def probar_clip_en_imagenes():
-    """El audio parado no congela el clip y repintar no reinicia su reproductor."""
+    """Fondo y avatar del editor global comparten el reloj, incluso al buscar."""
     seccion("CLIPS EN IMAGENES: REPRODUCCION Y RELOJ DE LA NARRACION")
-    trozos = _trozos_de_app(("function sincronizarClipPrevia()", "function seguirSustitucionEscena("))
+    trozos = _trozos_de_app(("function sincronizarMedioEditor(", "/* Las tarjetas con OTRA imagen"))
     if trozos is None:
         return
     guion = """
-const PREVIA = {clip: null, sonando: false, audio: {currentTime: 100, paused: true}};
-let escena = {id: 'S001', clip: 'uno.mp4', t_in: 10, t_out: 20};
-function videoAbierto() { return {pid: 'video'}; }
-function escenaPrevia() { return escena; }
-const API = {archivo: (pid, ruta) => pid + '/' + ruta};
-const document = {querySelectorAll: () => [PREVIA.clip, PREVIA.avatarClip].filter(Boolean)};
-function h(_tag, attrs) {
-  return {...attrs, dataset: attrs.datos, currentTime: 0, duration: 8, paused: false,
+function medio() {
+  return {tagName: 'VIDEO', currentTime: 0, duration: 8, paused: true, playbackRate: 1,
     play() { this.paused = false; return Promise.resolve(); },
     pause() { this.paused = true; }};
 }
 """ + trozos[0] + """
-const clip = clipPrevia(escena, 'poster.png');
-const r = {automatico: clip.autoplay && clip.loop && clip.muted};
-clip.currentTime = 2;
-sincronizarClipPrevia();
-r.audio_parado_no_congela = clip.currentTime === 2 && !clip.paused;
-r.reutiliza = clipPrevia(escena, 'poster.png') === clip && clip.currentTime === 2;
-PREVIA.sonando = true;
-PREVIA.audio = {currentTime: 11, paused: false};
-sincronizarClipPrevia();
+const clip = medio(), avatar = medio(), r = {};
+sincronizarMedioEditor(clip, 2, false);
+r.buscar_parado = clip.currentTime === 2 && clip.paused;
+sincronizarMedioEditor(clip, 1, true);
 r.sincronizado = clip.currentTime === 1 && !clip.paused && !clip.loop;
-PREVIA.audio.currentTime = 19;
-sincronizarClipPrevia();
+sincronizarMedioEditor(clip, 9, true);
 r.congela_final = clip.paused && Math.abs(clip.currentTime - (8 - 1/30)) < .001;
-PREVIA.sonando = false;
-sincronizarClipPrevia();
+sincronizarMedioEditor(clip, 9, false);
 r.respeta_pausa = clip.paused;
-escena.avatar = {clip: 'avatar.mp4'};
-const avatar = clipPrevia(escena, null, true);
-r.avatar_sin_audio_duplicado = avatar.muted && !avatar.controls && avatar.clase === 'previa-avatar';
-PREVIA.sonando = true;
-PREVIA.audio = {currentTime: 13, paused: false};
-sincronizarClipPrevia();
+sincronizarMedioEditor(avatar, 3, true);
+r.avatar_sin_audio_duplicado = avatar.muted;
 r.avatar_sincronizado = avatar.currentTime === 3 && !avatar.paused && !avatar.loop;
-PREVIA.audio.paused = true;
-sincronizarClipPrevia();
+sincronizarMedioEditor(avatar, 3, false);
 r.avatar_pausado = avatar.paused;
-r.avatar_reutilizado = clipPrevia(escena, null, true) === avatar;
-escena = {...escena, clip: 'sustitucion.mp4'};
-const nuevo = clipPrevia(escena, 'otro.png');
-r.sustituido_nuevo = nuevo !== clip && clip.paused && nuevo.src.endsWith('sustitucion.mp4');
+r.velocidad_original = clip.playbackRate === 1 && avatar.playbackRate === 1;
+sincronizarMedioEditor({tagName:'IMG'}, 2, false);
+sincronizarMedioEditor(null, 2, false);
 console.log(JSON.stringify(r));
 """
     resultado = _correr_node("prueba_clip_previa.js", guion)
     if resultado is None:
         return
     for clave, mensaje in (
-        ("automatico", "el clip se previsualiza automaticamente, en bucle y sin sonido"),
-        ("audio_parado_no_congela", "una narracion parada no congela la vista previa"),
-        ("reutiliza", "repintar conserva el reproductor y su posicion"),
+        ("buscar_parado", "buscar en el timeline muestra el fotograma sin arrancar el clip"),
         ("sincronizado", "al escuchar la narracion el clip sigue su reloj sin bucle"),
         ("congela_final", "un clip corto conserva el ultimo fotograma durante la narracion"),
         ("avatar_sin_audio_duplicado", "el avatar se superpone sin duplicar el sonido de la narración"),
-        ("avatar_sincronizado", "los labios del avatar siguen el reloj de Oírla"),
+        ("avatar_sincronizado", "los labios del avatar siguen el reloj del editor"),
         ("avatar_pausado", "el avatar se detiene al pausar la narración"),
-        ("avatar_reutilizado", "repintar no reinicia el clip del avatar"),
         ("respeta_pausa", "los controles conservan la pausa del clip"),
-        ("sustituido_nuevo", "sustituir el archivo cambia el reproductor y detiene el anterior"),
+        ("velocidad_original", "los clips conservan su velocidad original"),
     ):
         ok(resultado[clave], mensaje)
 

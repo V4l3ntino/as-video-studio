@@ -2642,6 +2642,70 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   overflow: auto;
 }
 .anim-editor::backdrop { background: #000b; }
+/* Editor global: el borrador se queda montado al cambiar de escena. */
+.editor-global { display: grid; grid-template-columns: minmax(280px, 32%) minmax(0, 1fr); gap: 12px 14px; width: 100%; min-width: 0; background: #0e1118; padding: 12px; border-radius: 12px; box-sizing: border-box; }
+.editor-global:fullscreen { overflow: auto; padding: 20px; }
+.editor-global .light-cab { grid-column: 1 / -1; margin-bottom: 0; gap: 12px; flex-wrap: wrap; }
+.editor-global-preparacion { grid-column: 1 / -1; grid-row: 2; }
+.editor-global-preparacion:empty { display: none; }
+.editor-global-configuraciones { display: contents; }
+.editor-global-escena.anim-editor { display: contents; }
+.editor-global-escena[hidden] { display: none; }
+.editor-global-panel { grid-column: 1; grid-row: 3 / 6; min-width: 0; padding: 12px; background: #12161e; border: 1px solid #303745; border-radius: 10px; }
+.editor-global .escena-editor-tabs { margin: 0 0 12px; gap: 3px; flex-wrap: wrap; }
+.editor-global .escena-editor-tabs button { flex: 1 1 30%; padding: 8px 5px; gap: 4px; font-size: 11px; border-radius: 6px; }
+.editor-global .escena-editor-tabs button span { font-size: 15px; }
+.editor-global .escena-editor-panel { max-height: 54vh; overflow: auto; padding: 0; }
+.editor-global .previa-lateral { width: auto; padding: 0; margin: 0; border: 0; background: transparent; position: static; max-height: none; }
+.editor-global .previa-galeria { grid-template-columns: repeat(4, minmax(0, 1fr)); height: auto; max-height: 42vh; }
+.editor-global .previa-miniatura { min-width: 0; }
+.editor-global .previa-miniatura img { width: 100%; }
+.editor-global .anim-editor-pie { gap: 6px; }
+.editor-global .editor-global-panel > .anim-editor-pie { display: none; }
+.editor-global-notas[hidden] { display: none; }
+.editor-global-visual { grid-column: 2; grid-row: 3; min-width: 0; }
+.editor-global .escena-editor-previa { max-width: min(100%, 76vh); width: 100%; margin: 0 auto; }
+.editor-global .escena-editor-previa.vertical { max-width: min(100%, 30vh); }
+.editor-global .escena-editor-previa .escena-transicion { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 6; pointer-events: none; }
+.editor-global-notas { margin-top: 10px; }
+.editor-global-notas .previa-feedback { margin: 0; }
+.editor-global-timeline { grid-column: 2; grid-row: 4; min-width: 0; margin: 0; padding: 10px; border: 1px solid #303745; border-radius: 10px; background: #10141d; }
+.editor-global-notas-escenas { grid-column: 2; grid-row: 5; min-width: 0; }
+.editor-global > [role="status"], .editor-global-lista-notas { grid-column: 1 / -1; }
+.editor-global > [role="status"] { grid-row: 6; }
+.editor-global-lista-notas { grid-row: 7; }
+.editor-global-tiempo { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; }
+.editor-global-etiquetas { display: flex; flex-direction: column; font-size: 11px; }
+.editor-global-etiquetas > span { display: flex; align-items: center; box-sizing: border-box; height: 36px; }
+.editor-global-etiquetas > span:first-child { height: 22px; }
+.editor-global-scroll { overflow-x: auto; min-width: 0; }
+.editor-global-columnas { display: flex; width: 100%; min-width: 100%; }
+.editor-global-columna { min-width: 0; border-right: 1px solid #343b4b; }
+.editor-global-columna .escena-timeline { padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; }
+.editor-global .editor-global-columna .anim-timeline-cab, .editor-global .editor-global-columna .anim-timeline-etiquetas, .editor-global .editor-global-columna .anim-timeline-datos { display: none; }
+.editor-global-columna .anim-timeline-fila { display: block; }
+.editor-global-columna .anim-timeline-pistas { min-width: 0; padding-top: 22px; }
+.editor-global-columna:not(:has(.actual)) .anim-timeline-cabezal { display: none; }
+.editor-global .anim-timeline-pista { box-sizing: border-box; }
+.editor-global-bloque-escena { display: block; width: 100%; height: 30px; margin: 3px 0; padding: 2px; overflow: hidden; white-space: nowrap; font-size: 11px; background: #49456f; border: 1px solid #77739b; border-radius: 5px; }
+.actual .editor-global-bloque-escena { background: #65649b; border-color: #b6c5ff; }
+.editor-global-zoom { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.editor-global-zoom input { width: 90px; }
+.editor-global .anim-timeline-cab { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.editor-global .anim-timeline-bloque { overflow: hidden; }
+.editor-global .escena-regla { overflow: hidden; }
+.editor-global .escena-regla span:not(:first-child) { visibility: hidden; }
+.editor-global .escena-regla span:first-child { visibility: visible; }
+.editor-global .generacion-activa .escena-editor-panel { pointer-events: none; opacity: .6; }
+@media (max-width: 800px) {
+  .editor-global { display: block; }
+  .editor-global-visual, .editor-global-timeline { margin-top: 12px; }
+  .editor-global-escena.anim-editor { grid-template-columns: minmax(0, 1fr); }
+  .editor-global .escena-editor-panel { max-height: 40vh; }
+  .editor-global .previa-galeria { max-height: 30vh; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .editor-global-tiempo { grid-template-columns: 74px minmax(0, 1fr); gap: 4px; }
+  .editor-global { padding: 6px; }
+}
 .escena-editor { width: min(1080px, calc(100vw - 48px)); background: linear-gradient(135deg, #151922, #0e1118); box-shadow: 0 24px 100px #0009; }
 .escena-editor-tabs { display: flex; gap: 8px; margin: 18px 0 12px; border-bottom: 1px solid #343b4b; }
 .escena-editor-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 11px 22px; border-radius: 10px 10px 0 0; background: #1a1f2a; border: 1px solid #343b4b; }

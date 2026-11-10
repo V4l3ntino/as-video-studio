@@ -201,8 +201,8 @@ WebM, MKV, M4V o AVI** (hasta 200 MiB por archivo).
 
 Los clips deben durar **al menos 2 segundos**. Si superan **15 segundos**, el
 Estudio conserva automáticamente solo el tramo **0–15 s**, sin pedir un recorte
-manual. El clip se previsualiza automáticamente en movimiento, en bucle y sin
-sonido. Al pulsar **Oírla**, sigue el reloj de la narración y congela el último
+manual. El clip se muestra sin su audio original. Al pulsar **Reproducir**,
+sigue el reloj de la narración y congela el último
 fotograma si termina antes que la escena. Se puede volver a sustituir.
 Las imágenes y vídeos se adaptan al lienzo del proyecto, centrando y recortando
 lo que sobresale para cubrirlo sin deformaciones.
@@ -295,14 +295,14 @@ El presentador aparece en un recuadro superior derecho
 sobre la ilustración, conservando la narración y los subtítulos.
 
 En el **previsualizador de Imágenes** se preparan los clips y aparece el mismo
-avatar que se utilizará al montar. **Oírla** y **Todo seguido** sincronizan sus
+avatar que se utilizará al montar. **Reproducir** sincroniza sus
 labios con el reloj de la narración; **Parar** detiene también el avatar. Durante
 la preparación se muestra el progreso y se puede parar o continuar tras un error.
 Los clips completados se conservan y el montaje los reutiliza sin volver a
 solicitarlos a Boson. La consulta de la previsualización no genera contenido:
 la preparación se solicita como un trabajo aparte desde la pantalla.
 
-En **Editar escena → Incorporar avatar** puedes añadir apariciones del avatar,
+En la pestaña **Avatar** del editor puedes añadir apariciones del avatar,
 aunque la escena no esté entre las elegidas automáticamente. **Eliminar bloque**
 quita la aparición seleccionada; eliminar todas quita el avatar de esa escena.
 Requiere tener configurado el retrato y la voz en el encargo. Las cartelas y los
@@ -319,7 +319,7 @@ siguen el tiempo real de la frase, aunque el avatar aparezca a mitad de ella.
 
 Si su clip aún no está preparado, **Generar avatar con Boson** lo prepara para
 el borrador. Pulsa **Guardar** para aplicar la posición, la entrada y el intervalo
-a esta escena y al montaje final; **Cerrar** descarta los ajustes sin guardar.
+a esta escena y al montaje final; **Deshacer** permite recuperar los ajustes anteriores.
 Editar estos ajustes reutiliza el clip: no vuelve a solicitarlo a Boson ni
 modifica las imágenes, la voz o los tiempos de la escena.
 
@@ -353,11 +353,18 @@ independiente dentro de la misma sección.
 
 ### Editar o crear una animación en una escena
 
-En **Imágenes**, pulsa **Editar escena**. Una sola ventana reúne las pestañas
-**Animación**, **Efecto Parallax**, **Transición** e **Incorporar avatar**. El
-visualizador y la línea de tiempo se mantienen al cambiar de pestaña. Sus cuatro
-pistas muestran el audio del narrador, las animaciones, los avatares y las
-transiciones, con colores diferentes y un cursor de reproducción común.
+En **Imágenes** se abre directamente el **editor global del vídeo**. El panel
+izquierdo reúne **Imágenes**, **Animación**, **Sonidos**, **Efecto Parallax**,
+**Transición** y **Avatar**. A la derecha están el previsualizador y el timeline
+de todas las escenas consecutivas, con seis pistas: **Bloques**, **Audio**,
+**Animación**, **Sonidos**, **Avatar** y **Transición**.
+
+Seleccionar una miniatura lleva el cursor a su escena; seleccionar un bloque
+del timeline abre su escena y la pestaña correspondiente. Puedes buscar un
+instante en las pistas y ampliar el timeline con su control de zoom. El botón
+**Reproducir** continúa por las escenas siguientes con narración, música y los
+sonidos del borrador. Ya no hacen falta «Editar escena», «Oírla», «Todo seguido»
+ni los botones de anterior y siguiente; al pie queda **Montar el vídeo**.
 
 **Añadir bloque** incorpora un elemento a la pista seleccionada. Puedes tener
 varios bloques independientes: pulsa uno para editarlo en el panel izquierdo,
@@ -366,9 +373,12 @@ También puedes escribir el inicio, el final y la duración en segundos. Los
 bloques quedan dentro de la escena; si se solapan se muestran en carriles dentro
 de su pista. La narración conserva su reloj y su duración originales.
 
-**Guardar** aplica conjuntamente los cambios de todas las pestañas. **Cerrar**
-descarta el borrador. **Deshacer** y **Ctrl/Cmd+Z** recuperan cambios de cualquiera
-de las pestañas. Abrir la ventana no escribe parámetros ni genera contenido.
+Cada escena conserva su borrador al seleccionar otra. **Guardar cambios** y
+**Ctrl/Cmd+S** aplican las escenas modificadas; **Deshacer** y **Ctrl/Cmd+Z**
+recuperan cambios entre escenas y pestañas. Guarda antes de montar el vídeo.
+**Descartar cambios** recupera los ajustes guardados de todas las escenas.
+Abrir el editor no escribe parámetros ni genera contenido. La regresión de
+navegador se ejecuta con `python pasos/prueba_editor_global.py --real`.
 
 En la pestaña **Animación** puedes
 corregir sus textos y cambiar el tipo por cualquiera de las **18 opciones** del
@@ -380,14 +390,14 @@ El editor reconoce también las cartelas automáticas que ya tenga la escena;
 puedes corregirlas, sustituirlas o quitarlas con **Eliminar bloque**.
 
 Si la escena no tiene animación, pulsa **Añadir bloque**. Elige un tipo,
-edita su contenido y pulsa **Guardar**. La vista previa muestra el borrador mientras editas.
-Cerrar el editor descarta los cambios que todavía no hayas guardado.
+edita su contenido y pulsa **Guardar cambios**. La vista previa muestra el borrador mientras editas.
+Cambiar de escena conserva los cambios que todavía no hayas guardado.
 Haz clic sobre cualquier parte de la animación y **arrástrala** para cambiar
 su posición: el recuadro, los textos, las imágenes y las formas se mueven juntos
 como una única unidad. El botón **↶ Deshacer** o **Ctrl+Z** (**Cmd+Z** en Mac)
 recupera progresivamente los estados anteriores del editor: posiciones, textos,
 duración, tipo e imágenes. Cada arrastre completo cuenta como un solo cambio.
-El historial dura mientras el popup esté abierto; deshacer también permite
+El historial dura durante la sesión del editor; deshacer también permite
 recuperar un estado anterior a Guardar, que debe guardarse de nuevo para aplicarlo.
 El campo
 **Duración (segundos)** permite ajustar el tiempo total de la animación, incluidas
@@ -401,7 +411,7 @@ seguir el cabezal, o pulsa sobre la pista para elegir un instante y ver ese
 fotograma. Arrastra el bloque para cambiar su inicio y tira de sus extremos para
 ajustar el comienzo o el final; se muestran los tiempos de inicio, fin y duración.
 El bloque no puede salir de la escena. Estos ajustes forman parte del borrador:
-**Guardar** los aplica a la previsualización y al montaje; cerrar los descarta.
+**Guardar cambios** los aplica a la previsualización y al montaje.
 Para quitarla, pulsa **Eliminar bloque** y **Guardar**. Si eliminas todas, la escena queda
 sin animación también al volver a montar, aunque antes tuviera una automática.
 En **Tipografía cinética**, el campo **Subrayado**, debajo de **Frase**, permite
@@ -467,17 +477,17 @@ cambiarlas solo requiere **volver a montar**, conservando narración e imágenes
 DepthFlow estima la profundidad localmente y crea clips sin audio. Al abrir
 **Imágenes**, prepara automáticamente los clips de las escenas seleccionadas:
 se muestra el progreso y **Parar**, y cada imagen pasa a reproducirse como vídeo
-en cuanto está lista. **Oírla** sincroniza el movimiento con la narración.
+en cuanto está lista. **Reproducir** sincroniza el movimiento con la narración.
 Si hay otra generación activa, espera a que termine antes de preparar el parallax.
 Puedes continuar una preparación detenida o reintentar un error desde esa pantalla.
 Los clips se cachean en `parallax/` dentro del proyecto; el montaje reutiliza esos
 mismos clips antes de componer las capas y transiciones habituales. Cambiar la
 imagen, el movimiento o los tiempos prepara el clip correspondiente de nuevo.
 
-Debajo del previsualizador, pulsa **Editar escena → Efecto Parallax**
+En el panel izquierdo, pulsa **Efecto Parallax**
 para configurar solo esa imagen. La pestaña permite activar o quitar el efecto,
 elegir su **Movimiento de cámara** y cambiar la intensidad en **Configuración
-avanzada**. Pulsa **Guardar** para aplicarlo; cerrar descarta el borrador.
+avanzada**. Pulsa **Guardar cambios** para aplicarlo; cambiar de escena conserva el borrador.
 La previsualización prepara el clip actualizado y el montaje usa esos mismos
 ajustes. Quitar el efecto de una escena se conserva aunque el vídeo anime todas
 las imágenes; también puedes activarlo solo en una imagen con la opción global
@@ -525,7 +535,7 @@ sin transiciones. La selección se guarda por vídeo; cambiarla solo deja pendie
 el montaje, sin regenerar el guion, la voz ni las imágenes. En los vídeos existentes
 se guarda automáticamente al mover las tarjetas.
 
-En **Imágenes → Editar escena → Transición**, **Hacia la siguiente escena** configura
+En **Imágenes → Transición**, **Hacia la siguiente escena** configura
 la salida de la escena actual hacia la siguiente. Ofrece la lista de
 efectos y **Sin transición**. Al elegirla,
 la vista previa reproduce el efecto entre el último fotograma de la
@@ -542,7 +552,7 @@ progreso real del efecto. Al terminar, conserva el primer cuadro de la siguiente
 escena hasta llegar al corte. Guardar aplica ese mismo intervalo al montaje.
 Elegir **Sin transición** retira ese bloque; las entradas y salidas
 a negro mantienen sus intervalos independientes.
-Pulsa **Guardar** para aplicar la selección; cerrar descarta el borrador.
+Pulsa **Guardar cambios** para aplicar la selección; cambiar de escena conserva el borrador.
 La última escena no tiene transición de salida. La selección se conserva al
 reabrir y se aplica al volver a montar, sin regenerar guion, voz ni imágenes.
 
