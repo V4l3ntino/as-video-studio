@@ -10025,7 +10025,8 @@ function editorGlobalImagenes(escenas) {
     } },
     h('div', { clase: 'light-cab' }, h('h2', {}, 'Editor del vídeo'),
       obsoletasEnLaCabecera(escenas), animacionesEnLaCabecera(PREVIA.ficha?.animaciones),
-      h('span', { clase: 'crece' }), descartar, deshacer, guardar),
+      h('span', { clase: 'crece' }), descartar, deshacer,
+      h('div', { clase: 'editor-global-acciones' }, guardar, h('div', { clase: 'editor-global-montar' }))),
     preparacion, configuraciones, timeline, notas, estado,
     h('div', { clase: 'editor-global-lista-notas' }, notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()] : null));
   const estudio = {
@@ -10101,7 +10102,7 @@ function editorGlobalImagenes(escenas) {
       descartar.hidden = !pendientes;
       deshacer.disabled = !ultimaEdicion.length;
       estado.textContent = pendientes ? `${pendientes} escena(s) con cambios sin guardar.` : 'Sin cambios pendientes.';
-      const montar = BARRA_INFERIOR.nodo?.querySelector('button');
+      const montar = nodo.querySelector('.editor-global-montar button[data-editor-bloqueado]');
       if (montar) montar.disabled = !!pendientes || !!trabajoVideoLight() || montar.dataset.editorBloqueado === 'true';
     },
     recordar: id => { ultimaEdicion.push(id); if (ultimaEdicion.length > 1000) ultimaEdicion.shift(); deshacer.disabled = false; },
@@ -10974,9 +10975,13 @@ function vistaPreviaLight() {
 
   const editor = editorGlobalImagenes(escenas);
   const montar = botonRenderizarLight();
-  if (montar) montar.dataset.editorBloqueado = String(montar.disabled);
-  if (montar && EDITOR_GLOBAL.modificado()) montar.disabled = true;
-  BARRA_INFERIOR.nodo = h('div', { clase: 'previa-mandos' }, montar);
+  const boton = montar?.matches('button') ? montar : montar?.querySelector('button');
+  if (boton && !trabajoVideoLight()) {
+    boton.dataset.editorBloqueado = String(boton.disabled);
+    if (EDITOR_GLOBAL.modificado()) boton.disabled = true;
+    boton.classList.add('editor-global-boton-montar');
+  }
+  editor.querySelector('.editor-global-montar').replaceChildren(...(montar ? [montar] : []));
   return editor;
 }
 

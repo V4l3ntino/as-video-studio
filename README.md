@@ -364,7 +364,8 @@ del timeline abre su escena y la pestaña correspondiente. Puedes buscar un
 instante en las pistas y ampliar el timeline con su control de zoom. El botón
 **Reproducir** continúa por las escenas siguientes con narración, música y los
 sonidos del borrador. Ya no hacen falta «Editar escena», «Oírla», «Todo seguido»
-ni los botones de anterior y siguiente; al pie queda **Montar el vídeo**.
+ni los botones de anterior y siguiente. **Montar el vídeo** está en la cabecera,
+debajo de **Guardar cambios**, con un punto rojo a su izquierda.
 
 **Añadir bloque** incorpora un elemento a la pista seleccionada. Puedes tener
 varios bloques independientes: pulsa uno para editarlo en el panel izquierdo,

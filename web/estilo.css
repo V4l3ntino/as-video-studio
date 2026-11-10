@@ -2646,6 +2646,12 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .editor-global { display: grid; grid-template-columns: minmax(280px, 32%) minmax(0, 1fr); gap: 12px 14px; width: 100%; min-width: 0; background: #0e1118; padding: 12px; border-radius: 12px; box-sizing: border-box; }
 .editor-global:fullscreen { overflow: auto; padding: 20px; }
 .editor-global .light-cab { grid-column: 1 / -1; margin-bottom: 0; gap: 12px; flex-wrap: wrap; }
+.editor-global-acciones { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.editor-global-montar:empty { display: none; }
+.editor-global-montar .ayuda-de { display: block; }
+.editor-global .editor-global-boton-montar { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; background: #3c3c40; border: 1px solid #64646b; color: #f1f1f4; border-radius: 5px; padding: 8px 12px; }
+.editor-global .editor-global-boton-montar::before { content: ''; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%; background: #e54558; }
+.editor-global .editor-global-boton-montar:hover:not(:disabled) { background: #4b4b51; border-color: #888892; }
 .editor-global-preparacion { grid-column: 1 / -1; grid-row: 2; }
 .editor-global-preparacion:empty { display: none; }
 .editor-global-configuraciones { display: contents; }
