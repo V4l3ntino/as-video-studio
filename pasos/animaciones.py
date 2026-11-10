@@ -230,6 +230,15 @@ def contenido_de(aid, datos):
 
 
 def validar_edicion(edicion, escena):
+    if isinstance(edicion, dict) and "bloques" in edicion:
+        if edicion.get('ancla') != ancla_de(escena):
+            raise ValueError('la escena ha cambiado; vuelve a abrir su animación')
+        bloques = edicion["bloques"]
+        if not isinstance(bloques, list) or len(bloques) > 32 or any("bloques" in b for b in bloques if isinstance(b, dict)):
+            raise ValueError("utiliza como máximo 32 bloques de animación")
+        limpios = [validar_edicion(b, escena) for b in bloques]
+        principal = dict(limpios[0]) if limpios else {"id": "sin-animacion", "ancla": ancla_de(escena), "contenido": {}}
+        return dict(principal, bloques=limpios)
     if (not isinstance(edicion, dict) or not isinstance(edicion.get("id"), str)
             or edicion["id"] not in {*CATALOGO_EDITOR, "sin-animacion"}):
         raise ValueError("elige una animación del catálogo")
@@ -371,8 +380,9 @@ def urls_imagenes(proyecto, params, escenas, convertir):
     for sid, edicion in ediciones_de(params).items():
         if edicion.get("ancla") != anclas.get(sid):
             continue
-        for referencia in imagenes_animacion.validar_referencias(edicion.get("imagenes") or {}).values():
-            urls[referencia] = convertir(imagenes_animacion.ruta_de(proyecto, referencia))
+        for bloque in edicion.get("bloques", [edicion]):
+            for referencia in imagenes_animacion.validar_referencias(bloque.get("imagenes") or {}).values():
+                urls[referencia] = convertir(imagenes_animacion.ruta_de(proyecto, referencia))
     return urls
 
 
@@ -1404,6 +1414,7 @@ def _svg_cinetica(datos, duracion, ancho, alto, c, ctx=None):
 # ensene lo que se monta). `F` = {"t": [sube_ini, sube_fin, baja_ini, baja_fin],
 # "blur": px, "luz": brillo}. Sin `F` no toca nada.
 JS_FONDO = """function aplicarFondo(el, F, t){
+  if (Array.isArray(F)) F = F.findLast(f => f && t >= f.t[0] && t <= f.t[3]) || {t:[0,0,0,0], blur:0, luz:1};
   if (!F) return;
   const S = u => { u = Math.min(1, Math.max(0, u)); return u*u*(3-2*u); };
   const k = S((t-F.t[0])/Math.max(1e-6, F.t[1]-F.t[0]))
@@ -1736,6 +1747,36 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
                                "duracion": asignacion.get("duracion"), "inicio": asignacion.get("inicio", 0),
                               "imagenes": sorted((asignacion.get("imagenes") or {}).values()),
                               "pico": pico_de(svg, _duracion(por_id[sid]))}
+    # Cada bloque se dibuja con el mismo reloj SMIL que una animación histórica.
+    # Los ids se aíslan para que gradientes, máscaras y referencias no colisionen.
+    for escena in escenas or []:
+        sid = escena.get("id")
+        edicion = ediciones_de(params).get(sid) or {}
+        if "bloques" not in edicion or edicion.get("ancla") != ancla_de(escena):
+            continue
+        capas_bloques = []
+        for indice, bloque in enumerate(edicion["bloques"]):
+            p = dict(params or {}, unidades={f"escena:{sid}": {"animacion": bloque}})
+            capa = capas([escena], p, idioma, paleta, salida, imagenes, semilla,
+                         imagenes_usuario=imagenes_usuario).get(sid)
+            if capa:
+                svg = capa["svg"]
+                ids = re.findall(r'\bid="([^"]+)"', svg)
+                for ident in sorted(set(ids), key=len, reverse=True):
+                    nuevo = f"b{indice}_{ident}"
+                    svg = svg.replace(f'id="{ident}"', f'id="{nuevo}"').replace(f'#{ident})', f'#{nuevo})').replace(f'="#{ident}"', f'="#{nuevo}"')
+                capa = dict(capa, svg=svg)
+                capas_bloques.append(capa)
+        if capas_bloques:
+            principal = dict(capas_bloques[0])
+            interiores = [re.sub(r'^<svg\b[^>]*>|</svg>\s*$', '', c["svg"]) for c in capas_bloques]
+            principal["svg"] = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {salida[0]} {salida[1]}">' + ''.join(interiores) + '</svg>'
+            principal["imagenes"] = sorted({url for c in capas_bloques for url in c["imagenes"]})
+            principal["fondo"] = [c['fondo'] for c in capas_bloques if c.get('fondo')]
+            principal["bloques"] = edicion["bloques"]
+            resultado[sid] = principal
+        else:
+            resultado.pop(sid, None)
     return resultado
 
 

@@ -548,6 +548,18 @@ GET del editor y los borradores WebGL son de lectura; solo PUT guarda, conserva
 otros params de esa unidad y no cambia assets/callouts. La última escena no
 tiene salida. Prueba offline: `python pasos/prueba_transiciones_escena.py`.
 
+**Editor unificado de escena**: `abrirEditorEscena` reúne las cuatro pestañas y
+el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones
+antes de guardar y solo escriben pestañas modificadas. `animacion.bloques` conserva
+la primera ficha en la raíz para lectores antiguos; `animaciones.capas` aísla ids
+SVG y compone todos los bloques bajo un solo reloj SMIL. El avatar usa
+`presentacion.bloques`: cada aparición sigue el tiempo absoluto del mismo clip,
+sin regenerar Boson. `transiciones_escena` pertenece a la unidad actual, anclada
+a la narración: son entradas/salidas a negro con tiempos propios y el GLSL del
+montaje; la transición hacia la siguiente sigue en su unidad de entrada con su
+contrato anterior. P8 captura los frames de escenas con efectos temporales antes
+de componerlos. Pruebas aisladas: `python pasos/prueba_editor_escena.py`.
+
 **Probar sin pagar**: `pasos/_proyecto_animaciones.py` fabrica un proyecto de
 juguete con guion etiquetado, plan e imágenes (lo usa `prueba_animaciones`); para
 verlo en la interfaz, arranca un servidor aparte con `--proyectos <carpeta>` y las

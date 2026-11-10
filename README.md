@@ -273,11 +273,11 @@ Los clips completados se conservan y el montaje los reutiliza sin volver a
 solicitarlos a Boson. La consulta de la previsualización no genera contenido:
 la preparación se solicita como un trabajo aparte desde la pantalla.
 
-Junto a **Transición**, **Incorporar avatar** abre un popup con la imagen de la
-escena y el avatar. Desde él puedes incluirlo aunque no esté entre las escenas
-elegidas automáticamente, o desmarcar **Mostrar avatar en esta escena** para
-quitarlo. Requiere tener configurado el retrato y la voz en el encargo. El botón
-queda desactivado para cartelas, escenas de más de 60 segundos o clips de vídeo.
+En **Editar escena → Incorporar avatar** puedes añadir apariciones del avatar,
+aunque la escena no esté entre las elegidas automáticamente. **Eliminar bloque**
+quita la aparición seleccionada; eliminar todas quita el avatar de esa escena.
+Requiere tener configurado el retrato y la voz en el encargo. La pestaña explica
+el motivo cuando una cartela, una escena de más de 60 segundos o un clip no lo admite.
 
 A la izquierda elige su entrada: **Sin animación**, **Fundido suave**, **Desde la
 izquierda**, **Desde la derecha** o **Desde abajo**. Arrastra el avatar sobre la
@@ -323,16 +323,33 @@ independiente dentro de la misma sección.
 
 ### Editar o crear una animación en una escena
 
-En **Imágenes**, pulsa **✦ Animación** para abrir el editor de la escena. Puedes
+En **Imágenes**, pulsa **Editar escena**. Una sola ventana reúne las pestañas
+**Animación**, **Efecto Parallax**, **Transición** e **Incorporar avatar**. El
+visualizador y la línea de tiempo se mantienen al cambiar de pestaña. Sus cuatro
+pistas muestran el audio del narrador, las animaciones, los avatares y las
+transiciones, con colores diferentes y un cursor de reproducción común.
+
+**Añadir bloque** incorpora un elemento a la pista seleccionada. Puedes tener
+varios bloques independientes: pulsa uno para editarlo en el panel izquierdo,
+arrástralo para desplazarlo o tira de sus extremos para ajustar su intervalo.
+También puedes escribir el inicio, el final y la duración en segundos. Los
+bloques quedan dentro de la escena; si se solapan se muestran en carriles dentro
+de su pista. La narración conserva su reloj y su duración originales.
+
+**Guardar** aplica conjuntamente los cambios de todas las pestañas. **Cerrar**
+descarta el borrador. **Deshacer** y **Ctrl/Cmd+Z** recuperan cambios de cualquiera
+de las pestañas. Abrir la ventana no escribe parámetros ni genera contenido.
+
+En la pestaña **Animación** puedes
 corregir sus textos y cambiar el tipo por cualquiera de las **18 opciones** del
 catálogo: las ocho animaciones del guion y las diez cartelas sobre imagen.
 Los campos se adaptan al tipo: cifra y etiqueta, fecha y contexto,
 título y explicación, frase, comparación, lista o cronología. En **La lista** y
 **Las fechas**, escribe entre dos y cuatro entradas, una por renglón.
 El editor reconoce también las cartelas automáticas que ya tenga la escena;
-puedes corregirlas, sustituirlas o quitarlas con **Sin animación**.
+puedes corregirlas, sustituirlas o quitarlas con **Eliminar bloque**.
 
-Si la escena no tiene animación, aparece **✦ Crear animación**. Elige un tipo y
+Si la escena no tiene animación, pulsa **Añadir bloque**. Elige un tipo,
 edita su contenido y pulsa **Guardar**. La vista previa muestra el borrador mientras editas.
 Cerrar el editor descarta los cambios que todavía no hayas guardado.
 Haz clic sobre cualquier parte de la animación y **arrástrala** para cambiar
@@ -355,7 +372,7 @@ fotograma. Arrastra el bloque para cambiar su inicio y tira de sus extremos para
 ajustar el comienzo o el final; se muestran los tiempos de inicio, fin y duración.
 El bloque no puede salir de la escena. Estos ajustes forman parte del borrador:
 **Guardar** los aplica a la previsualización y al montaje; cerrar los descarta.
-Para quitarla, selecciona **Sin animación** y pulsa **Guardar**. La escena queda
+Para quitarla, pulsa **Eliminar bloque** y **Guardar**. Si eliminas todas, la escena queda
 sin animación también al volver a montar, aunque antes tuviera una automática.
 En **Tipografía cinética**, el campo **Subrayado**, debajo de **Frase**, permite
 elegir las palabras resaltadas. Sepáralas con espacios o comas: se resaltan todas
@@ -427,8 +444,8 @@ Los clips se cachean en `parallax/` dentro del proyecto; el montaje reutiliza es
 mismos clips antes de componer las capas y transiciones habituales. Cambiar la
 imagen, el movimiento o los tiempos prepara el clip correspondiente de nuevo.
 
-Debajo del previsualizador, junto a **Crear animación**, pulsa **Efecto Parallax**
-para configurar solo esa imagen. El popup permite activar o quitar el efecto,
+Debajo del previsualizador, pulsa **Editar escena → Efecto Parallax**
+para configurar solo esa imagen. La pestaña permite activar o quitar el efecto,
 elegir su **Movimiento de cámara** y cambiar la intensidad en **Configuración
 avanzada**. Pulsa **Guardar** para aplicarlo; cerrar descarta el borrador.
 La previsualización prepara el clip actualizado y el montaje usa esos mismos
@@ -478,11 +495,14 @@ sin transiciones. La selección se guarda por vídeo; cambiarla solo deja pendie
 el montaje, sin regenerar el guion, la voz ni las imágenes. En los vídeos existentes
 se guarda automáticamente al mover las tarjetas.
 
-En **Imágenes**, el botón **Transición**, junto a **Efecto Parallax**, configura
-la salida de la escena actual hacia la siguiente. El popup muestra la lista de
-efectos y **Sin transición**; solo puede estar marcada una opción. Al elegirla,
-la vista previa reproduce el efecto en bucle entre el último fotograma de la
+En **Imágenes → Editar escena → Transición**, **Hacia la siguiente escena** configura
+la salida de la escena actual hacia la siguiente. Ofrece la lista de
+efectos y **Sin transición**. Al elegirla,
+la vista previa reproduce el efecto entre el último fotograma de la
 escena actual y el primero de la siguiente, con sus imágenes o clips reales.
+**Probar transición entre escenas** permite repetirla. Con **Añadir bloque**
+puedes incorporar además varias entradas desde negro y salidas a negro, con el
+mismo catálogo de efectos, sincronizadas en la pista **Transición**.
 Pulsa **Guardar** para aplicar la selección; cerrar descarta el borrador.
 La última escena no tiene transición de salida. La selección se conserva al
 reabrir y se aplica al volver a montar, sin regenerar guion, voz ni imágenes.

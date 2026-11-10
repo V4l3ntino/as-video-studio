@@ -5023,6 +5023,89 @@ def _plan_de_previsualizacion(ctx):
     return plan
 
 
+@app.get("/api/proyectos/{pid}/escenas/{sid}/editor")
+def leer_editor_escena(pid: str, sid: str):
+    """Borrador conjunto de las cuatro pestañas, sin modificar parámetros."""
+    from pasos import editor_escena
+    ctx = contexto(pid)
+    plan = _plan_de_previsualizacion(ctx)
+    escena = next((e for e in plan.get('escenas', []) if e['id'] == sid), None)
+    if escena is None:
+        raise ErrorApi(404, 'esa escena no está en el plan del vídeo')
+    unidad = ((ctx.estado.params('render') or {}).get('unidades') or {}).get(f'escena:{sid}') or {}
+    transicion = None
+    if sid != plan['escenas'][-1]['id']:
+        transicion = leer_transicion_escena(pid, sid)
+    return dict(animacion=leer_animacion_escena(pid, sid), parallax=leer_parallax_escena(pid, sid),
+                avatar=leer_editor_avatar(pid, sid), enlace=transicion,
+                transiciones=editor_escena.transiciones_de(unidad, escena))
+
+
+@app.put("/api/proyectos/{pid}/escenas/{sid}/editor")
+def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
+    """Valida todas las pistas antes de guardar el conjunto de cambios de la escena."""
+    from pasos import editor_escena, avatar
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo o páralo antes de guardar')
+        params, plan, audio, escena = _escena_editor_avatar(ctx, sid)
+        cambios = dict(datos)
+        enlace = cambios.pop('enlace', None)
+        try:
+            limpio = editor_escena.validar(cambios, escena, plan.get('resolucion') or [1920, 1080])
+            if limpio.get('avatar', {}).get('activo'):
+                _exigir_avatar_editor(ctx, params, escena, audio)
+            if 'parallax' in limpio and limpio['parallax']['activo']:
+                from pasos import parallax
+                if not parallax.admite(escena):
+                    raise ValueError('el parallax requiere una imagen estática')
+            if enlace is not None:
+                desde, hasta = _limite_transicion(ctx, sid)
+                enlace = PASOS_MODULOS.transiciones.validar_edicion(enlace, desde, hasta)
+            # Resuelve todas las referencias antes de modificar el estado.
+            if 'animacion' in limpio:
+                anim = PASOS_MODULOS.animaciones
+                temporal = {'unidades': {f'escena:{sid}': {'animacion': limpio['animacion']}}}
+                subidas = anim.urls_imagenes(ctx.proyecto, temporal, plan['escenas'], lambda r: r)
+                previa = leer_previsualizacion(pid)
+                imagenes = {e['id']: e['imagen'] for e in previa['escenas'] if e.get('imagen')}
+                imagenes.update({e['id'] + '__tarjeta': e['imagen_tarjeta'] for e in previa['escenas'] if e.get('imagen_tarjeta')})
+                bloques = limpio['animacion'].get('bloques', [limpio['animacion']])
+                reserva = next((b for b in bloques if anim.CATALOGO_EDITOR.get(b['id'], {}).get('requiere_imagenes') and 'otra' not in b.get('imagenes', {})), None)
+                if reserva:
+                    imagenes.setdefault(sid + '__tarjeta', 'pendiente de generar')
+                for b in bloques:
+                    anim.aplicar_ediciones({}, [escena], {sid: b}, imagenes, subidas)
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
+        unidades = {}
+        uid = f'escena:{sid}'
+        unidades[uid] = dict((params.get('unidades') or {}).get(uid) or {}, **limpio)
+        if enlace is not None:
+            siguiente = f"escena:{hasta['id']}"
+            unidades[siguiente] = dict((params.get('unidades') or {}).get(siguiente) or {}, transicion=enlace)
+        anterior = avatar.estado_previa(ctx.proyecto, params, plan, audio) or {}
+        preparado = avatar.estado_previa(ctx.proyecto, _borrador_avatar(params, escena), plan, audio) or {}
+        ctx.estado.actualizar_params('render', {'unidades': unidades})
+        if 'animacion' in limpio:
+            if escena.get('cartela'):
+                capa = dict(((ctx.estado.params('callouts') or {}).get('unidades') or {}).get(uid) or {}, omitir_cartela=anim.ancla_de(escena))
+                ctx.estado.actualizar_params('callouts', {'unidades': {uid: capa}})
+            if reserva and sid + '__tarjeta' not in {e['id'] + '__tarjeta' for e in previa['escenas'] if e.get('imagen_tarjeta')}:
+                ajuste = dict(((ctx.estado.params('assets') or {}).get('unidades') or {}).get(uid) or {})
+                ajuste['tarjetas_animacion'] = {k: reserva[k] for k in ('id', 'ancla', 'contenido')}
+                ctx.estado.actualizar_params('assets', {'unidades': {uid: ajuste}})
+        nuevos = ctx.estado.params('render') or {}
+        clave = avatar.firma_previa(ctx.proyecto, nuevos, plan, audio)
+        if clave:
+            clips = dict(anterior.get('clips') or {}, **(preparado.get('clips') or {}))
+            seleccion = avatar.aplicar_ediciones(anterior.get('seleccion') or [], plan['escenas'], nuevos)
+            PASOS_MODULOS.medios.escribir_json(ctx.proyecto.ruta('avatar', 'previa-' + clave + '.json'),
+                {'seleccion': sorted(seleccion), 'clips': clips})
+    return leer_previsualizacion(pid)
+
+
 @app.get("/api/proyectos/{pid}/escenas/{sid}/animacion")
 def leer_animacion_escena(pid: str, sid: str):
     """Contenido editable y catálogo completo de animaciones para una escena."""
@@ -5754,7 +5837,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
                     "inicio": hecha["inicio"],
                     "imagenes_usuario": hecha["imagenes_usuario"], "tarjetas": hecha["tarjetas"],
                     "svg": hecha["svg"], "fondo": hecha["fondo"], "pico": hecha["pico"],
-                    "elementos": hecha.get("elementos")}
+                    "elementos": hecha.get("elementos"), **({'bloques': hecha['bloques']} if 'bloques' in hecha else {})}
     # Las cartelas automáticas también se pueden abrir y sustituir en el editor.
     anim = PASOS_MODULOS.animaciones
     ediciones = anim.ediciones_de(render)
@@ -5763,7 +5846,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         original = originales[e["id"]]
         edicion = ediciones.get(e["id"])
         if edicion and edicion.get("ancla") == anim.ancla_de(original):
-            if anim.es_cartela_editor(edicion.get("id")):
+            if any(anim.es_cartela_editor(b.get("id")) for b in edicion.get('bloques', [edicion])):
                 e["subtitulos"] = []
             continue
         efectiva = PASOS_MODULOS.cartelas.escena_para_montaje(original, params_callouts)

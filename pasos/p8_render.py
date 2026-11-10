@@ -50,6 +50,8 @@ import websocket
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import animaciones  # noqa: E402
+from pasos import editor_escena  # noqa: E402
+from PIL import Image  # noqa: E402
 import cartelas  # noqa: E402
 import estadisticas  # noqa: E402
 import medios  # noqa: E402
@@ -1260,12 +1262,24 @@ def renderizar_plano(tarea, navegador=None):
 
     navegador.abrir(pagina)
     corte = tarea.get("corte") or {}
-    if tarea.get("conservar_frames"):
+    if tarea.get("conservar_frames") or tarea.get('transiciones_escena'):
         for numero in range(total):
             navegador.pintar(numero / float(fps))
             navegador.capturar(os.path.join(carpeta, f"f{numero + 1:05d}.png"))
         _guardar_ultimo(os.path.join(carpeta, f"f{total:05d}.png"), tarea["ultimo"])
         pintados = _transicion_del_plano(tarea, navegador)
+        if tarea.get('transiciones_escena'):
+            negro = os.path.join(carpeta, 'negro.png')
+            Image.new('RGB', tuple(tarea['resolucion']), 'black').save(negro)
+            navegador.abrir(tarea['pagina_trans'])
+            for bloque in tarea['transiciones_escena']:
+                primero = max(0, int(round(bloque['inicio'] * fps)))
+                ultimo = min(total, int(round(bloque['fin'] * fps)))
+                for numero in range(primero, ultimo):
+                    progreso = (numero / fps - bloque['inicio']) / (bloque['fin'] - bloque['inicio'])
+                    marco = os.path.join(carpeta, f'f{numero + 1:05d}.png')
+                    desde, hasta = (negro, marco) if bloque['sentido'] == 'entrada' else (marco, negro)
+                    transiciones.componer(navegador, desde, hasta, progreso, transiciones.frag_de(bloque['tipo']), marco)
         _codificar(carpeta, tarea["clip"], fps, tarea["calidad"], tarea.get("codec", "libx264"))
     else:
         pintados = _renderizar_flujo(tarea, navegador)
@@ -1651,7 +1665,9 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                 with open(ruta_fija, "r", encoding="utf-8") as fh:
                     fija = fh.read()
 
-        if animaciones.es_cartela_editor((animadas.get(sid) or {}).get("animacion")):
+        capa_animada = animadas.get(sid) or {}
+        if (animaciones.es_cartela_editor(capa_animada.get("animacion")) or any(
+                animaciones.es_cartela_editor(b.get('id')) for b in capa_animada.get('bloques', []))):
             fija = ""
 
         video = ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
@@ -1699,6 +1715,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             "previo": escenas[indice - 1]["id"] if indice else None,
             "corte": {k: v for k, v in (cortes.get(sid) or {}).items()},
             "pagina_trans": pagina_trans,
+            "transiciones_escena": editor_escena.transiciones_de(
+                (p.get('unidades') or {}).get(f'escena:{sid}'), escena),
             "conservar_frames": bool(p["conservar_frames"])})
 
     # QUIEN TIENE QUE ESPERAR A QUIEN. La transicion de un plano se cuece sobre

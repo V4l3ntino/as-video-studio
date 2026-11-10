@@ -113,6 +113,12 @@ def posicion_de(params, escena, salida):
 
 
 def validar_presentacion(datos, duracion):
+    if isinstance(datos, dict) and "bloques" in datos:
+        bloques = datos["bloques"]
+        if not isinstance(bloques, list) or not 1 <= len(bloques) <= 32 or any(not isinstance(b, dict) or "bloques" in b for b in bloques):
+            raise ValueError("utiliza entre 1 y 32 bloques de avatar")
+        limpios = [validar_presentacion(b, duracion) for b in bloques]
+        return dict(limpios[0], bloques=limpios)
     if not isinstance(datos, dict) or set(datos) != {"entrada", "inicio", "fin"}:
         raise ValueError("elige la entrada, el inicio y el final del avatar")
     if datos["entrada"] not in {e["id"] for e in ENTRADAS}:
@@ -322,6 +328,31 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, 
     x = int((ancho - visible_ancho) / 2 + visible_ancho * posicion["x"])
     y = int((alto - visible_alto) / 2 + visible_alto * posicion["y"])
     efectos, habilitar = "", ""
+    bloques = (presentacion or {}).get("bloques")
+    if bloques:
+        # Reutiliza el mismo clip y su reloj absoluto de locución en cada aparición.
+        ramas = []
+        etiquetas = ''.join(f'[a{i}]' for i in range(len(bloques)))
+        ramas.append(f'[1:v]split={len(bloques)}{etiquetas}')
+        base = '0:v'
+        for i, bloque in enumerate(bloques):
+            inicio, fin = bloque['inicio'], bloque['fin']
+            entrada = min(.35, (fin - inicio) / 2)
+            salida_s = min(.18, (fin - inicio) / 2)
+            efectos_b = '' if bloque['entrada'] == 'sin-animacion' else (
+                f',format=rgba,fade=t=in:st={inicio}:d={entrada}:alpha=1'
+                f',fade=t=out:st={fin-salida_s}:d={salida_s}:alpha=1')
+            u = f'min(1,max(0,(t-{inicio})/{entrada}))'
+            q = f'(({u})*({u})*(3-2*({u})))'
+            bx = f'{x}-{lado}*(1-{q})' if bloque['entrada'] == 'desde-izquierda' else f'{x}+{lado}*(1-{q})' if bloque['entrada'] == 'desde-derecha' else str(x)
+            by = f'{y}+{lado}*(1-{q})' if bloque['entrada'] == 'desde-abajo' else str(y)
+            ramas.append(f'[a{i}]scale={lado}:{lado}:force_original_aspect_ratio=decrease,pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2{efectos_b}[av{i}]')
+            destino_b = 'v' if i == len(bloques) - 1 else f'base{i}'
+            habilitar_b = f'gte(t,{inicio})*lt(t,{fin})'
+            for posterior in bloques[i + 1:]:
+                habilitar_b += f"*not(gte(t,{posterior['inicio']})*lt(t,{posterior['fin']}))"
+            ramas.append(f"[{base}][av{i}]overlay=x='{bx}':y='{by}':shortest=1:enable='{habilitar_b}'[{destino_b}]")
+            base = destino_b
     ox, oy = str(x), str(y)
     if presentacion:
         inicio, fin = presentacion["inicio"], presentacion["fin"]
@@ -342,6 +373,8 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, 
     filtro = (f"[1:v]scale={lado}:{lado}:force_original_aspect_ratio=decrease,"
               f"pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2{efectos}[avatar];"
               f"[0:v][avatar]overlay=x='{ox}':y='{oy}':shortest=1{habilitar}[v]")
+    if bloques:
+        filtro = ';'.join(ramas)
     temporal = destino + ".tmp.mp4"
     try:
         proceso = subprocess.run([medios.ffmpeg(), "-nostdin", "-y", "-v", "error", "-loop", "1",
