@@ -30,6 +30,63 @@ import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    @unittest.skipUnless(REAL, 'usa --real para verificar la transición por fotogramas')
+    def test_enlace_renderizado_sigue_el_intervalo_y_conserva_el_destino(self):
+        from PIL import Image
+        from playwright.sync_api import sync_playwright
+        from pasos import p8_render, transiciones
+        with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True, args=['--allow-file-access-from-files'])
+            try:
+                page = browser.new_page(viewport={'width': 160, 'height': 90})
+                def abrir(ruta):
+                    page.goto(Path(ruta).as_uri())
+                    page.evaluate('Promise.all([document.fonts.ready, ...Array.from(document.images, img => img.decode())])')
+                navegador = SimpleNamespace(abrir=abrir,
+                    evaluar=lambda exp, esperar=False: page.evaluate(exp),
+                    pintar=lambda t: page.evaluate(f'pintar({t})'),
+                    capturar=lambda ruta: page.screenshot(path=ruta))
+                destino = os.path.join(tmp, 'destino.png')
+                Image.new('RGB', (160, 90), '#00ff00').save(destino)
+                for numero in range(1, 21):
+                    Image.new('RGB', (160, 90), 'red').save(os.path.join(tmp, f'f{numero:05d}.png'))
+                fuente = dict(escena=dict(id='S002', t_in=2, t_out=4),
+                    mov=dict(ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=[160, 90]),
+                    hyper=destino, capa='', capa_fija='', capa_anim='', fondo_anim=None, precarga=[])
+                tarea = dict(carpeta=tmp, fps=10, frames=20, resolucion=[160, 90],
+                    pagina_trans=transiciones.pagina(os.path.join(tmp, 'transicion.html'), 160, 90),
+                    enlace_salida=dict(tipo='fundido', inicio=.5, fin=1.5, destino=fuente))
+                self.assertEqual(p8_render._componer_enlace_salida(tarea, navegador), 15)
+                for numero, esperado in [(1, (255, 0, 0)), (11, (128, 128, 0)), (17, (0, 255, 0))]:
+                    with Image.open(os.path.join(tmp, f'f{numero:05d}.png')) as img:
+                        pixel = img.convert('RGB').getpixel((80, 45))
+                    self.assertTrue(all(abs(a - b) <= 1 for a, b in zip(pixel, esperado)), (numero, pixel))
+            finally:
+                browser.close()
+
+    def test_intervalo_enlace_se_guarda_reabre_y_valida_sin_cambios_parciales(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto, estado = juguete.construir(tmp, animaciones=[], etiquetas={})
+            ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=MagicMock())
+            ctx.gestor.listar.return_value = []
+            with patch.object(servidor, 'contexto', return_value=ctx), patch.object(servidor, '_audio_de_la_toma', return_value=None):
+                ficha = servidor.leer_editor_escena(proyecto.id, 'S001')
+                enlace = dict(tipo='fundido', ancla=ficha['enlace']['ancla'], inicio=2, fin=4)
+                antes = Path(proyecto.ruta('estado.json')).read_bytes()
+                with self.assertRaises(servidor.ErrorApi):
+                    servidor.guardar_editor_escena(proyecto.id, 'S001', {'enlace': dict(enlace, fin=7)})
+                self.assertEqual(Path(proyecto.ruta('estado.json')).read_bytes(), antes)
+                firmas = {p: estado.firma(p) for p in ('voz', 'guion', 'assets', 'callouts')}
+                global_antes = estado.firma_global('render')
+                servidor.guardar_editor_escena(proyecto.id, 'S001', {'enlace': enlace})
+                reabierto = servidor.leer_editor_escena(proyecto.id, 'S001')['enlace']['actual']
+                self.assertEqual((reabierto['inicio'], reabierto['fin'], reabierto['duracion']), (2, 4, 2))
+                unidades = estado.params('render')['unidades']
+                self.assertEqual(unidades['escena:S001']['salida_transicion'], enlace)
+                self.assertEqual(unidades['escena:S002']['transicion'], enlace)
+                self.assertEqual({p: estado.firma(p) for p in firmas}, firmas)
+                self.assertEqual(estado.firma_global('render'), global_antes)
+
     @unittest.skipUnless(REAL, 'usa --real para comparar las cartelas en Chromium con Playwright')
     def test_cartelas_por_bloques_conservan_cobertura_y_composicion(self):
         from PIL import Image, ImageChops, ImageStat

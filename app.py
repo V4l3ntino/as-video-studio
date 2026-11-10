@@ -5085,6 +5085,8 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
         if enlace is not None:
             siguiente = f"escena:{hasta['id']}"
             unidades[siguiente] = dict((params.get('unidades') or {}).get(siguiente) or {}, transicion=enlace)
+            if 'inicio' in enlace or 'salida_transicion' in unidades[uid]:
+                unidades[uid]['salida_transicion'] = enlace
         anterior = avatar.estado_previa(ctx.proyecto, params, plan, audio) or {}
         preparado = avatar.estado_previa(ctx.proyecto, _borrador_avatar(params, escena), plan, audio) or {}
         ctx.estado.actualizar_params('render', {'unidades': unidades})
@@ -5238,7 +5240,7 @@ def leer_transicion_escena(pid: str, sid: str):
 
 @app.put("/api/proyectos/{pid}/escenas/{sid}/transicion")
 def editar_transicion_escena(pid: str, sid: str, datos: dict = Body(...)):
-    """Guarda el efecto de salida; solo deja pendiente el clip que entra y el montaje."""
+    """Guarda el efecto y su intervalo opcional; actualiza los clips afectados y el montaje."""
     ctx = contexto(pid)
     with _LOCK:
         if ctx.gestor.listar(activos=True):
@@ -5251,7 +5253,13 @@ def editar_transicion_escena(pid: str, sid: str, datos: dict = Body(...)):
         uid = f"escena:{hasta['id']}"
         unidad = dict(((ctx.estado.params("render") or {}).get("unidades") or {}).get(uid) or {})
         unidad["transicion"] = edicion
-        ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+        cambios = {uid: unidad}
+        anterior_uid = f"escena:{desde['id']}"
+        anterior = dict(((ctx.estado.params('render') or {}).get('unidades') or {}).get(anterior_uid) or {})
+        if 'inicio' in edicion or 'salida_transicion' in anterior:
+            anterior['salida_transicion'] = edicion
+            cambios[anterior_uid] = anterior
+        ctx.estado.actualizar_params("render", {"unidades": cambios})
     return leer_previsualizacion(pid)
 
 

@@ -1225,6 +1225,60 @@ def _renderizar_flujo(tarea, navegador):
     return pintados
 
 
+def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulos):
+    """Fuente del primer cuadro siguiente, sin esperar a otro lote ni generar recursos."""
+    sid = escena['id']
+    mov = movimientos[sid]
+    hyper = mov['hyperframe']
+    if not os.path.isabs(hyper):
+        hyper = os.path.join(base, hyper)
+    def leer_svg(campo):
+        ruta = mov.get(campo)
+        if not ruta:
+            return ''
+        ruta = ruta if os.path.isabs(ruta) else os.path.join(base, ruta)
+        if not os.path.isfile(ruta):
+            return ''
+        with open(ruta, encoding='utf-8') as fh:
+            return fh.read()
+    animada = animadas.get(sid) or {}
+    medio = escena.get('medio_usuario') or escena.get('medio_biblioteca') or {}
+    return dict(escena=escena, mov=mov, hyper=hyper, capa=leer_svg('capa'),
+                capa_fija=leer_svg('capa_fija') if subtitulos and not animaciones.es_cartela_editor(animada.get('animacion')) else '',
+                capa_anim=animada.get('svg', ''), fondo_anim=animada.get('fondo'), precarga=animada.get('imagenes') or [],
+                video=proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else None)
+
+
+def _componer_enlace_salida(tarea, navegador):
+    enlace = tarea.get('enlace_salida')
+    if not enlace:
+        return 0
+    fuente = enlace['destino']
+    carpeta = os.path.join(tarea['carpeta'], 'enlace')
+    os.makedirs(carpeta, exist_ok=True)
+    fps = int(tarea['fps'])
+    fotogramas = _fotogramas_de_clip(fuente['video'], carpeta, fuente['mov'], 1, fps) if fuente.get('video') else []
+    pagina = _pagina_de(fuente['escena'], fuente['mov'], fuente['capa'], fuente['hyper'],
+        {'resolucion': tarea['resolucion']}, os.path.join(carpeta, 'destino.html'),
+        capa_fija=fuente['capa_fija'], capa_anim=fuente['capa_anim'], fondo_anim=fuente['fondo_anim'],
+        precarga=fuente['precarga'], fps=fps, fotogramas=fotogramas)
+    destino = os.path.join(carpeta, 'primero.png')
+    navegador.abrir(pagina)
+    navegador.pintar(0)
+    navegador.capturar(destino)
+    navegador.abrir(tarea['pagina_trans'])
+    cuantos = 0
+    for numero in range(int(tarea['frames'])):
+        tiempo = numero / float(fps)
+        if tiempo < enlace['inicio']:
+            continue
+        marco = os.path.join(tarea['carpeta'], f'f{numero + 1:05d}.png')
+        progreso = min(1., (tiempo - enlace['inicio']) / (enlace['fin'] - enlace['inicio']))
+        transiciones.componer(navegador, marco, destino, progreso, transiciones.frag_de(enlace['tipo']), marco)
+        cuantos += 1
+    return cuantos
+
+
 def renderizar_plano(tarea, navegador=None):
     """Los fotogramas de UN plano, su transicion y su clip. -> ficha del plano.
 
@@ -1262,7 +1316,7 @@ def renderizar_plano(tarea, navegador=None):
 
     navegador.abrir(pagina)
     corte = tarea.get("corte") or {}
-    if tarea.get("conservar_frames") or tarea.get('transiciones_escena'):
+    if tarea.get("conservar_frames") or tarea.get('transiciones_escena') or tarea.get('enlace_salida'):
         for numero in range(total):
             navegador.pintar(numero / float(fps))
             navegador.capturar(os.path.join(carpeta, f"f{numero + 1:05d}.png"))
@@ -1280,6 +1334,7 @@ def renderizar_plano(tarea, navegador=None):
                     marco = os.path.join(carpeta, f'f{numero + 1:05d}.png')
                     desde, hasta = (negro, marco) if bloque['sentido'] == 'entrada' else (marco, negro)
                     transiciones.componer(navegador, desde, hasta, progreso, transiciones.frag_de(bloque['tipo']), marco)
+        pintados += _componer_enlace_salida(tarea, navegador)
         _codificar(carpeta, tarea["clip"], fps, tarea["calidad"], tarea.get("codec", "libx264"))
     else:
         pintados = _renderizar_flujo(tarea, navegador)
@@ -1547,6 +1602,11 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         # S004 y una peticion de un plano recodificaba media cola de fundidos.
         originales = set(pedidas)
         for indice, escena in enumerate(escenas[1:], start=1):
+            if (f"escena:{escena['id']}" in originales and 'inicio' in (cortes.get(escena['id']) or {})):
+                anterior_uid = f"escena:{escenas[indice - 1]['id']}"
+                if anterior_uid not in originales:
+                    arrastrados.append(escenas[indice - 1]['id'])
+                pedidas.add(anterior_uid)
             # solo arrastran las que MIRAN hacia atras: el corte no mira
             if (f"escena:{escenas[indice - 1]['id']}" in originales
                     and transiciones.cuece_el_anterior(cortes.get(escena["id"]))):
@@ -1718,6 +1778,16 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             "transiciones_escena": editor_escena.transiciones_de(
                 (p.get('unidades') or {}).get(f'escena:{sid}'), escena),
             "conservar_frames": bool(p["conservar_frames"])})
+
+    indices = {e['id']: i for i, e in enumerate(escenas)}
+    for tarea in tareas:
+        indice = indices[tarea['id']]
+        if indice + 1 < len(escenas):
+            siguiente = escenas[indice + 1]
+            corte = cortes.get(siguiente['id']) or {}
+            if 'inicio' in corte and corte.get('tipo') != 'corte':
+                tarea['enlace_salida'] = dict(tipo=corte['tipo'], inicio=corte['inicio'], fin=corte['fin'],
+                    destino=_fuente_para_enlace(siguiente, movimientos, base_callouts, animadas, proyecto, p['subtitulos']))
 
     # QUIEN TIENE QUE ESPERAR A QUIEN. La transicion de un plano se cuece sobre
     # el ULTIMO FOTOGRAMA del anterior, asi que si ese plano tambien se

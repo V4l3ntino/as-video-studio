@@ -9924,7 +9924,7 @@ async function abrirEditorEscena(escena) {
   const total = Number(escena.duracion), minimo = Math.min(.1, total);
   let ficha, borrador, original, pestaña = 'animacion', seleccionado = -1;
   let tiempo = 0, audio, avatar, fondo, cuadro = 0, guardando = false, subiendo = false;
-  let temporizador, revision = 0, tid = '', generando = false, pintor, pintorEnlace, cuadroEnlace = 0, cuadroBase;
+  let temporizador, revision = 0, tid = '', generando = false, pintor, pintorEnlace, cuadroEnlace = 0, cuadroBase, preparandoEnlace;
   let arrastrando = false;
   const historial = [], ondas = [];
   const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando escena…');
@@ -10013,7 +10013,8 @@ async function abrirEditorEscena(escena) {
     cancelAnimationFrame(cuadroEnlace); canvasEnlace.hidden = true;
     pestaña = id;
     const lista = borrador?.[id];
-    seleccionado = indice == null ? (Array.isArray(lista) && lista.length ? 0 : -1) : indice;
+    seleccionado = indice == null ? (Array.isArray(lista) && lista.length ? 0
+      : id === 'transiciones' && bloqueEnlace() ? -2 : -1) : indice;
     tabs.querySelectorAll('button').forEach((b, i) => {
       b.setAttribute('aria-selected', String(nombres[i][0] === id)); b.tabIndex = nombres[i][0] === id ? 0 : -1;
     });
@@ -10023,6 +10024,22 @@ async function abrirEditorEscena(escena) {
   function campo(nombre, nodo) { return h('label', { clase: 'campo' }, nombre, nodo); }
   function editar(objeto, clave, valor, previa = true) { if (ocupado()) return; recordar(); objeto[clave] = valor; cambio(previa); }
   function listaActual() { return Array.isArray(borrador?.[pestaña]) ? borrador[pestaña] : []; }
+  function bloqueEnlace() {
+    if (!ficha?.enlace || !borrador || borrador.enlace === 'corte') return null;
+    const efecto = ficha.enlace.transiciones.find(t => t.id === borrador.enlace);
+    if (!efecto) return null;
+    const duracion = Math.min(total, Math.max(minimo, efecto.duracion));
+    return { enlace: true, tipo: borrador.enlace, ...(borrador.intervaloEnlace || { inicio: total - duracion, fin: total }) };
+  }
+  function cambiarEnlace(tipo) {
+    if (ocupado()) return;
+    recordar(); borrador.enlace = tipo; seleccionado = tipo === 'corte' ? -1 : -2;
+    if (tipo !== 'corte' && !borrador.intervaloEnlace) {
+      const b = bloqueEnlace(); borrador.intervaloEnlace = { inicio: b.inicio, fin: b.fin };
+    }
+    pintarPanel(); cambio(false);
+    if (tipo !== 'corte') probarEnlace();
+  }
   function intervalo(b) { return pestaña === 'animacion' ? { inicio: b.inicio || 0, fin: (b.inicio || 0) + (b.duracion || total) } : b; }
   function nuevo() {
     if (ocupado() || listaActual().length >= 32) return;
@@ -10054,7 +10071,7 @@ async function abrirEditorEscena(escena) {
         h('p', { clase: 'meta' }, 'El clip actualizado se prepara al guardar. El parallax utiliza toda la duración de la escena.'));
       return;
     }
-    const lista = listaActual(), b = lista[seleccionado];
+    const lista = listaActual(), b = pestaña === 'transiciones' && seleccionado === -2 ? bloqueEnlace() : lista[seleccionado];
     panel.appendChild(h('div', { clase: 'escena-editor-acciones' }, h('b', {}, nombres.find(n => n[0] === pestaña)[2]),
       h('button', { clase: 'mini', disabled: (pestaña === 'avatar' && !ficha.avatar.disponible) || lista.length >= 32,
         onclick: nuevo }, '+ Añadir bloque')));
@@ -10065,12 +10082,16 @@ async function abrirEditorEscena(escena) {
     }
     if (pestaña === 'transiciones') {
       if (ficha.enlace) {
-        const select = h('select', { onchange: ev => { editar(borrador, 'enlace', ev.target.value, false); probarEnlace(); } },
+        const select = h('select', { onchange: ev => cambiarEnlace(ev.target.value) },
           h('option', { value: 'corte' }, 'Sin transición'), ...ficha.enlace.transiciones.map(t => h('option', { value: t.id }, t.nombre)));
         select.value = borrador.enlace;
         panel.append(campo('Hacia la siguiente escena', select), h('button', { clase: 'mini', onclick: probarEnlace }, '↻ Probar transición entre escenas'),
-          h('p', { clase: 'meta' }, 'La transición entre escenas conserva el montaje existente. Los bloques de esta pista aplican entradas y salidas a negro dentro de la escena.'));
+          h('p', { clase: 'meta' }, 'El bloque con la flecha → enlaza con la siguiente escena. Arrastra el bloque o sus extremos para sincronizarlo con la narración.'));
       } else panel.appendChild(h('p', { clase: 'meta' }, 'Última escena: puedes añadir entradas y salidas a negro.'));
+      if (seleccionado === -2 && bloqueEnlace()) {
+        const enlace = bloqueEnlace();
+        panel.append(h('p', { clase: 'meta' }, `Transición hacia ${ficha.enlace.escenas[1].id}. El visualizador sigue su progreso con el cursor.`));
+      }
     }
     if (!b) { panel.appendChild(h('p', { clase: 'meta' }, 'Añade un bloque o selecciona uno en la línea de tiempo para editar sus opciones.')); return; }
     panel.appendChild(h('div', { clase: 'escena-editor-bloques' }, ...lista.map((item, i) => h('button', { clase: 'mini',
@@ -10092,7 +10113,7 @@ async function abrirEditorEscena(escena) {
       });
     } else if (pestaña === 'avatar') panel.appendChild(campo('Animación de entrada', h('select', {
       onchange: ev => editar(b, 'entrada', ev.target.value, false) }, ...ficha.avatar.opciones.map(o => h('option', { value: o.id, selected: o.id === b.entrada }, o.nombre)))));
-    else {
+    else if (!b.enlace) {
       const catalogo = ficha.enlace || ficha.catalogo;
       panel.append(campo('Efecto', h('select', { onchange: ev => editar(b, 'tipo', ev.target.value, false) },
         ...catalogo.transiciones.map(t => h('option', { value: t.id, selected: t.id === b.tipo }, t.nombre)))),
@@ -10119,32 +10140,40 @@ async function abrirEditorEscena(escena) {
       if (ocupado()) return; recordar(); b.inicio = 0; delete b.duracion; pintarPanel(); cambio();
     } }, 'Usar duración automática'));
     panel.appendChild(h('button', { clase: 'mini peligro', onclick: () => {
+      if (b.enlace) { cambiarEnlace('corte'); return; }
       if (ocupado()) return; recordar(); lista.splice(seleccionado, 1); seleccionado = Math.min(seleccionado, lista.length - 1); pintarPanel(); cambio();
-    } }, 'Eliminar bloque'));
+    } }, b.enlace ? 'Eliminar transición entre escenas' : 'Eliminar bloque'));
   }
   function nombreBloque(tipo, b) {
     if (tipo === 'animacion') return ficha.animacion.opciones.find(o => o.id === b.id)?.nombre || 'Animación';
     if (tipo === 'avatar') return ficha.avatar.opciones.find(o => o.id === b.entrada)?.nombre || 'Avatar';
+    if (b.enlace) return `→ ${ficha.enlace.escenas[1].id} · ${ficha.enlace.transiciones.find(t => t.id === b.tipo)?.nombre || b.tipo}`;
     return `${b.sentido === 'entrada' ? 'Entrada' : 'Salida'} · ${(ficha.enlace || ficha.catalogo).transiciones.find(t => t.id === b.tipo)?.nombre || b.tipo}`;
   }
   function pintarPistas() {
     if (!borrador || arrastrando) return;
     ['animacion', 'avatar', 'transiciones'].forEach(tipo => {
       vaciar(filas[tipo]);
-      borrador[tipo].forEach((b, i) => {
+      const lista = [...borrador[tipo]];
+      const enlace = tipo === 'transiciones' ? bloqueEnlace() : null;
+      if (enlace) lista.push(enlace);
+      lista.forEach((b, i) => {
         const inicio = b.inicio || 0, fin = tipo === 'animacion' ? inicio + (b.duracion || total) : b.fin;
-        const nodo = h('div', { clase: 'anim-timeline-bloque', role: 'button', tabindex: 0,
+        const indice = b.enlace ? -2 : i;
+        const seleccionar = () => seleccionarPestaña(tipo, indice);
+        const nodo = h('div', { clase: `anim-timeline-bloque${b.enlace ? ' enlace' : ''}`, role: 'button', tabindex: 0,
+          title: nombreBloque(tipo, b),
           'aria-label': `${nombreBloque(tipo, b)}: ${inicio.toFixed(3)} a ${fin.toFixed(3)} segundos`,
-          'aria-pressed': String(tipo === pestaña && i === seleccionado),
-          onpointerdown: ev => arrastrarBloque(ev, tipo, i),
-          onkeydown: ev => { if (['Enter', ' '].includes(ev.key)) { ev.preventDefault(); seleccionarPestaña(tipo, i); } } },
+          'aria-pressed': String(tipo === pestaña && indice === seleccionado),
+          onpointerdown: ev => arrastrarBloque(ev, tipo, indice),
+          onkeydown: ev => { if (['Enter', ' '].includes(ev.key)) { ev.preventDefault(); seleccionar(); } } },
           h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'inicio', title: 'Ajustar inicio' }),
           h('span', { clase: 'anim-timeline-nombre' }, `${nombreBloque(tipo, b)} (${(fin - inicio).toFixed(2)} s)`),
           h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'fin', title: 'Ajustar final' }));
         nodo.style.left = `${inicio / total * 100}%`; nodo.style.width = `${(fin - inicio) / total * 100}%`;
         // Los solapamientos se muestran en carriles dentro de la misma pista.
         const ocupados = new Set(Array.from(filas[tipo].children).filter((n, j) => {
-          const a = borrador[tipo][j]; return (a.inicio || 0) < fin &&
+          const a = lista[j]; return (a.inicio || 0) < fin &&
             (tipo === 'animacion' ? (a.inicio || 0) + (a.duracion || total) : a.fin) > inicio;
         }).map(n => Number(n.dataset.carril)));
         let carril = 0; while (ocupados.has(carril)) carril++;
@@ -10159,8 +10188,13 @@ async function abrirEditorEscena(escena) {
     const b = listaActual()[seleccionado];
     const p = b ? intervalo(b) : { inicio: 0, fin: total };
     datosTiempo.textContent = `Inicio ${p.inicio.toFixed(3)} s · Fin ${p.fin.toFixed(3)} s · Duración ${(p.fin - p.inicio).toFixed(3)} s`;
+    if (pestaña === 'transiciones' && seleccionado === -2 && bloqueEnlace()) {
+      const enlace = bloqueEnlace();
+      datosTiempo.textContent = `Inicio ${enlace.inicio.toFixed(3)} s · Fin ${enlace.fin.toFixed(3)} s · Duración ${(enlace.fin - enlace.inicio).toFixed(3)} s → ${ficha.enlace.escenas[1].id}`;
+    }
   }
   function ponerIntervalo(tipo, b, p) {
+    if (b.enlace) { borrador.intervaloEnlace = { inicio: p.inicio, fin: p.fin }; return; }
     b.inicio = p.inicio;
     if (tipo === 'animacion') b.duracion = p.fin - p.inicio; else b.fin = p.fin;
   }
@@ -10180,7 +10214,7 @@ async function abrirEditorEscena(escena) {
   function arrastrarBloque(ev, tipo, i) {
     if (ev.button !== 0 || ocupado()) return;
     pausar();
-    const nodo = ev.currentTarget, b = borrador[tipo][i], x = ev.clientX, extremo = ev.target.dataset.extremo;
+    const nodo = ev.currentTarget, b = i === -2 ? bloqueEnlace() : borrador[tipo][i], x = ev.clientX, extremo = ev.target.dataset.extremo;
     const origen = { inicio: b.inicio || 0, fin: tipo === 'animacion' ? (b.inicio || 0) + (b.duracion || total) : b.fin };
     let movido = false;
     pestaña = tipo; seleccionado = i; arrastrando = true;
@@ -10203,35 +10237,40 @@ async function abrirEditorEscena(escena) {
     pausar(); const mover = e => { tiempo = Math.max(0, Math.min(total, (e.clientX - pistas.getBoundingClientRect().left) / pistas.clientWidth * total)); pintarReloj(); };
     mover(ev); capturar(ev, mover);
   }
-  function pausar() { audio?.pause(); fondo?.pause?.(); avatar?.pause?.(); cancelAnimationFrame(cuadroEnlace); canvasEnlace.hidden = true; }
-  async function probarEnlace() {
-    if (!ficha.enlace || ocupado()) return;
-    pausar();
-    try {
-      if (!pintorEnlace) {
+  function pausar() { audio?.pause(); fondo?.pause?.(); avatar?.pause?.(); cancelAnimationFrame(cuadroEnlace); }
+  async function prepararEnlace() {
+    if (!ficha.enlace || pintorEnlace) return;
+    if (!preparandoEnlace) preparandoEnlace = (async () => {
         const [desde, hasta] = ficha.enlace.escenas;
         canvasEnlace.width = canvas.width; canvasEnlace.height = canvas.height;
         const cuadros = await Promise.all([fotogramaTransicion(desde, pid, true, canvas.width, canvas.height, medios),
           fotogramaTransicion(hasta, pid, false, canvas.width, canvas.height, medios)]);
         if (!dialogo.isConnected) return;
         pintorEnlace = pintorTransicion(canvasEnlace, ficha.enlace, cuadros);
-      }
+        pintarReloj();
+    })();
+    try { await preparandoEnlace; }
+    catch (error) { estado.textContent = `Vista previa de transición: ${error.message}`; preparandoEnlace = null; }
+  }
+  async function probarEnlace() {
+    if (!bloqueEnlace() || ocupado()) return;
+    pausar();
+    await prepararEnlace();
+    if (!dialogo.isConnected) return;
+    const bloque = bloqueEnlace(); if (!bloque) return;
+    tiempo = bloque.inicio; pintarReloj();
+    if (audio) { alternar(); return; }
       const inicio = performance.now();
-      const duracion = (ficha.enlace.transiciones.find(t => t.id === borrador.enlace)?.duracion || .4) * 1000;
       const avanzar = ahora => {
         if (!dialogo.isConnected) return;
-        canvasEnlace.hidden = false;
-        const progreso = Math.max(0, Math.min(1, (ahora - inicio - 500) / duracion));
-        pintorEnlace.pintar(borrador.enlace, borrador.enlace === 'corte' ? Number(progreso > 0) : progreso);
-        if (ahora - inicio < duracion + 1300) cuadroEnlace = requestAnimationFrame(avanzar);
-        else canvasEnlace.hidden = true;
+        tiempo = Math.min(bloque.fin, bloque.inicio + (ahora - inicio) / 1000); pintarReloj();
+        if (tiempo < bloque.fin) cuadroEnlace = requestAnimationFrame(avanzar);
       };
       cuadroEnlace = requestAnimationFrame(avanzar);
-    } catch (error) { estado.textContent = `Vista previa de transición: ${error.message}`; }
   }
   function alternar() {
     if (!audio) return;
-    cancelAnimationFrame(cuadroEnlace); canvasEnlace.hidden = true;
+    cancelAnimationFrame(cuadroEnlace);
     if (!audio.paused) { pausar(); return; }
     if (tiempo >= total - .02) tiempo = 0;
     audio.currentTime = Number(ficha.animacion.t_in || 0) + tiempo;
@@ -10264,6 +10303,13 @@ async function abrirEditorEscena(escena) {
       pintor.actualizar(1, i ? canvas : (fondo?.tagName === 'VIDEO' && fondo.readyState >= 2 ? fondo : cuadroBase));
       pintor.pintar(trans.tipo, progreso, trans.sentido === 'salida');
     });
+    const enlace = bloqueEnlace();
+    canvasEnlace.hidden = !enlace || tiempo < enlace.inicio || !pintorEnlace;
+    if (!canvasEnlace.hidden) {
+      const origen = fondo?.tagName === 'VIDEO' && fondo.readyState >= 2 ? fondo : cuadroBase;
+      if (origen) pintorEnlace.actualizar(0, origen);
+      pintorEnlace.pintar(enlace.tipo, Math.min(1, Math.max(0, (tiempo - enlace.inicio) / (enlace.fin - enlace.inicio))));
+    }
   }
   async function prepararAnimacion() {
     clearTimeout(temporizador); const actual = ++revision;
@@ -10311,7 +10357,8 @@ async function abrirEditorEscena(escena) {
         posicion: { x: borrador.posicion.x, y: borrador.posicion.y }, presentacion };
     }
     if (JSON.stringify(borrador.transiciones) !== JSON.stringify(anterior.transiciones)) d.transiciones = { ancla: ficha.animacion.ancla, bloques: borrador.transiciones };
-    if (ficha.enlace && borrador.enlace !== anterior.enlace) d.enlace = { tipo: borrador.enlace, ancla: ficha.enlace.ancla };
+    if (ficha.enlace && JSON.stringify([borrador.enlace, borrador.intervaloEnlace]) !== JSON.stringify([anterior.enlace, anterior.intervaloEnlace]))
+      d.enlace = { tipo: borrador.enlace, ancla: ficha.enlace.ancla, ...(borrador.enlace !== 'corte' ? borrador.intervaloEnlace : {}) };
     return d;
   }
   async function guardar() {
@@ -10409,7 +10456,8 @@ async function abrirEditorEscena(escena) {
     borrador = { animacion: actual && actual.id !== 'sin-animacion' ? (actual.bloques || [actual]).map(convertir) : [],
       avatar: ficha.avatar.actual.activo ? structuredClone(ficha.avatar.actual.presentacion.bloques || [ficha.avatar.actual.presentacion]) : [],
       posicion: structuredClone(ficha.avatar.actual.posicion),
-      parallax: { ...ficha.parallax.actual, ancla: ficha.parallax.ancla }, transiciones: structuredClone(ficha.transiciones), enlace: ficha.enlace?.actual.tipo || 'corte' };
+      parallax: { ...ficha.parallax.actual, ancla: ficha.parallax.ancla }, transiciones: structuredClone(ficha.transiciones), enlace: ficha.enlace?.actual.tipo || 'corte',
+      intervaloEnlace: ficha.enlace?.actual.inicio != null ? { inicio: ficha.enlace.actual.inicio, fin: ficha.enlace.actual.fin } : null };
     original = JSON.stringify(borrador);
     tiempo = Math.max(0, Math.min(total, actual?.pico || 0));
     fondo = h(escena.clip ? 'video' : 'img', { clase: escena.clip ? 'previa-clip' : '',
@@ -10435,6 +10483,7 @@ async function abrirEditorEscena(escena) {
     cuadroBase = cuadroEscena;
     if (!dialogo.isConnected) return;
     pintor = pintorTransicion(canvas, { ...catalogo, acento: ficha.enlace?.acento || { acento: [.5, .6, 1], oscuro: [.2, .3, .5], claro: [.8, .9, 1] } }, [negro, cuadroEscena]);
+    await prepararEnlace();
     pintarReloj(); estado.textContent = 'Edita los elementos de la escena según la pestaña seleccionada.';
   } catch (error) { if (dialogo.isConnected) estado.textContent = `No se pudo abrir el editor: ${error.message}`; }
 }

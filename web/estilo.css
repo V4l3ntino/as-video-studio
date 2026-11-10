@@ -2670,6 +2670,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .escena-timeline .anim-timeline-bloque { background: linear-gradient(#758ee3, #4d66b9); border-color: #9aafff; min-width: 3px; height: 26px; bottom: auto; }
 .escena-timeline .avatar .anim-timeline-bloque { background: linear-gradient(#9163cd, #7043ad); border-color: #bc94ef; }
 .escena-timeline .transiciones .anim-timeline-bloque { background: linear-gradient(#5d9c76, #33734e); border-color: #91c9a3; }
+.escena-timeline .anim-timeline-bloque.enlace { border-style: dashed; }
 .escena-timeline .anim-timeline-bloque[aria-pressed="true"] { outline: 1px solid white; outline-offset: -2px; box-shadow: 0 0 9px #ffffff30; }
 .escena-timeline .anim-timeline-asa { width: 7px; background: #ffffff30; }
 .escena-timeline .anim-timeline-nombre { padding: 0 3px; }

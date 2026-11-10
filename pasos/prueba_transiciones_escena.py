@@ -68,6 +68,17 @@ class TransicionesEscena(unittest.TestCase):
                 transiciones.validar_edicion({"tipo": tipo,
                     "ancla": transiciones.ancla_de(*self.escenas[:2])}, *self.escenas[:2])
 
+    def test_intervalo_de_salida_valida_y_sustituye_la_entrada_antigua(self):
+        datos = dict(tipo='fundido', ancla=transiciones.ancla_de(*self.escenas[:2]), inicio=.25, fin=1.75)
+        edicion = transiciones.validar_edicion(datos, *self.escenas[:2])
+        params = {'unidades': {'escena:S002': {'transicion': edicion}}}
+        corte = transiciones.resolver(self.escenas, params)['S002']
+        self.assertEqual((corte['inicio'], corte['fin'], corte['duracion']), (.25, 1.75, 1.5))
+        self.assertFalse(transiciones.cuece_el_anterior(corte), 'el efecto no debe duplicarse al entrar en la siguiente')
+        for cambio in [dict(inicio=-1), dict(fin=3), dict(inicio=1.74), dict(fin=float('nan')), dict(inicio=True), dict(fin=None)]:
+            with self.subTest(cambio=cambio), self.assertRaises(ValueError):
+                transiciones.validar_edicion(dict(datos, **cambio), *self.escenas[:2])
+
     def test_api_lee_sin_mutar_guarda_reabre_y_conserva_otros_ajustes(self):
         with tempfile.TemporaryDirectory() as tmp:
             proyecto, estado = juguete.construir(tmp, animaciones=[], etiquetas={})
@@ -139,6 +150,15 @@ class TransicionesEscena(unittest.TestCase):
                     self.assertEqual(corte["tipo"], tipo)
                     self.assertEqual(corte["shader"], transiciones.frag_de(tipo))
                     self.assertEqual(corte["duracion"], transiciones.duracion_de(tipo, escenas[1]))
+                tareas.clear()
+                params = self.params('fundido')
+                params['unidades']['escena:S002']['transicion'].update(inicio=.5, fin=1.5)
+                p8_render.ejecutar(proyecto, dict(params, plan=plan, movimiento=movimiento,
+                    sonido=False, lotes=1, fps=6))
+                enlace = tareas[0]['enlace_salida']
+                self.assertEqual((enlace['inicio'], enlace['fin'], enlace['tipo']), (.5, 1.5, 'fundido'))
+                self.assertEqual(enlace['destino']['escena']['id'], 'S002')
+                self.assertFalse(transiciones.cuece_el_anterior(tareas[1]['corte']))
 
 
 if __name__ == "__main__":

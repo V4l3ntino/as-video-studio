@@ -44,6 +44,7 @@ ESTE video y no es un efecto de catalogo pegado encima.
 """
 import hashlib
 import json
+import math
 import os
 import sys
 
@@ -255,13 +256,22 @@ def ancla_de(desde, hasta):
 
 
 def validar_edicion(datos, desde, hasta):
-    if not isinstance(datos, dict) or set(datos) - {"tipo", "ancla"}:
+    if not isinstance(datos, dict) or set(datos) - {"tipo", "ancla", "inicio", "fin"}:
         raise ValueError("Opciones de transición desconocidas")
     if datos.get("ancla") != ancla_de(desde, hasta):
         raise ValueError("Las escenas han cambiado; vuelve a abrir su transición")
     if not isinstance(datos.get("tipo"), str) or datos["tipo"] not in CATALOGO:
         raise ValueError("Elige una transición conocida o Sin transición")
-    return {k: datos[k] for k in ("tipo", "ancla")}
+    limpio = {k: datos[k] for k in ("tipo", "ancla")}
+    if 'inicio' in datos or 'fin' in datos:
+        inicio, fin = datos.get('inicio'), datos.get('fin')
+        duracion = float(desde.get('duracion') or (float(desde['t_out']) - float(desde['t_in'])))
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in (inicio, fin)):
+            raise ValueError('el inicio y el final de la transición deben ser números finitos')
+        if not 0 <= inicio < fin <= duracion + 1e-6 or fin - inicio < min(.1, duracion) - 1e-6:
+            raise ValueError('la transición debe quedar dentro de la escena y durar al menos 0,1 s')
+        limpio.update(inicio=float(inicio), fin=min(float(fin), duracion))
+    return limpio
 
 
 def duracion_de(tipo, escena, params=None):
@@ -346,6 +356,9 @@ def resolver(escenas, params=None, semilla=0):
             "duracion": duracion_de(tipo, hasta, p),
             "ranura": "corte" if tipo == "corte" else
                       "acento" if CATALOGO[tipo]["fuerza"] >= 3 else "suave"}
+        if tipo != 'corte' and 'inicio' in edicion and 'fin' in edicion:
+            salida[hasta['id']].update(inicio=edicion['inicio'], fin=edicion['fin'],
+                                       duracion=edicion['fin'] - edicion['inicio'])
     return salida
 
 
@@ -355,7 +368,7 @@ def cuece_el_anterior(ficha):
     De aqui sale la cascada del re-render: rehacer un plano obliga a rehacer el
     siguiente SOLO si el siguiente mira hacia atras. El corte no mira.
     """
-    return bool(ficha) and ficha.get("tipo") != "corte"
+    return bool(ficha) and ficha.get("tipo") != "corte" and 'inicio' not in ficha
 
 
 def progresos(fotogramas):

@@ -503,6 +503,15 @@ escena actual y el primero de la siguiente, con sus imágenes o clips reales.
 **Probar transición entre escenas** permite repetirla. Con **Añadir bloque**
 puedes incorporar además varias entradas desde negro y salidas a negro, con el
 mismo catálogo de efectos, sincronizadas en la pista **Transición**.
+La transición hacia la siguiente escena también aparece en esa pista: es el
+bloque con la flecha **→**. Púlsalo para cambiar el efecto, ajustar sus segundos o
+eliminarlo. Arrastra el bloque para desplazarlo y sus extremos para cambiar la
+duración; también puedes escribir inicio, final y duración en el panel. Al
+recorrerlo con el cursor o reproducir la narración, el visualizador muestra el
+progreso real del efecto. Al terminar, conserva el primer cuadro de la siguiente
+escena hasta llegar al corte. Guardar aplica ese mismo intervalo al montaje.
+Elegir **Sin transición** retira ese bloque; las entradas y salidas
+a negro mantienen sus intervalos independientes.
 Pulsa **Guardar** para aplicar la selección; cerrar descarta el borrador.
 La última escena no tiene transición de salida. La selección se conserva al
 reabrir y se aplica al volver a montar, sin regenerar guion, voz ni imágenes.

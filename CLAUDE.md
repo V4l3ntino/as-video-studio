@@ -548,6 +548,17 @@ GET del editor y los borradores WebGL son de lectura; solo PUT guarda, conserva
 otros params de esa unidad y no cambia assets/callouts. La última escena no
 tiene salida. Prueba offline: `python pasos/prueba_transiciones_escena.py`.
 
+El editor admite `inicio`/`fin` en esa edición: el bloque pasa a ser un enlace
+temporizado dentro de la escena que sale. La API copia la edición a
+`salida_transicion` de esa unidad para invalidar también su clip. `resolver`
+conserva el intervalo y `cuece_el_anterior` impide cocerlo de nuevo en la entrada.
+P8 compone la salida contra el primer cuadro de la siguiente escena, sin esperar
+a su lote, y conserva ese cuadro después del final elegido. Rehacer la siguiente
+arrastra la salida anterior si usa ese cuadro. Las ediciones sin intervalo
+conservan su montaje histórico. La previa carga el pintor al abrir el editor y
+su progreso depende del reloj común, también al buscar y arrastrar. Regresión
+de persistencia y píxeles: `python pasos/prueba_editor_escena.py --real`.
+
 **Editor unificado de escena**: `abrirEditorEscena` reúne las cuatro pestañas y
 el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones
 antes de guardar y solo escriben pestañas modificadas. `animacion.bloques` conserva
