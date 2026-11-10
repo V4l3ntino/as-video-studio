@@ -76,9 +76,8 @@ def ancla_de(escena):
 
 
 def admite_escena(escena):
-    medio = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
     return (0 < float(escena.get("t_out") or 0) - float(escena.get("t_in") or 0) <= 60
-            and bool(ancla_de(escena)) and not escena.get("cartela") and medio.get("tipo") != "video")
+            and bool(ancla_de(escena)))
 
 
 def ediciones_de(params):
@@ -192,9 +191,7 @@ def estado_previa(proyecto, params, plan, audio):
 
 
 def seleccionar(proyecto, escenas, avisar, permitir_vacio=False):
-    candidatas = [e for e in escenas if 0 < float(e["t_out"]) - float(e["t_in"]) <= 60
-                  and str(e.get("narracion") or e.get("texto") or "").strip()
-                  and not e.get("medio_usuario") and not e.get("cartela")]
+    candidatas = [e for e in escenas if admite_escena(e)]
     if not candidatas:
         if permitir_vacio:
             return set()
@@ -305,6 +302,51 @@ def preparar(proyecto, params, plan, audio, avisar, solo_escenas=None):
         datos_previa["clips"][escena["id"]] = os.path.relpath(destino, proyecto.raiz).replace(os.sep, "/")
         medios.escribir_json(indice_previa, datos_previa)
     return clips
+
+
+def fotogramas(clip, carpeta, total, fps, salida):
+    """El avatar conserva el reloj completo de voz, independiente del fondo de escena."""
+    os.makedirs(carpeta, exist_ok=True)
+    lado = max(2, int(min(salida) * .42) // 2 * 2)
+    filtro = (f'fps={fps},scale={lado}:{lado}:force_original_aspect_ratio=decrease,'
+              f'pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2,setsar=1,'
+              f'tpad=stop_mode=clone:stop_duration={total / float(fps)}')
+    proceso = subprocess.run([medios.ffmpeg(), '-nostdin', '-y', '-v', 'error', '-i', clip,
+        '-an', '-vf', filtro, '-frames:v', str(total), os.path.join(carpeta, 'a%05d.png')],
+        capture_output=True, timeout=180, **medios.SIN_VENTANA)
+    rutas = [os.path.join(carpeta, f'a{i + 1:05d}.png') for i in range(total)]
+    if proceso.returncode or not all(os.path.isfile(r) for r in rutas):
+        raise RuntimeError('no se han podido decodificar los fotogramas del avatar: '
+                           + proceso.stderr.decode('utf-8', errors='replace')[-400:])
+    return rutas
+
+
+def superponer_png(png, fotograma, posicion, presentacion, tiempo):
+    """Compone por encima de imagen, vídeo y cartelas, al mismo reloj del render."""
+    bloques = presentacion.get('bloques', [presentacion])
+    bloque = next((b for b in reversed(bloques) if b['inicio'] <= tiempo < b['fin']), None)
+    if bloque is None:
+        return png
+    inicio, fin, entrada = bloque['inicio'], bloque['fin'], bloque['entrada']
+    d, salida = min(.35, (fin - inicio) / 2), min(.18, (fin - inicio) / 2)
+    u = max(0., min(1., (tiempo - inicio) / d))
+    q = u * u * (3 - 2 * u)
+    opacidad = 1. if entrada == 'sin-animacion' else min(u, max(0., min(1., (fin - tiempo) / salida)))
+    with Image.open(io.BytesIO(png)) as original, Image.open(fotograma) as figura:
+        fondo = original.convert('RGBA')
+        figura = figura.convert('RGBA')
+        x, y = posicion['x'] * fondo.width, posicion['y'] * fondo.height
+        if entrada == 'desde-izquierda':
+            x -= (1 - q) * figura.width
+        elif entrada == 'desde-derecha':
+            x += (1 - q) * figura.width
+        elif entrada == 'desde-abajo':
+            y += (1 - q) * figura.height
+        figura.putalpha(figura.getchannel('A').point(lambda a: round(a * opacidad)))
+        fondo.alpha_composite(figura, (round(x), round(y)))
+        salida_png = io.BytesIO()
+        fondo.convert('RGB').save(salida_png, format='PNG', compress_level=1)
+        return salida_png.getvalue()
 
 
 def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, presentacion=None):

@@ -5409,7 +5409,7 @@ def incorporar_avatar_escena(pid: str, sid: str):
         if escena is None:
             raise ErrorApi(404, "esa escena no está en el plan del vídeo")
         if not avatar.admite_escena(escena):
-            raise ErrorApi(400, "el avatar requiere una escena narrada de hasta 60 segundos, sin cartela ni clip de vídeo")
+            raise ErrorApi(400, "el avatar requiere una escena narrada de hasta 60 segundos")
         opciones = avatar.normalizar(params.get("avatar") or {})
         if not opciones["activo"]:
             raise ErrorApi(400, "activa Incorporar avatar IA y elige su retrato en el encargo del vídeo")
@@ -5466,7 +5466,7 @@ def _escena_editor_avatar(ctx, sid):
 def _exigir_avatar_editor(ctx, params, escena, audio):
     from pasos import avatar, imagenes_animacion
     if not avatar.admite_escena(escena):
-        raise ErrorApi(400, "el avatar requiere una escena narrada de hasta 60 segundos, sin cartela ni clip de vídeo")
+        raise ErrorApi(400, "el avatar requiere una escena narrada de hasta 60 segundos")
     opciones = avatar.normalizar(params.get("avatar") or {})
     if not opciones["activo"]:
         raise ErrorApi(400, "activa Incorporar avatar IA y elige su retrato en el encargo del vídeo")
@@ -5717,7 +5717,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         efecto_parallax = None
         clip_parallax = None
         avatar_escena = (previa_avatar or {}).get("clips", {}).get(sid)
-        if sid in seleccion_parallax and sid not in ((previa_avatar or {}).get("seleccion") or []):
+        if sid in seleccion_parallax:
             pedido = clips_parallax.preparar(ctx.proyecto, escena, imagen,
                 seleccion_parallax[sid], render.get("fps") or 30)
             clip_parallax = clips_parallax.disponible(ctx.proyecto, pedido)
@@ -5739,8 +5739,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             "cartela": (escena.get("cartela") or {}).get("plantilla") or "",
             "imagen": _ruta_publica_proyecto(ctx, imagen),
             "imagen_tarjeta": imagen_tarjeta,
-            "clip": None if sid in ((previa_avatar or {}).get("seleccion") or []) else (
-                    _ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
+            "clip": (_ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
                     if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, clip_parallax)),
             "parallax": efecto_parallax,
             "avatar": {"clip": avatar_escena, "estado": "listo" if avatar_escena else "pendiente",

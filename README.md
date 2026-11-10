@@ -261,8 +261,10 @@ Introduce la clave en **Configuración → Boson AI**. Al abrir **Imágenes**, e
 automáticamente las explicaciones centrales del relato (aproximadamente una
 aparición por cada ocho escenas, hasta ocho) y envía a **Higgs Avatar** la misma
 imagen y el fragmento real de narración de cada escena. Requiere **Incorporar voz**.
-Las escenas de más de 60 segundos, las cartelas y las sustituciones manuales
-se conservan sin avatar. El presentador aparece en un recuadro superior derecho
+El avatar se puede incorporar sobre imágenes, cartelas y clips de vídeo,
+incluidas las sustituciones manuales y los recursos de bibliotecas. El único
+límite de duración del avatar es de 60 segundos por escena; necesita su narración.
+El presentador aparece en un recuadro superior derecho
 sobre la ilustración, conservando la narración y los subtítulos.
 
 En el **previsualizador de Imágenes** se preparan los clips y aparece el mismo
@@ -276,8 +278,9 @@ la preparación se solicita como un trabajo aparte desde la pantalla.
 En **Editar escena → Incorporar avatar** puedes añadir apariciones del avatar,
 aunque la escena no esté entre las elegidas automáticamente. **Eliminar bloque**
 quita la aparición seleccionada; eliminar todas quita el avatar de esa escena.
-Requiere tener configurado el retrato y la voz en el encargo. La pestaña explica
-el motivo cuando una cartela, una escena de más de 60 segundos o un clip no lo admite.
+Requiere tener configurado el retrato y la voz en el encargo. Las cartelas y los
+clips no bloquean el avatar: conservan sus animaciones y movimiento mientras el
+presentador se superpone con sus propios intervalos y posición.
 
 A la izquierda elige su entrada: **Sin animación**, **Fundido suave**, **Desde la
 izquierda**, **Desde la derecha** o **Desde abajo**. Arrastra el avatar sobre la

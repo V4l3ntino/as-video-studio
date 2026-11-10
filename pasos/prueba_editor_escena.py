@@ -7,6 +7,7 @@ import sys
 import tempfile
 import shutil
 import subprocess
+import wave
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
@@ -30,6 +31,92 @@ import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    def test_editor_admite_avatar_con_cartela_y_clip_sin_ocultar_el_fondo(self):
+        from PIL import Image
+        from nucleo.proyecto import leer_json
+        from pasos import imagenes_animacion
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto, estado = juguete.construir(tmp, animaciones=[], etiquetas={})
+            imagen = io.BytesIO()
+            Image.new('RGB', (40, 40), 'red').save(imagen, format='PNG')
+            retrato = imagenes_animacion.guardar(proyecto, imagen.getvalue(), 'avatar.png')
+            estado.actualizar_params('render', {'avatar': dict(activo=True, metodo='subir', imagen=retrato)})
+            audio = proyecto.ruta('voz.wav')
+            with wave.open(audio, 'wb') as fh:
+                fh.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+                fh.writeframes(b'\0\0' * 24000 * 30)
+            plan = leer_json(proyecto.ruta('pasos', 'assets', 'v1', 'plan.json'))
+            escena = plan['escenas'][0]
+            escena['cartela'] = dict(plantilla='pregunta', datos=cartelas.PLANTILLAS['pregunta']['ejemplo'])
+            clip = proyecto.ruta('clip.mp4')
+            Path(clip).write_bytes(b'clip preparado')
+            escena['medio_usuario'] = dict(tipo='video', archivo=clip)
+            ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=MagicMock())
+            ctx.gestor.listar.return_value = []
+            with patch.object(servidor, 'contexto', return_value=ctx), patch.object(servidor, '_audio_de_la_toma', return_value=audio), \
+                    patch.object(servidor, '_plan_de_previsualizacion', return_value=plan):
+                ficha = servidor.leer_editor_avatar(proyecto.id, escena['id'])
+                self.assertTrue(ficha['disponible'], ficha['motivo'])
+                datos = dict(ancla=ficha['ancla'], activo=True,
+                    posicion={k: ficha['actual']['posicion'][k] for k in ('x', 'y')}, presentacion=ficha['actual']['presentacion'])
+                previa = servidor.guardar_editor_escena(proyecto.id, escena['id'], {'avatar': datos})
+                visible = previa['escenas'][0]
+                self.assertTrue(visible['admite_avatar'])
+                self.assertIsNotNone(visible['avatar'])
+                self.assertTrue(visible['clip'].endswith('clip.mp4'))
+
+    @unittest.skipUnless(REAL, 'usa --real para verificar vídeo, cartela y avatar simultáneos')
+    def test_avatar_sobre_cartela_conserva_video_y_reloj_en_ambos_caminos(self):
+        from PIL import Image
+        from playwright.sync_api import sync_playwright
+        from pasos import p8_render
+        with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True, args=['--allow-file-access-from-files'])
+            try:
+                page = browser.new_page(viewport={'width': 160, 'height': 90})
+                def abrir(ruta):
+                    page.goto(Path(ruta).as_uri())
+                    page.evaluate('Promise.all([document.fonts.ready, ...Array.from(document.images, img => img.decode())])')
+                navegador = SimpleNamespace(abrir=abrir,
+                    evaluar=lambda exp, esperar=False: page.evaluate(exp),
+                    pintar=lambda t: page.evaluate(f'pintar({t})'),
+                    capturar=lambda ruta=None: page.screenshot(path=ruta))
+                clips = []
+                for nombre, colores, tamano in [('fondo', ['blue', 'yellow'], '160x90'), ('avatar', ['red', 'lime'], '40x40')]:
+                    clip = os.path.join(tmp, nombre + '.mp4')
+                    subprocess.run(['ffmpeg', '-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                        f'color={colores[0]}:s={tamano}:r=10:d=1', '-f', 'lavfi', '-i', f'color={colores[1]}:s={tamano}:r=10:d=1',
+                        '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[v]', '-map', '[v]', '-pix_fmt', 'yuv420p', clip], check=True)
+                    clips.append(clip)
+                imagen = os.path.join(tmp, 'poster.png')
+                Image.new('RGB', (160, 90), 'blue').save(imagen)
+                for conservar in (True, False):
+                    with self.subTest(conservar_frames=conservar):
+                        tarea = dict(id='S001', escena=dict(id='S001', t_in=0, t_out=2),
+                            mov=dict(ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=[160, 90]),
+                            hyper=imagen, capa='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90"><rect width="60" height="60" fill="#808080"/></svg>',
+                            frames=20, fps=10, video=clips[0], resolucion=[160, 90], calidad='alta', codec='libx264',
+                            carpeta=os.path.join(tmp, 'frames'), clip=os.path.join(tmp, 'montado.mp4'), ultimo=os.path.join(tmp, 'ultimo.png'),
+                            corte=dict(tipo='corte'), conservar_frames=conservar,
+                            avatar=dict(clip=clips[1], posicion=dict(x=.1, y=.1),
+                                        presentacion=dict(entrada='sin-animacion', inicio=0, fin=2)))
+                        p8_render.renderizar_plano(tarea, navegador)
+                        for tiempo in (.5, 1.5):
+                            resultado = subprocess.run(['ffmpeg', '-v', 'error', '-ss', str(tiempo), '-i', tarea['clip'],
+                                '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], capture_output=True, check=True)
+                            with Image.open(io.BytesIO(resultado.stdout)) as img:
+                                img = img.convert('RGB')
+                                figura, fondo, cartela = img.getpixel((30, 25)), img.getpixel((140, 75)), img.getpixel((5, 5))
+                                if tiempo < 1:
+                                    self.assertGreater(figura[0], figura[1] + 100)
+                                    self.assertGreater(fondo[2], fondo[0] + 100)
+                                else:
+                                    self.assertGreater(figura[1], figura[0] + 100)
+                                    self.assertGreater(fondo[0], fondo[2] + 100)
+                                self.assertTrue(all(abs(c - 128) < 15 for c in cartela), cartela)
+            finally:
+                browser.close()
+
     @unittest.skipUnless(REAL, 'usa --real para verificar la transición por fotogramas')
     def test_enlace_renderizado_sigue_el_intervalo_y_conserva_el_destino(self):
         from PIL import Image

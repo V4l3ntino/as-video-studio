@@ -24,6 +24,35 @@ from motores import avatar_boson
 
 
 class Avatar(unittest.TestCase):
+    def test_render_conserva_clip_y_cartela_al_incorporar_avatar(self):
+        from nucleo.proyecto import escribir_json
+        from pasos import p8_render
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto = Proyecto.crear(tmp, 'Avatar y vídeo')
+            fondo, clip, figura = (proyecto.ruta(n) for n in ('poster.png', 'fondo.mp4', 'avatar.mp4'))
+            Image.new('RGB', (160, 90), 'blue').save(fondo)
+            escena = dict(id='S001', narracion='Una escena narrada.', t_in=0, t_out=2, duracion=2,
+                          cartela=dict(plantilla='pregunta'), medio_usuario=dict(tipo='video', archivo=clip))
+            plan, movimiento = proyecto.ruta('plan.json'), proyecto.ruta('movimiento.json')
+            capa = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="60" height="30" fill="white"/></svg>'
+            Path(proyecto.ruta('capa.svg')).write_text(capa, encoding='utf-8')
+            escribir_json(plan, dict(escenas=[escena], resolucion=[160, 90]))
+            escribir_json(movimiento, dict(movimientos=[dict(id='S001', hyperframe=fondo, capa='capa.svg',
+                hyperframe_px=[160, 90], ventana_ini=[0, 0, 1, 1], ventana_fin=[.1, .1, .8, .8])]))
+            tareas = []
+            def lotes(lista):
+                tareas.extend(lista)
+                return [dict(id=t['id'], frames=t['frames'], duracion=t['frames'] / t['fps']) for t in lista]
+            with patch.object(avatar, 'preparar', return_value={'S001': figura}), \
+                    patch.object(avatar, 'componer', side_effect=AssertionError('no sustituir el fondo por un compuesto fijo')), \
+                    patch.object(p8_render, 'correr_lote', side_effect=lotes), patch.object(p8_render, '_concatenar'), \
+                    patch.object(p8_render, '_elegir_codec', return_value='libx264'):
+                p8_render.ejecutar(proyecto, dict(plan=plan, movimiento=movimiento, sonido=False, lotes=1, fps=10))
+            self.assertEqual(tareas[0]['video'], clip)
+            self.assertEqual(tareas[0]['avatar']['clip'], figura)
+            self.assertEqual(tareas[0]['capa'], capa)
+            self.assertEqual(tareas[0]['mov']['ventana_fin'], [.1, .1, .8, .8])
+
     def test_presentacion_valida_intervalos_y_no_reutiliza_ajustes_de_otro_texto(self):
         escena = {"id": "S1", "narracion": "La tesis.", "t_in": 10, "t_out": 12}
         p = {"unidades": {"escena:S1": {"avatar": {"ancla": avatar.ancla_de(escena),
@@ -84,8 +113,11 @@ class Avatar(unittest.TestCase):
         otras[1]["narracion"] = "Otra explicación diferente."
         self.assertEqual(avatar.aplicar_ediciones({"S1"}, otras, params), {"S1"})
         self.assertFalse(avatar.admite_escena(dict(escenas[1], t_out=70)))
-        self.assertFalse(avatar.admite_escena(dict(escenas[1], medio_usuario={"tipo": "video"})))
-        self.assertFalse(avatar.admite_escena(dict(escenas[1], cartela={"plantilla": "cifra"})))
+        self.assertTrue(avatar.admite_escena(dict(escenas[1], medio_usuario={"tipo": "video"})))
+        self.assertTrue(avatar.admite_escena(dict(escenas[1], medio_biblioteca={"tipo": "video"})))
+        self.assertTrue(avatar.admite_escena(dict(escenas[1], cartela={"plantilla": "cifra"})))
+        self.assertFalse(avatar.admite_escena(dict(escenas[1], narracion='')))
+        self.assertTrue(avatar.admite_escena(dict(escenas[1], t_in=0, t_out=60)))
 
     def test_retrato_antes_del_montaje_con_referencia_y_formato_cuatro_tres(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"ESTUDIO_SIMULAR": "0"}):
@@ -220,13 +252,17 @@ class Avatar(unittest.TestCase):
             proyecto = Proyecto.crear(tmp, "Seleccion")
             escenas = [{"id": "central", "narracion": "Esto explica la causa.", "t_in": 0, "t_out": 5},
                        {"id": "larga", "narracion": "Más de un minuto.", "t_in": 5, "t_out": 66},
-                       {"id": "manual", "narracion": "Propia.", "t_in": 66, "t_out": 70, "medio_usuario": {"tipo": "video"}}]
+                       {"id": "manual", "narracion": "Propia.", "t_in": 66, "t_out": 70, "medio_usuario": {"tipo": "video"}},
+                       {"id": "cartela", "narracion": "Una cifra.", "t_in": 70, "t_out": 74, "cartela": {"plantilla": "cifra"}},
+                       {"id": "biblioteca", "narracion": "Un recurso.", "t_in": 74, "t_out": 78, "medio_biblioteca": {"tipo": "video"}}]
             with patch.object(avatar.cli_claude, "escribiendo", return_value={"escenas": [{"id": "central", "motivo": "Tesis"}]}) as modelo:
                 self.assertEqual(avatar.seleccionar(proyecto, escenas, lambda *_a: None), {"central"})
                 avatar.seleccionar(proyecto, escenas, lambda *_a: None)
                 modelo.assert_called_once()
                 self.assertNotIn('"id": "larga"', modelo.call_args.args[0])
-                self.assertNotIn('"id": "manual"', modelo.call_args.args[0])
+                self.assertIn('"id": "manual"', modelo.call_args.args[0])
+                self.assertIn('"id": "cartela"', modelo.call_args.args[0])
+                self.assertIn('"id": "biblioteca"', modelo.call_args.args[0])
 
 
 if __name__ == "__main__":

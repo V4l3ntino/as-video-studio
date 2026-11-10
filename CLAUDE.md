@@ -579,6 +579,17 @@ montaje; la transición hacia la siguiente sigue en su unidad de entrada con su
 contrato anterior. P8 captura los frames de escenas con efectos temporales antes
 de componerlos. Pruebas aisladas: `python pasos/prueba_editor_escena.py`.
 
+**Avatar sobre cartelas o vídeos**: `avatar.admite_escena` y la selección editorial
+solo exigen texto narrado y un intervalo de hasta 60 s; el medio no lo excluye.
+La previa debe publicar a la vez el clip de fondo y el avatar, con este último
+por encima de las cartelas. P8 mantiene el vídeo/parallax y sus movimientos:
+decodifica el avatar aparte y lo superpone al PNG ya capturado, antes de las
+transiciones, tanto en el camino de flujo como al conservar frames. No uses
+`avatar.componer` para sustituir el fondo en p8: congela los clips y deja el
+avatar debajo del velo de la cartela. El lip-sync pagado se conserva, con su reloj
+absoluto y caché existentes. Regresión con vídeo de fondo y avatar que cambian de
+color a la vez, y cartela opaca: `python pasos/prueba_editor_escena.py --real`.
+
 **Probar sin pagar**: `pasos/_proyecto_animaciones.py` fabrica un proyecto de
 juguete con guion etiquetado, plan e imágenes (lo usa `prueba_animaciones`); para
 verlo en la interfaz, arranca un servidor aparte con `--proyectos <carpeta>` y las

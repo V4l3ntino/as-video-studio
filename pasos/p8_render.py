@@ -50,7 +50,7 @@ import websocket
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import animaciones  # noqa: E402
-from pasos import editor_escena  # noqa: E402
+from pasos import avatar, editor_escena  # noqa: E402
 from PIL import Image  # noqa: E402
 import cartelas  # noqa: E402
 import estadisticas  # noqa: E402
@@ -1188,7 +1188,7 @@ def _renderizar_flujo(tarea, navegador):
 
     def capturar(numero):
         navegador.pintar(numero / float(fps))
-        png = navegador.capturar()
+        png = _capturar_con_avatar(tarea, navegador, numero)
         if numero == total - 1:
             parcial = tarea["ultimo"] + ".parcial"
             with open(parcial, "wb") as fh:
@@ -1225,7 +1225,21 @@ def _renderizar_flujo(tarea, navegador):
     return pintados
 
 
-def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulos):
+def _capturar_con_avatar(tarea, navegador, numero, destino=None):
+    fotogramas = tarea.get('fotogramas_avatar') or []
+    if not fotogramas:
+        return navegador.capturar(destino) if destino else navegador.capturar()
+    ficha = tarea['avatar']
+    png = avatar.superponer_png(navegador.capturar(), fotogramas[min(numero, len(fotogramas) - 1)],
+                               ficha['posicion'], ficha['presentacion'], numero / float(tarea['fps']))
+    if destino:
+        with open(destino, 'wb') as fh:
+            fh.write(png)
+    return png
+
+
+def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulos,
+                       clips_avatar=None, params=None, salida=(1920, 1080)):
     """Fuente del primer cuadro siguiente, sin esperar a otro lote ni generar recursos."""
     sid = escena['id']
     mov = movimientos[sid]
@@ -1246,7 +1260,9 @@ def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulo
     return dict(escena=escena, mov=mov, hyper=hyper, capa=leer_svg('capa'),
                 capa_fija=leer_svg('capa_fija') if subtitulos and not animaciones.es_cartela_editor(animada.get('animacion')) else '',
                 capa_anim=animada.get('svg', ''), fondo_anim=animada.get('fondo'), precarga=animada.get('imagenes') or [],
-                video=proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else None)
+                video=proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else None,
+                avatar=dict(clip=clips_avatar[sid], posicion=avatar.posicion_de(params, escena, salida),
+                            presentacion=avatar.presentacion_de(params, escena)) if (clips_avatar or {}).get(sid) else None)
 
 
 def _componer_enlace_salida(tarea, navegador):
@@ -1265,7 +1281,11 @@ def _componer_enlace_salida(tarea, navegador):
     destino = os.path.join(carpeta, 'primero.png')
     navegador.abrir(pagina)
     navegador.pintar(0)
-    navegador.capturar(destino)
+    captura = dict(fps=fps, avatar=fuente.get('avatar'))
+    if fuente.get('avatar'):
+        captura['fotogramas_avatar'] = avatar.fotogramas(fuente['avatar']['clip'],
+            os.path.join(carpeta, 'avatar'), 1, fps, tarea['resolucion'])
+    _capturar_con_avatar(captura, navegador, 0, destino)
     navegador.abrir(tarea['pagina_trans'])
     cuantos = 0
     for numero in range(int(tarea['frames'])):
@@ -1306,6 +1326,9 @@ def renderizar_plano(tarea, navegador=None):
               flush=True)
     fotogramas = (_fotogramas_de_clip(tarea["video"], carpeta, tarea["mov"], total, fps)
                   if tarea.get("video") else [])
+    if tarea.get('avatar'):
+        tarea['fotogramas_avatar'] = avatar.fotogramas(tarea['avatar']['clip'],
+            os.path.join(carpeta, 'avatar'), total, fps, tarea['resolucion'])
     pagina = _pagina_de(tarea["escena"], tarea["mov"], tarea["capa"],
                         tarea["hyper"], {"resolucion": tarea["resolucion"]},
                         os.path.join(carpeta, "escena.html"),
@@ -1319,7 +1342,7 @@ def renderizar_plano(tarea, navegador=None):
     if tarea.get("conservar_frames") or tarea.get('transiciones_escena') or tarea.get('enlace_salida'):
         for numero in range(total):
             navegador.pintar(numero / float(fps))
-            navegador.capturar(os.path.join(carpeta, f"f{numero + 1:05d}.png"))
+            _capturar_con_avatar(tarea, navegador, numero, os.path.join(carpeta, f"f{numero + 1:05d}.png"))
         _guardar_ultimo(os.path.join(carpeta, f"f{total:05d}.png"), tarea["ultimo"])
         pintados = _transicion_del_plano(tarea, navegador)
         if tarea.get('transiciones_escena'):
@@ -1732,7 +1755,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
 
         video = ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
                  if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None)
-        if sid in seleccion_parallax and sid not in clips_avatar:
+        if sid in seleccion_parallax:
             from pasos import clips_parallax
             mensaje = f"{sid}: creando efecto parallax con DepthFlow"
             avisar(0.02, mensaje)
@@ -1741,13 +1764,6 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             pedido = clips_parallax.preparar(proyecto, escena,
                 original if os.path.isfile(original) else hyper, seleccion_parallax[sid], fps)
             video = clips_parallax.generar(proyecto, pedido, latido=lambda: avisar(0.02, mensaje))
-
-        if sid in clips_avatar:
-            posicion_avatar = avatar.posicion_de(p, escena, (ancho, alto))
-            video = avatar.componer(proyecto, clips_avatar[sid], hyper,
-                                    lambda: avisar(.06, sid + ": incorporando el avatar"), (ancho, alto),
-                                    {k: posicion_avatar[k] for k in ("x", "y")}, avatar.presentacion_de(p, escena))
-            mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1])
 
         tareas.append({
             "id": sid, "escena": {"id": sid, "t_in": escena["t_in"],
@@ -1762,6 +1778,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             "precarga": (animadas.get(sid) or {}).get("imagenes") or [],
             "hyper": hyper, "frames": total, "fps": fps,
             "video": video,
+            "avatar": dict(clip=clips_avatar[sid], posicion=avatar.posicion_de(p, escena, (ancho, alto)),
+                           presentacion=avatar.presentacion_de(p, escena)) if sid in clips_avatar else None,
             "resolucion": [ancho, alto], "calidad": p["calidad_video"],
             "carpeta": os.path.join(dir_frames, sid), "clip": clip,
             "ultimo": os.path.join(dir_ultimo, f"{sid}.png"),
@@ -1787,7 +1805,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             corte = cortes.get(siguiente['id']) or {}
             if 'inicio' in corte and corte.get('tipo') != 'corte':
                 tarea['enlace_salida'] = dict(tipo=corte['tipo'], inicio=corte['inicio'], fin=corte['fin'],
-                    destino=_fuente_para_enlace(siguiente, movimientos, base_callouts, animadas, proyecto, p['subtitulos']))
+                    destino=_fuente_para_enlace(siguiente, movimientos, base_callouts, animadas, proyecto, p['subtitulos'],
+                                               clips_avatar, p, (ancho, alto)))
 
     # QUIEN TIENE QUE ESPERAR A QUIEN. La transicion de un plano se cuece sobre
     # el ULTIMO FOTOGRAMA del anterior, asi que si ese plano tambien se

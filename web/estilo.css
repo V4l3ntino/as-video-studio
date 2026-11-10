@@ -2569,6 +2569,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .previa-marco.con-avatar > img { object-fit: cover; }
 .previa-marco .previa-avatar { position: absolute; left: var(--avatar-x, 73.375%); top: var(--avatar-y, 4%); right: auto; bottom: auto; width: 23.625%; height: auto; aspect-ratio: 1; object-fit: contain; background: #000; display: block; user-select: none; }
 .previa-marco.vertical .previa-avatar { width: 42%; left: var(--avatar-x, 55%); }
+.previa-marco .previa-avatar { z-index: 3; }
 .previa-marco .previa-avatar.avatar-arrastrando { cursor: grabbing; outline: 2px solid var(--acento, #8294ff); }
 .avatar-editor-tiempos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .previa-marco .sustituir-medio {
