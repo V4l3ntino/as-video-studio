@@ -41,7 +41,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes` | Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/previsualizar` | Dibuja el borrador de una animación sin guardar cambios en el proyecto. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/avatar` | Incorpora y prepara el avatar hablando en la escena elegida, también para el MP4. |
-| `GET` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor` | Editor de posición, entrada e intervalo del avatar; lectura sin generación. |
+| `GET` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor` | Editor de posición, entrada, salida e intervalo del avatar; lectura sin generación. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor` | Guarda conjuntamente posición, entrada e intervalo; conserva el clip de lip-sync. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor/preparar` | Genera el clip para el borrador del popup sin guardar sus ajustes en el grafo. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/avatar/posicion` | Guarda la posición del avatar en el cuadro, sin regenerar el clip de Boson. |

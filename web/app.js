@@ -9669,16 +9669,22 @@ function pintarPresentacionAvatar(nodo, presentacion, tiempo) {
     presentacion = bloque;
   }
   const { entrada, inicio, fin } = presentacion;
+  const efectoSalida = presentacion.salida ?? (entrada === 'sin-animacion' ? 'sin-animacion' : 'fundido');
   const visible = tiempo >= inicio && tiempo < fin;
   const d = Math.min(.35, (fin - inicio) / 2), salida = Math.min(.18, (fin - inicio) / 2);
   const u = Math.max(0, Math.min(1, (tiempo - inicio) / d));
   const q = u * u * (3 - 2 * u);
+  const v = Math.max(0, Math.min(1, (fin - tiempo) / salida));
+  const r = 1 - v * v * (3 - 2 * v);
   let dx = 0, dy = 0;
   if (entrada === 'desde-izquierda') dx = -(1 - q) * 100;
   if (entrada === 'desde-derecha') dx = (1 - q) * 100;
   if (entrada === 'desde-abajo') dy = (1 - q) * 100;
+  if (efectoSalida === 'hacia-izquierda') dx -= r * 100;
+  if (efectoSalida === 'hacia-derecha') dx += r * 100;
+  if (efectoSalida === 'hacia-abajo') dy += r * 100;
   nodo.style.visibility = visible ? 'visible' : 'hidden';
-  nodo.style.opacity = String(entrada === 'sin-animacion' ? 1 : Math.min(u, Math.max(0, Math.min(1, (fin - tiempo) / salida))));
+  nodo.style.opacity = String(Math.min(entrada === 'sin-animacion' ? 1 : u, efectoSalida === 'sin-animacion' ? 1 : v));
   nodo.style.transform = `translate(${dx}%, ${dy}%)`;
 }
 
@@ -10369,7 +10375,7 @@ async function abrirEditorEscena(escena, estudio) {
     if (pestaña === 'animacion') {
       const op = ficha.animacion.opciones.find(o => o.id !== 'sin-animacion');
       b = { id: op.id, ancla: ficha.animacion.ancla, contenido: structuredClone(op.contenido), inicio, duracion: fin - inicio, posiciones: {} };
-    } else if (pestaña === 'avatar') b = { entrada: 'fundido', inicio, fin };
+    } else if (pestaña === 'avatar') b = { entrada: 'fundido', salida: 'fundido', inicio, fin };
     else b = { tipo: 'fundido', sentido: inicio < total / 2 ? 'entrada' : 'salida', inicio, fin: Math.min(total, inicio + .5) };
     listaActual().push(b); seleccionado = listaActual().length - 1; pintarPanel(); cambio();
   }
@@ -10446,8 +10452,17 @@ async function abrirEditorEscena(escena, estudio) {
     } else if (pestaña === 'sonidos') panel.appendChild(campo('Sonido', h('select', {
       onchange: ev => { editar(b, 'id', ev.target.value, false); pintarPanel(); } },
       ...ficha.sonidos.fuentes.map(f => h('option', { value: f.id, selected: f.id === b.id }, f.nombre)))));
-    else if (pestaña === 'avatar') panel.appendChild(campo('Animación de entrada', h('select', {
-      onchange: ev => editar(b, 'entrada', ev.target.value, false) }, ...ficha.avatar.opciones.map(o => h('option', { value: o.id, selected: o.id === b.entrada }, o.nombre)))));
+    else if (pestaña === 'avatar') {
+      const salida = b.salida ?? (b.entrada === 'sin-animacion' ? 'sin-animacion' : 'fundido');
+      panel.append(campo('Animación de entrada', h('select', {
+        onchange: ev => {
+          if (ocupado()) return;
+          recordar(); b.salida ??= salida; b.entrada = ev.target.value; cambio(false);
+        } }, ...ficha.avatar.opciones.map(o => h('option', { value: o.id, selected: o.id === b.entrada }, o.nombre)))),
+        campo('Animación de salida', h('select', {
+          onchange: ev => editar(b, 'salida', ev.target.value, false) },
+          ...ficha.avatar.salidas.map(o => h('option', { value: o.id, selected: o.id === salida }, o.nombre)))));
+    }
     else if (!b.enlace) {
       const catalogo = ficha.enlace || ficha.catalogo;
       panel.append(campo('Efecto', h('select', { onchange: ev => editar(b, 'tipo', ev.target.value, false) },

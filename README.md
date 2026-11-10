@@ -310,7 +310,9 @@ clips no bloquean el avatar: conservan sus animaciones y movimiento mientras el
 presentador se superpone con sus propios intervalos y posición.
 
 A la izquierda elige su entrada: **Sin animación**, **Fundido suave**, **Desde la
-izquierda**, **Desde la derecha** o **Desde abajo**. Arrastra el avatar sobre la
+izquierda**, **Desde la derecha** o **Desde abajo**. El selector **Animación de
+salida** permite elegir independientemente **Sin animación**, **Fundido suave**,
+**Hacia la izquierda**, **Hacia la derecha** o **Hacia abajo**. Arrastra el avatar sobre la
 imagen para **cambiar su posición**. Debajo aparece la **línea de tiempo**, con la
 forma de onda y la voz de la escena: mueve el bloque del avatar o sus extremos
 para elegir cuándo aparece y desaparece. También puedes escribir los segundos
@@ -318,7 +320,7 @@ de inicio y final. **Reproducir** permite comprobarlo con la narración. Los lab
 siguen el tiempo real de la frase, aunque el avatar aparezca a mitad de ella.
 
 Si su clip aún no está preparado, **Generar avatar con Boson** lo prepara para
-el borrador. Pulsa **Guardar** para aplicar la posición, la entrada y el intervalo
+el borrador. Pulsa **Guardar** para aplicar la posición, la entrada, la salida y el intervalo
 a esta escena y al montaje final; **Deshacer** permite recuperar los ajustes anteriores.
 Editar estos ajustes reutiliza el clip: no vuelve a solicitarlo a Boson ni
 modifica las imágenes, la voz o los tiempos de la escena.

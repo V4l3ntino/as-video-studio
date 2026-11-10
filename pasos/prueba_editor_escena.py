@@ -59,11 +59,16 @@ class EditorEscena(unittest.TestCase):
                 self.assertTrue(ficha['disponible'], ficha['motivo'])
                 datos = dict(ancla=ficha['ancla'], activo=True,
                     posicion={k: ficha['actual']['posicion'][k] for k in ('x', 'y')}, presentacion=ficha['actual']['presentacion'])
+                datos['presentacion']['salida'] = 'hacia-derecha'
                 previa = servidor.guardar_editor_escena(proyecto.id, escena['id'], {'avatar': datos})
                 visible = previa['escenas'][0]
                 self.assertTrue(visible['admite_avatar'])
                 self.assertIsNotNone(visible['avatar'])
                 self.assertTrue(visible['clip'].endswith('clip.mp4'))
+                reabierta = servidor.leer_editor_avatar(proyecto.id, escena['id'])
+                self.assertEqual(reabierta['actual']['presentacion']['salida'], 'hacia-derecha')
+                self.assertEqual(visible['avatar']['presentacion']['salida'], 'hacia-derecha')
+                self.assertEqual(reabierta['salidas'], avatar.SALIDAS)
 
     @unittest.skipUnless(REAL, 'usa --real para verificar vídeo, cartela y avatar simultáneos')
     def test_avatar_sobre_cartela_conserva_video_y_reloj_en_ambos_caminos(self):

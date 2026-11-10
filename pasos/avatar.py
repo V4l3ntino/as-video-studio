@@ -17,6 +17,18 @@ ENTRADAS = [
     {"id": "desde-derecha", "nombre": "Desde la derecha", "descripcion": "Entra deslizándose desde la derecha."},
     {"id": "desde-abajo", "nombre": "Desde abajo", "descripcion": "Sube suavemente hasta su posición."},
 ]
+SALIDAS = [
+    {"id": "sin-animacion", "nombre": "Sin animación"},
+    {"id": "fundido", "nombre": "Fundido suave"},
+    {"id": "hacia-izquierda", "nombre": "Hacia la izquierda"},
+    {"id": "hacia-derecha", "nombre": "Hacia la derecha"},
+    {"id": "hacia-abajo", "nombre": "Hacia abajo"},
+]
+
+
+def salida_de(bloque):
+    """Sin elección explícita conserva la salida histórica ligada a la entrada."""
+    return bloque.get("salida", "sin-animacion" if bloque["entrada"] == "sin-animacion" else "fundido")
 
 
 def normalizar(crudo):
@@ -118,17 +130,22 @@ def validar_presentacion(datos, duracion):
             raise ValueError("utiliza entre 1 y 32 bloques de avatar")
         limpios = [validar_presentacion(b, duracion) for b in bloques]
         return dict(limpios[0], bloques=limpios)
-    if not isinstance(datos, dict) or set(datos) != {"entrada", "inicio", "fin"}:
+    if not isinstance(datos, dict) or set(datos) - {"salida"} != {"entrada", "inicio", "fin"}:
         raise ValueError("elige la entrada, el inicio y el final del avatar")
     if datos["entrada"] not in {e["id"] for e in ENTRADAS}:
         raise ValueError("la animación de entrada del avatar no existe")
+    if "salida" in datos and datos["salida"] not in {e["id"] for e in SALIDAS}:
+        raise ValueError("la animación de salida del avatar no existe")
     for valor in (datos["inicio"], datos["fin"]):
         if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
             raise ValueError("los tiempos del avatar deben ser números finitos")
     inicio, fin = float(datos["inicio"]), float(datos["fin"])
     if inicio < 0 or fin > duracion + 1e-6 or fin - inicio < min(.1, duracion) - 1e-6:
         raise ValueError("el intervalo del avatar debe quedar dentro de la escena y durar al menos 0,1 s")
-    return {"entrada": datos["entrada"], "inicio": inicio, "fin": min(fin, duracion)}
+    limpio = {"entrada": datos["entrada"], "inicio": inicio, "fin": min(fin, duracion)}
+    if "salida" in datos:
+        limpio["salida"] = datos["salida"]
+    return limpio
 
 
 def presentacion_de(params, escena):
@@ -329,9 +346,13 @@ def superponer_png(png, fotograma, posicion, presentacion, tiempo):
         return png
     inicio, fin, entrada = bloque['inicio'], bloque['fin'], bloque['entrada']
     d, salida = min(.35, (fin - inicio) / 2), min(.18, (fin - inicio) / 2)
+    efecto_salida = salida_de(bloque)
     u = max(0., min(1., (tiempo - inicio) / d))
     q = u * u * (3 - 2 * u)
-    opacidad = 1. if entrada == 'sin-animacion' else min(u, max(0., min(1., (fin - tiempo) / salida)))
+    v = max(0., min(1., (fin - tiempo) / salida))
+    r = 1 - v * v * (3 - 2 * v)
+    opacidad = min(1. if entrada == 'sin-animacion' else u,
+                   1. if efecto_salida == 'sin-animacion' else v)
     with Image.open(io.BytesIO(png)) as original, Image.open(fotograma) as figura:
         fondo = original.convert('RGBA')
         figura = figura.convert('RGBA')
@@ -342,11 +363,46 @@ def superponer_png(png, fotograma, posicion, presentacion, tiempo):
             x += (1 - q) * figura.width
         elif entrada == 'desde-abajo':
             y += (1 - q) * figura.height
+        if efecto_salida == 'hacia-izquierda':
+            x -= r * figura.width
+        elif efecto_salida == 'hacia-derecha':
+            x += r * figura.width
+        elif efecto_salida == 'hacia-abajo':
+            y += r * figura.height
         figura.putalpha(figura.getchannel('A').point(lambda a: round(a * opacidad)))
         fondo.alpha_composite(figura, (round(x), round(y)))
         salida_png = io.BytesIO()
         fondo.convert('RGB').save(salida_png, format='PNG', compress_level=1)
         return salida_png.getvalue()
+
+
+def _efectos_ffmpeg(bloque, x, y, lado):
+    inicio, fin = bloque['inicio'], bloque['fin']
+    entrada, salida = min(.35, (fin - inicio) / 2), min(.18, (fin - inicio) / 2)
+    efecto_salida = salida_de(bloque)
+    efectos = ',format=rgba'
+    if bloque['entrada'] != 'sin-animacion':
+        efectos += f',fade=t=in:st={inicio}:d={entrada}:alpha=1'
+    if efecto_salida != 'sin-animacion':
+        efectos += f',fade=t=out:st={fin-salida}:d={salida}:alpha=1'
+    u = f'min(1,max(0,(t-{inicio})/{entrada}))'
+    q = f'(({u})*({u})*(3-2*({u})))'
+    v = f'min(1,max(0,({fin}-t)/{salida}))'
+    r = f'(1-({v})*({v})*(3-2*({v})))'
+    ox, oy = str(x), str(y)
+    if bloque['entrada'] == 'desde-izquierda':
+        ox += f'-{lado}*(1-{q})'
+    elif bloque['entrada'] == 'desde-derecha':
+        ox += f'+{lado}*(1-{q})'
+    elif bloque['entrada'] == 'desde-abajo':
+        oy += f'+{lado}*(1-{q})'
+    if efecto_salida == 'hacia-izquierda':
+        ox += f'-{lado}*{r}'
+    elif efecto_salida == 'hacia-derecha':
+        ox += f'+{lado}*{r}'
+    elif efecto_salida == 'hacia-abajo':
+        oy += f'+{lado}*{r}'
+    return efectos, ox, oy
 
 
 def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, presentacion=None):
@@ -379,15 +435,7 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, 
         base = '0:v'
         for i, bloque in enumerate(bloques):
             inicio, fin = bloque['inicio'], bloque['fin']
-            entrada = min(.35, (fin - inicio) / 2)
-            salida_s = min(.18, (fin - inicio) / 2)
-            efectos_b = '' if bloque['entrada'] == 'sin-animacion' else (
-                f',format=rgba,fade=t=in:st={inicio}:d={entrada}:alpha=1'
-                f',fade=t=out:st={fin-salida_s}:d={salida_s}:alpha=1')
-            u = f'min(1,max(0,(t-{inicio})/{entrada}))'
-            q = f'(({u})*({u})*(3-2*({u})))'
-            bx = f'{x}-{lado}*(1-{q})' if bloque['entrada'] == 'desde-izquierda' else f'{x}+{lado}*(1-{q})' if bloque['entrada'] == 'desde-derecha' else str(x)
-            by = f'{y}+{lado}*(1-{q})' if bloque['entrada'] == 'desde-abajo' else str(y)
+            efectos_b, bx, by = _efectos_ffmpeg(bloque, x, y, lado)
             ramas.append(f'[a{i}]scale={lado}:{lado}:force_original_aspect_ratio=decrease,pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2{efectos_b}[av{i}]')
             destino_b = 'v' if i == len(bloques) - 1 else f'base{i}'
             habilitar_b = f'gte(t,{inicio})*lt(t,{fin})'
@@ -399,19 +447,7 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, 
     if presentacion:
         inicio, fin = presentacion["inicio"], presentacion["fin"]
         habilitar = f":enable='gte(t,{inicio})*lt(t,{fin})'"
-        if presentacion["entrada"] != "sin-animacion":
-            entrada = min(.35, (fin - inicio) / 2)
-            salida_s = min(.18, (fin - inicio) / 2)
-            efectos = (f",format=rgba,fade=t=in:st={inicio}:d={entrada}:alpha=1"
-                       f",fade=t=out:st={fin-salida_s}:d={salida_s}:alpha=1")
-            u = f"min(1,max(0,(t-{inicio})/{entrada}))"
-            q = f"(({u})*({u})*(3-2*({u})))"
-            if presentacion["entrada"] == "desde-izquierda":
-                ox = f"{x}-{lado}*(1-{q})"
-            elif presentacion["entrada"] == "desde-derecha":
-                ox = f"{x}+{lado}*(1-{q})"
-            elif presentacion["entrada"] == "desde-abajo":
-                oy = f"{y}+{lado}*(1-{q})"
+        efectos, ox, oy = _efectos_ffmpeg(presentacion, x, y, lado)
     filtro = (f"[1:v]scale={lado}:{lado}:force_original_aspect_ratio=decrease,"
               f"pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2{efectos}[avatar];"
               f"[0:v][avatar]overlay=x='{ox}':y='{oy}':shortest=1{habilitar}[v]")
@@ -419,7 +455,7 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, 
         filtro = ';'.join(ramas)
     temporal = destino + ".tmp.mp4"
     try:
-        proceso = subprocess.run([medios.ffmpeg(), "-nostdin", "-y", "-v", "error", "-loop", "1",
+        proceso = subprocess.run([medios.ffmpeg(), "-nostdin", "-y", "-v", "error", "-loop", "1", "-framerate", "30",
             "-i", fondo, "-i", clip, "-filter_complex", filtro, "-map", "[v]", "-an", "-r", "30",
             "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", temporal],
             capture_output=True, timeout=300, **medios.SIN_VENTANA)

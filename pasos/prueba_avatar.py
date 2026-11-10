@@ -86,6 +86,39 @@ class Avatar(unittest.TestCase):
                         if color == "blue": self.assertGreater(b, r + g + 100, (entrada, tiempo))
                         else: self.assertGreater(g, r + b + 100, (entrada, tiempo))
 
+    def test_salida_independiente_en_fotogramas_y_compuesto(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Proyecto.crear(tmp, 'Salidas')
+            fondo, figura, clip = (p.ruta(n) for n in ('fondo.png', 'figura.png', 'clip.mp4'))
+            Image.new('RGB', (320, 180), 'blue').save(fondo)
+            Image.new('RGB', (74, 74), 'red').save(figura)
+            subprocess.run([medios.ffmpeg(), '-nostdin', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                'color=red:s=74x74:r=30:d=2', '-c:v', 'libx264', clip], check=True, capture_output=True)
+            posicion = dict(x=.3, y=.3)
+            for opcion in avatar.SALIDAS:
+                bloque = dict(entrada='sin-animacion', salida=opcion['id'], inicio=.2, fin=1.8)
+                self.assertEqual(avatar.validar_presentacion(bloque, 2), bloque)
+                compuesto = avatar.componer(p, clip, fondo, lambda: None, (320, 180), posicion, bloque)
+                # A mitad de la salida: misma opacidad y movimiento en ambos caminos.
+                png = avatar.superponer_png(Path(fondo).read_bytes(), figura, posicion, bloque, 1.7)
+                frame = subprocess.run([medios.ffmpeg(), '-v', 'error', '-ss', '1.7', '-i', compuesto,
+                    '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], check=True, capture_output=True)
+                with Image.open(io.BytesIO(png)) as a, Image.open(io.BytesIO(frame.stdout)) as b:
+                    # Puntos alejados de bordes para tolerar redondeo y compresión H.264.
+                    for punto in ((100, 60), (130, 90), (190, 90), (130, 145)):
+                        self.assertLess(max(abs(x-y) for x, y in zip(a.getpixel(punto), b.convert('RGB').getpixel(punto))), 15, opcion)
+                    rojo = a.getpixel((130, 90))[0]
+                    if opcion['id'] == 'sin-animacion':
+                        self.assertGreater(rojo, 240)
+                    else:
+                        self.assertLess(rojo, 160)
+            with self.assertRaises(ValueError):
+                avatar.validar_presentacion(dict(bloque, salida='inventada'), 2)
+            anterior = dict(entrada='fundido', inicio=.2, fin=1.8)
+            self.assertNotIn('salida', avatar.validar_presentacion(anterior, 2))
+            self.assertEqual(avatar.salida_de(anterior), 'fundido')
+            self.assertEqual(avatar.salida_de(dict(anterior, entrada='sin-animacion')), 'sin-animacion')
+
     def test_posicion_normalizada_limites_y_ancla(self):
         escena = {"id": "S1", "narracion": "La explicación central."}
         p = {"unidades": {"escena:S1": {"avatar": {

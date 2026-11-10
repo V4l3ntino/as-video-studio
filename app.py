@@ -5548,7 +5548,7 @@ def _exigir_avatar_editor(ctx, params, escena, audio):
 
 @app.get("/api/proyectos/{pid}/escenas/{sid}/avatar/editor")
 def leer_editor_avatar(pid: str, sid: str):
-    """Editor de posición, entrada e intervalo del avatar; lectura sin generación."""
+    """Editor de posición, entrada, salida e intervalo del avatar; lectura sin generación."""
     from pasos import avatar
     ctx = contexto(pid)
     params, plan, audio, escena = _escena_editor_avatar(ctx, sid)
@@ -5571,7 +5571,8 @@ def leer_editor_avatar(pid: str, sid: str):
             "personalizado": personalizada, "imagen": visible.get("imagen"), "retrato": retrato,
             "clip": clip, "audio": _ruta_publica_proyecto(ctx, audio) if audio else None,
             "t_in": escena["t_in"], "duracion": float(escena["t_out"]) - float(escena["t_in"]),
-            "opciones": avatar.ENTRADAS, "resolucion": plan.get("resolucion") or [1920, 1080],
+            "opciones": avatar.ENTRADAS, "salidas": avatar.SALIDAS,
+            "resolucion": plan.get("resolucion") or [1920, 1080],
             "actual": {"activo": bool(visible.get("avatar")) if not personalizada else edicion.get("activo", bool(visible.get("avatar"))),
                        "posicion": avatar.posicion_de(params, escena, plan.get("resolucion") or [1920, 1080]),
                        "presentacion": avatar.presentacion_de(params, escena)}}
