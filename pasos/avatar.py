@@ -10,6 +10,14 @@ import subprocess
 from PIL import Image, ImageOps
 from pasos import claves, cli_claude, imagenes_animacion, medios
 
+ENTRADAS = [
+    {"id": "sin-animacion", "nombre": "Sin animación", "descripcion": "Aparece directamente en el instante elegido."},
+    {"id": "fundido", "nombre": "Fundido suave", "descripcion": "Aparece y desaparece de forma gradual."},
+    {"id": "desde-izquierda", "nombre": "Desde la izquierda", "descripcion": "Entra deslizándose desde la izquierda."},
+    {"id": "desde-derecha", "nombre": "Desde la derecha", "descripcion": "Entra deslizándose desde la derecha."},
+    {"id": "desde-abajo", "nombre": "Desde abajo", "descripcion": "Sube suavemente hasta su posición."},
+]
+
 
 def normalizar(crudo):
     if not isinstance(crudo, dict):
@@ -104,6 +112,28 @@ def posicion_de(params, escena, salida):
     return dict(posicion, **cuadro)
 
 
+def validar_presentacion(datos, duracion):
+    if not isinstance(datos, dict) or set(datos) != {"entrada", "inicio", "fin"}:
+        raise ValueError("elige la entrada, el inicio y el final del avatar")
+    if datos["entrada"] not in {e["id"] for e in ENTRADAS}:
+        raise ValueError("la animación de entrada del avatar no existe")
+    for valor in (datos["inicio"], datos["fin"]):
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
+            raise ValueError("los tiempos del avatar deben ser números finitos")
+    inicio, fin = float(datos["inicio"]), float(datos["fin"])
+    if inicio < 0 or fin > duracion + 1e-6 or fin - inicio < min(.1, duracion) - 1e-6:
+        raise ValueError("el intervalo del avatar debe quedar dentro de la escena y durar al menos 0,1 s")
+    return {"entrada": datos["entrada"], "inicio": inicio, "fin": min(fin, duracion)}
+
+
+def presentacion_de(params, escena):
+    duracion = float(escena["t_out"]) - float(escena["t_in"])
+    edicion = ediciones_de(params).get(escena["id"]) or {}
+    if edicion.get("ancla") == ancla_de(escena) and "presentacion" in edicion:
+        return validar_presentacion(edicion["presentacion"], duracion)
+    return {"entrada": "sin-animacion", "inicio": 0., "fin": duracion}
+
+
 def aplicar_ediciones(seleccion, escenas, params):
     salida = set(seleccion)
     ediciones = ediciones_de(params)
@@ -151,8 +181,8 @@ def estado_previa(proyecto, params, plan, audio):
             if os.path.isfile(proyecto.ruta(relativo)):
                 clips[sid] = relativo
     seleccion = datos.get("seleccion") or []
-    return {"clave": clave, "estado": "listo" if seleccion and all(s in clips for s in seleccion) else "pendiente",
-            "seleccion": seleccion, "clips": clips}
+    return {"clave": clave, "estado": "listo" if "seleccion" in datos and all(s in clips for s in seleccion) else "pendiente",
+            "seleccion": seleccion, "clips": {s: clips[s] for s in seleccion if s in clips}}
 
 
 def seleccionar(proyecto, escenas, avisar, permitir_vacio=False):
@@ -271,14 +301,15 @@ def preparar(proyecto, params, plan, audio, avisar, solo_escenas=None):
     return clips
 
 
-def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None):
+def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None, presentacion=None):
     """Presentador en un recuadro superior, conservando el plano y sus capas."""
     cuadro = geometria(salida)
     posicion = validar_posicion(posicion or {"x": 1 - cuadro["ancho"] - .03, "y": .04}, salida)
     destino = proyecto.ruta("avatar", "clips", "compuesto-" + _huella([
-        _hash_archivo(clip), _hash_archivo(fondo), list(salida), posicion, 3]) + ".mp4")
+        _hash_archivo(clip), _hash_archivo(fondo), list(salida), posicion, presentacion, 4]) + ".mp4")
     if os.path.isfile(destino):
         return destino
+    os.makedirs(os.path.dirname(destino), exist_ok=True)
     latido()
     with Image.open(fondo) as img:
         ancho, alto = img.size
@@ -290,9 +321,27 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None):
     lado = max(2, int(min(visible_ancho, visible_alto) * .42) // 2 * 2)
     x = int((ancho - visible_ancho) / 2 + visible_ancho * posicion["x"])
     y = int((alto - visible_alto) / 2 + visible_alto * posicion["y"])
+    efectos, habilitar = "", ""
+    ox, oy = str(x), str(y)
+    if presentacion:
+        inicio, fin = presentacion["inicio"], presentacion["fin"]
+        habilitar = f":enable='gte(t,{inicio})*lt(t,{fin})'"
+        if presentacion["entrada"] != "sin-animacion":
+            entrada = min(.35, (fin - inicio) / 2)
+            salida_s = min(.18, (fin - inicio) / 2)
+            efectos = (f",format=rgba,fade=t=in:st={inicio}:d={entrada}:alpha=1"
+                       f",fade=t=out:st={fin-salida_s}:d={salida_s}:alpha=1")
+            u = f"min(1,max(0,(t-{inicio})/{entrada}))"
+            q = f"(({u})*({u})*(3-2*({u})))"
+            if presentacion["entrada"] == "desde-izquierda":
+                ox = f"{x}-{lado}*(1-{q})"
+            elif presentacion["entrada"] == "desde-derecha":
+                ox = f"{x}+{lado}*(1-{q})"
+            elif presentacion["entrada"] == "desde-abajo":
+                oy = f"{y}+{lado}*(1-{q})"
     filtro = (f"[1:v]scale={lado}:{lado}:force_original_aspect_ratio=decrease,"
-              f"pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2[avatar];"
-              f"[0:v][avatar]overlay={x}:{y}:shortest=1[v]")
+              f"pad={lado}:{lado}:(ow-iw)/2:(oh-ih)/2{efectos}[avatar];"
+              f"[0:v][avatar]overlay=x='{ox}':y='{oy}':shortest=1{habilitar}[v]")
     temporal = destino + ".tmp.mp4"
     try:
         proceso = subprocess.run([medios.ffmpeg(), "-nostdin", "-y", "-v", "error", "-loop", "1",
@@ -300,7 +349,8 @@ def componer(proyecto, clip, fondo, latido, salida=(1920, 1080), posicion=None):
             "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", temporal],
             capture_output=True, timeout=300, **medios.SIN_VENTANA)
         if proceso.returncode:
-            raise RuntimeError("no se ha podido incorporar el avatar al plano")
+            raise RuntimeError("no se ha podido incorporar el avatar al plano: "
+                               + proceso.stderr.decode("utf-8", errors="replace")[-1200:])
         os.replace(temporal, destino)
     finally:
         if os.path.exists(temporal):

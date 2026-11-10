@@ -273,19 +273,25 @@ Los clips completados se conservan y el montaje los reutiliza sin volver a
 solicitarlos a Boson. La consulta de la previsualización no genera contenido:
 la preparación se solicita como un trabajo aparte desde la pantalla.
 
-Junto a **Transición**, pulsa **Incorporar avatar** para incluirlo en la escena
-que estés viendo, aunque no esté entre las elegidas automáticamente. Se genera
-su clip con Boson y el audio de esa escena; cuando termina aparece y se reproduce
-con la narración. Si ya está listo, el botón lo reproduce sin volver a generarlo.
-La elección queda guardada también para el montaje, vinculada al texto de esa
-escena. Requiere tener configurado el retrato y la voz en el encargo. El botón
+Junto a **Transición**, **Incorporar avatar** abre un popup con la imagen de la
+escena y el avatar. Desde él puedes incluirlo aunque no esté entre las escenas
+elegidas automáticamente, o desmarcar **Mostrar avatar en esta escena** para
+quitarlo. Requiere tener configurado el retrato y la voz en el encargo. El botón
 queda desactivado para cartelas, escenas de más de 60 segundos o clips de vídeo.
 
-Para **cambiar su posición**, pincha directamente sobre el avatar en el
-previsualizador de **Imágenes** y arrástralo por el cuadro. Funciona también con
-el dedo. Al soltarlo se guarda automáticamente para esa escena y se aplica en
-el montaje final. El avatar permanece dentro del cuadro. Moverlo no vuelve a
-generar su animación en Boson ni modifica las imágenes o la voz.
+A la izquierda elige su entrada: **Sin animación**, **Fundido suave**, **Desde la
+izquierda**, **Desde la derecha** o **Desde abajo**. Arrastra el avatar sobre la
+imagen para **cambiar su posición**. Debajo aparece la **línea de tiempo**, con la
+forma de onda y la voz de la escena: mueve el bloque del avatar o sus extremos
+para elegir cuándo aparece y desaparece. También puedes escribir los segundos
+de inicio y final. **Reproducir** permite comprobarlo con la narración. Los labios
+siguen el tiempo real de la frase, aunque el avatar aparezca a mitad de ella.
+
+Si su clip aún no está preparado, **Generar avatar con Boson** lo prepara para
+el borrador. Pulsa **Guardar** para aplicar la posición, la entrada y el intervalo
+a esta escena y al montaje final; **Cerrar** descarta los ajustes sin guardar.
+Editar estos ajustes reutiliza el clip: no vuelve a solicitarlo a Boson ni
+modifica las imágenes, la voz o los tiempos de la escena.
 
 Boson AI factura estas animaciones por uso; generar el retrato consume también
 el método de imágenes elegido. Los MP4 y los identificadores de trabajo remoto

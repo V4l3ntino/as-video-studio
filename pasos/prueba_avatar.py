@@ -24,6 +24,39 @@ from motores import avatar_boson
 
 
 class Avatar(unittest.TestCase):
+    def test_presentacion_valida_intervalos_y_no_reutiliza_ajustes_de_otro_texto(self):
+        escena = {"id": "S1", "narracion": "La tesis.", "t_in": 10, "t_out": 12}
+        p = {"unidades": {"escena:S1": {"avatar": {"ancla": avatar.ancla_de(escena),
+             "presentacion": {"entrada": "fundido", "inicio": .4, "fin": 1.8}}}}}
+        self.assertEqual(avatar.presentacion_de(p, escena)["inicio"], .4)
+        self.assertEqual(avatar.presentacion_de(p, dict(escena, narracion="Otra tesis."))["inicio"], 0)
+        for entrada, inicio, fin in (("inventada", 0, 1), ("fundido", -1, 1), ("fundido", 1, .5),
+                                    ("fundido", 0, 3), ("fundido", True, 1), ("fundido", 0, float("nan"))):
+            with self.subTest(entrada=entrada, inicio=inicio, fin=fin), self.assertRaises(ValueError):
+                avatar.validar_presentacion({"entrada": entrada, "inicio": inicio, "fin": fin}, 2)
+
+    def test_entradas_y_ventana_temporal_renderizan_sin_desplazar_el_video_del_avatar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Proyecto.crear(tmp, "Entradas")
+            clip = p.ruta("colores.mp4")
+            subprocess.run([medios.ffmpeg(), "-nostdin", "-y", "-v", "error",
+                "-f", "lavfi", "-i", "color=red:s=64x64:r=30:d=1", "-f", "lavfi", "-i", "color=lime:s=64x64:r=30:d=1",
+                "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-c:v", "libx264", clip],
+                check=True, capture_output=True, **medios.SIN_VENTANA)
+            fondo = p.ruta("fondo.png")
+            Image.new("RGB", (320, 180), "blue").save(fondo)
+            for entrada in avatar.ENTRADAS:
+                ruta = avatar.componer(p, clip, fondo, lambda: None, (320, 180), {"x": .2, "y": .2},
+                    {"entrada": entrada["id"], "inicio": .4, "fin": 1.7})
+                for tiempo, color in ((.2, "blue"), (1.2, "lime"), (1.85, "blue")):
+                    frame = subprocess.run([medios.ffmpeg(), "-v", "error", "-ss", str(tiempo), "-i", ruta,
+                        "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+                        check=True, capture_output=True, **medios.SIN_VENTANA)
+                    with Image.open(io.BytesIO(frame.stdout)) as img:
+                        r, g, b = img.convert("RGB").getpixel((100, 72))
+                        if color == "blue": self.assertGreater(b, r + g + 100, (entrada, tiempo))
+                        else: self.assertGreater(g, r + b + 100, (entrada, tiempo))
+
     def test_posicion_normalizada_limites_y_ancla(self):
         escena = {"id": "S1", "narracion": "La explicación central."}
         p = {"unidades": {"escena:S1": {"avatar": {

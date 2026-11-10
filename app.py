@@ -5340,15 +5340,160 @@ def incorporar_avatar_escena(pid: str, sid: str):
         ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
         params = copy.deepcopy(ctx.estado.params("render") or {})
         clave = avatar.firma_previa(ctx.proyecto, params, plan, audio)
-        seleccion = avatar.aplicar_ediciones(anterior.get("seleccion") or [], plan["escenas"], params)
+        preparada = avatar.estado_previa(ctx.proyecto, params, plan, audio) or {}
+        clips_conservados = dict(anterior.get("clips") or {}, **(preparada.get("clips") or {}))
+        seleccion = avatar.aplicar_ediciones(set(anterior.get("seleccion") or []) | set(preparada.get("seleccion") or []), plan["escenas"], params)
         PASOS_MODULOS.medios.escribir_json(ctx.proyecto.ruta("avatar", "previa-" + clave + ".json"), {
-            "seleccion": sorted(seleccion), "clips": anterior.get("clips") or {}})
-        if sid in (anterior.get("clips") or {}):
+            "seleccion": sorted(seleccion), "clips": clips_conservados})
+        if sid in clips_conservados:
             return {"listo": True}
         tid = ctx.gestor.lanzar("previsualizar:avatar:" + clave, _correr_avatar_previa,
             ctx, params, plan, audio, clave, [sid], unidad=sid)
         _registrar_trabajo(tid, ctx.id)
         return {"trabajo_id": tid}
+
+
+def _borrador_avatar(params, escena):
+    from pasos import avatar
+    copia = copy.deepcopy(params)
+    unidades = copia.setdefault("unidades", {})
+    unidad = unidades.setdefault(f"escena:{escena['id']}", {})
+    edicion = unidad.get("avatar") or {}
+    unidad["avatar"] = dict(edicion if edicion.get("ancla") == avatar.ancla_de(escena) else {},
+                            activo=True, ancla=avatar.ancla_de(escena))
+    return copia
+
+
+def _escena_editor_avatar(ctx, sid):
+    params, plan, audio = _fuentes_avatar_previa(ctx)
+    escena = next((e for e in plan.get("escenas") or [] if e.get("id") == sid), None)
+    if escena is None:
+        raise ErrorApi(404, "esa escena no está en el plan del vídeo")
+    return params, plan, audio, escena
+
+
+def _exigir_avatar_editor(ctx, params, escena, audio):
+    from pasos import avatar, imagenes_animacion
+    if not avatar.admite_escena(escena):
+        raise ErrorApi(400, "el avatar requiere una escena narrada de hasta 60 segundos, sin cartela ni clip de vídeo")
+    opciones = avatar.normalizar(params.get("avatar") or {})
+    if not opciones["activo"]:
+        raise ErrorApi(400, "activa Incorporar avatar IA y elige su retrato en el encargo del vídeo")
+    if ctx.estado.params("voz").get("incorporar_voz") is False or not audio or not os.path.isfile(audio):
+        raise ErrorApi(400, "genera la narración de esta escena para preparar el avatar")
+    if opciones["metodo"] == "subir":
+        try:
+            imagenes_animacion.ruta_de(ctx.proyecto, opciones["imagen"])
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
+    elif not opciones["prompt"]:
+        raise ErrorApi(400, "describe o sube el retrato del avatar en el encargo")
+
+
+@app.get("/api/proyectos/{pid}/escenas/{sid}/avatar/editor")
+def leer_editor_avatar(pid: str, sid: str):
+    """Editor de posición, entrada e intervalo del avatar; lectura sin generación."""
+    from pasos import avatar
+    ctx = contexto(pid)
+    params, plan, audio, escena = _escena_editor_avatar(ctx, sid)
+    motivo = ""
+    try:
+        _exigir_avatar_editor(ctx, params, escena, audio)
+    except ErrorApi as fallo:
+        motivo = str(fallo)
+    previa = _leer_previsualizacion(pid)
+    visible = next(e for e in previa["escenas"] if e["id"] == sid)
+    preparada = avatar.estado_previa(ctx.proyecto, _borrador_avatar(params, escena), plan, audio) or {}
+    clip = (preparada.get("clips") or {}).get(sid) or (visible.get("avatar") or {}).get("clip")
+    opciones = avatar.normalizar(params.get("avatar") or {})
+    retrato = opciones["imagen"] or ("avatar/imagen-" + avatar._huella(opciones["prompt"]) + ".png")
+    if not os.path.isfile(ctx.proyecto.ruta(retrato)):
+        retrato = None
+    edicion = avatar.ediciones_de(params).get(sid) or {}
+    personalizada = edicion.get("ancla") == avatar.ancla_de(escena)
+    return {"ancla": avatar.ancla_de(escena), "disponible": not motivo, "motivo": motivo,
+            "personalizado": personalizada, "imagen": visible.get("imagen"), "retrato": retrato,
+            "clip": clip, "audio": _ruta_publica_proyecto(ctx, audio) if audio else None,
+            "t_in": escena["t_in"], "duracion": float(escena["t_out"]) - float(escena["t_in"]),
+            "opciones": avatar.ENTRADAS, "resolucion": plan.get("resolucion") or [1920, 1080],
+            "actual": {"activo": bool(visible.get("avatar")) if not personalizada else edicion.get("activo", bool(visible.get("avatar"))),
+                       "posicion": avatar.posicion_de(params, escena, plan.get("resolucion") or [1920, 1080]),
+                       "presentacion": avatar.presentacion_de(params, escena)}}
+
+
+def _correr_avatar_editor(avisar, ctx, params, plan, audio, escena, clave_original):
+    from pasos import avatar
+    def informar(valor, mensaje=""):
+        if (ctx.estado.params("voz").get("incorporar_voz") is False
+                or avatar.firma_previa(ctx.proyecto, *_fuentes_avatar_previa(ctx)) != clave_original):
+            raise Cancelado("Las fuentes del avatar han cambiado")
+        avisar(valor, mensaje, mensaje)
+    clips = avatar.preparar(ctx.proyecto, params, plan, audio, informar, solo_escenas=[escena["id"]])
+    informar(1, "Avatar listo para el editor")
+    return {"clip": _ruta_publica_proyecto(ctx, clips[escena["id"]])}
+
+
+@app.post("/api/proyectos/{pid}/escenas/{sid}/avatar/editor/preparar", status_code=202)
+def preparar_avatar_editor(pid: str, sid: str):
+    """Genera el clip para el borrador del popup sin guardar sus ajustes en el grafo."""
+    from pasos import avatar
+    ctx = contexto(pid)
+    with _LOCK:
+        params, plan, audio, escena = _escena_editor_avatar(ctx, sid)
+        _exigir_avatar_editor(ctx, params, escena, audio)
+        borrador = _borrador_avatar(params, escena)
+        preparada = avatar.estado_previa(ctx.proyecto, borrador, plan, audio) or {}
+        if sid in (preparada.get("clips") or {}):
+            return {"clip": preparada["clips"][sid]}
+        nombre = "previsualizar:avatar:editor:" + preparada["clave"]
+        activos = ctx.gestor.listar(activos=True)
+        mismo = next((t for t in activos if t["nombre"] == nombre and t.get("unidad") == sid), None)
+        if mismo:
+            return {"trabajo_id": mismo["id"]}
+        if activos:
+            return {"esperando": True}
+        tid = ctx.gestor.lanzar(nombre, _correr_avatar_editor, ctx, borrador, plan, audio,
+            escena, avatar.firma_previa(ctx.proyecto, params, plan, audio), unidad=sid)
+        _registrar_trabajo(tid, ctx.id)
+        return {"trabajo_id": tid}
+
+
+@app.put("/api/proyectos/{pid}/escenas/{sid}/avatar/editor")
+def guardar_editor_avatar(pid: str, sid: str, cuerpo: dict = Body(...)):
+    """Guarda conjuntamente posición, entrada e intervalo; conserva el clip de lip-sync."""
+    from pasos import avatar
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, "espera a que termine la preparación antes de guardar el avatar")
+        params, plan, audio, escena = _escena_editor_avatar(ctx, sid)
+        ancla = avatar.ancla_de(escena)
+        if cuerpo.get("ancla") != ancla:
+            raise ErrorApi(409, "la narración ha cambiado; vuelve a abrir el editor")
+        if not isinstance(cuerpo.get("activo"), bool):
+            raise ErrorApi(400, "activo debe ser un booleano")
+        if cuerpo["activo"]:
+            _exigir_avatar_editor(ctx, params, escena, audio)
+        try:
+            posicion = avatar.validar_posicion(cuerpo.get("posicion"), plan.get("resolucion") or [1920, 1080])
+            presentacion = avatar.validar_presentacion(cuerpo.get("presentacion"), float(escena["t_out"]) - float(escena["t_in"]))
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
+        anterior = avatar.estado_previa(ctx.proyecto, params, plan, audio) or {}
+        borrador = avatar.estado_previa(ctx.proyecto, _borrador_avatar(params, escena), plan, audio) or {}
+        uid = f"escena:{sid}"
+        unidad = dict((params.get("unidades") or {}).get(uid) or {})
+        unidad["avatar"] = dict(unidad.get("avatar") or {}, activo=cuerpo["activo"], ancla=ancla,
+                                posicion=posicion, presentacion=presentacion)
+        ctx.estado.actualizar_params("render", {"unidades": {uid: unidad}})
+        nuevos = ctx.estado.params("render") or {}
+        clave = avatar.firma_previa(ctx.proyecto, nuevos, plan, audio)
+        if clave:
+            clips = dict(anterior.get("clips") or {}, **(borrador.get("clips") or {}))
+            seleccion = avatar.aplicar_ediciones(anterior.get("seleccion") or [], plan["escenas"], nuevos)
+            PASOS_MODULOS.medios.escribir_json(ctx.proyecto.ruta("avatar", "previa-" + clave + ".json"),
+                {"seleccion": sorted(seleccion), "clips": clips})
+        return _leer_previsualizacion(pid)
 
 
 @app.put("/api/proyectos/{pid}/escenas/{sid}/avatar/posicion")
@@ -5509,6 +5654,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             "parallax": efecto_parallax,
             "avatar": {"clip": avatar_escena, "estado": "listo" if avatar_escena else "pendiente",
                        "ancla": avatar.ancla_de(escena),
+                       "presentacion": avatar.presentacion_de(render, escena),
                        "posicion": avatar.posicion_de(render, escena, plan.get("resolucion") or [1920, 1080])}
                       if sid in ((previa_avatar or {}).get("seleccion") or []) else None,
             "admite_avatar": avatar.admite_escena(escena),

@@ -9031,36 +9031,8 @@ const PREVIA = {
 
 const PARALLAX_PREVIA = { actual: null };
 const AVATAR_PREVIA = { actual: null };
-const AVATAR_ESCENA = { ocupado: false, pid: '', sid: '' };
-
 async function incorporarAvatarEscena(escena) {
-  if (AVATAR_ESCENA.ocupado) return;
-  if ((escena.avatar || {}).clip) { sonarEscenaPrevia(); return; }
-  const pid = videoAbierto().pid;
-  AVATAR_ESCENA.ocupado = true;
-  AVATAR_ESCENA.pid = pid;
-  AVATAR_ESCENA.sid = escena.id;
-  pararPrevia();
-  repintarVideo();
-  try {
-    const respuesta = await pedir(`${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/avatar`, { method: 'POST' });
-    if (videoAbierto().pid !== pid) return;
-    await refrescarLoDibujado();
-    if (respuesta.listo) {
-      repintarVideo();
-      if (escenaPrevia().id === escena.id) sonarEscenaPrevia();
-    } else {
-      const anterior = AVATAR_PREVIA.actual;
-      if (anterior && anterior.tic) clearTimeout(anterior.tic);
-      const ficha = PREVIA.ficha.avatar;
-      const p = { pid, clave: `${pid}:${ficha.clave}`, tid: respuesta.trabajo_id,
-        estado: 'ejecutando', mensaje: `Preparando el avatar para ${escena.id}…`,
-        progreso: 0, ocupado: false, tic: null, reproducirSid: escena.id };
-      AVATAR_PREVIA.actual = p;
-      seguirAvatarPrevia(p);
-    }
-  } catch (error) { toast(error.message, true); }
-  finally { AVATAR_ESCENA.ocupado = false; if (videoAbierto().pid === pid) repintarVideo(); }
+  await abrirEditorAvatar(escena);
 }
 
 function asegurarAvatarPrevia() {
@@ -9620,7 +9592,7 @@ function colocarAvatarPrevia(nodo, posicion) {
   nodo.style.setProperty('--avatar-y', `${posicion.y * 100}%`);
 }
 
-function engancharArrastreAvatar(nodo, escena) {
+function engancharArrastreAvatar(nodo, escena, alMover) {
   let estado = ARRASTRES_AVATAR.get(nodo);
   if (estado) {
     estado.escena = escena;
@@ -9640,8 +9612,11 @@ function engancharArrastreAvatar(nodo, escena) {
     ev.preventDefault();
     ev.stopPropagation();
     const rect = nodo.getBoundingClientRect();
+    const marcoRect = marco.getBoundingClientRect();
     estado.arrastre = { id: ev.pointerId, marco, x0: ev.clientX, y0: ev.clientY,
       dx: ev.clientX - rect.left, dy: ev.clientY - rect.top,
+      tx: rect.left - marcoRect.left - marco.clientLeft - estado.escena.avatar.posicion.x * marco.clientWidth,
+      ty: rect.top - marcoRect.top - marco.clientTop - estado.escena.avatar.posicion.y * marco.clientHeight,
       inicial: { ...estado.escena.avatar.posicion }, posicion: { ...estado.escena.avatar.posicion }, movido: false };
     PREVIA.arrastrandoAvatar = true;
     nodo.classList.add('avatar-arrastrando');
@@ -9653,8 +9628,8 @@ function engancharArrastreAvatar(nodo, escena) {
     ev.preventDefault();
     ev.stopPropagation();
     const rect = a.marco.getBoundingClientRect();
-    const x = (ev.clientX - rect.left - a.marco.clientLeft - a.dx) / a.marco.clientWidth;
-    const y = (ev.clientY - rect.top - a.marco.clientTop - a.dy) / a.marco.clientHeight;
+    const x = (ev.clientX - rect.left - a.marco.clientLeft - a.dx - a.tx) / a.marco.clientWidth;
+    const y = (ev.clientY - rect.top - a.marco.clientTop - a.dy - a.ty) / a.marco.clientHeight;
     a.posicion = { ...a.inicial, x: Math.max(0, Math.min(1 - a.inicial.ancho, x)),
       y: Math.max(0, Math.min(1 - a.inicial.alto, y)) };
     if (Math.hypot(ev.clientX - a.x0, ev.clientY - a.y0) >= 3) a.movido = true;
@@ -9677,28 +9652,8 @@ function engancharArrastreAvatar(nodo, escena) {
     }
     const elegida = estado.escena;
     elegida.avatar.posicion = a.posicion;
-    estado.guardando = true;
-    nodo.classList.add('avatar-guardando');
-    try {
-      const respuesta = await pedir(`${API.proyecto(estado.pid)}/escenas/${encodeURIComponent(elegida.id)}/avatar/posicion`, {
-        method: 'PUT', cuerpo: { ancla: elegida.avatar.ancla, posicion: { x: a.posicion.x, y: a.posicion.y } },
-      });
-      elegida.avatar.posicion = respuesta.posicion;
-      if (videoAbierto().pid === estado.pid) {
-        const actual = ((PREVIA.ficha || {}).escenas || []).find(e => e.id === elegida.id);
-        if (actual && actual.avatar && actual.avatar.ancla === elegida.avatar.ancla) actual.avatar.posicion = respuesta.posicion;
-        colocarAvatarPrevia(nodo, respuesta.posicion);
-        try { await refrescarFichasLight(); } catch (error) { /* La posición ya está guardada. */ }
-      }
-    } catch (error) {
-      elegida.avatar.posicion = a.inicial;
-      colocarAvatarPrevia(nodo, a.inicial);
-      toast(`No se pudo guardar la posición del avatar: ${error.message}`, true);
-    } finally {
-      estado.guardando = false;
-      nodo.classList.remove('avatar-guardando');
-      repintarPendiente();
-    }
+    alMover(a.posicion);
+    repintarPendiente();
   };
   nodo.addEventListener('pointerup', terminar);
   nodo.addEventListener('pointercancel', terminar);
@@ -9722,6 +9677,22 @@ function sincronizarClipPrevia() {
   });
 }
 
+function pintarPresentacionAvatar(nodo, presentacion, tiempo) {
+  if (!presentacion) return;
+  const { entrada, inicio, fin } = presentacion;
+  const visible = tiempo >= inicio && tiempo < fin;
+  const d = Math.min(.35, (fin - inicio) / 2), salida = Math.min(.18, (fin - inicio) / 2);
+  const u = Math.max(0, Math.min(1, (tiempo - inicio) / d));
+  const q = u * u * (3 - 2 * u);
+  let dx = 0, dy = 0;
+  if (entrada === 'desde-izquierda') dx = -(1 - q) * 100;
+  if (entrada === 'desde-derecha') dx = (1 - q) * 100;
+  if (entrada === 'desde-abajo') dy = (1 - q) * 100;
+  nodo.style.visibility = visible ? 'visible' : 'hidden';
+  nodo.style.opacity = String(entrada === 'sin-animacion' ? 1 : Math.min(u, Math.max(0, Math.min(1, (fin - tiempo) / salida))));
+  nodo.style.transform = `translate(${dx}%, ${dy}%)`;
+}
+
 function clipPrevia(escena, poster, esAvatar = false) {
   const pid = videoAbierto().pid;
   const url = API.archivo(pid, esAvatar ? escena.avatar.clip : escena.clip);
@@ -9731,6 +9702,7 @@ function clipPrevia(escena, poster, esAvatar = false) {
     if (PREVIA[campo]) PREVIA[campo].pause();
     PREVIA[campo] = h('video', {clase: esAvatar ? 'previa-avatar' : 'previa-clip', src: url,
       controls: !esAvatar, playsinline: true, autoplay: true, loop: true, muted: true,
+      onplay: () => { if (esAvatar) animarPrevia(); },
       preload: 'auto', datos: {clave}, onloadedmetadata: sincronizarClipPrevia,
       title: esAvatar ? 'Avatar IA: Oírla sincroniza los labios con la narración.'
         : escena.parallax ? 'Parallax: vista previa sin sonido. Oírla lo sincroniza con la narración.'
@@ -10157,6 +10129,259 @@ async function abrirParallaxEscena(escena) {
   } catch (error) {
     estado.textContent = `No se ha podido abrir el parallax: ${error.message}`;
   }
+}
+
+async function abrirEditorAvatar(escena) {
+  if ($('#editor-avatar')) return;
+  pararPrevia();
+  const pid = videoAbierto().pid;
+  const url = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/avatar/editor`;
+  let ficha, borrador, audio, video, tiempo = 0, cuadro = 0, guardando = false, generando = false, tid = '';
+  const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando avatar…');
+  const lista = h('div', { clase: 'avatar-entradas', 'aria-label': 'Animaciones de entrada del avatar' });
+  const activar = h('input', { type: 'checkbox', disabled: true, onchange: () => {
+    borrador.activo = activar.checked; pintarTimeline();
+  } });
+  const muestra = h('div', { clase: `previa-marco anim-editor-previa avatar-editor-previa ${formatoDelVideo()} con-avatar` });
+  const guardarBoton = h('button', { clase: 'primario', disabled: true, onclick: guardar }, 'Guardar');
+  const generarBoton = h('button', { clase: 'mini', disabled: true, onclick: generar }, 'Generar avatar con Boson');
+  const reproducir = h('button', { clase: 'mini', disabled: true, onclick: alternar }, '▶ Reproducir');
+  const reloj = h('span', { clase: 'anim-timeline-reloj' }, '0.000 s');
+  const onda = h('canvas', { clase: 'anim-timeline-onda', 'aria-label': 'Forma de onda de la voz de la escena' });
+  const datos = h('span', { clase: 'anim-timeline-datos' });
+  const inicio = h('input', { type: 'number', min: 0, step: '0.01', disabled: true,
+    'aria-label': 'Inicio del avatar en segundos', onchange: () => ajustarIntervalo('inicio', inicio.value) });
+  const fin = h('input', { type: 'number', min: .1, step: '0.01', disabled: true,
+    'aria-label': 'Final del avatar en segundos', onchange: () => ajustarIntervalo('fin', fin.value) });
+  const bloque = h('div', { clase: 'anim-timeline-bloque', role: 'group', 'aria-label': 'Intervalo del avatar', onpointerdown: arrastrarIntervalo },
+    h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'izquierdo', title: 'Ajustar inicio del avatar' }),
+    h('span', { clase: 'anim-timeline-nombre' }, 'Avatar'),
+    h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'derecho', title: 'Ajustar final del avatar' }));
+  const cabezal = h('div', { clase: 'anim-timeline-cabezal', 'aria-hidden': 'true' });
+  const pistas = h('div', { clase: 'anim-timeline-pistas', onpointerdown: buscar },
+    h('div', { clase: 'anim-timeline-regla' }), h('div', { clase: 'anim-timeline-pista audio' }, onda),
+    h('div', { clase: 'anim-timeline-pista animacion' }, bloque), cabezal);
+  const timeline = h('section', { clase: 'anim-timeline', 'aria-label': 'Línea de tiempo del avatar' },
+    h('div', { clase: 'anim-timeline-cab' }, reproducir, h('span', { clase: 'meta' }, 'Voz de la escena'), reloj),
+    h('div', { clase: 'anim-timeline-fila' },
+      h('div', { clase: 'anim-timeline-etiquetas' }, h('span', {}, 'Audio'), h('span', {}, 'Avatar')), pistas), datos);
+  const cerrar = () => {
+    if (guardando) return;
+    cancelAnimationFrame(cuadro);
+    const arrastre = video ? ARRASTRES_AVATAR.get(video) : null;
+    if (arrastre?.arrastre) {
+      const id = arrastre.arrastre.id;
+      arrastre.arrastre = null;
+      if (video.hasPointerCapture(id)) video.releasePointerCapture(id);
+    }
+    PREVIA.arrastrandoAvatar = false; PREVIA.repintadoAvatarPendiente = false;
+    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+    if (video) { if (video.pause) video.pause(); video.removeAttribute('src'); if (video.load) video.load(); }
+    if (tid) pedir(API.cancelar(tid), { method: 'POST' }).catch(() => {});
+    dialogo.close(); dialogo.remove(); repintarVideo();
+  };
+  const dialogo = h('dialog', { id: 'editor-avatar', clase: 'anim-editor avatar-escena-editor',
+    'aria-labelledby': 'avatar-editor-titulo', oncancel: ev => { ev.preventDefault(); cerrar(); },
+    onkeydown: ev => { ev.stopPropagation(); if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') { ev.preventDefault(); guardar(); } } },
+    h('div', { clase: 'anim-editor-cab' }, h('h2', { id: 'avatar-editor-titulo' }, `Incorporar avatar · ${escena.id}`),
+      h('button', { clase: 'mini', onclick: cerrar }, 'Cerrar')),
+    h('p', { clase: 'meta' }, 'Coloca el avatar, elige cómo entra y ajusta su intervalo con la voz. Guardar aplica los cambios; cerrar descarta el borrador.'),
+    h('div', { clase: 'anim-editor-disposicion avatar-editor-disposicion' },
+      h('div', {}, h('label', { clase: 'efecto-encargo' }, activar, 'Mostrar avatar en esta escena'),
+        h('h3', {}, 'Animación de entrada'), lista,
+        h('div', { clase: 'avatar-editor-tiempos' }, h('label', { clase: 'campo' }, 'Inicio (s)', inicio),
+          h('label', { clase: 'campo' }, 'Final (s)', fin)), generarBoton),
+      h('div', {}, muestra, timeline,
+        h('p', { clase: 'meta' }, 'Arrastra el avatar sobre la imagen. En la pista, mueve el bloque para desplazarlo o tira de sus extremos para ajustar cuándo aparece y desaparece.'))),
+    h('div', { clase: 'anim-editor-pie' }, estado, guardarBoton));
+  document.body.appendChild(dialogo); dialogo.showModal();
+
+  function pintarFotograma() {
+    if (!ficha || !borrador) return;
+    reloj.textContent = `${tiempo.toFixed(3)} / ${ficha.duracion.toFixed(3)} s`;
+    cabezal.style.left = `${tiempo / ficha.duracion * 100}%`;
+    if (!video) return;
+    colocarAvatarPrevia(video, borrador.posicion);
+    pintarPresentacionAvatar(video, borrador.presentacion, tiempo);
+    if (!borrador.activo) video.style.visibility = 'hidden';
+    if (ficha.clip && Number.isFinite(video.duration)) {
+      if (Math.abs(video.currentTime - tiempo) > (audio && !audio.paused ? .12 : .015))
+        video.currentTime = Math.min(tiempo, Math.max(0, video.duration - 1 / 30));
+      if (audio && !audio.paused && tiempo < video.duration) video.play().catch(() => {});
+      else video.pause();
+    }
+  }
+
+  function pintarTimeline() {
+    if (!borrador) return;
+    const p = borrador.presentacion;
+    bloque.hidden = !borrador.activo;
+    bloque.style.left = `${p.inicio / ficha.duracion * 100}%`;
+    bloque.style.width = `${(p.fin - p.inicio) / ficha.duracion * 100}%`;
+    inicio.value = p.inicio.toFixed(3); fin.value = p.fin.toFixed(3);
+    datos.textContent = `Inicio ${p.inicio.toFixed(3)} s · Fin ${p.fin.toFixed(3)} s · Duración ${(p.fin - p.inicio).toFixed(3)} s`;
+    lista.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.entrada === p.entrada)));
+    pintarFotograma();
+  }
+
+  function pausar() { if (audio) audio.pause(); if (video?.pause) video.pause(); }
+  function fijarTiempo(valor) {
+    tiempo = Math.max(0, Math.min(ficha.duracion, valor));
+    if (audio) audio.currentTime = ficha.t_in + tiempo;
+    pintarFotograma();
+  }
+  function ajustarIntervalo(extremo, valor) {
+    if (!borrador || guardando || !Number.isFinite(Number(valor))) return;
+    pausar();
+    const p = borrador.presentacion, minimo = Math.min(.1, ficha.duracion);
+    if (extremo === 'inicio') p.inicio = Math.max(0, Math.min(p.fin - minimo, Number(valor)));
+    else p.fin = Math.max(p.inicio + minimo, Math.min(ficha.duracion, Number(valor)));
+    tiempo = p.inicio + Math.min(.4, (p.fin - p.inicio) / 2);
+    pintarTimeline();
+  }
+  function arrastrarPista(ev, mover) {
+    ev.preventDefault(); ev.stopPropagation();
+    const nodo = ev.currentTarget;
+    nodo.setPointerCapture(ev.pointerId);
+    const terminar = () => {
+      nodo.removeEventListener('pointermove', mover); nodo.removeEventListener('pointerup', terminar);
+      nodo.removeEventListener('pointercancel', terminar); nodo.removeEventListener('lostpointercapture', terminar);
+    };
+    nodo.addEventListener('pointermove', mover); nodo.addEventListener('pointerup', terminar);
+    nodo.addEventListener('pointercancel', terminar); nodo.addEventListener('lostpointercapture', terminar);
+  }
+  function buscar(ev) {
+    if (!ficha || ev.button !== 0 || ev.target.closest('.anim-timeline-bloque')) return;
+    pausar();
+    const mover = evento => fijarTiempo((evento.clientX - pistas.getBoundingClientRect().left) / pistas.clientWidth * ficha.duracion);
+    mover(ev); arrastrarPista(ev, mover);
+  }
+  function arrastrarIntervalo(ev) {
+    if (!borrador || guardando || ev.button !== 0) return;
+    pausar();
+    const original = { ...borrador.presentacion }, x0 = ev.clientX, extremo = ev.target.dataset.extremo;
+    const largo = original.fin - original.inicio, minimo = Math.min(.1, ficha.duracion);
+    arrastrarPista(ev, evento => {
+      const delta = (evento.clientX - x0) / pistas.clientWidth * ficha.duracion;
+      const p = borrador.presentacion;
+      if (extremo === 'izquierdo') p.inicio = Math.max(0, Math.min(original.fin - minimo, original.inicio + delta));
+      else if (extremo === 'derecho') p.fin = Math.min(ficha.duracion, Math.max(original.inicio + minimo, original.fin + delta));
+      else { p.inicio = Math.max(0, Math.min(ficha.duracion - largo, original.inicio + delta)); p.fin = p.inicio + largo; }
+      tiempo = p.inicio + Math.min(.4, (p.fin - p.inicio) / 2);
+      pintarTimeline();
+    });
+  }
+  function alternar() {
+    if (!audio) return;
+    if (!audio.paused) { pausar(); return; }
+    if (tiempo >= ficha.duracion - .02) fijarTiempo(0);
+    audio.currentTime = ficha.t_in + tiempo;
+    audio.play().catch(() => { estado.textContent = 'No se ha podido reproducir la voz.'; });
+  }
+  function avanzar() {
+    if (!dialogo.isConnected || !audio || audio.paused) return;
+    tiempo = Math.max(0, Math.min(ficha.duracion, audio.currentTime - ficha.t_in));
+    pintarFotograma();
+    if (tiempo >= ficha.duracion - .01) { pausar(); return; }
+    cuadro = requestAnimationFrame(avanzar);
+  }
+  function montarAvatar() {
+    if (video) { if (video.pause) video.pause(); video.remove(); }
+    video = null;
+    if (!ficha.clip && !ficha.retrato) return;
+    video = h(ficha.clip ? 'video' : 'img', { clase: 'previa-avatar',
+      src: ficha.clip ? API.archivo(pid, ficha.clip) : ficha.retrato ? API.archivo(pid, ficha.retrato) : '',
+      alt: 'Avatar', muted: true, playsinline: true, preload: 'auto', onloadedmetadata: pintarFotograma });
+    video.muted = true;
+    video.addEventListener('pointerdown', pausar);
+    const escenaBorrador = { id: escena.id, avatar: { posicion: borrador.posicion } };
+    engancharArrastreAvatar(video, escenaBorrador, posicion => { borrador.posicion = posicion; pintarFotograma(); });
+    muestra.appendChild(video);
+    pintarFotograma();
+  }
+  async function cargarOnda() {
+    try {
+      const respuesta = await fetch(API.archivo(pid, ficha.audio));
+      if (!respuesta.ok) throw new Error('audio no disponible');
+      const contexto = new (window.AudioContext || window.webkitAudioContext)();
+      let buffer;
+      try { buffer = await contexto.decodeAudioData(await respuesta.arrayBuffer()); }
+      finally { await contexto.close(); }
+      if (!dialogo.isConnected) return;
+      const valores = buffer.getChannelData(0), desde = Math.floor(ficha.t_in * buffer.sampleRate);
+      const hasta = Math.min(valores.length, Math.floor((ficha.t_in + ficha.duracion) * buffer.sampleRate));
+      onda.width = Math.max(1, onda.clientWidth * (window.devicePixelRatio || 1));
+      onda.height = Math.max(1, onda.clientHeight * (window.devicePixelRatio || 1));
+      const ctx = onda.getContext('2d'); ctx.fillStyle = '#879af0';
+      for (let i = 0; i < 180; i++) {
+        const a = desde + Math.floor(i * (hasta - desde) / 180), b = desde + Math.floor((i + 1) * (hasta - desde) / 180);
+        let maximo = 0;
+        for (let j = a; j < b; j += Math.max(1, Math.floor((b - a) / 80))) maximo = Math.max(maximo, Math.abs(valores[j] || 0));
+        const alto = Math.max(2, Math.sqrt(maximo) * onda.height * .9);
+        ctx.fillRect(i / 180 * onda.width, (onda.height - alto) / 2, Math.max(1, onda.width / 180 - 1), alto);
+      }
+    } catch (error) { if (dialogo.isConnected) estado.textContent = 'No se pudo cargar la onda; puedes seguir editando y escuchando la escena.'; }
+  }
+  async function generar() {
+    if (generando || guardando || !ficha?.disponible) return;
+    generando = true; generarBoton.disabled = true; guardarBoton.disabled = true;
+    try {
+      while (dialogo.isConnected) {
+        if (!tid) {
+          const respuesta = await pedir(url + '/preparar', { method: 'POST' });
+          if (respuesta.clip) { ficha.clip = respuesta.clip; break; }
+          tid = respuesta.trabajo_id || '';
+          estado.textContent = respuesta.esperando ? 'Esperando a que termine la generación actual…' : 'Preparando el avatar con Boson…';
+        }
+        if (tid) {
+          const trabajo = await pedir(API.trabajo(tid));
+          estado.textContent = trabajo.mensaje || 'Preparando avatar…';
+          if (trabajo.estado === 'listo') { ficha.clip = trabajo.resultado.clip; tid = ''; break; }
+          if (['error', 'cancelado'].includes(trabajo.estado)) { tid = ''; throw new Error(trabajo.error || 'Preparación detenida.'); }
+        }
+        await new Promise(resolver => setTimeout(resolver, 1000));
+      }
+      if (!dialogo.isConnected) return;
+      montarAvatar(); estado.textContent = 'Avatar listo. Ajusta el borrador y pulsa Guardar para incorporarlo.';
+    } catch (error) { estado.textContent = `No se pudo preparar: ${error.message}`; }
+    finally { generando = false; generarBoton.disabled = !!ficha.clip; guardarBoton.disabled = !ficha.disponible; }
+  }
+  async function guardar() {
+    if (!ficha?.disponible || guardando || generando || PREVIA.arrastrandoAvatar) return;
+    pausar(); guardando = true; guardarBoton.disabled = true; estado.textContent = 'Guardando…';
+    try {
+      const posicion = { x: borrador.posicion.x, y: borrador.posicion.y };
+      const previa = await pedir(url, { method: 'PUT', cuerpo: { ancla: ficha.ancla, activo: borrador.activo,
+        posicion, presentacion: borrador.presentacion } });
+      if (videoAbierto().pid === pid) { PREVIA.ficha = previa; AVATAR_PREVIA.actual = null; }
+      guardando = false; cerrar();
+      try { await refrescarFichasLight(); } catch (error) { /* los ajustes ya están guardados */ }
+    } catch (error) { estado.textContent = `No se ha guardado: ${error.message}`; }
+    finally { guardando = false; guardarBoton.disabled = !ficha.disponible; }
+  }
+  try {
+    ficha = await pedir(url);
+    if (!dialogo.isConnected) return;
+    borrador = structuredClone(ficha.actual);
+    if (!ficha.personalizado && !borrador.activo) { borrador.activo = true; borrador.presentacion.entrada = 'fundido'; }
+    activar.checked = borrador.activo; activar.disabled = !ficha.disponible;
+    guardarBoton.disabled = !ficha.disponible; generarBoton.disabled = !ficha.disponible || !!ficha.clip;
+    inicio.disabled = fin.disabled = !ficha.disponible; inicio.max = fin.max = ficha.duracion;
+    ficha.opciones.forEach(op => lista.appendChild(h('button', { type: 'button', 'data-entrada': op.id,
+      disabled: !ficha.disponible, onclick: () => { pausar(); borrador.presentacion.entrada = op.id;
+        tiempo = borrador.presentacion.inicio + Math.min(.4, (borrador.presentacion.fin - borrador.presentacion.inicio) / 2); pintarTimeline(); } },
+      h('b', {}, op.nombre), h('span', {}, op.descripcion))));
+    if (ficha.imagen) muestra.appendChild(h('img', { src: API.archivo(pid, ficha.imagen), alt: 'Imagen de la escena' }));
+    tiempo = borrador.presentacion.inicio + Math.min(.4, (borrador.presentacion.fin - borrador.presentacion.inicio) / 2);
+    montarAvatar(); pintarTimeline();
+    estado.textContent = ficha.motivo || (ficha.clip ? 'Avatar listo para editar.' : 'Previsualización del retrato. Genera el avatar con Boson para verlo hablando.');
+    if (ficha.audio) {
+      audio = new Audio(API.archivo(pid, ficha.audio)); audio.preload = 'auto'; reproducir.disabled = false;
+      audio.addEventListener('play', () => { reproducir.textContent = '❚❚ Pausar'; cancelAnimationFrame(cuadro); avanzar(); });
+      audio.addEventListener('pause', () => { reproducir.textContent = '▶ Reproducir'; cancelAnimationFrame(cuadro); if (video?.pause) video.pause(); });
+      cargarOnda();
+    }
+  } catch (error) { estado.textContent = `No se pudo abrir el editor: ${error.message}`; }
 }
 
 async function abrirAnimacionEscena(escena) {
@@ -10753,7 +10978,11 @@ function animarPrevia() {
   cancelAnimationFrame(PREVIA.animando || 0);
   const paso = () => {
     pintarAnimacionPrevia();
-    if (PREVIA.sonando && document.querySelector('.previa-anim')) {
+    const avatar = document.querySelector('main .previa-avatar');
+    const e = escenaPrevia();
+    if (avatar && e) pintarPresentacionAvatar(avatar, e.avatar?.presentacion,
+      PREVIA.sonando && PREVIA.audio ? PREVIA.audio.currentTime - e.t_in : avatar.currentTime);
+    if ((PREVIA.sonando && document.querySelector('.previa-anim')) || (avatar && !avatar.paused)) {
       PREVIA.animando = requestAnimationFrame(paso);
     }
   };
@@ -10877,8 +11106,9 @@ function vistaPreviaLight() {
   }
   if ((e.avatar || {}).clip) {
     const avatar = clipPrevia(e, null, true);
-    engancharArrastreAvatar(avatar, e);
+    colocarAvatarPrevia(avatar, e.avatar.posicion);
     marco.appendChild(avatar);
+    setTimeout(animarPrevia, 0);
   }
   else if (PREVIA.avatarClip) PREVIA.avatarClip.pause();
   /* LA ANIMACIÓN DE MOTION GRAPHICS, ENCIMA DE LA IMAGEN. Es la excepción a
@@ -10901,7 +11131,7 @@ function vistaPreviaLight() {
   engancharSwipePrevia(marco);
   caja.appendChild(marco);
   if ((e.avatar || {}).clip) caja.appendChild(h('p', { clase: 'pista' },
-    'Pincha y arrastra el avatar para colocarlo. La posición se guarda para esta escena y se aplica al montaje.'));
+    'Pulsa Incorporar avatar para editar su posición, su entrada y el momento en que aparece.'));
 
   if (e.recurso_biblioteca) {
     const recurso = e.recurso_biblioteca;
@@ -10958,11 +11188,10 @@ function vistaPreviaLight() {
     h('button', {
       clase: (e.avatar || {}).clip ? 'mini primario' : 'mini',
       'aria-pressed': String(!!(e.avatar || {}).clip),
-      disabled: e.admite_avatar === false || (AVATAR_ESCENA.ocupado && AVATAR_ESCENA.pid === v.pid),
+      disabled: e.admite_avatar === false,
       onclick: () => incorporarAvatarEscena(e),
       title: e.admite_avatar === false ? 'Requiere una escena narrada de hasta 60 segundos, sin cartela ni clip de vídeo'
-        : (e.avatar || {}).clip ? 'El avatar ya está incorporado. Pulsa para oírlo.'
-          : 'Generar con Boson el avatar hablando con el audio de esta escena e incorporarlo al vídeo',
+        : 'Abrir el editor del avatar: posición, entrada animada y línea de tiempo',
     }, 'Incorporar avatar'),
     h('span', { clase: 'meta' },
       `${e.id} · ${e.duracion.toFixed(1)} s`

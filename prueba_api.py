@@ -6057,6 +6057,19 @@ def probar_avatar_en_imagenes(cliente):
     ok(repetida.get("listo") and not repetida.get("trabajo_id"), "volver a abrir Imágenes reutiliza los clips sin otro trabajo")
     igual(os.stat(proyecto.ruta(clip)).st_mtime_ns, fecha, "no se vuelve a generar el clip completado")
     _, antes_manual = cliente.get(f"/api/proyectos/{proyecto.id}")
+    editor_url = f"/api/proyectos/{proyecto.id}/escenas/S002/avatar/editor"
+    respuesta, editor = cliente.get(editor_url)
+    igual(respuesta.status_code, 200, "Incorporar avatar puede abrir un editor sin modificar la escena")
+    ok(len(editor["opciones"]) >= 4 and editor["audio"], "el editor ofrece entradas animadas y el audio para su timeline")
+    respuesta, borrador = cliente.post(editor_url + "/preparar")
+    igual(respuesta.status_code, 202, "el popup prepara un clip para el borrador")
+    if borrador.get("trabajo_id"):
+        preparado_editor = esperar_trabajo(cliente, borrador["trabajo_id"])
+        igual(preparado_editor["estado"], "listo", "el editor obtiene un avatar hablando sin guardar ajustes")
+    _, tras_borrador = cliente.get(f"/api/proyectos/{proyecto.id}")
+    igual(antes_manual, tras_borrador, "abrir y preparar el borrador no modifica params, firmas ni versiones")
+    _, editor_preparado = cliente.get(editor_url)
+    ok(editor_preparado["clip"], "el popup puede recuperar el clip ya preparado")
     cliente.put(f"/api/proyectos/{proyecto.id}/pasos/render/params", {"params": {"unidades": {
         "escena:S002": {"parallax": {"activo": False, "ancla": "Un detalle secundario."}}}}})
     respuesta, incorporacion = cliente.post(f"/api/proyectos/{proyecto.id}/escenas/S002/avatar")
@@ -6100,6 +6113,19 @@ def probar_avatar_en_imagenes(cliente):
     respuesta, _ = cliente.put(posicion_url, {"ancla": ancla, "posicion": {"x": -1, "y": .2}})
     igual(respuesta.status_code, 400, "se rechazan coordenadas inválidas")
     igual(os.stat(proyecto.ruta(clip)).st_mtime_ns, fecha, "el arrastre no vuelve a generar clips de Boson")
+    _, ficha_editor = cliente.get(editor_url)
+    ajustes_editor = {"ancla": ficha_editor["ancla"], "activo": True, "posicion": {"x": .25, "y": .3},
+                       "presentacion": {"entrada": "desde-abajo", "inicio": .2, "fin": .8}}
+    respuesta, guardado_editor = cliente.put(editor_url, ajustes_editor)
+    igual(respuesta.status_code, 200, "el popup guarda conjuntamente posición, entrada e intervalo")
+    igual(guardado_editor["escenas"][1]["avatar"]["presentacion"], ajustes_editor["presentacion"],
+          "la previsualización recupera los tiempos y la animación elegidos")
+    igual(guardado_editor["avatar"]["clave"], clave_antes, "editar entrada y tiempos no regenera el lip-sync")
+    respuesta, _ = cliente.put(editor_url, dict(ajustes_editor, presentacion={"entrada": "fundido", "inicio": .2, "fin": 2}))
+    igual(respuesta.status_code, 400, "el timeline no puede salir de la escena")
+    respuesta, sin_avatar = cliente.put(editor_url, dict(ajustes_editor, activo=False))
+    igual(respuesta.status_code, 200, "el popup permite quitar el avatar de esta escena")
+    igual(sin_avatar["escenas"][1]["avatar"], None, "quitar el avatar no lo deja visible por la selección automática")
     respuesta, _ = cliente.post(f"/api/proyectos/{proyecto.id}/escenas/NO_EXISTE/avatar")
     igual(respuesta.status_code, 404, "no se incorpora el avatar a una escena inexistente")
     cliente.put(f"/api/proyectos/{proyecto.id}/pasos/render/params", {"params": {"avatar": {"activo": False}}})

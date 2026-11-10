@@ -1670,7 +1670,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             posicion_avatar = avatar.posicion_de(p, escena, (ancho, alto))
             video = avatar.componer(proyecto, clips_avatar[sid], hyper,
                                     lambda: avisar(.06, sid + ": incorporando el avatar"), (ancho, alto),
-                                    {k: posicion_avatar[k] for k in ("x", "y")})
+                                    {k: posicion_avatar[k] for k in ("x", "y")}, avatar.presentacion_de(p, escena))
             mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1])
 
         tareas.append({

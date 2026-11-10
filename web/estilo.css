@@ -2567,10 +2567,21 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 /* Sustitucion del material del plano: visible al apuntar, con teclado y en tactil. */
 .previa-marco .previa-clip { width: 100%; height: 100%; object-fit: cover; display: block; }
 .previa-marco.con-avatar > img { object-fit: cover; }
-.previa-marco .previa-avatar { position: absolute; left: var(--avatar-x, 73.375%); top: var(--avatar-y, 4%); width: 23.625%; aspect-ratio: 1; object-fit: contain; background: #000; display: block; cursor: grab; touch-action: none; user-select: none; }
+.previa-marco .previa-avatar { position: absolute; left: var(--avatar-x, 73.375%); top: var(--avatar-y, 4%); right: auto; bottom: auto; width: 23.625%; height: auto; aspect-ratio: 1; object-fit: contain; background: #000; display: block; user-select: none; }
 .previa-marco.vertical .previa-avatar { width: 42%; left: var(--avatar-x, 55%); }
 .previa-marco .previa-avatar.avatar-arrastrando { cursor: grabbing; outline: 2px solid var(--acento, #8294ff); }
-.previa-marco .previa-avatar.avatar-guardando { cursor: progress; }
+.avatar-editor-previa .previa-avatar { cursor: grab; touch-action: none; }
+.previa-marco.avatar-editor-previa > .previa-avatar { object-fit: contain; }
+.avatar-escena-editor .avatar-editor-disposicion { grid-template-columns: minmax(210px, .65fr) minmax(0, 1.65fr); }
+.avatar-escena-editor input[type="checkbox"] { width: auto; flex: 0 0 auto; }
+.avatar-entradas { display: grid; gap: 8px; margin: 12px 0 20px; }
+.avatar-entradas button { display: grid; gap: 5px; padding: 12px; text-align: left; white-space: normal; }
+.avatar-entradas button span { font-size: 12px; color: var(--tenue); }
+.avatar-entradas button[aria-pressed="true"] { border-color: #879af0; background: #27314d; }
+.avatar-editor-tiempos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.avatar-escena-editor .anim-timeline-bloque { touch-action: none; }
+.avatar-escena-editor .anim-timeline-pistas { touch-action: none; }
+@media (max-width: 800px) { .avatar-escena-editor .avatar-editor-disposicion { grid-template-columns: minmax(0, 1fr); } }
 .previa-marco .sustituir-medio {
   position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
   z-index: 4; opacity: 0; pointer-events: none; transition: opacity .15s;
