@@ -5023,10 +5023,64 @@ def _plan_de_previsualizacion(ctx):
     return plan
 
 
+def _fuente_sonido_editor(ctx, fuente, desfase=0):
+    from pasos import sonido
+    return dict(fuente, eventos=[dict(t=e['t'] - desfase, ganancia=e['ganancia'],
+        duracion=e.get('duracion') or e['ficha'].get('duracion') or .1,
+        archivo=(os.path.relpath(e['ficha']['archivo'], ctx.proyecto.raiz).replace(os.sep, '/')
+                 if e['ficha'].get('archivo') and os.path.isabs(e['ficha']['archivo'])
+                 else e['ficha'].get('archivo')),
+        banco=sonido._nombre_de(e['ficha'])) for e in fuente['eventos']])
+
+
+@app.get("/api/sonidos/buscar")
+def buscar_sonidos(q: str = Query(default='', max_length=200), pagina: int = Query(default=1, ge=1, le=10000)):
+    """Busca efectos en todo el catálogo de Freesound, con resultados paginados."""
+    from pasos import sonido
+    try:
+        return sonido.buscar_catalogo(q.strip(), pagina)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    except (RuntimeError, sonido.requests.RequestException) as exc:
+        raise ErrorApi(502, str(exc)) from exc
+
+
+@app.get("/api/sonidos/{identificador}/muestra")
+def muestra_sonido(identificador: str, peticion: Request):
+    """Escucha la muestra de un efecto de Freesound desde el banco local."""
+    from pasos import sonido
+    try:
+        ruta = sonido.traer(sonido.efecto_por_id(identificador), 'efectos')
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    except (RuntimeError, sonido.requests.RequestException) as exc:
+        raise ErrorApi(502, str(exc)) from exc
+    return servir_fichero(peticion, ruta)
+
+
+@app.post("/api/proyectos/{pid}/escenas/{sid}/sonidos", status_code=201)
+def preparar_sonido_escena(pid: str, sid: str, datos: dict = Body(...)):
+    """Prepara un efecto seleccionado; el bloque solo se persiste al guardar la escena."""
+    from pasos import sonido
+    ctx = contexto(pid)
+    if ctx.gestor.listar(activos=True):
+        raise ErrorApi(409, 'espera a que termine el trabajo del vídeo o páralo antes de añadir sonidos')
+    plan = _plan_de_previsualizacion(ctx)
+    if not any(e['id'] == sid for e in plan.get('escenas', [])):
+        raise ErrorApi(404, 'esa escena no está en el plan del vídeo')
+    try:
+        fuente = sonido.preparar_efecto(ctx.proyecto, datos.get('id'))
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    except (RuntimeError, sonido.requests.RequestException) as exc:
+        raise ErrorApi(502, str(exc)) from exc
+    return _fuente_sonido_editor(ctx, fuente)
+
+
 @app.get("/api/proyectos/{pid}/escenas/{sid}/editor")
 def leer_editor_escena(pid: str, sid: str):
-    """Borrador conjunto de las cuatro pestañas, sin modificar parámetros."""
-    from pasos import editor_escena
+    """Borrador conjunto de las pistas de escena, sin modificar parámetros."""
+    from pasos import editor_escena, sonido, transiciones
     ctx = contexto(pid)
     plan = _plan_de_previsualizacion(ctx)
     escena = next((e for e in plan.get('escenas', []) if e['id'] == sid), None)
@@ -5036,7 +5090,13 @@ def leer_editor_escena(pid: str, sid: str):
     transicion = None
     if sid != plan['escenas'][-1]['id']:
         transicion = leer_transicion_escena(pid, sid)
+    params = ctx.estado.params('render') or {}
+    cortes = transiciones.resolver(plan['escenas'], params, semilla=plan.get('semilla') or 0)
+    fuentes, actual = sonido.bloques_de_escena(plan['escenas'], cortes, params, sid, plan.get('semilla') or 0, proyecto=ctx.proyecto)
+    desfase = float(escena['t_in']) - float(plan['escenas'][0]['t_in'])
+    fuentes = [_fuente_sonido_editor(ctx, b, desfase) for b in fuentes]
     return dict(animacion=leer_animacion_escena(pid, sid), parallax=leer_parallax_escena(pid, sid),
+                sonidos=dict(fuentes=fuentes if params.get('sonido', True) else [], actual=actual),
                 avatar=leer_editor_avatar(pid, sid), enlace=transicion,
                 transiciones=editor_escena.transiciones_de(unidad, escena))
 
@@ -5054,6 +5114,11 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
         enlace = cambios.pop('enlace', None)
         try:
             limpio = editor_escena.validar(cambios, escena, plan.get('resolucion') or [1920, 1080])
+            if 'sonidos' in limpio:
+                from pasos import sonido
+                for bloque in limpio['sonidos']['bloques']:
+                    if bloque['id'].startswith('freesound:'):
+                        sonido.fuente_usuario(ctx.proyecto, bloque['id'])
             if limpio.get('avatar', {}).get('activo'):
                 _exigir_avatar_editor(ctx, params, escena, audio)
             if 'parallax' in limpio and limpio['parallax']['activo']:

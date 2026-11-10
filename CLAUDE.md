@@ -559,6 +559,32 @@ conservan su montaje histórico. La previa carga el pintor al abrir el editor y
 su progreso depende del reloj común, también al buscar y arrastrar. Regresión
 de persistencia y píxeles: `python pasos/prueba_editor_escena.py --real`.
 
+La pista **Sonidos**, debajo de Animación, agrupa los eventos automáticos por
+papel (mecanografía, retorno, transición y audio de biblioteca). Sus intervalos
+manuales viven en `render.params.unidades["escena:<sid>"].sonidos`, con `ancla`
+y `bloques: [{id, inicio, fin}]`; ausencia hereda y lista vacía silencia la escena.
+`sonido.eventos` retima la posición de las pulsaciones, pero cada muestra mantiene
+siempre su velocidad y tono originales, tanto en Web Audio como en la mezcla.
+Acortar un bloque recorta el audio; alargarlo no estira ni repite el archivo.
+No uses la proporción entre duración de bloque y fuente como `playbackRate` ni
+para remuestrear: un sonido añadido cerca del final de la escena se aceleraba
+porque el bloque se limitaba al tiempo restante.
+El editor reproduce los mismos intervalos con Web Audio junto al reloj de la voz.
+Abrir el editor solo lee: nunca persiste los bloques automáticos. Los ajustes de
+animación y sonido son independientes; se coordinan manualmente en estas pistas.
+«Añadir bloque» abre `abrirBuscadorSonidos`: busca en `GET /api/sonidos/buscar`,
+escucha mediante `/api/sonidos/<id>/muestra` (mismo origen, sin depender de la CSP
+para medios externos) y prepara con `POST escenas/<sid>/sonidos`. La selección
+usa el id de Freesound; el servidor resuelve sus datos, nunca acepta una URL de
+descarga del cliente. El recurso inmutable y su ficha se copian a
+`medios_usuario/sonidos/<id>.mp3/.json`, sin modificar params hasta Guardar.
+Los bloques manuales usan `id: "freesound:<id>"`; `fuente_usuario` resuelve sus
+rutas dentro del proyecto tanto al reabrir como al montar. P8 pasa `proyecto`
+a `sonido.eventos`; sin él no se pueden resolver estos efectos. La copia no
+depende del banco global. `traer` serializa por fichero para evitar que escuchar
+y seleccionar a la vez compitan por el mismo `.parcial`. Pruebas offline de
+búsqueda, selección, reabrir, validación y audio en `prueba_editor_escena.py`.
+
 **Editor unificado de escena**: `abrirEditorEscena` reúne las cuatro pestañas y
 el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones
 antes de guardar y solo escriben pestañas modificadas. `animacion.bloques` conserva

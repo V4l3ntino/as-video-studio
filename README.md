@@ -41,6 +41,33 @@ el estilo obligaba a acordarse de cambiarlas en cada encargo.
 
 ---
 
+## Sincronizar los sonidos de una escena
+
+En el editor de escena, la pista **Sonidos**, debajo de **Animación**, muestra los
+efectos disponibles, incluida la mecanografía de las cartelas. Arrastra un bloque
+para cambiar su inicio, o sus extremos para ajustar el tiempo que suena.
+Los efectos conservan su velocidad y tono originales: si el bloque es más corto,
+se recortan; si es más largo, terminan al acabar el archivo, sin estirarlo.
+También puedes introducir los tiempos en la pestaña **Sonidos** o eliminar un
+efecto de esa escena.
+
+**Añadir bloque** abre un buscador de **Freesound** con resultados paginados.
+Escribe lo que necesitas (por ejemplo, `football kick` o `stadium crowd`), pulsa
+**Buscar**, escucha las muestras y pulsa **Añadir** en el efecto elegido. El
+popup muestra duración, autor y enlaces a la licencia y al recurso original;
+también permite reutilizar los sonidos disponibles en la escena. Se necesita
+la clave de Freesound de **Configuración → Bibliotecas, música y efectos** para
+buscar y obtener efectos nuevos. Al abrir el buscador se muestran los más
+descargados del catálogo.
+
+El efecto seleccionado se incorpora al borrador en la posición del cursor,
+limitado al tiempo restante de la escena. Su audio y metadatos se conservan
+dentro del proyecto, por lo que viajan al duplicar o exportar el vídeo.
+
+Pulsa **Reproducir** para escuchar los efectos junto a la narración y comprobar su
+coordinación con la animación. Pulsa **Guardar** y vuelve a **Montar el vídeo**
+para aplicar el ajuste al MP4.
+
 ## Llevar un estilo a otro servidor
 
 En **Tus estilos**, abre el menú **⋯** de la tarjeta y pulsa **Exportar**.

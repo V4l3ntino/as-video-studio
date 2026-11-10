@@ -1872,7 +1872,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     if p.get("sonido", True):
         avisar(0.93, "montando la banda de efectos")
         lista_eventos = sonido.eventos(escenas, cortes, p,
-                                       semilla=(plan.get("semilla") or 0))
+                                       semilla=(plan.get("semilla") or 0), proyecto=proyecto)
         if lista_eventos:
             pista_efectos, sonidos = sonido.pista_de_efectos(
                 lista_eventos, largo, os.path.join(trabajo, "efectos.wav"))

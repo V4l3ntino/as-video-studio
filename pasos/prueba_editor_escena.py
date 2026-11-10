@@ -218,6 +218,7 @@ class EditorEscena(unittest.TestCase):
                 bloques = [dict(id='editorial-fecha', ancla=ancla, contenido={'texto': str(2020 + i), 'contexto': 'Prueba'},
                     inicio=i * 3, duracion=2, posiciones={'conjunto': {'x': i * .1, 'y': 0}}) for i in range(2)]
                 datos = dict(animacion=dict(bloques[0], bloques=bloques),
+                    sonidos=dict(ancla=ancla, bloques=[dict(id='tecla', inicio=2, fin=4)]),
                     parallax=dict(ficha['parallax']['actual'], ancla=ficha['parallax']['ancla'], activo=False),
                     transiciones=dict(ancla=ancla, bloques=[dict(tipo='fundido', sentido='entrada', inicio=0, fin=.5),
                                                           dict(tipo='glitch', sentido='salida', inicio=5, fin=6)]),
@@ -238,6 +239,7 @@ class EditorEscena(unittest.TestCase):
                 self.assertEqual(len(ids), len(set(ids)))
                 reabierta = servidor.leer_editor_escena(proyecto.id, 'S001')
                 self.assertEqual(reabierta['transiciones'], datos['transiciones']['bloques'])
+                self.assertEqual(reabierta['sonidos']['actual'], datos['sonidos']['bloques'])
                 self.assertEqual(reabierta['enlace']['actual']['tipo'], 'sdf-iris')
                 self.assertEqual({p: estado.firma(p) for p in firmas}, firmas)
                 escena = servidor._plan_de_previsualizacion(ctx)['escenas'][0]
@@ -261,6 +263,121 @@ class EditorEscena(unittest.TestCase):
         with self.assertRaises(ValueError):
             animaciones.validar_edicion({'bloques': [None]}, escena)
         self.assertEqual(editor_escena.transiciones_de({'transiciones_escena': {'ancla': 'otra', 'bloques': bloques}}, escena), [])
+
+    def test_sonidos_retemporiza_pulsaciones_y_audio_sin_tocar_otras_escenas(self):
+        from pasos import sonido
+        import numpy as np
+        escenas = [dict(id='S001', narracion='Una frase.', t_in=10, t_out=16, duracion=6),
+                   dict(id='S002', narracion='Otra frase.', t_in=16, t_out=22, duracion=6)]
+        eventos = [dict(escena='S001', t=t, papel='tecla', ficha=dict(duracion=.2), ganancia=.5) for t in (1., 1.8)]
+        vecino = dict(escena='S002', t=6.5, papel='tecla', ficha=dict(duracion=.2), ganancia=.5)
+        ajuste = dict(ancla=animaciones.ancla_de(escenas[0]), bloques=[dict(id='tecla', inicio=3., fin=5.)])
+        params = dict(unidades={'escena:S001': dict(sonidos=ajuste)})
+        with patch.object(sonido, '_eventos_automaticos', return_value=eventos + [vecino]):
+            lista = sonido.eventos(escenas, {}, params)
+            self.assertEqual([e['t'] for e in lista], [3., 4.6, 6.5])
+            self.assertNotIn('velocidad', lista[0])
+            self.assertEqual(lista[-1], vecino)
+            with tempfile.TemporaryDirectory() as tmp:
+                origen = os.path.join(tmp, 'tono.wav')
+                sonido._escribir(origen, np.full((9600, 2), .2, dtype=np.float32))
+                lista[0]['ficha'] = dict(archivo=origen)
+                destino = os.path.join(tmp, 'efectos.wav')
+                sonido.pista_de_efectos(lista[:1], 6, destino, igualar=False)
+                muestras = sonido._leer(destino)
+                self.assertEqual(float(np.max(np.abs(muestras[:144000]))), 0.)
+                self.assertGreater(float(np.max(np.abs(muestras[148800:151200]))), .1)
+                self.assertEqual(float(np.max(np.abs(muestras[153600:]))), 0.)
+            ajuste['bloques'] = []
+            self.assertEqual(sonido.eventos(escenas, {}, params), [vecino])
+            ajuste['ancla'] = 'otra narración'
+            self.assertEqual(sonido.eventos(escenas, {}, params), eventos + [vecino])
+        for valor in (float('nan'), True, 7, -1):
+            with self.assertRaises(ValueError):
+                editor_escena.validar(dict(sonidos=dict(ancla=animaciones.ancla_de(escenas[0]),
+                    bloques=[dict(id='tecla', inicio=0, fin=valor)])), escenas[0], [1280, 720])
+
+    def test_busqueda_freesound_paginada_y_sin_clave(self):
+        from pasos import sonido
+        respuesta = MagicMock(status_code=200)
+        respuesta.json.return_value = dict(count=34, next='https://freesound.org/apiv2/search/text/?page=3',
+            results=[dict(id=123, name='Football kick', duration=.4, username='Autor',
+                license='https://creativecommons.org/publicdomain/zero/1.0/',
+                previews={'preview-hq-mp3': 'https://cdn.freesound.org/123.mp3'})])
+        with patch.object(sonido, '_claves', return_value={'FREESOUND_API_KEY': 'clave-de-prueba'}), patch.object(
+                sonido.requests, 'get', return_value=respuesta) as pedir:
+            resultado = servidor.buscar_sonidos('ball kick', 2)
+            self.assertEqual(resultado['total'], 34)
+            self.assertTrue(resultado['siguiente'])
+            self.assertEqual(resultado['resultados'][0]['titulo'], 'Football kick')
+            self.assertEqual(pedir.call_args.kwargs['params']['page'], 2)
+            self.assertNotIn('filter', pedir.call_args.kwargs['params'])
+            self.assertNotIn('clave-de-prueba', str(resultado))
+        with patch.object(sonido, '_claves', return_value={}):
+            with self.assertRaises(servidor.ErrorApi):
+                servidor.buscar_sonidos('ball', 1)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'requiere ffmpeg')
+    def test_efecto_elegido_se_prepara_sin_guardar_y_se_monta_desde_el_proyecto(self):
+        from pasos import sonido
+        import numpy as np
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto, estado = juguete.construir(tmp, animaciones=[], etiquetas={})
+            ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=MagicMock())
+            ctx.gestor.listar.return_value = []
+            origen = os.path.join(tmp, 'efecto.wav')
+            tono = .2 * np.sin(2 * np.pi * 440 * np.arange(19200) / sonido.FRECUENCIA)
+            sonido._escribir(origen, np.column_stack([tono, tono]).astype(np.float32))
+            ficha = dict(fuente='freesound', id='123', titulo='Balón', duracion=.4, autor='Autor', licencia='CC0')
+            with patch.object(servidor, 'contexto', return_value=ctx), patch.object(servidor, '_audio_de_la_toma', return_value=None):
+                antes = Path(proyecto.ruta('estado.json')).read_bytes()
+                with patch.object(sonido, 'efecto_por_id', return_value=ficha), patch.object(sonido, 'traer', return_value=origen):
+                    preparado = servidor.preparar_sonido_escena(proyecto.id, 'S002', dict(id='123'))
+                self.assertEqual(preparado['id'], 'freesound:123')
+                self.assertEqual(preparado['eventos'][0]['archivo'], 'medios_usuario/sonidos/123.mp3')
+                self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes())
+                escena = servidor._plan_de_previsualizacion(ctx)['escenas'][1]
+                edicion = dict(ancla=animaciones.ancla_de(escena), bloques=[dict(id='freesound:123', inicio=2, fin=2.4)])
+                firmas = {p: estado.firma(p) for p in ('voz', 'guion', 'assets', 'callouts')}
+                invalido = dict(ancla=edicion['ancla'], bloques=[dict(id='freesound:456', inicio=2, fin=2.4)])
+                with self.assertRaises(servidor.ErrorApi):
+                    servidor.guardar_editor_escena(proyecto.id, 'S002', dict(sonidos=invalido))
+                self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes())
+                servidor.guardar_editor_escena(proyecto.id, 'S002', dict(sonidos=edicion))
+                reabierta = servidor.leer_editor_escena(proyecto.id, 'S002')['sonidos']
+                self.assertEqual(reabierta['actual'], edicion['bloques'])
+                fuente = next(f for f in reabierta['fuentes'] if f['id'] == 'freesound:123')
+                self.assertEqual(fuente['nombre'], 'Balón')
+                self.assertEqual(fuente['eventos'][0]['t'], 0)
+                self.assertEqual({p: estado.firma(p) for p in firmas}, firmas)
+                plan = servidor._plan_de_previsualizacion(ctx)
+                lista = sonido.eventos(plan['escenas'], {}, estado.params('render'), proyecto=proyecto)
+                self.assertEqual(len(lista), 1)
+                self.assertEqual(lista[0]['t'], 8)
+                destino = os.path.join(tmp, 'mezcla.wav')
+                sonido.pista_de_efectos(lista, 30, destino, igualar=False)
+                muestras = sonido._leer(destino)
+                self.assertEqual(float(np.max(np.abs(muestras[:384000]))), 0.)
+                self.assertGreater(float(np.max(np.abs(muestras[384000:403000]))), .1)
+                self.assertEqual(float(np.max(np.abs(muestras[403201:]))), 0.)
+                # Tanto un bloque corto como uno largo conservan las muestras y el tono.
+                original = sonido._leer(origen)
+                for duracion in (.1, .8):
+                    edicion['bloques'] = [dict(id='freesound:123', inicio=2, fin=2 + duracion)]
+                    servidor.guardar_editor_escena(proyecto.id, 'S002', dict(sonidos=edicion))
+                    lista = sonido.eventos(plan['escenas'], {}, estado.params('render'), proyecto=proyecto)
+                    sonido.pista_de_efectos(lista, 30, destino, igualar=False)
+                    muestras = sonido._leer(destino)
+                    cantidad = min(round(duracion * sonido.FRECUENCIA), len(original))
+                    trozo = muestras[384000:384000 + cantidad]
+                    esperado = original[:cantidad]
+                    np.testing.assert_allclose(trozo / np.max(np.abs(trozo)),
+                        esperado / np.max(np.abs(esperado)), atol=.001)
+                    self.assertEqual(float(np.max(np.abs(muestras[384000 + cantidad:]))), 0.)
+                # Tras copiar el vídeo ya no depende del banco global ni de sus rutas originales.
+                shutil.copytree(proyecto.raiz, os.path.join(tmp, 'copia'))
+                with patch.object(proyecto, 'raiz', os.path.join(tmp, 'copia')):
+                    self.assertTrue(os.path.isfile(sonido.fuente_usuario(proyecto, 'freesound:123')['eventos'][0]['ficha']['archivo']))
 
     @unittest.skipUnless(shutil.which('ffmpeg'), 'requiere ffmpeg')
     def test_avatar_real_multiples_apariciones_conserva_intervalos(self):

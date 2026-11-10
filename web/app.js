@@ -9915,7 +9915,76 @@ function pintorTransicion(canvas, ficha, cuadros) {
   };
 }
 
-/* Un borrador y un reloj compartidos por las cuatro pestañas de la escena. */
+/* Buscar no modifica el montaje; la selección se incorpora al borrador. */
+function abrirBuscadorSonidos(disponibles, alSeleccionar) {
+  let pagina = 1, consulta = '', revision = 0, seleccionando = false;
+  const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' });
+  const resultados = h('div', { clase: 'sonidos-resultados' });
+  const navegacion = h('div', { clase: 'sonidos-paginacion' });
+  const entrada = h('input', { type: 'search', maxlength: 200, placeholder: 'Ej.: typewriter, football kick, stadium crowd',
+    'aria-label': 'Buscar efectos en Freesound' });
+  const buscar = h('button', { type: 'submit', clase: 'primario' }, 'Buscar');
+  const formulario = h('form', { clase: 'sonidos-buscador-form', onsubmit: ev => {
+    ev.preventDefault(); consulta = entrada.value.trim(); pagina = 1; cargar();
+  } }, entrada, buscar);
+  function pararMuestras() { dialogo.querySelectorAll('audio').forEach(a => a.pause()); }
+  function cerrar() {
+    if (seleccionando) return;
+    revision++; pararMuestras(); dialogo.close(); dialogo.remove();
+  }
+  async function seleccionar(ficha) {
+    if (seleccionando) return;
+    seleccionando = true; pararMuestras(); formulario.inert = resultados.inert = navegacion.inert = locales.inert = true;
+    estado.textContent = 'Preparando el efecto para la escena…';
+    try {
+      await alSeleccionar(ficha);
+      seleccionando = false; cerrar();
+    } catch (error) {
+      estado.textContent = `No se pudo añadir el efecto: ${error.message}`;
+    } finally {
+      seleccionando = false; formulario.inert = resultados.inert = navegacion.inert = locales.inert = false;
+    }
+  }
+  const locales = h('div', { clase: 'sonidos-disponibles' }, disponibles.length ? h('h3', {}, 'Ya disponibles en esta escena') : null,
+    ...disponibles.map(f => h('button', { clase: 'mini', onclick: () => seleccionar(f) }, f.nombre)));
+  const dialogo = h('dialog', { clase: 'sonidos-buscador', 'aria-labelledby': 'sonidos-buscador-titulo',
+    oncancel: ev => { ev.preventDefault(); cerrar(); }, onkeydown: ev => ev.stopPropagation() },
+    h('div', { clase: 'anim-editor-cab' }, h('h2', { id: 'sonidos-buscador-titulo' }, 'Añadir sonido'),
+      h('button', { clase: 'mini', onclick: cerrar }, 'Cerrar')),
+    h('p', { clase: 'meta' }, 'Busca en el catálogo de Freesound, escucha una muestra y elige un efecto para añadirlo a la pista.'),
+    formulario, locales, estado, resultados, navegacion);
+  document.body.appendChild(dialogo); dialogo.showModal(); entrada.focus(); cargar();
+  async function cargar() {
+    if (seleccionando) return;
+    const actual = ++revision;
+    pararMuestras(); vaciar(resultados); vaciar(navegacion);
+    estado.textContent = 'Buscando efectos en Freesound…';
+    try {
+      const datos = await pedir(`${BASE}/api/sonidos/buscar?q=${encodeURIComponent(consulta)}&pagina=${pagina}`);
+      if (!dialogo.isConnected || actual !== revision) return;
+      estado.textContent = datos.resultados.length ? `${datos.total} efectos · Página ${pagina}` : 'No se encontraron efectos. Prueba con otra búsqueda, también en inglés.';
+      datos.resultados.forEach(f => {
+        const audio = h('audio', { controls: true, preload: 'none', 'aria-label': `Escuchar ${f.titulo}`,
+          src: `${BASE}/api/sonidos/${encodeURIComponent(f.id)}/muestra`,
+          onplay: ev => dialogo.querySelectorAll('audio').forEach(a => { if (a !== ev.target) a.pause(); }),
+          onerror: () => { estado.textContent = 'No se pudo cargar la muestra de audio. Puedes volver a intentarlo o elegir otro efecto.'; } });
+        resultados.appendChild(h('article', { clase: 'sonido-resultado' },
+          h('div', { clase: 'sonido-resultado-ficha' }, h('h3', {}, f.titulo || 'Efecto de sonido'),
+            h('p', { clase: 'meta' }, `${Number(f.duracion).toFixed(2)} s · ${f.autor}`),
+            h('a', { href: f.licencia, target: '_blank', rel: 'noopener noreferrer' }, 'Licencia'),
+            h('a', { href: f.pagina, target: '_blank', rel: 'noopener noreferrer' }, 'Ver en Freesound')),
+          audio, h('button', { clase: 'primario', onclick: () => seleccionar(f) }, 'Añadir')));
+      });
+      navegacion.append(h('button', { clase: 'mini', disabled: pagina <= 1, onclick: () => { pagina--; cargar(); } }, '← Anterior'),
+        h('span', { clase: 'meta' }, `Página ${pagina}`),
+        h('button', { clase: 'mini', disabled: !datos.siguiente, onclick: () => { pagina++; cargar(); } }, 'Siguiente →'));
+    } catch (error) {
+      if (dialogo.isConnected && actual === revision) estado.textContent = error.message;
+    }
+  }
+}
+
+/* Un borrador y un reloj compartidos por las pistas de la escena. */
 async function abrirEditorEscena(escena) {
   if ($('#editor-escena')) return;
   pararPrevia();
@@ -9927,6 +9996,8 @@ async function abrirEditorEscena(escena) {
   let temporizador, revision = 0, tid = '', generando = false, pintor, pintorEnlace, cuadroEnlace = 0, cuadroBase, preparandoEnlace;
   let arrastrando = false;
   const historial = [], ondas = [];
+  const buffersSonido = new Map(), reproduccionesSonido = [];
+  let contextoSonido;
   const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando escena…');
   const panel = h('div', { clase: 'escena-editor-panel', role: 'tabpanel', id: 'escena-configuracion' });
   const muestra = h('div', { clase: `previa-marco anim-editor-previa escena-editor-previa con-avatar ${formatoDelVideo()}` });
@@ -9942,20 +10013,21 @@ async function abrirEditorEscena(escena) {
   const onda = h('canvas', { clase: 'anim-timeline-onda', 'aria-label': 'Forma de onda real del narrador' });
   const pistas = h('div', { clase: 'anim-timeline-pistas', onpointerdown: buscar }, regla);
   const filas = {};
-  ['audio', 'animacion', 'avatar', 'transiciones'].forEach(id => {
+  const ordenPistas = ['audio', 'animacion', 'sonidos', 'avatar', 'transiciones'];
+  ordenPistas.forEach(id => {
     filas[id] = h('div', { clase: `anim-timeline-pista ${id}`, 'aria-label': `Pista ${id}` });
     if (id === 'audio') filas[id].appendChild(onda);
     pistas.appendChild(filas[id]);
   });
   pistas.appendChild(cabezal);
   const datosTiempo = h('span', { clase: 'anim-timeline-datos' });
-  const timeline = h('section', { clase: 'anim-timeline escena-timeline', 'aria-label': 'Línea de tiempo de cuatro pistas' },
-    h('div', { clase: 'anim-timeline-cab' }, reproducir, h('span', { clase: 'meta' }, 'Voz de la escena'), reloj),
+  const timeline = h('section', { clase: 'anim-timeline escena-timeline', 'aria-label': 'Línea de tiempo de cinco pistas' },
+    h('div', { clase: 'anim-timeline-cab' }, reproducir, h('span', { clase: 'meta' }, 'Voz y sonidos de la escena'), reloj),
     h('div', { clase: 'anim-timeline-fila' }, h('div', { clase: 'anim-timeline-etiquetas' },
-      ...['♪ Audio', '✦ Animación', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n))), pistas), datosTiempo);
+      ...['♪ Audio', '✦ Animación', '♫ Sonidos', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n))), pistas), datosTiempo);
   const guardarBoton = h('button', { clase: 'primario', disabled: true, onclick: guardar }, 'Guardar');
   const deshacerBoton = h('button', { clase: 'mini anim-editor-deshacer', disabled: true, onclick: deshacer }, '↶ Deshacer');
-  const nombres = [['animacion', '✦', 'Animación'], ['parallax', '◇', 'Efecto Parallax'],
+  const nombres = [['animacion', '✦', 'Animación'], ['sonidos', '♫', 'Sonidos'], ['parallax', '◇', 'Efecto Parallax'],
     ['transiciones', '◩', 'Transición'], ['avatar', '♙', 'Incorporar avatar']];
   const tabs = h('div', { clase: 'escena-editor-tabs', role: 'tablist', 'aria-label': 'Elementos de escena' },
     ...nombres.map(([id, icono, nombre]) => h('button', { role: 'tab', id: `escena-tab-${id}`,
@@ -9964,7 +10036,7 @@ async function abrirEditorEscena(escena) {
       onkeydown: ev => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
         ev.preventDefault(); const i = nombres.findIndex(n => n[0] === pestaña);
-        const siguiente = ev.key === 'Home' ? 0 : ev.key === 'End' ? 3 : (i + (ev.key === 'ArrowRight' ? 1 : 3)) % 4;
+        const siguiente = ev.key === 'Home' ? 0 : ev.key === 'End' ? nombres.length - 1 : (i + (ev.key === 'ArrowRight' ? 1 : nombres.length - 1)) % nombres.length;
         seleccionarPestaña(nombres[siguiente][0]); tabs.children[siguiente].focus();
       } }, h('span', { 'aria-hidden': 'true' }, icono), nombre)));
   const cerrar = () => {
@@ -9974,6 +10046,7 @@ async function abrirEditorEscena(escena) {
     [pintor, pintorEnlace].forEach(p => p?.cerrar());
     dialogo.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
     if (audio) { audio.removeAttribute('src'); audio.load(); }
+    contextoSonido?.close();
     PREVIA.arrastrandoAvatar = false; PREVIA.repintadoAvatarPendiente = false;
     dialogo.close(); dialogo.remove(); repintarVideo();
   };
@@ -9986,7 +10059,7 @@ async function abrirEditorEscena(escena) {
     } },
     h('div', { clase: 'anim-editor-cab' }, h('h2', { id: 'escena-editor-titulo' }, `Editar escena · ${escena.id}`),
       deshacerBoton, h('button', { clase: 'mini', onclick: cerrar }, 'Cerrar')),
-    h('p', { clase: 'meta' }, 'Configura los elementos visuales de la escena: animación, efecto parallax, transición e incorporación de avatar.'),
+    h('p', { clase: 'meta' }, 'Configura la animación, los sonidos, el efecto parallax, la transición y el avatar de la escena.'),
     tabs, h('div', { clase: 'anim-editor-disposicion' }, panel, h('div', { clase: 'escena-editor-visual' }, muestra, timeline)),
     medios, h('div', { clase: 'anim-editor-pie' }, estado, guardarBoton));
   document.body.appendChild(dialogo); dialogo.showModal();
@@ -10043,6 +10116,20 @@ async function abrirEditorEscena(escena) {
   function intervalo(b) { return pestaña === 'animacion' ? { inicio: b.inicio || 0, fin: (b.inicio || 0) + (b.duracion || total) } : b; }
   function nuevo() {
     if (ocupado() || listaActual().length >= 32) return;
+    if (pestaña === 'sonidos') {
+      pausar();
+      abrirBuscadorSonidos(ficha.sonidos.fuentes, async resultado => {
+        let fuente = resultado;
+        if (!fuente.eventos) fuente = await pedir(`${base}/sonidos`, { method: 'POST', cuerpo: { id: resultado.id } });
+        if (!dialogo.isConnected) return;
+        recordar();
+        if (!ficha.sonidos.fuentes.some(f => f.id === fuente.id)) ficha.sonidos.fuentes.push(fuente);
+        const inicio = Math.min(tiempo, total - minimo);
+        borrador.sonidos.push({ id: fuente.id, inicio, fin: Math.min(total, inicio + Math.max(minimo, fuente.fin - fuente.inicio)) });
+        seleccionado = borrador.sonidos.length - 1; pintarPanel(); cambio(false);
+      });
+      return;
+    }
     recordar();
     const inicio = Math.min(tiempo, total - minimo), fin = Math.min(total, inicio + Math.max(minimo, total / 3));
     let b;
@@ -10075,6 +10162,9 @@ async function abrirEditorEscena(escena) {
     panel.appendChild(h('div', { clase: 'escena-editor-acciones' }, h('b', {}, nombres.find(n => n[0] === pestaña)[2]),
       h('button', { clase: 'mini', disabled: (pestaña === 'avatar' && !ficha.avatar.disponible) || lista.length >= 32,
         onclick: nuevo }, '+ Añadir bloque')));
+    if (pestaña === 'sonidos') panel.appendChild(h('p', { clase: 'meta' }, ficha.sonidos.fuentes.length
+      ? 'Arrastra cada bloque para sincronizarlo con la animación. Sus extremos recortan el sonido sin cambiar su velocidad ni su tono. Reproducir permite oírlo junto a la voz.'
+      : 'Pulsa «Añadir bloque» para buscar un efecto en Freesound e incorporarlo a esta escena.'));
     if (pestaña === 'avatar') {
       panel.appendChild(h('p', { clase: 'meta' }, ficha.avatar.motivo || 'Arrastra el avatar en el visualizador para colocarlo. Sus labios siguen el reloj de la narración.'));
       panel.appendChild(h('button', { clase: 'mini', disabled: !ficha.avatar.disponible || !!ficha.avatar.clip || generando,
@@ -10111,7 +10201,10 @@ async function abrirEditorEscena(escena) {
           oninput: ev => editar(b.contenido, c.id, ev.target.value) })));
         if (c.ayuda) panel.appendChild(h('p', { clase: 'meta' }, c.ayuda));
       });
-    } else if (pestaña === 'avatar') panel.appendChild(campo('Animación de entrada', h('select', {
+    } else if (pestaña === 'sonidos') panel.appendChild(campo('Sonido', h('select', {
+      onchange: ev => { editar(b, 'id', ev.target.value, false); pintarPanel(); } },
+      ...ficha.sonidos.fuentes.map(f => h('option', { value: f.id, selected: f.id === b.id }, f.nombre)))));
+    else if (pestaña === 'avatar') panel.appendChild(campo('Animación de entrada', h('select', {
       onchange: ev => editar(b, 'entrada', ev.target.value, false) }, ...ficha.avatar.opciones.map(o => h('option', { value: o.id, selected: o.id === b.entrada }, o.nombre)))));
     else if (!b.enlace) {
       const catalogo = ficha.enlace || ficha.catalogo;
@@ -10145,6 +10238,7 @@ async function abrirEditorEscena(escena) {
     } }, b.enlace ? 'Eliminar transición entre escenas' : 'Eliminar bloque'));
   }
   function nombreBloque(tipo, b) {
+    if (tipo === 'sonidos') return ficha.sonidos.fuentes.find(f => f.id === b.id)?.nombre || 'Sonido';
     if (tipo === 'animacion') return ficha.animacion.opciones.find(o => o.id === b.id)?.nombre || 'Animación';
     if (tipo === 'avatar') return ficha.avatar.opciones.find(o => o.id === b.entrada)?.nombre || 'Avatar';
     if (b.enlace) return `→ ${ficha.enlace.escenas[1].id} · ${ficha.enlace.transiciones.find(t => t.id === b.tipo)?.nombre || b.tipo}`;
@@ -10152,7 +10246,7 @@ async function abrirEditorEscena(escena) {
   }
   function pintarPistas() {
     if (!borrador || arrastrando) return;
-    ['animacion', 'avatar', 'transiciones'].forEach(tipo => {
+    ['animacion', 'sonidos', 'avatar', 'transiciones'].forEach(tipo => {
       vaciar(filas[tipo]);
       const lista = [...borrador[tipo]];
       const enlace = tipo === 'transiciones' ? bloqueEnlace() : null;
@@ -10183,7 +10277,7 @@ async function abrirEditorEscena(escena) {
       });
       const alto = Math.max(36, ...Array.from(filas[tipo].children).map(n => parseFloat(n.style.top) + 30));
       filas[tipo].style.height = `${alto}px`;
-      timeline.querySelector('.anim-timeline-etiquetas').children[['audio', 'animacion', 'avatar', 'transiciones'].indexOf(tipo)].style.height = `${alto}px`;
+      timeline.querySelector('.anim-timeline-etiquetas').children[ordenPistas.indexOf(tipo)].style.height = `${alto}px`;
     });
     const b = listaActual()[seleccionado];
     const p = b ? intervalo(b) : { inicio: 0, fin: total };
@@ -10237,7 +10331,40 @@ async function abrirEditorEscena(escena) {
     pausar(); const mover = e => { tiempo = Math.max(0, Math.min(total, (e.clientX - pistas.getBoundingClientRect().left) / pistas.clientWidth * total)); pintarReloj(); };
     mover(ev); capturar(ev, mover);
   }
-  function pausar() { audio?.pause(); fondo?.pause?.(); avatar?.pause?.(); cancelAnimationFrame(cuadroEnlace); }
+  function pausar() {
+    reproduccionesSonido.splice(0).forEach(s => s.stop());
+    audio?.pause(); fondo?.pause?.(); avatar?.pause?.(); cancelAnimationFrame(cuadroEnlace);
+  }
+  async function prepararSonidos() {
+    contextoSonido ||= new AudioContext();
+    await contextoSonido.resume();
+    await Promise.all(ficha.sonidos.fuentes.flatMap(f => f.eventos).map(async e => {
+      const url = e.archivo ? API.archivo(pid, e.archivo) : `${BASE}/api/efectos/${encodeURIComponent(e.banco)}`;
+      if (!buffersSonido.has(url)) buffersSonido.set(url, fetch(url).then(r => {
+        if (!r.ok) throw new Error('Efecto no disponible');
+        return r.arrayBuffer();
+      }).then(b => contextoSonido.decodeAudioData(b)).catch(() => null));
+      e.buffer = await buffersSonido.get(url);
+    }));
+  }
+  function reproducirSonidos() {
+    for (const b of borrador.sonidos) {
+      const fuente = ficha.sonidos.fuentes.find(f => f.id === b.id);
+      if (!fuente) continue;
+      const escala = (b.fin - b.inicio) / (fuente.fin - fuente.inicio);
+      for (const e of fuente.eventos) {
+        if (!e.buffer) continue;
+        const inicio = Math.max(b.inicio, b.inicio + (e.t - fuente.inicio) * escala);
+        const fin = Math.min(b.fin, inicio + Math.min(e.buffer.duration, e.duracion));
+        if (fin <= tiempo) continue;
+        const s = contextoSonido.createBufferSource(), g = contextoSonido.createGain();
+        s.buffer = e.buffer;
+        g.gain.value = e.ganancia; s.connect(g); g.connect(contextoSonido.destination);
+        s.start(contextoSonido.currentTime + Math.max(0, inicio - tiempo), Math.max(0, tiempo - inicio));
+        s.stop(contextoSonido.currentTime + fin - tiempo); reproduccionesSonido.push(s);
+      }
+    }
+  }
   async function prepararEnlace() {
     if (!ficha.enlace || pintorEnlace) return;
     if (!preparandoEnlace) preparandoEnlace = (async () => {
@@ -10268,13 +10395,15 @@ async function abrirEditorEscena(escena) {
       };
       cuadroEnlace = requestAnimationFrame(avanzar);
   }
-  function alternar() {
+  async function alternar() {
     if (!audio) return;
     cancelAnimationFrame(cuadroEnlace);
     if (!audio.paused) { pausar(); return; }
+    await prepararSonidos();
+    if (!dialogo.isConnected) return;
     if (tiempo >= total - .02) tiempo = 0;
     audio.currentTime = Number(ficha.animacion.t_in || 0) + tiempo;
-    audio.play().catch(() => { estado.textContent = 'No se pudo reproducir la narración.'; });
+    audio.play().then(reproducirSonidos).catch(() => { estado.textContent = 'No se pudo reproducir la narración.'; });
   }
   function pintarReloj() {
     if (!ficha || !borrador) return;
@@ -10349,6 +10478,7 @@ async function abrirEditorEscena(escena) {
     const d = {};
     const anterior = JSON.parse(original);
     if (JSON.stringify(borrador.animacion) !== JSON.stringify(anterior.animacion)) d.animacion = datosAnimacion();
+    if (JSON.stringify(borrador.sonidos) !== JSON.stringify(anterior.sonidos)) d.sonidos = { ancla: ficha.animacion.ancla, bloques: borrador.sonidos };
     if (JSON.stringify(borrador.parallax) !== JSON.stringify(anterior.parallax)) d.parallax = borrador.parallax;
     if (JSON.stringify([borrador.avatar, borrador.posicion]) !== JSON.stringify([anterior.avatar, anterior.posicion])) {
       const bloques = structuredClone(borrador.avatar);
@@ -10454,6 +10584,7 @@ async function abrirEditorEscena(escena) {
       return b;
     };
     borrador = { animacion: actual && actual.id !== 'sin-animacion' ? (actual.bloques || [actual]).map(convertir) : [],
+      sonidos: structuredClone(ficha.sonidos.actual ?? ficha.sonidos.fuentes.map(f => ({ id: f.id, inicio: f.inicio, fin: f.fin }))),
       avatar: ficha.avatar.actual.activo ? structuredClone(ficha.avatar.actual.presentacion.bloques || [ficha.avatar.actual.presentacion]) : [],
       posicion: structuredClone(ficha.avatar.actual.posicion),
       parallax: { ...ficha.parallax.actual, ancla: ficha.parallax.ancla }, transiciones: structuredClone(ficha.transiciones), enlace: ficha.enlace?.actual.tipo || 'corte',

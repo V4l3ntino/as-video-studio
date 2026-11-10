@@ -56,8 +56,10 @@ pico -6 dBFS.
 """
 import io
 import json
+import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -69,6 +71,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cartelas  # noqa: E402
 import medios  # noqa: E402
+from nucleo.proyecto import lock_de  # noqa: E402
 
 def banco(*partes):
     """Donde viven los ficheros ya descargados, creando la carpeta si falta.
@@ -806,6 +809,70 @@ def _ficha_efecto(crudo):
     }
 
 
+def _pedir_freesound(ruta, params=None):
+    clave = _claves().get('FREESOUND_API_KEY')
+    if not clave:
+        raise ValueError('Falta la clave de Freesound. Añádela en Configuración → Bibliotecas, música y efectos.')
+    respuesta = requests.get('https://freesound.org/apiv2/' + ruta, timeout=45,
+                             headers={'Authorization': 'Token ' + clave}, params=params)
+    if respuesta.status_code != 200:
+        raise RuntimeError(f'Freesound {respuesta.status_code}: no se han podido obtener los efectos.')
+    return respuesta.json()
+
+
+def buscar_catalogo(consulta='', pagina=1):
+    """Catálogo completo paginado, sin limitarlo a los papeles automáticos."""
+    datos = _pedir_freesound('search/text/', dict(query=consulta, page=pagina, page_size=20,
+        sort='downloads_desc', fields='id,name,tags,duration,license,username,url,previews'))
+    return dict(resultados=[_ficha_efecto(f) for f in datos.get('results', [])],
+                total=datos.get('count', 0), pagina=pagina, siguiente=bool(datos.get('next')))
+
+
+def efecto_por_id(identificador):
+    if not re.fullmatch(r'[1-9][0-9]{0,11}', str(identificador)):
+        raise ValueError('Identificador de Freesound no válido.')
+    return _ficha_efecto(_pedir_freesound(f'sounds/{identificador}/'))
+
+
+def fuente_usuario(proyecto, identificador):
+    """Recurso inmutable del proyecto, leído también al retomar y exportar."""
+    if not re.fullmatch(r'freesound:[1-9][0-9]{0,11}', identificador):
+        raise ValueError('Identificador de sonido no válido.')
+    numero = identificador.split(':')[1]
+    relativa = f'medios_usuario/sonidos/{numero}.mp3'
+    meta = proyecto.ruta('medios_usuario', 'sonidos', numero + '.json')
+    if not os.path.isfile(meta) or not os.path.isfile(proyecto.ruta(relativa)):
+        raise ValueError('Ese sonido no está preparado en este vídeo. Añádelo desde el buscador.')
+    ficha = medios.leer_json(meta, estricto=True)
+    duracion = float(ficha['duracion'])
+    if not math.isfinite(duracion) or duracion < .1:
+        raise ValueError('El archivo del sonido no contiene una duración válida.')
+    return dict(id=identificador, nombre=ficha.get('titulo') or 'Efecto de Freesound', inicio=0,
+        fin=duracion, autor=ficha.get('autor'), licencia=ficha.get('licencia'),
+        eventos=[dict(t=0, papel='usuario', ganancia=.5, duracion=duracion,
+                      ficha=dict(ficha, archivo=proyecto.ruta(relativa)))])
+
+
+def preparar_efecto(proyecto, identificador):
+    """Descarga una muestra y la incorpora al proyecto, sin guardar el montaje."""
+    if not re.fullmatch(r'[1-9][0-9]{0,11}', str(identificador)):
+        raise ValueError('Identificador de Freesound no válido.')
+    clave = 'freesound:' + str(identificador)
+    meta = proyecto.ruta('medios_usuario', 'sonidos', str(identificador) + '.json')
+    if os.path.isfile(meta):
+        return fuente_usuario(proyecto, clave)
+    ficha = efecto_por_id(identificador)
+    origen = traer(ficha, 'efectos')
+    duracion = medios.duracion_media(origen)
+    if not duracion or duracion < .1:
+        raise ValueError('El efecto debe durar al menos 0,1 segundos.')
+    destino = proyecto.ruta('medios_usuario', 'sonidos', str(identificador) + '.mp3')
+    os.makedirs(os.path.dirname(destino), exist_ok=True)
+    shutil.copyfile(origen, destino)
+    medios.escribir_json(meta, dict(ficha, duracion=duracion))
+    return fuente_usuario(proyecto, clave)
+
+
 # ------------------------------------------------------------------- banco
 
 def _nombre_de(ficha, extension=".mp3"):
@@ -1104,6 +1171,13 @@ def nivel_de(ruta):
 
 
 def traer(ficha, familia):
+    """Descarga idempotente, coordinada entre escucha y selección del efecto."""
+    # Escuchar y seleccionar el mismo efecto pueden coincidir desde el popup.
+    with lock_de(banco(familia, _nombre_de(ficha))):
+        return _traer_sin_lock(ficha, familia)
+
+
+def _traer_sin_lock(ficha, familia):
     """Descarga el fichero al banco si no esta, y devuelve su ruta.
 
     Idempotente: un fichero que ya esta no se vuelve a pedir. El banco es del
@@ -1198,7 +1272,7 @@ def elegir(fichas, semilla, *clave, vetados_de=None):
 
 # ------------------------------------------------------------------ eventos
 
-def eventos(escenas, cortes, params, semilla=0):
+def _eventos_automaticos(escenas, cortes, params, semilla=0):
     """Cuando suena cada cosa. Devuelve [{t, papel, ficha, ganancia}] ordenado.
 
     't' esta en el reloj DEL VIDEO ya montado, o sea contando desde el primer
@@ -1218,7 +1292,7 @@ def eventos(escenas, cortes, params, semilla=0):
         inicio = float(escena.get("t_in") or 0.0) - origen
         ambiente = escena.get("audio_biblioteca") or {}
         if ambiente and clave_de(ambiente) not in prohibidos:
-            fuera.append({"t": max(0.0, inicio), "papel": "escena",
+            fuera.append({"escena": sid, "t": max(0.0, inicio), "papel": "escena",
                           "ficha": ambiente, "ganancia": 0.3,
                           "duracion": max(0.0, float(escena.get("t_out") or 0)
                                           - float(escena.get("t_in") or 0))})
@@ -1241,7 +1315,7 @@ def eventos(escenas, cortes, params, semilla=0):
             if ficha:
                 diana = inicio + ANCLA_TRANSICION * float(corte.get("duracion") or 0.0)
                 golpe = golpe_de(banco("efectos", _nombre_de(ficha)))
-                fuera.append({"t": max(0.0, diana - golpe),
+                fuera.append({"escena": sid, "t": max(0.0, diana - golpe),
                               "papel": papel, "ficha": ficha,
                               "ganancia": PAPELES[papel]["ganancia"]})
 
@@ -1278,7 +1352,7 @@ def eventos(escenas, cortes, params, semilla=0):
                 if not ficha:
                     break
                 fuera.append({
-                    "t": inicio + cuando + hueco * golpe / max(1, cuantas),
+                    "escena": sid, "t": inicio + cuando + hueco * golpe / max(1, cuantas),
                     "papel": "tecla", "ficha": ficha,
                     # las pulsaciones no suenan todas igual de fuerte: un
                     # teclado con todas las teclas al mismo volumen suena a
@@ -1291,10 +1365,72 @@ def eventos(escenas, cortes, params, semilla=0):
             ficha = elegir(surtido.get("retorno"), semilla, sid, "retorno",
                            vetados_de=prohibidos)
             if ficha:
-                fuera.append({"t": inicio + palabras[-1][0] + 0.32,
+                fuera.append({"escena": sid, "t": inicio + palabras[-1][0] + 0.32,
                               "papel": "retorno", "ficha": ficha,
                               "ganancia": PAPELES["retorno"]["ganancia"]})
     return sorted(fuera, key=lambda e: e["t"])
+
+
+def bloques_de_escena(escenas, cortes, params, sid, semilla=0, _eventos=None, proyecto=None):
+    """Agrupa las pulsaciones como un bloque editable; no descarga ni escribe."""
+    from pasos import animaciones
+    escena = next(e for e in escenas if e['id'] == sid)
+    origen = float(escenas[0]['t_in'])
+    inicio = float(escena['t_in']) - origen
+    duracion = float(escena['t_out']) - float(escena['t_in'])
+    grupos = {}
+    for e in (_eventos if _eventos is not None else _eventos_automaticos(escenas, cortes, params, semilla)):
+        if e['escena'] == sid:
+            grupos.setdefault(e['papel'], []).append(e)
+    nombres = {'tecla': 'Mecanografía', 'retorno': 'Retorno de carro',
+               'escena': 'Sonido de escena', 'transicion_suave': 'Transición suave',
+               'transicion_acento': 'Transición de acento'}
+    bloques = []
+    for papel, eventos_ in grupos.items():
+        a = max(0., min(duracion - .1, min(e['t'] for e in eventos_) - inicio))
+        b = min(duracion, max(e['t'] + float(e.get('duracion') or e['ficha'].get('duracion') or .1) for e in eventos_) - inicio)
+        bloques.append(dict(id=papel, inicio=a, fin=max(a + .1, b), nombre=nombres[papel],
+                            eventos=eventos_))
+    ajuste = (((params.get('unidades') or {}).get('escena:' + sid) or {}).get('sonidos') or {})
+    actual = ajuste.get('bloques') if ajuste.get('ancla') == animaciones.ancla_de(escena) else None
+    if proyecto:
+        for identificador in dict.fromkeys(b['id'] for b in actual or [] if b['id'].startswith('freesound:')):
+            fuente = fuente_usuario(proyecto, identificador)
+            fuente['eventos'] = [dict(e, t=inicio + e['t'], escena=sid) for e in fuente['eventos']]
+            bloques.append(fuente)
+    return bloques, actual
+
+
+def eventos(escenas, cortes, params, semilla=0, proyecto=None):
+    """Mismo contrato histórico, con los intervalos manuales de cada escena."""
+    lista = _eventos_automaticos(escenas, cortes, params, semilla)
+    originales = lista
+    origen = float(escenas[0]['t_in']) if escenas else 0.
+    for escena in escenas:
+        sid = escena['id']
+        unidad = (params.get('unidades') or {}).get('escena:' + sid) or {}
+        if not unidad.get('sonidos'):
+            continue
+        bloques, actual = bloques_de_escena(escenas, cortes, params, sid, semilla, _eventos=originales, proyecto=proyecto)
+        if actual is None:
+            continue
+        lista = [e for e in lista if e['escena'] != sid]
+        inicio = float(escena['t_in']) - origen
+        for b in actual:
+            fuente = next((f for f in bloques if f['id'] == b['id']), None)
+            if not fuente:
+                continue
+            escala = (b['fin'] - b['inicio']) / (fuente['fin'] - fuente['inicio'])
+            for e in fuente['eventos']:
+                t = inicio + b['inicio'] + (e['t'] - inicio - fuente['inicio']) * escala
+                fin = inicio + b['fin']
+                if t >= fin:
+                    continue
+                restante = max(0, fin - max(inicio + b['inicio'], t))
+                # El intervalo recorta el audio, nunca cambia su velocidad ni su tono.
+                lista.append(dict(e, t=max(inicio + b['inicio'], t),
+                                  duracion=min(float(e.get('duracion') or restante), restante)))
+    return sorted(lista, key=lambda e: e['t'])
 
 
 # ------------------------------------------------------------------ mezcla
@@ -1418,7 +1554,7 @@ def pista_de_efectos(lista, duracion_s, destino, igualar=True):
             continue
         trozo = muestra[:total - inicio]
         if evento.get("duracion") is not None:
-            trozo = trozo[:max(0, int(float(evento["duracion"]) * FRECUENCIA))]
+            trozo = trozo[:max(0, int(round(float(evento["duracion"]) * FRECUENCIA)))]
         # la correccion del FICHERO multiplica a la ganancia del EVENTO: la
         # primera iguala lo que el banco trae desigual y la segunda es la
         # intencion (la clase, y el toque aleatorio de cada tecla)

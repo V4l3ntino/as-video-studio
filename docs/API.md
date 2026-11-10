@@ -45,11 +45,12 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor` | Guarda conjuntamente posición, entrada e intervalo; conserva el clip de lip-sync. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor/preparar` | Genera el clip para el borrador del popup sin guardar sus ajustes en el grafo. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/avatar/posicion` | Guarda la posición del avatar en el cuadro, sin regenerar el clip de Boson. |
-| `GET` | `/api/proyectos/{pid}/escenas/{sid}/editor` | Borrador conjunto de las cuatro pestañas, sin modificar parámetros. |
+| `GET` | `/api/proyectos/{pid}/escenas/{sid}/editor` | Borrador conjunto de las pistas de escena, sin modificar parámetros. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/editor` | Valida todas las pistas antes de guardar el conjunto de cambios de la escena. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Configuración efectiva del parallax de una imagen, sin modificar el proyecto. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/sonidos` | Prepara un efecto seleccionado; el bloque solo se persiste al guardar la escena. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Guarda el efecto y su intervalo opcional; actualiza los clips afectados y el montaje. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |
@@ -303,8 +304,10 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/imagenes/codex/login` | Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex. |
 | `GET` | `/api/imagenes/proveedores` | Métodos de imagen en orden: principal y respaldo automático. |
 | `PUT` | `/api/imagenes/proveedores` | Guarda la prioridad de Codex y API sin modificar los proyectos. |
+| `GET` | `/api/sonidos/buscar` | Busca efectos en todo el catálogo de Freesound, con resultados paginados. |
+| `GET` | `/api/sonidos/{identificador}/muestra` | Escucha la muestra de un efecto de Freesound desde el banco local. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**193 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**196 endpoints.** Escrito por `generar_api.py` desde `app.py`.
