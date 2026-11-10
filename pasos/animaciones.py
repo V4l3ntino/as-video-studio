@@ -1719,6 +1719,21 @@ def svg_de(asignacion, duracion, salida=(1920, 1080), paleta=None):
     return ajustar_svg(svg, fondo, asignacion, duracion)
 
 
+def _interior_svg_en_salida(svg, salida):
+    """Conserva el ajuste del viewBox al quitar la raíz, sin crear otro reloj SMIL."""
+    import xml.etree.ElementTree as ET
+    raiz = ET.fromstring(svg)
+    x, y, ancho, alto = map(float, raiz.get('viewBox', f'0 0 {salida[0]} {salida[1]}').split())
+    escala = min(float(salida[0]) / ancho, float(salida[1]) / alto)
+    dx = (float(salida[0]) - ancho * escala) / 2 - x * escala
+    dy = (float(salida[1]) - alto * escala) / 2 - y * escala
+    grupo = ET.Element('{http://www.w3.org/2000/svg}g', {
+        'transform': f'translate({dx:.17g} {dy:.17g}) scale({escala:.17g})',
+        'data-lienzo-ancho': f'{ancho:g}', 'data-lienzo-alto': f'{alto:g}'})
+    grupo.extend(raiz)
+    return ET.tostring(grupo, encoding='unicode')
+
+
 def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
           imagenes=None, semilla=0, etiquetas=None, textos=None, imagenes_usuario=None):
     """Todo lo que hace falta para el render.
@@ -1769,7 +1784,7 @@ def capas(escenas, params=None, idioma=None, paleta=None, salida=(1920, 1080),
                 capas_bloques.append(capa)
         if capas_bloques:
             principal = dict(capas_bloques[0])
-            interiores = [re.sub(r'^<svg\b[^>]*>|</svg>\s*$', '', c["svg"]) for c in capas_bloques]
+            interiores = [_interior_svg_en_salida(c["svg"], salida) for c in capas_bloques]
             principal["svg"] = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {salida[0]} {salida[1]}">' + ''.join(interiores) + '</svg>'
             principal["imagenes"] = sorted({url for c in capas_bloques for url in c["imagenes"]})
             principal["fondo"] = [c['fondo'] for c in capas_bloques if c.get('fondo')]

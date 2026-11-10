@@ -10283,7 +10283,8 @@ async function abrirEditorEscena(escena) {
     const b = borrador.animacion[i]; if (!b) return;
     pausar(); seleccionarPestaña('animacion', i);
     const matriz = grupo.parentNode.getScreenCTM()?.inverse(); if (!matriz) return;
-    const svg = grupo.ownerSVGElement, caja = svg.viewBox.baseVal;
+    const svg = grupo.ownerSVGElement, lienzo = grupo.closest('[data-lienzo-ancho]');
+    const caja = lienzo ? { width: Number(lienzo.dataset.lienzoAncho), height: Number(lienzo.dataset.lienzoAlto) } : svg.viewBox.baseVal;
     const origen = new window.DOMPoint(ev.clientX, ev.clientY).matrixTransform(matriz);
     const p = { ...(b.posiciones?.conjunto || { x: 0, y: 0 }) }; let movido = false;
     arrastrando = true;

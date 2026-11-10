@@ -552,7 +552,15 @@ tiene salida. Prueba offline: `python pasos/prueba_transiciones_escena.py`.
 el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones
 antes de guardar y solo escriben pestañas modificadas. `animacion.bloques` conserva
 la primera ficha en la raíz para lectores antiguos; `animaciones.capas` aísla ids
-SVG y compone todos los bloques bajo un solo reloj SMIL. El avatar usa
+SVG y compone todos los bloques bajo un solo reloj SMIL.
+Al extraer el contenido de un SVG, conserva la transformación de su `viewBox`
+al lienzo de salida: las cartelas usan 1536×864 (864×1536 en vertical), no los
+píxeles del vídeo. `_interior_svg_en_salida` aplica esa escala con precisión
+completa y publica el tamaño original para que el arrastre siga normalizado en
+ese lienzo. Sin esa transformación, las cartelas quedan pequeñas en la esquina.
+La regresión visual de las diez plantillas está en
+`python pasos/prueba_editor_escena.py --real` (Chromium de Playwright).
+El avatar usa
 `presentacion.bloques`: cada aparición sigue el tiempo absoluto del mismo clip,
 sin regenerar Boson. `transiciones_escena` pertenece a la unidad actual, anclada
 a la narración: son entradas/salidas a negro con tiempos propios y el GLSL del

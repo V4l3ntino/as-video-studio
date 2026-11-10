@@ -1,5 +1,6 @@
 """Editor conjunto: guardado validado, bloques independientes y compatibilidad."""
 import copy
+import io
 import os
 from pathlib import Path
 import sys
@@ -11,6 +12,10 @@ import unittest
 from unittest.mock import MagicMock, patch
 import xml.etree.ElementTree as ET
 
+REAL = '--real' in sys.argv
+if REAL:
+    sys.argv.remove('--real')
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,11 +25,42 @@ for clave, nombre in [('ESTUDIO_SECRETOS', 'secretos'), ('ESTUDIO_AJUSTES', 'aju
     os.environ[clave] = os.path.join(_DATOS.name, nombre)
 
 import app as servidor  # noqa: E402
-from pasos import animaciones, avatar, editor_escena  # noqa: E402
+from pasos import animaciones, avatar, cartelas, editor_escena  # noqa: E402
 import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    @unittest.skipUnless(REAL, 'usa --real para comparar las cartelas en Chromium con Playwright')
+    def test_cartelas_por_bloques_conservan_cobertura_y_composicion(self):
+        from PIL import Image, ImageChops, ImageStat
+        from playwright.sync_api import sync_playwright
+        escena = dict(id='S001', narracion='Una frase para la cartela.', duracion=6, t_in=0, t_out=6)
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={'width': 600, 'height': 600}, device_scale_factor=1)
+                for salida in [(1920, 1080), (1080, 1920), (1280, 720)]:
+                    ancho, alto = (480, 270) if salida[0] > salida[1] else (270, 480)
+                    for plantilla in cartelas.PLANTILLAS:
+                        with self.subTest(salida=salida, plantilla=plantilla):
+                            edicion = dict(id='cartela-' + plantilla, ancla=animaciones.ancla_de(escena),
+                                contenido=animaciones.contenido_de('cartela-' + plantilla, cartelas.PLANTILLAS[plantilla]['ejemplo']),
+                                duracion=5, inicio=.2)
+                            imagenes = []
+                            for por_bloques in (False, True):
+                                animacion = dict(edicion, bloques=[edicion]) if por_bloques else edicion
+                                capa = animaciones.capas([escena], {'unidades': {'escena:S001': {'animacion': animacion}}}, salida=salida)['S001']
+                                self.assertEqual(len(list(ET.fromstring(capa['svg']).iter('{http://www.w3.org/2000/svg}svg'))), 1)
+                                page.set_content(f'<style>body{{margin:0}}#marco{{width:{ancho}px;height:{alto}px;background:#40bf80}}svg{{width:100%;height:100%;display:block}}</style><div id="marco">{capa["svg"]}</div>')
+                                page.evaluate("document.fonts.ready")
+                                page.evaluate("const svg=document.querySelector('svg');svg.pauseAnimations();svg.setCurrentTime(2.89)")
+                                imagenes.append(Image.open(io.BytesIO(page.locator('#marco').screenshot())).convert('RGB'))
+                            diferencia = ImageChops.difference(*imagenes)
+                            self.assertLess(max(ImageStat.Stat(diferencia).mean), .5,
+                                            'la composición por bloques debe conservar la escala y la cobertura de la cartela original')
+            finally:
+                browser.close()
+
     def test_guarda_todas_las_pistas_reabre_y_rechaza_sin_guardar_a_medias(self):
         with tempfile.TemporaryDirectory() as tmp:
             proyecto, estado = juguete.construir(tmp, animaciones=[], etiquetas={})
