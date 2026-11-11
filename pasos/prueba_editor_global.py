@@ -71,16 +71,18 @@ class EditorGlobal(unittest.TestCase):
                     except OSError:
                         time.sleep(.1)
                 with sync_playwright() as pw:
-                    navegador = pw.chromium.launch(headless=True)
+                    navegador = pw.chromium.launch(headless=True, executable_path=os.environ.get('ESTUDIO_EDGE') or None)
                     pagina = navegador.new_page(viewport={'width': 1440, 'height': 1000})
                     errores = []
                     pagina.on('pageerror', lambda error: errores.append(str(error)))
                     # Retrato sin clip de avatar: abrir el editor no genera Boson.
+                    peticiones_editor = []
                     def con_retrato(ruta):
                         if ruta.request.method != 'GET':
                             ruta.continue_()
                             return
                         respuesta = ruta.fetch()
+                        peticiones_editor.append(ruta.request.url)
                         ficha = respuesta.json()
                         ficha['avatar']['retrato'] = 'pasos/assets/v1/escenas/S001.png'
                         ruta.fulfill(response=respuesta, json=ficha)
@@ -124,10 +126,12 @@ class EditorGlobal(unittest.TestCase):
                     self.assertTrue(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
                     cabecera.get_by_role('button', name='Guardar cambios', exact=True).click()
                     pagina.wait_for_function('!EDITOR_GLOBAL.modificado()')
-                    # Reabrir desde servidor comprueba persistencia, no solo el DOM.
+                    # Reabrir reutiliza las fichas persistidas después de guardar.
+                    peticiones_antes = len(peticiones_editor)
                     pagina.evaluate('EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null; document.querySelector("#panel").replaceChildren(vistaPreviaLight())')
                     pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
                     pagina.wait_for_timeout(500)
+                    self.assertEqual(len(peticiones_editor), peticiones_antes, 'No vuelve a pedir las escenas guardadas')
                     self.assertEqual(pagina.locator('.editor-global-columna').nth(0).locator('.animacion .anim-timeline-bloque').count(), 2)
                     bloques.nth(0).click()
                     pista = pagina.locator('.editor-global-columna').nth(0).locator('.animacion .anim-timeline-bloque').first
@@ -181,6 +185,93 @@ class EditorGlobal(unittest.TestCase):
                     pagina.wait_for_selector('.editor-global-escena:not([hidden]) img.previa-avatar', state='attached')
                     pagina.set_viewport_size({'width': 390, 'height': 844})
                     self.assertTrue(pagina.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+                    pagina.set_viewport_size({'width': 1440, 'height': 1000})
+                    # Recarga real: conserva los bloques y el borrador sin GET por escena.
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "animacion", 0)')
+                    cuantos = activo.locator('.escena-editor-bloques button').count()
+                    activo.get_by_role('button', name='+ Añadir bloque').click()
+                    pagina.wait_for_function('EDITOR_GLOBAL.modificado()')
+                    pagina.wait_for_function('''async pid => {
+                        const fila = await CACHE_EDITOR.leer(pid, 'S001');
+                        return fila && fila.borrador !== fila.original;
+                    }''', arg=proyecto.id)
+                    peticiones_antes = len(peticiones_editor)
+                    pagina.reload()
+                    pagina.wait_for_function('APP.light.datos && !APP.light.cargando')
+                    pagina.evaluate('''async pid => {
+                        APP.light.video.pid = pid; APP.light.video.vista = 'previa';
+                        PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+                        PREVIA.i = 0; document.querySelector('#inicio')?.remove();
+                        document.querySelector('#panel').replaceChildren(vistaPreviaLight());
+                    }''', proyecto.id)
+                    pagina.wait_for_function('EDITOR_GLOBAL?.modificado()')
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
+                    pagina.wait_for_timeout(500)
+                    self.assertEqual(len(peticiones_editor), peticiones_antes)
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "animacion", 0)')
+                    self.assertEqual(activo.locator('.escena-editor-bloques button').count(), cuantos + 1)
+                    cabecera.get_by_role('button', name='Descartar cambios', exact=True).click()
+                    pagina.wait_for_function('''async pid => {
+                        const fila = await CACHE_EDITOR.leer(pid, 'S001');
+                        return fila && fila.borrador === fila.original;
+                    }''', arg=proyecto.id)
+                    # Una entrada ausente obliga a pedir solo esa escena.
+                    pagina.evaluate('''async pid => {
+                        await CACHE_EDITOR.operar('readwrite', tabla => tabla.delete([BASE, pid, 'S004']));
+                        EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null;
+                        document.querySelector('#panel').replaceChildren(vistaPreviaLight());
+                    }''', proyecto.id)
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
+                    pagina.wait_for_function('''async pid => !!await CACHE_EDITOR.leer(pid, 'S004')''', arg=proyecto.id)
+                    pagina.wait_for_timeout(500)
+                    self.assertEqual(len(peticiones_editor), peticiones_antes + 1)
+                    self.assertTrue(peticiones_editor[-1].endswith('/S004/editor'))
+                    # Un cambio remoto invalida esa escena y protege su borrador local.
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S002", "animacion", 0)')
+                    activo.get_by_role('button', name='+ Añadir bloque').click()
+                    pagina.wait_for_function('''async pid => {
+                        const f = await CACHE_EDITOR.leer(pid, 'S002'); return f.borrador !== f.original;
+                    }''', arg=proyecto.id)
+                    pagina.evaluate('''async pid => {
+                        const base = `${API.proyecto(pid)}/escenas/S002/editor`;
+                        const ficha = await pedir(base);
+                        await pedir(base, { method: 'PUT', cuerpo: { sonidos: { ancla: ficha.animacion.ancla, bloques: [] } } });
+                        PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+                        EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null;
+                        document.querySelector('#panel').replaceChildren(vistaPreviaLight());
+                    }''', proyecto.id)
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S002", "animacion", 0)')
+                    activo.get_by_role('button', name='Recuperar mis cambios', exact=True).wait_for()
+                    self.assertFalse(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    activo.get_by_role('button', name='Recuperar mis cambios', exact=True).click()
+                    self.assertTrue(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    cabecera.get_by_role('button', name='Guardar cambios', exact=True).click()
+                    pagina.wait_for_function('!EDITOR_GLOBAL.modificado()')
+                    # La misma comprobación funciona sin destruir el editor en memoria.
+                    pagina.evaluate('''async pid => {
+                        const base = `${API.proyecto(pid)}/escenas/S005/editor`;
+                        const ficha = await pedir(base);
+                        await pedir(base, { method: 'PUT', cuerpo: { sonidos: { ancla: ficha.animacion.ancla, bloques: [] } } });
+                        PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+                        document.querySelector('#panel').replaceChildren(vistaPreviaLight());
+                    }''', proyecto.id)
+                    pagina.wait_for_function('''async pid => {
+                        const fila = await CACHE_EDITOR.leer(pid, 'S005');
+                        return fila.revision === PREVIA.ficha.escenas.find(e => e.id === 'S005').editor_revision;
+                    }''', arg=proyecto.id)
+                    # IndexedDB denegado o sin espacio: las peticiones normales siguen funcionando.
+                    pagina.evaluate('''() => {
+                        CACHE_EDITOR.proyecto = async () => { throw new Error('Almacenamiento denegado'); };
+                        CACHE_EDITOR.guardar = async () => { throw new Error('Sin espacio'); };
+                        EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null;
+                        document.querySelector('#panel').replaceChildren(vistaPreviaLight());
+                    }''')
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .animacion .anim-timeline-bloque").length >= 5')
+                    pagina.get_by_text('No se pudo acceder al almacenamiento local.', exact=False).wait_for()
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "animacion", 0)')
+                    activo.get_by_role('button', name='+ Añadir bloque').click()
+                    self.assertTrue(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
                     self.assertFalse(errores, errores)
                     pagina.unroute_all(behavior='wait')
                     navegador.close()

@@ -31,6 +31,33 @@ import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    def test_revisiones_cache_estables_y_por_escena(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto, estado = juguete.construir(tmp)
+            ctx = SimpleNamespace(proyecto=proyecto, estado=estado)
+            plan = {'resolucion': [1920, 1080], 'escenas': [
+                dict(id=f'S{i:03}', t_in=(i - 1) * 6, t_out=i * 6, narracion=f'Frase {i}.') for i in range(1, 4)]}
+            escenas = copy.deepcopy(plan['escenas'])
+            def revisar():
+                servidor._revisiones_editor(ctx, plan, escenas, None)
+                return [e['editor_revision'] for e in escenas]
+            inicial = revisar()
+            self.assertEqual(inicial, revisar(), 'Leer varias veces no cambia la revisión')
+            estado.actualizar_params('render', {'unidades': {'escena:S002': {'avatar': {'posicion': {'x': .2, 'y': .3}}}}})
+            editadas = revisar()
+            self.assertEqual(inicial[0], editadas[0])
+            self.assertNotEqual(inicial[1], editadas[1])
+            self.assertEqual(inicial[2], editadas[2], 'Una edición local no invalida las demás escenas')
+            estado.actualizar_params('render', {'sonido': False})
+            self.assertTrue(all(a != b for a, b in zip(editadas, revisar())), 'Un ajuste global sí afecta a todas')
+            voz = proyecto.ruta('voz-cache.wav')
+            Path(voz).write_bytes(b'audio')
+            servidor._revisiones_editor(ctx, plan, escenas, voz)
+            antes_audio = [e['editor_revision'] for e in escenas]
+            Path(voz).write_bytes(b'otra toma con la misma ruta')
+            servidor._revisiones_editor(ctx, plan, escenas, voz)
+            self.assertTrue(all(a != e['editor_revision'] for a, e in zip(antes_audio, escenas)))
+
     def test_editor_admite_avatar_con_cartela_y_clip_sin_ocultar_el_fondo(self):
         from PIL import Image
         from nucleo.proyecto import leer_json

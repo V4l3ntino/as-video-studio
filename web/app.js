@@ -9957,8 +9957,51 @@ function abrirBuscadorSonidos(disponibles, alSeleccionar) {
   }
 }
 
-/* El árbol del editor sobrevive a los repintados: cada escena conserva su
-   borrador, selección e historial hasta salir del proyecto. Solo GET al abrir. */
+/* Solo datos del editor, nunca medios ni credenciales. Una fila por escena;
+   BASE separa instalaciones que comparten origen detrás del proxy. */
+const CACHE_EDITOR = {
+  conexion: null,
+  abrir() {
+    if (!this.conexion) this.conexion = new Promise((resolver, rechazar) => {
+      const solicitud = window.indexedDB.open('estudio.editor', 1);
+      solicitud.onupgradeneeded = () => solicitud.result.createObjectStore('escenas', { keyPath: 'clave' });
+      solicitud.onsuccess = () => resolver(solicitud.result);
+      solicitud.onerror = () => rechazar(solicitud.error);
+      solicitud.onblocked = () => rechazar(new Error('El almacenamiento local está bloqueado por otra pestaña.'));
+    });
+    return this.conexion;
+  },
+  operar: async function(modo, accion) {
+    const db = await this.abrir();
+    return new Promise((resolver, rechazar) => {
+      const transaccion = db.transaction('escenas', modo);
+      const solicitud = accion(transaccion.objectStore('escenas'));
+      transaccion.oncomplete = () => resolver(solicitud.result);
+      transaccion.onerror = transaccion.onabort = () => rechazar(transaccion.error || solicitud.error);
+    });
+  },
+  leer: (pid, sid) => CACHE_EDITOR.operar('readonly', tabla => tabla.get([BASE, pid, sid])),
+  proyecto: async function(pid) {
+    const filas = await this.operar('readonly', tabla => tabla.getAll(window.IDBKeyRange.bound([BASE, pid], [BASE, pid, []])));
+    return new Map(filas.map(f => [f.clave[2], f]));
+  },
+  guardar(pid, sid, datos) {
+    return this.operar('readwrite', tabla => tabla.put({ ...datos, clave: [BASE, pid, sid] }));
+  },
+  valido: fila => {
+    try {
+      if (fila?.formato !== 1 || !fila.ficha?.animacion || !fila.ficha?.avatar || !fila.ficha?.sonidos || !fila.ficha?.parallax) return false;
+      return [fila.original, fila.borrador].every(texto => {
+        const b = JSON.parse(texto);
+        return ['animacion', 'avatar', 'sonidos', 'transiciones'].every(k => Array.isArray(b[k]))
+          && Number.isFinite(b.posicion?.x) && Number.isFinite(b.posicion?.y) && !!b.parallax;
+      });
+    } catch (error) { return false; }
+  },
+};
+
+/* Cada escena conserva su borrador en memoria y en IndexedDB. La revisión de
+   la previsualización permite reutilizarla sin un GET individual de validación. */
 let EDITOR_GLOBAL = null;
 
 function editorGlobalImagenes(escenas) {
@@ -9972,6 +10015,8 @@ function editorGlobalImagenes(escenas) {
   const controles = new Map(), contenedores = new Map(), cargas = new Map();
   let actual = escenas[PREVIA.i]?.id || escenas[0].id, reproduciendo = false, cerrado = false;
   let ultimaEdicion = [], ondaPromesa, galeriaCompartida, aplicandoPosicion = false;
+  let cargandoPistas = false;
+  const cacheProyecto = CACHE_EDITOR.proyecto(pid).catch(() => { estudio.falloLocal(); return new Map(); });
   let firmaGaleria = JSON.stringify(escenas.map(e => e.imagen));
   const duracion = Math.max(...escenas.map(e => e.t_out));
   const configuraciones = h('div', { clase: 'editor-global-configuraciones' });
@@ -9982,6 +10027,7 @@ function editorGlobalImagenes(escenas) {
   columnas.style.width = `${zoomInicial * 100}%`;
   const tiempoGlobal = h('span', { clase: 'anim-timeline-reloj' }, `0.000 / ${duracion.toFixed(3)} s`);
   const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando las pistas del vídeo…');
+  const avisoLocal = h('p', { clase: 'meta', role: 'status', hidden: true });
   const play = h('button', { clase: 'mini', onclick: async () => {
     const c = controles.get(actual); if (!c?.listo) return;
     if (reproduciendo) { reproduciendo = false; c.pausar(); }
@@ -10035,10 +10081,16 @@ function editorGlobalImagenes(escenas) {
       obsoletasEnLaCabecera(escenas), animacionesEnLaCabecera(PREVIA.ficha?.animaciones),
       h('span', { clase: 'crece' }), descartar, deshacer,
       h('div', { clase: 'editor-global-acciones' }, guardar, h('div', { clase: 'editor-global-montar' }))),
-    preparacion, configuraciones, timeline, notas, estado,
+    preparacion, configuraciones, timeline, notas, h('div', { clase: 'editor-global-estados' }, estado, avisoLocal),
     h('div', { clase: 'editor-global-lista-notas' }, notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()] : null));
   const estudio = {
     clave, nodo, esActual: id => actual === id,
+    cerrado: () => cerrado,
+    cache: async sid => (await cacheProyecto).get(sid),
+    falloLocal: () => {
+      avisoLocal.hidden = false;
+      avisoLocal.textContent = 'No se pudo acceder al almacenamiento local. Puedes seguir editando, pero esta sesión podría no recuperarse al recargar.';
+    },
     modificado: () => [...controles.values()].some(c => c.modificado()),
     pausar: () => { reproduciendo = false; controles.forEach(c => c.pausar()); },
     guardar: () => guardar.click(), deshacer: () => deshacer.click(),
@@ -10078,6 +10130,8 @@ function editorGlobalImagenes(escenas) {
       estudio.seleccionar(e.id, tab, segundo - e.t_in);
     },
     registrar: (e, c) => {
+      const anterior = controles.get(e.id);
+      if (anterior) { anterior.cerrar(); anterior.notas.remove(); }
       controles.set(e.id, c); configuraciones.appendChild(c.nodo);
       notas.appendChild(c.notas); c.notas.hidden = e.id !== actual;
       c.nodo.hidden = e.id !== actual;
@@ -10147,6 +10201,7 @@ function editorGlobalImagenes(escenas) {
       if (actual === id) estudio.seleccionar(id, undefined, Math.max(0, PREVIA.t - escenas[PREVIA.i].t_in));
       const listos = [...controles.values()].filter(c => c.listo).length;
       estado.textContent = listos === escenas.length ? 'Selecciona una imagen o un bloque del timeline para editarlo.' : `Cargando pistas: ${listos} de ${escenas.length} escenas…`;
+      if (estudio.modificado()) estudio.cambio();
     },
     ajustarPistas: () => {
       ['bloques', 'audio', 'animacion', 'sonidos', 'avatar', 'transiciones'].forEach((tipo, i) => {
@@ -10162,7 +10217,11 @@ function editorGlobalImagenes(escenas) {
       try { return await ctx.decodeAudioData(await r.arrayBuffer()); } finally { await ctx.close(); }
     })(),
     refrescar: nuevas => {
-      nuevas.forEach((e, i) => { Object.assign(escenas[i], e); controles.get(e.id)?.actualizarMedio(e); });
+      nuevas.forEach((e, i) => {
+        Object.assign(escenas[i], e);
+        controles.get(e.id)?.actualizarMedio(e);
+        controles.get(e.id)?.revalidar();
+      });
       const firma = JSON.stringify(escenas.map(e => e.imagen));
       if (firma !== firmaGaleria) {
         firmaGaleria = firma; galeriaCompartida = null; controles.get(actual)?.refrescarPanel();
@@ -10173,6 +10232,7 @@ function editorGlobalImagenes(escenas) {
       listaNotas.replaceChildren(...(notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()].filter(Boolean) : []));
       if (!reproduciendo && escenas[PREVIA.i]?.id !== actual) estudio.seleccionar(escenas[PREVIA.i]?.id);
       nodo.querySelectorAll('.editor-global-configuraciones').forEach(n => n.classList.toggle('generacion-activa', !!trabajoVideoLight()));
+      setTimeout(cargarPendientes, 0);
     },
     cerrar: () => { cerrado = true; observador.disconnect(); controles.forEach(c => c.cerrar()); nodo.remove(); },
   };
@@ -10191,16 +10251,27 @@ function editorGlobalImagenes(escenas) {
   observador.observe(document.body, { childList: true, subtree: true });
   EDITOR_GLOBAL = estudio;
   function cargarEscena(e) {
-    if (!cargas.has(e.id)) cargas.set(e.id, abrirEditorEscena(e, estudio));
+    if (!cargas.has(e.id)) cargas.set(e.id, abrirEditorEscena(e, estudio).then(() => {
+      if (!controles.get(e.id)?.listo) cargas.delete(e.id);
+    }));
     return cargas.get(e.id);
   }
-  setTimeout(async () => {
-    const pendientes = [...escenas].sort((a, b) => Number(b.id === actual) - Number(a.id === actual));
-    for (const e of pendientes) {
-      if (cerrado) break;
-      await cargarEscena(e);
-    }
-  }, 0);
+  async function cargarPendientes() {
+    if (cargandoPistas || cerrado) return;
+    cargandoPistas = true;
+    try {
+      const cache = await cacheProyecto;
+      // Las escenas locales aparecen primero, aunque falte alguna anterior.
+      const locales = new Set(escenas.filter(e => e.editor_revision && cache.get(e.id)?.revision === e.editor_revision).map(e => e.id));
+      const pendientes = [...escenas].sort((a, b) => Number(locales.has(b.id)) - Number(locales.has(a.id))
+        || Number(b.id === actual) - Number(a.id === actual));
+      for (const e of pendientes) {
+        if (cerrado || !nodo.isConnected) break;
+        await cargarEscena(e);
+      }
+    } finally { cargandoPistas = false; }
+  }
+  setTimeout(cargarPendientes, 0);
   return nodo;
 }
 
@@ -10213,11 +10284,14 @@ async function abrirEditorEscena(escena, estudio) {
   let tiempo = 0, audio, avatar, fondo, cuadro = 0, guardando = false, subiendo = false;
   let temporizador, revision = 0, tid = '', generando = false, pintor, pintorEnlace, cuadroEnlace = 0, cuadroBase, preparandoEnlace;
   let arrastrando = false, revisionVisual = 0, revisionReproduccion = 0, cancelarAvatar = false;
+  let revisionDatos = escena.editor_revision, recuperacion, revalidando = false;
+  const identidadLocal = () => JSON.stringify([escena.id, escena.narracion, escena.t_in, escena.t_out, ficha?.avatar.resolucion]);
   const historial = [], ondas = [];
   const buffersSonido = new Map(), reproduccionesSonido = [];
   let contextoSonido;
   const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando escena…');
   const panel = h('div', { clase: 'escena-editor-panel', role: 'tabpanel', id: `escena-configuracion-${escena.id}` });
+  const avisoRecuperacion = h('div', { clase: 'editor-recuperacion', hidden: true, role: 'status' });
   const muestra = h('div', { clase: `previa-marco anim-editor-previa escena-editor-previa con-avatar ${formatoDelVideo()}` });
   engancharSwipePrevia(muestra);
   const capa = h('div', { clase: 'previa-anim' });
@@ -10275,7 +10349,7 @@ async function abrirEditorEscena(escena, estudio) {
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); estudio.guardar(); }
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); estudio.deshacer(); }
     } },
-    h('aside', { clase: 'editor-global-panel' }, tabs, panel,
+    h('aside', { clase: 'editor-global-panel' }, tabs, avisoRecuperacion, panel,
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
     h('div', { clase: 'editor-global-visual' }, muestra), medios);
   const notasEscena = h('div', { clase: 'editor-global-notas' },
@@ -10299,6 +10373,32 @@ async function abrirEditorEscena(escena, estudio) {
       medios.replaceChildren();
     },
     listo: false, ocupado, modificado: () => !!borrador && JSON.stringify(borrador) !== original,
+    revalidar: async () => {
+      if (!control.listo || ocupado() || revalidando || revisionDatos === escena.editor_revision) return;
+      revalidando = true;
+      let fallo;
+      try {
+        const local = registroLocal(), nuevaRevision = escena.editor_revision;
+        const nueva = await pedir(`${base}/editor`);
+        if (!nueva.enlace) nueva.catalogo = ficha.catalogo || await pedir(`${API.proyecto(pid)}/transiciones`);
+        if (estudio.cerrado()) return;
+        // Las ediciones hechas mientras llegaba la respuesta también se conservan.
+        const pendiente = control.modificado() ? registroLocal() : local;
+        if (pendiente.borrador !== pendiente.original) recuperacion = pendiente;
+        ficha = nueva; revisionDatos = nuevaRevision;
+        iniciarBorrador(); historial.length = 0;
+        seleccionado = Math.min(seleccionado, listaActual().length - 1);
+        if (audio && ficha.animacion.audio) audio.src = API.archivo(pid, ficha.animacion.audio);
+        control.liberarVisual();
+        pintarRecuperacion(); montarAvatar(); pintarPanel();
+        if (estudio.esActual(escena.id)) control.prepararVisual?.();
+      } catch (error) { fallo = error; }
+      finally {
+        revalidando = false;
+        if (!estudio.cerrado()) cambio();
+        if (fallo) estado.textContent = `No se pudo actualizar la escena: ${fallo.message}`;
+      }
+    },
     seleccionar: (tab, t = 0, indice) => {
       if (!control.listo) control.tiempoPendiente = t;
       tiempo = Math.max(0, Math.min(total, t));
@@ -10341,7 +10441,39 @@ async function abrirEditorEscena(escena, estudio) {
     } };
   estudio.registrar(escena, control);
 
-  function ocupado() { return guardando || subiendo || generando || !!trabajoVideoLight(); }
+  function ocupado() { return guardando || subiendo || generando || revalidando || !!trabajoVideoLight(); }
+  function registroLocal() {
+    return { formato: 1, revision: revisionDatos, identidad: identidadLocal(), ficha: structuredClone(ficha),
+      original, borrador: JSON.stringify(borrador), historial: structuredClone(historial), recuperacion: recuperacion || null };
+  }
+  function persistirLocal() {
+    if (!control.listo || estudio.cerrado()) return Promise.resolve();
+    return CACHE_EDITOR.guardar(pid, escena.id, registroLocal()).catch(() => estudio.falloLocal());
+  }
+  function pintarRecuperacion() {
+    avisoRecuperacion.hidden = !recuperacion;
+    vaciar(avisoRecuperacion);
+    if (!recuperacion) return;
+    avisoRecuperacion.appendChild(h('p', { clase: 'meta' },
+      'Esta escena cambió en el servidor. Se ha conservado tu borrador local anterior; revisa sus cambios antes de recuperarlo.'));
+    if (recuperacion.identidad === identidadLocal()) avisoRecuperacion.appendChild(h('button', { clase: 'mini', onclick: () => {
+      if (ocupado()) return;
+      const anterior = JSON.parse(recuperacion.original), local = JSON.parse(recuperacion.borrador);
+      recordar();
+      Object.keys(local).forEach(k => {
+        if (JSON.stringify(local[k]) !== JSON.stringify(anterior[k])) borrador[k] = structuredClone(local[k]);
+      });
+      ficha.sonidos.fuentes = [...new Map([...recuperacion.ficha.sonidos.fuentes, ...ficha.sonidos.fuentes].map(f => [f.id, f])).values()];
+      recuperacion = null; pintarRecuperacion(); pintarPanel(); cambio();
+    } }, 'Recuperar mis cambios'));
+    avisoRecuperacion.append(h('button', { clase: 'mini', onclick: () => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(recuperacion, null, 2)], { type: 'application/json' }));
+      const enlace = h('a', { href: url, download: `borrador-${escena.id}.json` }); enlace.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } }, 'Descargar borrador'), h('button', { clase: 'mini', onclick: () => {
+      recuperacion = null; pintarRecuperacion(); persistirLocal();
+    } }, 'Descartar borrador anterior'));
+  }
   function recordar() {
     if (!borrador || ocupado()) return;
     historial.push(structuredClone(borrador)); if (historial.length > 100) historial.shift();
@@ -10359,6 +10491,7 @@ async function abrirEditorEscena(escena, estudio) {
     estado.textContent = guardarBoton.disabled ? 'Sin cambios pendientes.' : 'Cambios sin guardar en la escena.';
     pintarPistas(); pintarReloj();
     estudio.cambio(escena.id);
+    persistirLocal();
     if (previsualizar) prepararAnimacion();
   }
   function seleccionarPestaña(id, indice) {
@@ -10801,7 +10934,17 @@ async function abrirEditorEscena(escena, estudio) {
     try {
       const previa = await pedir(`${base}/editor`, { method: 'PUT', cuerpo: payload() });
       if (videoAbierto().pid === pid) { PREVIA.ficha = previa; PARALLAX_PREVIA.actual = null; AVATAR_PREVIA.actual = null; }
+      revisionDatos = previa.escenas.find(e => e.id === escena.id)?.editor_revision;
+      // La ficha cacheada debe describir lo recién guardado, no el GET inicial.
+      ficha.animacion.actual = borrador.animacion.length ? datosAnimacion() : null;
+      ficha.sonidos.actual = structuredClone(borrador.sonidos);
+      ficha.avatar.actual = { activo: !!borrador.avatar.length, posicion: structuredClone(borrador.posicion),
+        presentacion: borrador.avatar.length ? { ...borrador.avatar[0], bloques: structuredClone(borrador.avatar) } : ficha.avatar.actual.presentacion };
+      ficha.parallax.actual = structuredClone(borrador.parallax);
+      ficha.transiciones = structuredClone(borrador.transiciones);
+      if (ficha.enlace) ficha.enlace.actual = { tipo: borrador.enlace, ...(borrador.enlace !== 'corte' ? borrador.intervaloEnlace : {}) };
       original = JSON.stringify(borrador); estado.textContent = 'Escena guardada. Los cambios se aplicarán al volver a montar el vídeo.';
+      await persistirLocal();
       estudio.cambio(escena.id);
       asegurarParallaxPrevia(); asegurarAvatarPrevia();
       try { await refrescarFichasLight(); } catch (error) { /* La escena ya está guardada. */ }
@@ -10857,7 +11000,7 @@ async function abrirEditorEscena(escena, estudio) {
       }
       if (dialogo.isConnected) montarAvatar();
     } catch (error) { estado.textContent = error.message; }
-    finally { generando = false; if (dialogo.isConnected) { pintarPanel(); guardarBoton.disabled = JSON.stringify(borrador) === original; } }
+    finally { generando = false; if (dialogo.isConnected) { pintarPanel(); guardarBoton.disabled = JSON.stringify(borrador) === original; persistirLocal(); } }
   }
   async function cargarOnda() {
     try {
@@ -10877,9 +11020,7 @@ async function abrirEditorEscena(escena, estudio) {
     const ctx = onda.getContext('2d'); ctx.fillStyle = '#819aff';
     ondas.forEach((v, i) => { const alto = Math.max(1, v * onda.height * .9); ctx.fillRect(i / ondas.length * onda.width, (onda.height - alto) / 2, Math.max(1, onda.width / ondas.length - 1), alto); });
   }
-  try {
-    ficha = await pedir(`${base}/editor`); if (!dialogo.isConnected) return;
-    if (!ficha.enlace) ficha.catalogo = await pedir(`${API.proyecto(pid)}/transiciones`);
+  function iniciarBorrador() {
     const actual = ficha.animacion.actual;
     const convertir = a => {
       const b = { id: a.id, ancla: ficha.animacion.ancla, contenido: structuredClone(a.contenido), posiciones: a.posiciones || {},
@@ -10895,6 +11036,23 @@ async function abrirEditorEscena(escena, estudio) {
       parallax: { ...ficha.parallax.actual, ancla: ficha.parallax.ancla }, transiciones: structuredClone(ficha.transiciones), enlace: ficha.enlace?.actual.tipo || 'corte',
       intervaloEnlace: ficha.enlace?.actual.inicio != null ? { inicio: ficha.enlace.actual.inicio, fin: ficha.enlace.actual.fin } : null };
     original = JSON.stringify(borrador);
+  }
+  try {
+    const guardadoLocal = await estudio.cache(escena.id);
+    const local = CACHE_EDITOR.valido(guardadoLocal) ? guardadoLocal : null;
+    if (estudio.cerrado()) return;
+    const reutilizable = local?.formato === 1 && revisionDatos && local.revision === revisionDatos;
+    ficha = reutilizable ? structuredClone(local.ficha) : await pedir(`${base}/editor`);
+    if (!dialogo.isConnected || estudio.cerrado()) return;
+    if (!ficha.enlace && !ficha.catalogo) ficha.catalogo = await pedir(`${API.proyecto(pid)}/transiciones`);
+    iniciarBorrador();
+    recuperacion = local?.recuperacion;
+    if (reutilizable && local.identidad === identidadLocal()) {
+      borrador = JSON.parse(local.borrador); original = local.original;
+      historial.push(...(local.historial || []));
+      historial.forEach(() => estudio.recordar(escena.id));
+    } else if (local?.formato === 1 && local.borrador !== local.original) recuperacion = local;
+    pintarRecuperacion();
     tiempo = control.tiempoPendiente || 0;
     fondo = h(escena.clip ? 'video' : 'img', { clase: escena.clip ? 'previa-clip' : '',
       ...(estudio.esActual(escena.id) && (escena.clip || escena.imagen) ? { src: API.archivo(pid, escena.clip || escena.imagen) } : {}),
@@ -10930,7 +11088,10 @@ async function abrirEditorEscena(escena, estudio) {
     } catch (error) { estado.textContent = `Vista previa: ${error.message}`; }
     finally { control.preparando = false; }
     };
-    control.listo = true; estudio.cargado(escena.id);
+    control.listo = true;
+    guardarBoton.disabled = !control.modificado(); deshacerBoton.disabled = !historial.length;
+    await persistirLocal();
+    estudio.cargado(escena.id);
   } catch (error) { if (dialogo.isConnected) estado.textContent = `No se pudo abrir el editor: ${error.message}`; }
 }
 

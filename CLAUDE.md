@@ -596,6 +596,17 @@ perdido no se reutiliza). El reloj local se convierte con `t_in` al global.
 escenas, deshacer global, guardado/reapertura, arrastre y reproducción continua
 en Chromium, con un proyecto sintético y datos aislados.
 
+Las fichas y borradores del timeline persisten en IndexedDB (`estudio.editor`),
+separados por `BASE`, proyecto y escena. `editor_revision`, publicado en cada
+escena de la previsualización, invalida solo las fichas afectadas; se calcula
+sin escribir params ni usar las firmas del grafo. Mantén sus dependencias al
+cambiar el contrato del editor. Al guardar, actualiza también la ficha cacheada
+y su revisión; al descartar, persiste el borrador limpio. Una revisión distinta
+no debe aplicar un borrador antiguo automáticamente: conserva la recuperación
+separada, y exige el mismo texto, tiempos y resolución para restaurarlo.
+La carga se detiene al salir de Imágenes y se reanuda al volver, priorizando las
+escenas que ya están en la caché. Los fallos de IndexedDB no bloquean el editor.
+
 **Contrato del editor de escena**: `abrirEditorEscena` reúne las pestañas y
 el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones
 antes de guardar y solo escriben pestañas modificadas. `animacion.bloques` conserva

@@ -2658,6 +2658,8 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .editor-global-escena.anim-editor { display: contents; }
 .editor-global-escena[hidden] { display: none; }
 .editor-global-panel { grid-column: 1; grid-row: 3 / 6; min-width: 0; padding: 12px; background: #12161e; border: 1px solid #303745; border-radius: 10px; }
+.editor-recuperacion { padding: 10px; margin: 8px 0; border: 1px solid var(--acento); border-radius: 8px; }
+.editor-recuperacion button { margin: 4px 4px 0 0; }
 .editor-global .escena-editor-tabs { margin: 0 0 12px; gap: 3px; flex-wrap: wrap; }
 .editor-global .escena-editor-tabs button { flex: 1 1 30%; padding: 8px 5px; gap: 4px; font-size: 11px; border-radius: 6px; }
 .editor-global .escena-editor-tabs button span { font-size: 15px; }
@@ -2677,8 +2679,8 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .editor-global-notas .previa-feedback { margin: 0; }
 .editor-global-timeline { grid-column: 2; grid-row: 4; min-width: 0; margin: 0; padding: 10px; border: 1px solid #303745; border-radius: 10px; background: #10141d; }
 .editor-global-notas-escenas { grid-column: 2; grid-row: 5; min-width: 0; }
-.editor-global > [role="status"], .editor-global-lista-notas { grid-column: 1 / -1; }
-.editor-global > [role="status"] { grid-row: 6; }
+.editor-global-estados, .editor-global-lista-notas { grid-column: 1 / -1; }
+.editor-global-estados { grid-row: 6; }
 .editor-global-lista-notas { grid-row: 7; }
 .editor-global-tiempo { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; }
 .editor-global-etiquetas { display: flex; flex-direction: column; font-size: 11px; }

@@ -390,6 +390,16 @@ recuperan cambios entre escenas y pestañas. Guarda antes de montar el vídeo.
 Abrir el editor no escribe parámetros ni genera contenido. La regresión de
 navegador se ejecuta con `python pasos/prueba_editor_global.py --real`.
 
+Las escenas cargadas y los borradores sin guardar se conservan automáticamente
+en **este navegador**, mediante IndexedDB. Al recargar la página o volver a
+**Imágenes**, se recuperan las escenas locales y solo se solicitan las pendientes
+o las que hayan cambiado. La previsualización general se consulta para comprobar
+las revisiones; las imágenes, los clips y el audio mantienen su carga habitual.
+Guardar sigue siendo necesario para aplicar los cambios al proyecto y al montaje.
+Si una escena cambió en el servidor, el borrador anterior se conserva aparte:
+puedes descargarlo y, si mantiene el mismo texto y tiempos, recuperar sus cambios.
+Si borras los datos del sitio o usas otro navegador, esa copia local no estará disponible.
+
 En la pestaña **Animación** puedes
 corregir sus textos y cambiar el tipo por cualquiera de las **18 opciones** del
 catálogo: las ocho animaciones del guion y las diez cartelas sobre imagen.

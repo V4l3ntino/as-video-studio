@@ -5715,6 +5715,37 @@ def leer_previsualizacion(pid: str):
     return _leer_previsualizacion(pid)
 
 
+def _revisiones_editor(ctx, plan, escenas, audio):
+    """Sellos de lectura para la caché local; nunca entran en params ni firmas."""
+    from pasos import avatar
+    render = ctx.estado.params('render') or {}
+    unidades = render.get('unidades') or {}
+    opciones_avatar = avatar.normalizar(render.get('avatar') or {})
+    retrato = opciones_avatar['imagen'] or ('avatar/imagen-' + avatar._huella(opciones_avatar['prompt']) + '.png')
+    comunes = {
+        'render': {k: v for k, v in render.items() if k != 'unidades'},
+        'callouts': {k: v for k, v in (ctx.estado.params('callouts') or {}).items() if k != 'unidades'},
+        'voz': (ctx.estado.params('voz') or {}).get('incorporar_voz'),
+        'plan': {k: v for k, v in plan.items() if k != 'escenas'},
+        'audio': [audio, _sello_fichero(ctx.proyecto.ruta(audio)) if audio else None],
+        'retrato': [retrato, _sello_fichero(ctx.proyecto.ruta(retrato))],
+        'inicio': escenas[0]['t_in'],
+        'contrato': [_sello_fichero(os.path.join(os.path.dirname(__file__), nombre)) for nombre in
+                     ('app.py', 'pasos/editor_escena.py', 'pasos/animaciones.py',
+                      'pasos/avatar.py', 'pasos/parallax.py', 'pasos/sonido.py', 'pasos/transiciones.py')],
+    }
+    base = json.dumps(comunes, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    originales = {e['id']: e for e in plan['escenas']}
+    for i, escena in enumerate(escenas):
+        siguiente = escenas[i + 1] if i + 1 < len(escenas) else None
+        datos = [originales[escena['id']], {k: v for k, v in escena.items() if k != 'editor_revision'}, unidades.get('escena:' + escena['id']),
+                 {k: siguiente.get(k) for k in ('id', 'narracion', 't_in', 't_out', 'imagen', 'clip')}
+                 if siguiente else None]
+        # No se incluyen las unidades vecinas: editar un avatar no invalida el resto.
+        crudo = base + json.dumps(datos, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        escena['editor_revision'] = hashlib.sha256(crudo.encode('utf-8')).hexdigest()
+
+
 def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
     ctx = contexto(pid)
     plan = _plan_de_previsualizacion(ctx)
@@ -5946,6 +5977,8 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         desde["transicion"] = {k: v for k, v in corte.items() if k != "shader"}
         desde["transicion"]["personalizada"] = bool(trans.edicion_de(
             render, originales[desde["id"]], originales[hasta["id"]]))
+    if borrador is None:
+        _revisiones_editor(ctx, plan, escenas, audio)
     return {
         "escenas": escenas,
         "audio": audio,
