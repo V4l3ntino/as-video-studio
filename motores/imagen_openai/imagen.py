@@ -809,6 +809,61 @@ def _al_dia(destino, origen):
         return False
 
 
+def seleccionar_recursos(instruccion):
+    """JSON de stock con el principal y respaldo configurados para OpenAI."""
+    fallos = []
+    for proveedor in prioridades_imagen():
+        try:
+            texto = (codex().texto(instruccion) if proveedor == "codex"
+                     else _seleccionar_recursos_api(instruccion))
+            bloque = re.search(r"\{[\s\S]*\}", texto or "")
+            datos = json.loads(bloque.group()) if bloque else None
+            if not isinstance(datos, dict):
+                raise RuntimeError("El selector de recursos no devolvió un objeto JSON.")
+            return datos
+        except Exception as fallo:
+            if type(fallo).__name__ == "Cancelado" or getattr(fallo, "tipo", "") == "rechazo":
+                raise
+            fallos.append((proveedor, fallo))
+    raise ErrorProveedores(fallos, tarea="seleccionar recursos") from None
+
+
+def _seleccionar_recursos_api(instruccion):
+    """Texto mediante API key; no genera imágenes ni usa el cubo de imágenes."""
+    claves = _claves_declaradas()
+    if not claves:
+        raise RuntimeError("No hay una API key de OpenAI configurada.")
+    ultimo = None
+    for _, clave in claves:
+        try:
+            respuesta = requests.post("https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {clave}"},
+                json={"model": "gpt-4.1-mini", "messages": [
+                    {"role": "system", "content": "Responde solo con el objeto JSON solicitado. "
+                        "Selecciona recursos de stock; no generes imágenes."},
+                    {"role": "user", "content": instruccion}],
+                    "response_format": {"type": "json_object"}, "max_completion_tokens": 1200},
+                timeout=60)
+        except requests.RequestException:
+            # No propagar cabeceras ni detalles del transporte con credenciales.
+            ultimo = RuntimeError("No se pudo conectar con OpenAI para seleccionar recursos.")
+            continue
+        if respuesta.status_code != 200:
+            ultimo = RuntimeError(f"OpenAI respondió HTTP {respuesta.status_code} al seleccionar recursos.")
+            continue
+        try:
+            eleccion = respuesta.json()["choices"][0]
+            mensaje = eleccion["message"]
+            if mensaje.get("refusal") or eleccion.get("finish_reason") == "content_filter":
+                raise ErrorImagenAPI("OpenAI ha rechazado la selección de recursos.", "rechazo")
+            if eleccion.get("finish_reason") != "stop" or not isinstance(mensaje.get("content"), str):
+                raise ValueError("respuesta incompleta")
+            return mensaje["content"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            ultimo = RuntimeError("OpenAI devolvió una selección de recursos incompleta.")
+    raise ultimo
+
+
 def generar(prompt, referencias, *, quality="low", tamano="apaisado",
             api_key=None, reintentos=6):
     """Intenta principal y respaldo para esta imagen, sin repetir las ya hechas."""
@@ -852,13 +907,13 @@ def generar(prompt, referencias, *, quality="low", tamano="apaisado",
 class ErrorProveedores(RuntimeError):
     """Conserva ambos diagnósticos y la espera de cuota renovable de ChatGPT."""
 
-    def __init__(self, fallos):
+    def __init__(self, fallos, tarea="generar"):
         self.fallos = [f for _, f in fallos]
         renovable = next((f for f in self.fallos if getattr(f, "cuota_renovable", False)), None)
         self.cuota_renovable = renovable is not None
         self.tipo = "cuota" if renovable else getattr(self.fallos[-1], "tipo", "sin_clasificar")
         self.diagnostico = getattr(renovable or self.fallos[-1], "diagnostico", None)
-        super().__init__("No se pudo generar con ninguno de los métodos. " + " · ".join(
+        super().__init__(f"No se pudo {tarea} con ninguno de los métodos. " + " · ".join(
             f"{'ChatGPT / Codex CLI' if p == 'codex' else 'OpenAI API Key'}: {codex()._limpiar(f)}"
             for p, f in fallos))
 

@@ -434,6 +434,66 @@ def _preparar_referencias(referencias, carpeta):
     return rutas, mapa
 
 
+def texto(instruccion):
+    """Selector de stock con la sesión ChatGPT, sin herramientas ni API de pago."""
+    with _prestar_conexion() as (conexion, _), tempfile.TemporaryDirectory(
+            prefix="estudio_codex_texto_") as carpeta:
+        hilo = None
+        try:
+            if conexion.cuenta().get("type") != "chatgpt":
+                raise ErrorCodex("Conecta tu cuenta de ChatGPT en Configuración para buscar recursos.", "sesion")
+            if _limites(conexion).get("uso_permitido") is False:
+                raise ErrorCodex("El uso de ChatGPT no está disponible para buscar recursos ahora.", "cuota")
+            hilo = conexion.pedir("thread/start", {
+                "cwd": os.path.realpath(carpeta), "approvalPolicy": "never",
+                "sandbox": "read-only", "ephemeral": True,
+                "config": {"features.shell_tool": False, "features.multi_agent": False,
+                           "features.apps": False, "features.plugins": False,
+                           "features.image_generation": False},
+                "developerInstructions": "Responde solo con el JSON solicitado. No uses herramientas, "
+                    "no generes imágenes ni accedas a archivos o a la red."})["thread"]["id"]
+            respuesta = conexion.pedir("turn/start", {"threadId": hilo,
+                "input": [{"type": "text", "text": instruccion}]})
+            turno_id = (respuesta.get("turn") or {}).get("id")
+            mensajes = {}
+            plazo = time.monotonic() + 180
+            while True:
+                evento = conexion.recibir(plazo)
+                params = evento.get("params") or {}
+                if params.get("threadId") and params["threadId"] != hilo:
+                    continue
+                if params.get("turnId") and params["turnId"] != turno_id:
+                    continue
+                if evento.get("method") == "error":
+                    raise _error_de(params.get("error") or params)
+                if evento.get("method") == "item/completed":
+                    item = params.get("item") or {}
+                    if item.get("type") == "agentMessage" and item.get("text"):
+                        mensajes[item.get("id") or "respuesta"] = item["text"]
+                if evento.get("method") == "turn/completed":
+                    turno = params.get("turn") or {}
+                    if turno.get("id") and turno["id"] != turno_id:
+                        continue
+                    if turno.get("status") != "completed" or turno.get("error"):
+                        raise _error_de(turno.get("error") or "Selección de recursos interrumpida")
+                    for item in turno.get("items") or []:
+                        if item.get("type") == "agentMessage" and item.get("text"):
+                            mensajes[item.get("id") or "respuesta"] = item["text"]
+                    if not mensajes:
+                        raise ErrorCodex("ChatGPT terminó sin entregar la selección de recursos.")
+                    return "\n".join(mensajes.values())
+        except Exception:
+            conexion.descartar = True
+            raise
+        finally:
+            if hilo and not conexion.descartar:
+                try:
+                    conexion.pedir("thread/unsubscribe", {"threadId": hilo})
+                    conexion.pendientes.clear()
+                except ErrorCodex:
+                    conexion.descartar = True
+
+
 def generar(prompt, referencias, quality, tamano):
     """Un encargo, un turno y una imagen nativa; recuperación sin regeneración."""
     with tempfile.TemporaryDirectory(prefix="estudio_codex_") as carpeta, contextlib.ExitStack() as pila:

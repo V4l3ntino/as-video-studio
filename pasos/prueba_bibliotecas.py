@@ -77,6 +77,57 @@ class Bibliotecas(unittest.TestCase):
         self.assertTrue(bibliotecas.normalizar(anterior)["incorporar_ia"])
         self.assertFalse(bibliotecas.normalizar({})["incorporar_ia"])
 
+    def test_reparto_por_escenas_excluye_ia_y_medios_propios(self):
+        for porcentaje, esperadas in ((0, 0), (50, 2), (70, 3), (100, 4)):
+            with self.subTest(porcentaje=porcentaje):
+                self.config["carga_claude"] = porcentaje
+                b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+                self.assertEqual(len(b.agentes), 4)
+                self.assertEqual(list(b.agentes.values()).count("claude"), esperadas)
+                retomada = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+                self.assertEqual(b.agentes, retomada.agentes)
+        self.escenas[0]["medio_usuario"] = {"archivo": "propio.png"}
+        self.escenas[1]["cartela"] = {"fondo": "solido"}
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        self.assertNotIn("S001", b.agentes)
+        self.assertNotIn("S002", b.agentes)
+        for valor in (-1, 101, True, 1.5, "70"):
+            with self.subTest(valor=valor), self.assertRaises(ValueError):
+                bibliotecas.normalizar({"carga_claude": valor})
+        self.assertNotIn("carga_claude", bibliotecas.normalizar({}))
+
+    def test_consulta_y_seleccion_usan_el_mismo_agente_y_cache_separada(self):
+        self.config.update(incorporar_ia=False, carga_claude=0)
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        with patch.dict(os.environ, {"ESTUDIO_SIMULAR": "0"}), patch.object(
+                bibliotecas, "_agente_chatgpt", side_effect=[
+                    {"visual": "green forest"}, {"indice": -1}]) as chatgpt, patch.object(
+                bibliotecas, "_agente") as claude, patch.object(bibliotecas, "buscar",
+                return_value=[{"fuente": "pexels", "tipo": "imagen", "id": "1"}]):
+            self.assertIsNone(b.visual(self.escenas[0], "sin.png"))
+            self.assertEqual(b.consulta(self.escenas[0])["visual"], "green forest")
+            self.assertEqual(chatgpt.call_count, 2)
+            claude.assert_not_called()
+        self.config.pop("carga_claude")
+        antiguo = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        with patch.dict(os.environ, {"ESTUDIO_SIMULAR": "0"}), patch.object(
+                bibliotecas, "_agente", return_value={"visual": "old forest"}) as claude:
+            self.assertEqual(antiguo.consulta(self.escenas[0])["visual"], "old forest")
+            claude.assert_called_once()
+
+    def test_chatgpt_delega_en_el_selector_con_prioridad_configurada(self):
+        motor = Mock()
+        motor.seleccionar_recursos.return_value = {"visual": "forest"}
+        with patch.object(bibliotecas.medios, "motor", return_value=motor) as cargar:
+            self.assertEqual(bibliotecas._agente_chatgpt("Busca"), {"visual": "forest"})
+        cargar.assert_called_once_with("imagen_openai/imagen.py")
+        motor.seleccionar_recursos.assert_called_once_with("Busca")
+
+    def test_reparto_sin_escenas_buscables(self):
+        self.config.update(incorporar_ia=True, ia_cada=1, carga_claude=50)
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        self.assertEqual(b.agentes, {})
+
     def test_adaptadores_cache_y_credenciales_no_se_persisten(self):
         almacen = {p: {"clave": "secreto-prueba"} for p in ("pixabay", "pexels")}
         ejemplos = [

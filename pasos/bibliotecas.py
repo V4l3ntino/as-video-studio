@@ -25,7 +25,7 @@ DEFECTOS = {"proveedores": [], "imagenes": True, "video": True,
 def normalizar(crudo):
     if not isinstance(crudo, dict):
         raise ValueError("bibliotecas debe ser un objeto")
-    if set(crudo) - set(DEFECTOS):
+    if set(crudo) - (set(DEFECTOS) | {"carga_claude"}):
         raise ValueError("bibliotecas contiene opciones desconocidas")
     p = dict(DEFECTOS, **copy.deepcopy(crudo))
     # Los proyectos anteriores tenían la cadencia activada implícitamente.
@@ -40,6 +40,9 @@ def normalizar(crudo):
             raise ValueError(f"bibliotecas.{campo} debe ser un booleano")
     if type(p["ia_cada"]) is not int or not 1 <= p["ia_cada"] <= 1000:
         raise ValueError("la frecuencia de IA debe ser un entero entre 1 y 1000 escenas")
+    carga = p.get("carga_claude", 100)
+    if type(carga) is not int or not 0 <= carga <= 100:
+        raise ValueError("la carga de Claude debe ser un entero entre 0 y 100")
     return p
 
 
@@ -58,6 +61,10 @@ def _json(texto):
 def _agente(instruccion):
     texto, _ = cli_claude.ejecutar(instruccion, modelo="sonnet", esfuerzo="low")
     return _json(texto)
+
+
+def _agente_chatgpt(instruccion):
+    return medios.motor("imagen_openai/imagen.py").seleccionar_recursos(instruccion)
 
 
 def buscar(proveedor, tipo, consulta, vertical, cache):
@@ -166,6 +173,13 @@ class Biblioteca:
                     and (not e.get("cartela") or e["cartela"].get("fondo") == "imagen")]
         self.turnos = {e["id"]: self.p["incorporar_ia"] and (i + 1) % self.p["ia_cada"] == 0
                        for i, e in enumerate(visuales)}
+        # Reparto estable y equilibrado sobre las escenas que buscan stock.
+        # Redondear sobre el total limita la desviación a media escena.
+        buscables = [e for e in visuales if not self.turnos[e["id"]]]
+        cantidad = (len(buscables) * self.p.get("carga_claude", 100) + 50) // 100
+        self.agentes = {e["id"]: ("claude" if
+            (i + 1) * cantidad // len(buscables) > i * cantidad // len(buscables)
+            else "chatgpt") for i, e in enumerate(buscables)}
         self.lock = threading.Lock()
         self.audio_lock = threading.Lock()
         self.usados = set()
@@ -187,8 +201,20 @@ class Biblioteca:
         if self.p["audio"] and not sonido.hay_claves()[1]:
             raise RuntimeError("falta la clave de FreeSound para el audio de las escenas")
 
+    def agente(self, escena):
+        return self.agentes.get(escena["id"], "claude")
+
+    def seleccionar(self, escena, instruccion):
+        if self.agente(escena) == "chatgpt":
+            return _agente_chatgpt(instruccion)
+        return _agente(instruccion)
+
     def consulta(self, escena):
-        firma = medios.huella({k: escena.get(k) for k in ("narracion", "direccion", "prompt")})
+        peticion = {k: escena.get(k) for k in ("narracion", "direccion", "prompt")}
+        # Conserva las cachés históricas de Claude; no mezcla consultas entre motores.
+        if self.agente(escena) == "chatgpt":
+            peticion["agente"] = "chatgpt"
+        firma = medios.huella(peticion)
         ruta = os.path.join(self.raiz, firma + ".consulta.json")
         datos = medios.leer_json(ruta, None)
         if datos is not None:
@@ -196,7 +222,7 @@ class Biblioteca:
         if os.environ.get("ESTUDIO_SIMULAR") == "1":
             datos = {"visual": escena.get("narracion", "")[:80], "audio": ""}
         else:
-            datos = _agente("Prepara búsquedas para ilustrar esta escena con recursos de stock. "
+            datos = self.seleccionar(escena, "Prepara búsquedas para ilustrar esta escena con recursos de stock. "
                 "Devuelve solo JSON {\"visual\":\"2-6 palabras en inglés\",\"audio\":\"efecto sonoro "
                 "concreto en inglés o cadena vacía\"}. Describe objetos y acciones visibles, no "
                 "conceptos abstractos. No busques una persona real como sustituto de otra. "
@@ -212,6 +238,8 @@ class Biblioteca:
                 or not self.p["proveedores"] or not (self.p["imagenes"] or self.p["video"])):
             return None
         consulta = self.consulta(escena)["visual"]
+        self.avisar(0.4, f"{escena['id']}: buscando recursos con "
+                    + ("Claude" if self.agente(escena) == "claude" else "ChatGPT"))
         candidatos = []
         for proveedor in self.p["proveedores"]:
             for tipo, marcado in (("imagen", self.p["imagenes"]), ("video", self.p["video"])):
@@ -224,7 +252,7 @@ class Biblioteca:
             if not candidatos:
                 self.avisar(0.4, f"{escena['id']}: sin recursos de biblioteca; se usará Codex")
                 return None
-            seleccion = _agente("Elige el recurso que mejor representa la escena sin inventar "
+            seleccion = self.seleccionar(escena, "Elige el recurso que mejor representa la escena sin inventar "
                 "hechos. No confundas personas, lugares ni épocas. Devuelve JSON "
                 "{\"indice\":0,\"motivo\":\"...\"}; indice=-1 si ninguno es adecuado. "
                 "Escena: " + escena.get("narracion", "") + "\nDirección visual: "
@@ -256,6 +284,7 @@ class Biblioteca:
         escena["medio_biblioteca"] = medio
         escena["recurso_biblioteca"] = recurso
         return {"origen": "biblioteca", "coste": 0, "medio_biblioteca": medio,
+                "agente_busqueda": self.agente(escena),
                 "busqueda_visual": consulta,
                 "recurso_biblioteca": recurso, "firma": medios.huella(recurso),
                 "bibliotecas_peticion": medios.huella({k: escena.get(k) for k in
@@ -279,7 +308,7 @@ class Biblioteca:
             opciones = [r for r in opciones if r.get("descarga")
                         and sonido.clave_de(r) not in sonido.vetados()]
             if opciones:
-                elegida = _agente("Elige un efecto diegético para esta escena. Nunca voces, "
+                elegida = self.seleccionar(escena, "Elige un efecto diegético para esta escena. Nunca voces, "
                     "música ni una acción que no sucede. Devuelve JSON {\"indice\":0}; "
                     "indice=-1 si ninguno encaja. Escena: " + escena.get("narracion", "")
                     + "\nCandidatos: " + json.dumps([

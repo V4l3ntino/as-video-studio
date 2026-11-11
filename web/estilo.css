@@ -564,6 +564,12 @@ button.pastilla { cursor: pointer; }
 .bibliotecas-parametros:disabled { opacity: .45; filter: grayscale(.7); }
 .bibliotecas-parametros:disabled label,
 .bibliotecas-parametros:disabled input { cursor: not-allowed; }
+.bibliotecas-carga { border: 1px solid var(--borde, #303640); border-radius: 10px; padding: 14px; margin: 14px 0; }
+.bibliotecas-carga strong { display: block; }
+.bibliotecas-carga-valor { display: table; margin: 8px auto 2px; padding: 2px 10px; border: 1px solid var(--borde, #303640); border-radius: 10px; background: #222630; }
+.bibliotecas-carga-control { display: flex; align-items: center; gap: 18px; }
+.bibliotecas-carga-control input[type="range"] { flex: 1; min-width: 0; width: 100%; padding: 0; accent-color: #7b83ff; cursor: pointer; }
+.bibliotecas-carga-resumen { margin-bottom: 0; }
 .efecto-encargo > span { display: flex; flex-direction: column; gap: 3px; }
 .efecto-sfx .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .efecto-sfx .icono {

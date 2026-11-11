@@ -94,6 +94,39 @@ class PruebaCodex(unittest.TestCase):
         self.assertTrue(entradas[1]["path"].endswith("referencia_01.png"))
         self.conexion.cerrar.assert_not_called()
 
+    def test_selector_texto_sin_herramientas_y_con_sesion_chatgpt(self):
+        self.conexion.recibir.side_effect = [
+            {"method": "item/completed", "params": {"threadId": "ajeno", "item": {
+                "type": "agentMessage", "text": "ignorar"}}},
+            {"method": "turn/completed", "params": {"threadId": "hilo", "turn": {
+                "id": "turno", "status": "completed", "items": [{"id": "respuesta",
+                    "type": "agentMessage", "text": '{"visual":"forest"}'}]}}}]
+        with mock.patch.object(codex, "Conexion", return_value=self.conexion):
+            self.assertEqual(codex.texto("Prepara una consulta"), '{"visual":"forest"}')
+        inicio = next(c for c in self.conexion.pedir.call_args_list if c.args[0] == "thread/start")
+        self.assertFalse(inicio.args[1]["config"]["features.image_generation"])
+        self.assertFalse(inicio.args[1]["config"]["features.shell_tool"])
+        self.assertEqual(inicio.args[1]["sandbox"], "read-only")
+        self.conexion.pedir.assert_any_call("thread/unsubscribe", {"threadId": "hilo"})
+
+    def test_selector_texto_no_abre_turno_sin_cuota_o_sesion(self):
+        for cuenta, limites in (({"type": "apiKey"}, True), ({"type": "chatgpt"}, False)):
+            with self.subTest(cuenta=cuenta, limites=limites):
+                self.conexion.cuenta.return_value = cuenta
+                self.limites = {"ordinaryUsageAllowed": limites}
+                self.conexion.pedir.reset_mock()
+                with mock.patch.object(codex, "Conexion", return_value=self.conexion), self.assertRaises(codex.ErrorCodex):
+                    codex.texto("Prepara una consulta")
+                self.assertFalse(any(c.args[0] in ("thread/start", "turn/start")
+                                     for c in self.conexion.pedir.call_args_list))
+
+    def test_selector_texto_no_da_por_buena_una_respuesta_interrumpida(self):
+        self.conexion.recibir.side_effect = [{"method": "turn/completed", "params": {
+            "turn": {"id": "turno", "status": "interrupted"}}}]
+        with mock.patch.object(codex, "Conexion", return_value=self.conexion), self.assertRaises(codex.ErrorCodex):
+            codex.texto("Prepara una consulta")
+        self.assertTrue(self.conexion.descartar)
+
     def test_mensaje_de_exito_no_es_una_imagen(self):
         self.eventos[0]["params"]["item"] = {"type": "agentMessage", "text": "Imagen creada"}
         with self.assertRaises(codex.ErrorCodex):
@@ -502,6 +535,96 @@ class PruebaPrioridadesImagen(unittest.TestCase):
             self.assertEqual(meta["proveedor"], orden[0])
             self.assertNotIn("respaldo_de", meta)
             (self.api if orden[1] == "api" else self.codex.generar).assert_not_called()
+
+    def test_selector_stock_respeta_ambas_prioridades_y_solo_llama_al_principal(self):
+        self.codex.texto.return_value = '{"visual":"codex forest"}'
+        with mock.patch.object(motor, "_seleccionar_recursos_api",
+                               return_value='{"visual":"api forest"}') as api:
+            for orden in (["api", "codex"], ["codex", "api"]):
+                motor.guardar_prioridades(orden)
+                api.reset_mock()
+                self.codex.texto.reset_mock()
+                self.assertEqual(motor.seleccionar_recursos("Busca un bosque"),
+                                 {"visual": orden[0] + " forest"})
+                principal, respaldo = (api, self.codex.texto) if orden[0] == "api" else (self.codex.texto, api)
+                principal.assert_called_once_with("Busca un bosque")
+                respaldo.assert_not_called()
+        self.api.assert_not_called()
+        self.codex.generar.assert_not_called()
+
+    def test_selector_stock_codex_no_disponible_o_json_invalido_usa_api(self):
+        motor.guardar_prioridades(["codex", "api"])
+        with mock.patch.object(motor, "_seleccionar_recursos_api", return_value='{"indice":0}'):
+            for fallo in (codex.ErrorCodex("sin cuota", "cuota"),
+                          codex.ErrorCodex("sin sesión", "sesion"), TimeoutError("timeout")):
+                self.codex.texto.side_effect = fallo
+                self.assertEqual(motor.seleccionar_recursos("Elige"), {"indice": 0})
+            self.codex.texto.side_effect = None
+            self.codex.texto.return_value = "No entregó JSON"
+            self.assertEqual(motor.seleccionar_recursos("Elige"), {"indice": 0})
+
+    def test_selector_stock_api_sin_clave_y_errores_http_usan_codex(self):
+        motor.guardar_prioridades(["api", "codex"])
+        self.codex.texto.return_value = '{"indice":1}'
+        self.claves.return_value = []
+        with mock.patch.object(motor.requests, "post") as post:
+            self.assertEqual(motor.seleccionar_recursos("Elige"), {"indice": 1})
+            post.assert_not_called()
+        self.claves.return_value = [("", "sk-prueba")]
+        for status in (401, 402, 429, 500):
+            with self.subTest(status=status), mock.patch.object(motor.requests, "post",
+                    return_value=mock.Mock(status_code=status)) as post:
+                self.assertEqual(motor.seleccionar_recursos("Elige"), {"indice": 1})
+                post.assert_called_once()
+
+    def test_selector_stock_api_usa_clave_y_modelo_de_texto_sin_generar_imagenes(self):
+        motor.guardar_prioridades(["api", "codex"])
+        respuesta = mock.Mock(status_code=200)
+        respuesta.json.return_value = {"choices": [{"finish_reason": "stop",
+            "message": {"content": '{"visual":"forest","audio":""}'}}]}
+        with mock.patch.object(motor.requests, "post", return_value=respuesta) as post:
+            self.assertEqual(motor.seleccionar_recursos("Busca"), {"visual": "forest", "audio": ""})
+        self.assertEqual(post.call_args.args[0], "https://api.openai.com/v1/chat/completions")
+        parametros = post.call_args.kwargs
+        self.assertEqual(parametros["headers"]["Authorization"], "Bearer sk-prueba")
+        self.assertEqual(parametros["json"]["model"], "gpt-4.1-mini")
+        self.assertEqual(parametros["json"]["response_format"], {"type": "json_object"})
+        self.assertNotIn("tools", parametros["json"])
+        self.codex.texto.assert_not_called()
+        self.api.assert_not_called()
+
+    def test_selector_stock_respuesta_truncada_o_red_usa_respaldo(self):
+        motor.guardar_prioridades(["api", "codex"])
+        self.codex.texto.return_value = '{"indice":0}'
+        respuesta = mock.Mock(status_code=200)
+        respuesta.json.return_value = {"choices": [{"finish_reason": "length",
+            "message": {"content": '{"indice":'}}]}
+        with mock.patch.object(motor.requests, "post", return_value=respuesta):
+            self.assertEqual(motor.seleccionar_recursos("Elige"), {"indice": 0})
+        with mock.patch.object(motor.requests, "post", side_effect=motor.requests.Timeout("sk-prueba")):
+            self.assertEqual(motor.seleccionar_recursos("Elige"), {"indice": 0})
+
+    def test_selector_stock_si_fallan_ambos_conserva_motivos_sin_claves(self):
+        motor.guardar_prioridades(["api", "codex"])
+        self.codex.texto.side_effect = codex.ErrorCodex("sesión caducada", "sesion")
+        with mock.patch.object(motor.requests, "post", side_effect=motor.requests.Timeout("sk-prueba")):
+            with self.assertRaises(motor.ErrorProveedores) as error:
+                motor.seleccionar_recursos("Elige")
+        mensaje = str(error.exception)
+        self.assertIn("seleccionar recursos", mensaje)
+        self.assertIn("sesión caducada", mensaje)
+        self.assertIn("conectar", mensaje)
+        self.assertNotIn("sk-prueba", mensaje)
+
+    def test_selector_stock_rechazo_no_se_reenvia_al_otro_proveedor(self):
+        motor.guardar_prioridades(["api", "codex"])
+        respuesta = mock.Mock(status_code=200)
+        respuesta.json.return_value = {"choices": [{"finish_reason": "stop",
+            "message": {"refusal": "No", "content": None}}]}
+        with mock.patch.object(motor.requests, "post", return_value=respuesta):
+            with self.assertRaises(motor.ErrorImagenAPI):
+                motor.seleccionar_recursos("Elige")
+        self.codex.texto.assert_not_called()
 
     def test_codex_sin_cuota_sesion_o_servicio_recurre_a_api(self):
         motor.guardar_prioridades(["codex", "api"])

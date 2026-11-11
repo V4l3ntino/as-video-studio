@@ -6243,14 +6243,15 @@ function montajeDelEstiloLight(ficha) {
     animaciones: [...(montaje.animaciones || [])],
     plantillas_cartela: [...(montaje.plantillas_cartela || [])],
     ...(montaje.color_acento ? { color_acento: montaje.color_acento } : {}),
-    bibliotecas: bibliotecasPorDefectoLight(montaje.bibliotecas),
+    bibliotecas: { ...bibliotecasPorDefectoLight(montaje.bibliotecas),
+      carga_claude: montaje.bibliotecas?.carga_claude ?? 50 },
   };
 }
 
 function bibliotecasPorDefectoLight(crudo) {
   return Object.assign({ proveedores: [], imagenes: true, video: true,
     audio: false, incorporar_ia: !!(crudo && crudo.proveedores && crudo.proveedores.length),
-    ia_cada: 5 }, JSON.parse(JSON.stringify(crudo || {})));
+    ia_cada: 5 }, crudo ? {} : { carga_claude: 50 }, JSON.parse(JSON.stringify(crudo || {})));
 }
 
 /* ============================================ EL VÍDEO DEL MODO LIGHT
@@ -7028,9 +7029,33 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
       },
     }), h('span', {}, 'Incorporar imágenes ia')),
     h('label', {}, 'Una imagen con IA cada N escenas'), numero);
+  const porcentaje = opciones.carga_claude ?? 100;
+  const valorCarga = h('output', { clase: 'bibliotecas-carga-valor' }, `${porcentaje}%`);
+  const resumenCarga = h('p', { clase: 'pista bibliotecas-carga-resumen' });
+  const actualizarCarga = valor => {
+    valorCarga.textContent = `${valor}%`;
+    resumenCarga.textContent = `Claude: ${valor}% · ChatGPT: ${100 - valor}% de las escenas que buscan recursos.`;
+  };
+  const carga = h('input', {
+    type: 'range', min: 0, max: 100, step: 1, value: porcentaje,
+    'aria-label': 'Porcentaje de búsquedas a cargo de Claude',
+    'data-foco': 'bibliotecas-carga-claude',
+    oninput: ev => {
+      opciones.carga_claude = Number(ev.target.value);
+      actualizarCarga(opciones.carga_claude);
+      ev.target.setAttribute('aria-valuetext', `${opciones.carga_claude}% Claude, ${100 - opciones.carga_claude}% ChatGPT`);
+    },
+    onchange: cambiar,
+  });
+  carga.setAttribute('aria-valuetext', `${porcentaje}% Claude, ${100 - porcentaje}% ChatGPT`);
+  actualizarCarga(porcentaje);
+  const reparto = h('div', { clase: 'bibliotecas-carga' },
+    h('strong', {}, 'Repartir carga de trabajo'), valorCarga,
+    h('div', { clase: 'bibliotecas-carga-control' }, h('span', {}, 'Claude'), carga,
+      h('span', {}, 'ChatGPT')), resumenCarga);
   const parametros = h('fieldset', {
     clase: 'bibliotecas-parametros', 'aria-label': 'Parámetros de las bibliotecas',
-  }, tipos, frecuencia);
+  }, tipos, frecuencia, reparto);
   const aviso = h('p', { clase: 'pista' },
     'Selecciona Pixabay o Pexels para configurar los tipos de recurso y la frecuencia de IA.');
   const actualizarDisponibilidad = () => {

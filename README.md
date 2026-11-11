@@ -228,6 +228,17 @@ aparece **Obtener recursos de bibliotecas**:
 - Marca **Imágenes** y/o **Vídeo**.
 - Si quieres imágenes de IA periódicas, marca **Incorporar imágenes ia** y ajusta
   **Una imagen con IA cada N escenas** (inicialmente 5).
+- En **Repartir carga de trabajo**, el porcentaje indica cuántas escenas buscará
+  **Claude**; el resto las buscará **ChatGPT/OpenAI**, usando Codex o la API key
+  según la prioridad de **Configuración → Imágenes**. Si el principal no está
+  disponible, se intenta el otro método. La API usa `gpt-4.1-mini` para preparar
+  consultas y elegir recursos, con facturación por tokens; Codex usa tu sesión.
+  Por ejemplo, 70% reparte aproximadamente siete de cada diez escenas a Claude;
+  0% encarga todas a ChatGPT y 100% todas a Claude. Se reparten tanto la preparación
+  de la consulta como la elección del recurso. El reparto se redondea a escenas
+  completas, excluyendo las reservadas para IA y los medios propios.
+  Los vídeos nuevos parten de 50/50; los anteriores mantienen Claude hasta que
+  cambies el control. También puedes configurarlo en un estilo para vídeos nuevos.
 
 Con esa opción marcada, las escenas ilustradas N, 2N, 3N… usan **IA** con el
 método principal y el respaldo ordenados en Configuración;
