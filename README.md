@@ -325,6 +325,13 @@ a esta escena y al montaje final; **Deshacer** permite recuperar los ajustes ant
 Editar estos ajustes reutiliza el clip: no vuelve a solicitarlo a Boson ni
 modifica las imágenes, la voz o los tiempos de la escena.
 
+**Aplicar posición a escenas posteriores** copia la posición actual del avatar a
+todos los avatares existentes en las escenas siguientes. La escena actual y las
+anteriores se conservan; las escenas sin avatar se ignoran. Solo cambia la
+posición, manteniendo la imagen, el tamaño, las animaciones y los intervalos de
+cada avatar. Pulsa **Guardar cambios** para conservar el resultado; también
+puedes deshacer o descartar los cambios desde el editor.
+
 Boson AI factura estas animaciones por uso; generar el retrato consume también
 el método de imágenes elegido. Los MP4 y los identificadores de trabajo remoto
 se guardan en `avatar/` para retomar sin volver a encargar clips completados.

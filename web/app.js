@@ -9971,7 +9971,7 @@ function editorGlobalImagenes(escenas) {
   EDITOR_GLOBAL?.cerrar();
   const controles = new Map(), contenedores = new Map(), cargas = new Map();
   let actual = escenas[PREVIA.i]?.id || escenas[0].id, reproduciendo = false, cerrado = false;
-  let ultimaEdicion = [], ondaPromesa, galeriaCompartida;
+  let ultimaEdicion = [], ondaPromesa, galeriaCompartida, aplicandoPosicion = false;
   let firmaGaleria = JSON.stringify(escenas.map(e => e.imagen));
   const duracion = Math.max(...escenas.map(e => e.t_out));
   const configuraciones = h('div', { clase: 'editor-global-configuraciones' });
@@ -10001,6 +10001,7 @@ function editorGlobalImagenes(escenas) {
     estudio.cambio();
   } }, 'Guardar cambios');
   const deshacer = h('button', { clase: 'mini', disabled: true, onclick: () => {
+    if (aplicandoPosicion) return;
     while (ultimaEdicion.length) {
       const id = ultimaEdicion.pop(), c = controles.get(id);
       if (!c?.pendiente()) continue;
@@ -10008,6 +10009,7 @@ function editorGlobalImagenes(escenas) {
     }
   } }, '↶ Deshacer');
   const descartar = h('button', { clase: 'mini', hidden: true, onclick: () => {
+    if (aplicandoPosicion) return;
     if ([...controles.values()].some(c => c.ocupado())) return;
     controles.forEach(c => c.descartar()); ultimaEdicion = []; estudio.cambio();
   } }, 'Descartar cambios');
@@ -10040,6 +10042,35 @@ function editorGlobalImagenes(escenas) {
     modificado: () => [...controles.values()].some(c => c.modificado()),
     pausar: () => { reproduciendo = false; controles.forEach(c => c.pausar()); },
     guardar: () => guardar.click(), deshacer: () => deshacer.click(),
+    tienePosteriores: id => escenas.findIndex(e => e.id === id) < escenas.length - 1,
+    aplicarPosicionAvatar: async (id, posicion) => {
+      if (aplicandoPosicion || cerrado || !!trabajoVideoLight()) return;
+      const indice = escenas.findIndex(e => e.id === id);
+      if (indice < 0) return;
+      const posteriores = escenas.slice(indice + 1), referencia = { x: posicion.x, y: posicion.y };
+      estudio.pausar();
+      aplicandoPosicion = true;
+      configuraciones.inert = timeline.inert = true;
+      estudio.cambio();
+      estado.textContent = 'Preparando las escenas posteriores…';
+      try {
+        for (const e of posteriores) await cargarEscena(e);
+        if (cerrado) return;
+        if (posteriores.some(e => !controles.get(e.id)?.listo || controles.get(e.id).ocupado()))
+          throw new Error('No se pudieron preparar todas las escenas posteriores. Vuelve a intentarlo cuando estén disponibles.');
+        let cambiadas = 0;
+        posteriores.forEach(e => { if (controles.get(e.id).aplicarPosicionAvatar(referencia)) cambiadas++; });
+        estado.textContent = cambiadas
+          ? `Posición aplicada a ${cambiadas} escena(s) posteriores. Pulsa «Guardar cambios» para conservarla.`
+          : 'No hay avatares posteriores con una posición diferente.';
+      } catch (error) { estado.textContent = error.message; }
+      finally {
+        aplicandoPosicion = false;
+        configuraciones.inert = timeline.inert = false;
+        guardar.disabled = !estudio.modificado() || !!trabajoVideoLight();
+        deshacer.disabled = !ultimaEdicion.length;
+      }
+    },
     buscar: (x, tab) => {
       const posicion = Math.max(0, Math.min(columnas.clientWidth, x - columnas.getBoundingClientRect().left));
       const segundo = posicion / columnas.clientWidth * duracion;
@@ -10059,7 +10090,7 @@ function editorGlobalImagenes(escenas) {
       galeriaCompartida = galeria; return galeria;
     },
     seleccionar: (id, tab, t = 0, indice) => {
-      if (cerrado) return;
+      if (cerrado || aplicandoPosicion) return;
       if (!controles.has(id)) {
         const e = escenas.find(e => e.id === id); if (!e) return;
         cargarEscena(e);
@@ -10104,9 +10135,9 @@ function editorGlobalImagenes(escenas) {
     },
     cambio: () => {
       const pendientes = [...controles.values()].filter(c => c.modificado()).length;
-      guardar.disabled = !pendientes || !!trabajoVideoLight();
+      guardar.disabled = aplicandoPosicion || !pendientes || !!trabajoVideoLight();
       descartar.hidden = !pendientes;
-      deshacer.disabled = !ultimaEdicion.length;
+      deshacer.disabled = aplicandoPosicion || !ultimaEdicion.length;
       estado.textContent = pendientes ? `${pendientes} escena(s) con cambios sin guardar.` : 'Sin cambios pendientes.';
       const montar = nodo.querySelector('.editor-global-montar button[data-editor-bloqueado]');
       if (montar) montar.disabled = !!pendientes || !!trabajoVideoLight() || montar.dataset.editorBloqueado === 'true';
@@ -10275,6 +10306,14 @@ async function abrirEditorEscena(escena, estudio) {
       if (control.animacionPendiente) prepararAnimacion();
     }, pausar, reproducir: () => alternar(),
     pendiente: () => historial.length > 0, deshacer,
+    aplicarPosicionAvatar: posicion => {
+      if (!control.listo || ocupado() || !borrador.avatar.length) return false;
+      if (borrador.posicion.x === posicion.x && borrador.posicion.y === posicion.y) return false;
+      recordar();
+      borrador.posicion = { ...borrador.posicion, x: posicion.x, y: posicion.y };
+      cambio(false);
+      return true;
+    },
     refrescarPanel: () => { if (pestaña === 'imagenes') pintarPanel(); },
     refrescarNotas: () => {
       notasEscena.querySelector('.previa-feedback')?.replaceWith(cuadroFeedbackEscena(escena));
@@ -10411,6 +10450,8 @@ async function abrirEditorEscena(escena, estudio) {
       : 'Pulsa «Añadir bloque» para buscar un efecto en Freesound e incorporarlo a esta escena.'));
     if (pestaña === 'avatar') {
       panel.appendChild(h('p', { clase: 'meta' }, ficha.avatar.motivo || 'Arrastra el avatar en el visualizador para colocarlo. Sus labios siguen el reloj de la narración.'));
+      panel.appendChild(h('button', { clase: 'mini', disabled: !lista.length || !estudio.tienePosteriores(escena.id),
+        onclick: () => { if (!ocupado()) estudio.aplicarPosicionAvatar(escena.id, borrador.posicion); } }, 'Aplicar posición a escenas posteriores'));
       panel.appendChild(h('button', { clase: 'mini', disabled: !ficha.avatar.disponible || !!ficha.avatar.clip || generando,
         onclick: generarAvatar }, generando ? 'Preparando avatar…' : 'Generar avatar con Boson'));
       if (generando) panel.appendChild(h('button', { clase: 'mini peligro', onclick: () => {
