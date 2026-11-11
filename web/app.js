@@ -6249,7 +6249,7 @@ function montajeDelEstiloLight(ficha) {
 }
 
 function bibliotecasPorDefectoLight(crudo) {
-  return Object.assign({ proveedores: [], imagenes: true, video: true,
+  return Object.assign({ proveedores: [], imagenes: true, video: !!crudo,
     audio: false, incorporar_ia: !!(crudo && crudo.proveedores && crudo.proveedores.length),
     ia_cada: 5 }, crudo ? {} : { carga_claude: 50 }, JSON.parse(JSON.stringify(crudo || {})));
 }
@@ -7004,10 +7004,19 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
   });
   const tipos = h('div', { clase: 'fila' });
   [['imagenes', 'Imágenes'], ['video', 'Vídeo']].forEach(([id, nombre]) => {
-    tipos.appendChild(h('label', { clase: 'efecto-encargo' }, h('input', {
+    const entrada = h('input', {
       type: 'checkbox', checked: opciones[id], 'data-foco': `bibliotecas-${id}`,
-      onchange: ev => { opciones[id] = ev.target.checked; cambiar(); },
-    }), h('span', {}, nombre)));
+      onchange: ev => {
+        const otro = id === 'imagenes' ? 'video' : 'imagenes';
+        if (!ev.target.checked && !opciones[otro]) {
+          ev.target.checked = true;
+          return;
+        }
+        opciones[id] = ev.target.checked;
+        cambiar();
+      },
+    });
+    tipos.appendChild(h('label', { clase: 'efecto-encargo' }, entrada, h('span', {}, nombre)));
   });
   const numero = h('input', {
     type: 'number', min: 1, max: 1000, step: 1, value: opciones.ia_cada,
