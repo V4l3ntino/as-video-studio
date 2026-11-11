@@ -1599,6 +1599,12 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if "personajes" in nuevos:
+            from pasos import personajes
+            try:
+                nuevos["personajes"] = personajes.normalizar(nuevos["personajes"], ctx.proyecto if ctx else None)
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if "avatar" in nuevos:
             from pasos import avatar
             try:
@@ -1686,7 +1692,9 @@ def fijar_params(pid: str, paso: str, cuerpo: dict = Body(default=None)):
                   **(valor if isinstance(valor, dict) else {})}
             for uid, valor in nuevos["unidades"].items()}
 
-    _validar_params(paso_id, nuevos)
+    _validar_params(paso_id, nuevos, ctx)
+    if "personajes" in nuevos and any(t["nombre"] != "voz:previsualizar" for t in ctx.gestor.listar(activos=True)):
+        raise ErrorApi(409, "espera a que termine el trabajo del vídeo para modificar los personajes")
 
     antes = {p["id"]: ctx.estado.estado_de(p["id"]) for p in PASOS}
     try:
@@ -1699,6 +1707,10 @@ def fijar_params(pid: str, paso: str, cuerpo: dict = Body(default=None)):
         # servidor, y decirlo con un 500 lo escondería detrás de una traza
         raise ErrorApi(400, str(fallo))
 
+    if ((paso_id == "assets" and "generar_personajes" in nuevos)
+            or (paso_id == "voz" and any(k in nuevos for k in ("incorporar_voz", "voz_id")))
+            or (paso_id == "guion" and "personajes" in nuevos)):
+        _sincronizar_personajes(ctx)
     avisos_origen = []
 
     # tocar a mano los params de un asset solo marca obsoletas las escenas que lo
@@ -2207,8 +2219,7 @@ def _correr_regrabar(avisar, ctx, seccion_id, peticion, ajuste):
                                     or p4.NOMBRE_META))
     if not meta:
         raise RuntimeError("no encuentro el audio_meta.json de la toma actual")
-    bloques = [{"id": b["id"], "texto": b["texto"]}
-               for b in (meta.get("bloques") or [])]
+    bloques = p4.normalizar_bloques(meta.get("bloques") or [])
     if not bloques:
         raise RuntimeError("la toma no trae bloques que regrabar")
     # LO EDITADO A MANO MANDA sobre lo que se grabo. Aqui se partia del texto de
@@ -2230,6 +2241,11 @@ def _correr_regrabar(avisar, ctx, seccion_id, peticion, ajuste):
                for b in bloques]
     cfg = p4.resolver_params(p4.params_con_idioma(
         ctx.proyecto, ctx.estado.params("voz") or {}))
+    # Resolver solo el tramo solicitado: los demás conservan la identidad y la
+    # voz de la toma que realmente sigue sonando fuera de este recorte.
+    actuales = {b["id"]: b for b in p4.voces_del_proyecto(ctx.proyecto,
+        [dict(b) for b in bloques if b["id"] in dentro], cfg)}
+    bloques = [actuales.get(b["id"], b) for b in bloques]
     destino = PASOS_MODULOS.comun.preparar_trabajo(ctx.proyecto, "voz")
     # se parte de la toma que hay: se cose sobre ella
     shutil.copy2(os.path.join(carpeta, ficha_voz.get("archivo")
@@ -3107,7 +3123,8 @@ def _bloques_del_guion(ctx):
         bid = str(bloque.get("id") or "").strip()
         texto = str(bloque.get("texto") or "").strip()
         if bid and texto:
-            limpios.append({"id": bid, "texto": texto,
+            from pasos import personajes
+            limpios.append({"id": bid, "texto": texto, **personajes.metadatos(bloque),
                             # si el personaje del canal da la cara en este
                             # bloque: lo marca el redactor
                             "personaje": bool(bloque.get("personaje"))})
@@ -3146,6 +3163,10 @@ def _correr_catalogo(avisar, ctx, ajuste, peticion):
     # dos planos del mismo sitio) y entra una cabecera de sitio cada plano y
     # medio. O sea que se lleva por delante lo unico que sostenia el
     # reconocimiento del lugar, que ya era la parte fragil de este modo.
+    from pasos import personajes
+    opciones_personajes = ctx.estado.params("guion") or {}
+    documento = PASOS_MODULOS.comun.leer_salida(ctx.proyecto, "guion", "guion.json", obligatorio=False) or {}
+    identidades = personajes.activos(opciones_personajes) + (documento.get("personajes_automaticos") or [])
     ficha = catalogo.proponer(bloques, brief=brief, ajuste=ajuste,
                               avisar=avisar, proyecto_id=ctx.id,
                               planos=planos, min_s=min_s, max_s=max_s,
@@ -3153,8 +3174,10 @@ def _correr_catalogo(avisar, ctx, ajuste, peticion):
                               # reparto ya decididos
                               # y como son los personajes en este estilo, para
                               # que el reparto se describa ya convertido
+                              identidades=identidades,
                               regla_personajes=PASOS_MODULOS.p6_assets.regla_de_especie(
                                   params.get("estilo") or {}))
+    ficha = personajes.integrar_catalogo(ficha, documento, ctx.estado.params("guion") or {})
     ctx.bitacora.anotar("catalogo_propuesto", "assets", {
         "personajes": len(ficha.get("reparto") or {}),
         "sets": len(ficha.get("sets") or {}),
@@ -8844,6 +8867,70 @@ def _sembrar_aportadas(ctx, encargo):
 
 
 _RETRATOS_AVATAR = GestorTrabajos()
+_IMAGENES_PERSONAJES = GestorTrabajos()
+
+
+def _generar_imagen_personaje(avisar, descripcion, referencias, tiene_personaje):
+    from pasos import personajes
+    avisar(.05, "Generando personaje")
+    nombre = uuid.uuid4().hex + ".png"
+    personajes.generar_imagen(descripcion, os.path.join(_carpeta_aportadas(), nombre), referencias, tiene_personaje)
+    avisar(1, "Personaje generado")
+    return {"nombre": nombre}
+
+
+@app.post("/api/personajes/imagenes/generar", status_code=202)
+def generar_imagen_personaje(cuerpo: dict = Body(...)):
+    """Genera un personaje de cuerpo entero con el motor principal y su respaldo."""
+    descripcion = cuerpo.get("descripcion")
+    if not isinstance(descripcion, str) or not 1 <= len(descripcion.strip()) <= 4000:
+        raise ErrorApi(400, "describe el personaje con entre 1 y 4000 caracteres")
+    referencias = []
+    if cuerpo.get("pid") and any(t["nombre"] != "voz:previsualizar" for t in contexto(str(cuerpo["pid"])).gestor.listar(activos=True)):
+        raise ErrorApi(409, "espera a que termine el trabajo del vídeo para generar personajes")
+    if cuerpo.get("imagen"):
+        from pasos import imagenes_animacion
+        try:
+            referencias.append(imagenes_animacion.ruta_de(contexto(str(cuerpo.get("pid") or "")).proyecto, cuerpo["imagen"]))
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
+    elif cuerpo.get("subida"):
+        referencias = _rutas_aportadas([cuerpo["subida"]])
+        if not referencias:
+            raise ErrorApi(400, "vuelve a subir la imagen del personaje")
+    if cuerpo.get("pid"):
+        ctx = contexto(str(cuerpo["pid"]))
+        estilo = (ctx.estado.params("assets") or {}).get("estilo") or {}
+    elif cuerpo.get("estilo_id"):
+        estilo = ((_presets().leer(str(cuerpo["estilo_id"])) or {}).get("datos") or {}).get("estilo") or {}
+    else:
+        estilo = {}
+    for ref in estilo.get("referencias") or []:
+        ruta = ref.get("ruta") if isinstance(ref, dict) else ref
+        if ruta and os.path.isfile(ruta):
+            referencias.append(ruta)
+    with _LOCK:
+        if _IMAGENES_PERSONAJES.listar(activos=True):
+            raise ErrorApi(409, "ya se está generando un personaje; espera a que termine")
+        tid = _IMAGENES_PERSONAJES.lanzar("imagen_personaje", _generar_imagen_personaje,
+            descripcion.strip(), referencias, bool(cuerpo.get("imagen") or cuerpo.get("subida")))
+    return {"trabajo_id": tid}
+
+
+@app.get("/api/personajes/imagenes/trabajos/{tid}")
+def consultar_imagen_personaje(tid: str):
+    """Consulta el progreso y la imagen generada del personaje."""
+    try:
+        return _IMAGENES_PERSONAJES.estado(tid)
+    except KeyError:
+        raise ErrorApi(404, "no se encuentra la generación del personaje") from None
+
+
+@app.post("/api/proyectos/{pid}/personajes/imagen", status_code=201)
+def incorporar_imagen_personaje(pid: str, cuerpo: dict = Body(...)):
+    """Conserva una imagen inmutable para crear o editar un personaje del vídeo."""
+    ctx = contexto(pid)
+    return {"ruta": _copiar_imagen_avatar(ctx, str(cuerpo.get("nombre") or ""))}
 
 
 def _generar_retrato_avatar(avisar, prompt, referencias):
@@ -11345,6 +11432,7 @@ def crear_video_light(preset_id: str, cuerpo: dict = Body(default=None)):
     _referencias_propias_del_video(ctx)
     _calidad_de_partida(ctx)
     avisos = _sembrar_video_light(ctx, datos)
+    _sincronizar_personajes(ctx)
     ctx.bitacora.anotar("video_light_creado", None, {
         "preset": preset_id, "estilo": ficha_preset.get("nombre"),
         "nombre": nombre, "avisos": avisos})
@@ -11415,6 +11503,16 @@ def _sembrar_video_light(ctx, datos):
     # Cambiarlas despues deja obsoleto el guion, y es lo que tiene que pasar.
     if datos.get("animaciones") is not None:
         guion["animaciones"] = list(datos["animaciones"] or [])
+    if "personajes" in datos:
+        from pasos import personajes
+        try:
+            config = personajes.normalizar(datos["personajes"], pendientes=True)
+            for personaje in config["items"]:
+                if personaje.get("subida"):
+                    personaje["imagen"] = _copiar_imagen_avatar(ctx, personaje.pop("subida"))
+            guion["personajes"] = personajes.normalizar(config, ctx.proyecto)
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
     if ingesta:
         _validar_params("ingesta", ingesta, ctx)
         ctx.estado.actualizar_params("ingesta", ingesta)
@@ -11436,6 +11534,8 @@ def _sembrar_video_light(ctx, datos):
     if voz:
         _validar_params("voz", voz, ctx)
         ctx.estado.actualizar_params("voz", voz)
+    if any(k in datos for k in ("generar_personajes", "incorporar_voz", "voz_id", "personajes")):
+        _sincronizar_personajes(ctx)
     if "avatar" in datos:
         datos = dict(datos)
         if not isinstance(datos["avatar"], dict):
@@ -11451,6 +11551,20 @@ def _sembrar_video_light(ctx, datos):
         _validar_params("render", render, ctx)
         ctx.estado.actualizar_params("render", render)
     return avisos
+
+
+def _sincronizar_personajes(ctx):
+    """Solo tras una decisión explícita: las lecturas nunca cambian firmas.
+
+    El guion depende de estas opciones de pasos posteriores. Su foto evita un
+    ciclo en el grafo y asegura regenerar con la configuración actual.
+    """
+    from pasos import personajes
+    assets = ctx.estado.params("assets") or {}
+    guion = ctx.estado.params("guion") or {}
+    if assets.get("generar_personajes") is not True and "sistema_personajes" not in guion:
+        return
+    ctx.estado.actualizar_params("guion", {"sistema_personajes": personajes.contexto(assets, ctx.estado.params("voz") or {})})
 
 
 def _cta():

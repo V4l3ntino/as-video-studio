@@ -435,7 +435,12 @@ def normalizar_bloques(crudo):
             continue
         if not texto:
             continue
-        bloques.append({"id": identificador, "texto": texto})
+        try:
+            from . import personajes
+        except ImportError:
+            import personajes
+        bloques.append({"id": identificador, "texto": texto,
+                        **(personajes.metadatos(elemento) if isinstance(elemento, dict) else {})})
     return bloques
 
 
@@ -934,9 +939,57 @@ def _reparto(bloques, palabras):
     return escenas, motor._repartir_palabras(escenas, palabras or [])
 
 
+def voces_del_proyecto(proyecto, bloques, cfg):
+    try:
+        from . import personajes
+    except ImportError:
+        import personajes
+    return personajes.aplicar_voces(bloques, personajes.params_de(proyecto, "guion"), cfg["voz_id"])
+
+
+def _toma_por_voces(bloques, cfg, destino, progreso, cache_voces=None):
+    """Turnos contiguos de la misma voz, con caché y marcas absolutas.
+
+    Un error conserva los turnos ya pagados. Nunca se vuelve a locutar con la
+    voz general para disimular el fallo de una voz de personaje.
+    """
+    grupos = []
+    for b in bloques:
+        voz = b.get("voz_id") or cfg["voz_id"]
+        if not grupos or grupos[-1]["voz_id"] != voz:
+            grupos.append({"id": f"SB{len(grupos) + 1:03d}", "voz_id": voz, "items": [], "bloques": []})
+        grupos[-1]["items"].append(b)
+        grupos[-1]["bloques"].append(b["id"])
+    pcm, palabras, posicion = [], [], 0.0
+    carpeta = cache_voces or os.path.join(destino, "_voces")
+    os.makedirs(carpeta, exist_ok=True)
+    for i, grupo in enumerate(grupos):
+        progreso(i / len(grupos), f"voz {i + 1} de {len(grupos)}")
+        texto = " ".join(b["texto"].strip() for b in grupo["items"])
+        config = dict(cfg, voz_id=grupo["voz_id"])
+        firma = medios.huella([texto, config, simulado()])
+        ruta = os.path.join(carpeta, firma)
+        marcas = medios.leer_json(ruta + ".json", None)
+        if marcas is not None and os.path.isfile(ruta + ".wav"):
+            with open(ruta + ".wav", "rb") as fh:
+                wav = fh.read()
+        else:
+            wav, _duracion, marcas = sintetizar_toma(texto, config,
+                lambda f, m="": progreso((i + f) / len(grupos), m))
+            with open(ruta + ".wav", "wb") as fh:
+                fh.write(wav)
+            comun.escribir_json(ruta + ".json", marcas)
+        datos = motor._pcm_de_wav(wav)
+        pcm.append(datos)
+        palabras.extend(dict(p, s=p["s"] + posicion, e=p["e"] + posicion) for p in marcas)
+        posicion += len(datos) / (SR * 2)
+    return motor.wav_desde_pcm(b"".join(pcm)), posicion, palabras, [
+        {k: g[k] for k in ("id", "bloques", "voz_id")} for g in grupos]
+
+
 def sintetizar_bloques(bloques, destino, cfg, avisar=None,
                        nombre=NOMBRE_PISTA, extra_meta=None, proyecto_id=None,
-                       sin_voz=False):
+                       sin_voz=False, cache_voces=None):
     """Sintetiza los bloques en una toma unica y deja pista y meta en destino.
 
     Devuelve el dict de salidas del paso (pista, duracion, palabras, controles,
@@ -1003,7 +1056,10 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
     trozos = [" ".join(por_bloque[bid] for bid in sec["bloques"])
               for sec in secciones]
     wav = duracion = palabras = None
-    if len(trozos) > 1 and not simulado() and not sin_voz:
+    multivoz = not sin_voz and any(b.get("voz_id") and b["voz_id"] != cfg["voz_id"] for b in anotados)
+    if multivoz:
+        wav, duracion, palabras, secciones = _toma_por_voces(anotados, cfg, destino, progreso, cache_voces)
+    if wav is None and len(trozos) > 1 and not simulado() and not sin_voz:
         avisa(0.05, f"{len(trozos)} secciones en un solo contexto")
         try:
             wav, duracion, palabras = _toma_por_contexto(trozos, cfg, progreso)
@@ -1044,6 +1100,7 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
         ordenadas.extend(tramo)
         fichas.append({
             "id": bloque["id"],
+            **{k: copy.deepcopy(bloque[k]) for k in ("personaje_id", "personaje_nombre", "categoria", "voz_id", "personajes_visibles", "descripcion_visual") if k in bloque},
             # el texto tal y como se MANDO, anotaciones incluidas: es lo que
             # permite que la revision de audio compruebe si esta toma sigue
             # valiendo sin volver a grabarla
@@ -1131,11 +1188,13 @@ def ejecutar(proyecto, params, avisar=None):
     avisa(0.01, "leyendo guion")
     bloques = cargar_guion(proyecto, params)
     cfg = resolver_params(params_con_idioma(proyecto, params))
+    bloques = voces_del_proyecto(proyecto, bloques, cfg)
     destino = comun.preparar_trabajo(proyecto, PASO)
 
     sin_voz = params.get("incorporar_voz") is False
     salidas = sintetizar_bloques(bloques, destino, cfg, avisar=avisa,
                                   proyecto_id=getattr(proyecto, "id", None),
+                                  cache_voces=os.path.join(proyecto.raiz, "medios_usuario", "voces_personajes"),
                                  sin_voz=sin_voz,
                                  extra_meta=contrato_de_escenas(proyecto))
     comun.escribir_json(os.path.join(destino, "guion_locutado.json"),
@@ -1622,11 +1681,16 @@ def regrabar_seccion(bloques, seccion_id, cfg, meta, destino, peticion="",
     def progreso(fraccion, mensaje=""):
         return avisa(0.35 + 0.4 * max(0.0, min(1.0, fraccion)), mensaje)
 
-    if simulado():
+    turnos = [b for b in nuevos if b["id"] in dentro]
+    voces = {b.get("voz_id") or cfg["voz_id"] for b in turnos}
+    if not meta.get("sin_voz") and len(voces) > 1:
+        wav_nuevo, dur_nueva, marcas_nuevas, _ = _toma_por_voces(turnos, cfg, destino, progreso,
+            os.path.join(cwd, "medios_usuario", "voces_personajes") if cwd else None)
+    elif meta.get("sin_voz") or simulado():
         wav_nuevo, dur_nueva, marcas_nuevas = _toma_simulada(trozo, cfg)
     else:
         wav_nuevo, dur_nueva, marcas_nuevas = _toma_por_contexto(
-            [trozo], cfg, progreso)
+            [trozo], dict(cfg, voz_id=next(iter(voces), cfg["voz_id"])), progreso)
 
     # 3. se cose: lo de antes + lo nuevo + lo de despues
     avisa(0.8, "cosiendo la toma")
@@ -1661,6 +1725,7 @@ def regrabar_seccion(bloques, seccion_id, cfg, meta, destino, peticion="",
         tramo = reparto.get(bloque["id"], [])
         ordenadas.extend(tramo)
         fichas.append({"id": bloque["id"], "texto": bloque["texto"],
+                       **{k: copy.deepcopy(bloque[k]) for k in ("personaje_id", "personaje_nombre", "categoria", "voz_id", "personajes_visibles", "descripcion_visual") if k in bloque},
                        "narracion": marcas_tts.limpiar(bloque["texto"]),
                        "t_in": round(tramo[0]["s"], 3) if tramo else None,
                        "t_out": round(tramo[-1]["e"], 3) if tramo else None,

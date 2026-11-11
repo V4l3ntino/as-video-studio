@@ -58,6 +58,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/exportar` | Prepara el ZIP en segundo plano; el trabajo informa de su progreso real. |
 | `GET` | `/api/proyectos/{pid}/exportar/{token}` | Descarga un ZIP ya preparado, disponible durante una hora. |
 | `POST` | `/api/proyectos/{pid}/feedback` | Feedback general o sobre una unidad; rehace SOLO lo que apunta. |
+| `POST` | `/api/proyectos/{pid}/personajes/imagen` | Conserva una imagen inmutable para crear o editar un personaje del vídeo. |
 | `POST` | `/api/proyectos/{pid}/presets-canal/{preset_id}/aplicar` | Copia los valores del preset a los params de los pasos que toque. |
 | `GET` | `/api/proyectos/{pid}/previsualizacion` | Las piezas para ver el video sin montarlo, con imagen y clip relativos al proyecto. |
 | `POST` | `/api/proyectos/{pid}/previsualizacion/avatar` | Prepara los mismos clips Boson del montaje para verlos en Imágenes. |
@@ -304,10 +305,12 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/imagenes/codex/login` | Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex. |
 | `GET` | `/api/imagenes/proveedores` | Métodos de imagen en orden: principal y respaldo automático. |
 | `PUT` | `/api/imagenes/proveedores` | Guarda la prioridad de Codex y API sin modificar los proyectos. |
+| `POST` | `/api/personajes/imagenes/generar` | Genera un personaje de cuerpo entero con el motor principal y su respaldo. |
+| `GET` | `/api/personajes/imagenes/trabajos/{tid}` | Consulta el progreso y la imagen generada del personaje. |
 | `GET` | `/api/sonidos/buscar` | Busca efectos en todo el catálogo de Freesound, con resultados paginados. |
 | `GET` | `/api/sonidos/{identificador}/muestra` | Escucha la muestra de un efecto de Freesound desde el banco local. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**196 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**199 endpoints.** Escrito por `generar_api.py` desde `app.py`.

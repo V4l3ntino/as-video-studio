@@ -65,7 +65,7 @@ def normalizar(crudo):
 
 def activa(params):
     p = (params or {}).get("bibliotecas") or {}
-    return bool(p.get("proveedores") or p.get("audio"))
+    return bool((p.get("proveedores") and (params or {}).get("generar_personajes") is not True) or p.get("audio"))
 
 
 def _json(texto):
@@ -179,6 +179,10 @@ def restaurar(escena, ficha):
 class Biblioteca:
     def __init__(self, proyecto, params, plan, avisar):
         self.p = normalizar(params.get("bibliotecas") or {})
+        if params.get("generar_personajes") is True:
+            # Restricción del motor, independiente del formulario y de la
+            # personalización. Se conserva intacta la preferencia persistida.
+            self.p.update(proveedores=[], origen_principal="ia", porcentaje_bibliotecas=0, modo_ia="porcentaje")
         self.proyecto, self.avisar = proyecto, avisar
         self.raiz = os.path.join(proyecto.raiz, "recursos_biblioteca")
         self.cache = os.path.join(self.raiz, "busquedas")

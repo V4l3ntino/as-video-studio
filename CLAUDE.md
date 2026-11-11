@@ -786,3 +786,29 @@ retiró el nombrado descriptivo con Claude y la creación de alias en `nombres/`
 Las animaciones tampoco interpretan esos nombres: usan el orden de las escenas.
 Los metadatos `nombre_imagen` de versiones antiguas se ignoran; no es necesario
 reescribir proyectos ni regenerar recursos para adoptar este comportamiento.
+
+## Personajes personalizados del vídeo
+
+`guion.params.personajes` guarda `{activo, items}` con IDs persistentes, categoría,
+nombre, descripción, imagen relativa inmutable de `medios_usuario/animaciones` y
+voz opcional. No copies la voz general dentro del narrador: se resuelve al usarlo.
+Desactivar opciones conserva los datos. `pasos/personajes.py` valida el narrador
+único y los IDs y conecta las identidades con el catálogo y las escenas.
+
+`guion.params.sistema_personajes` fotografía Generar personajes, Incorporar voz
+y la voz general. Solo se sincroniza tras una decisión explícita relacionada o
+al crear el vídeo: sincronizarlo al guardar una cartela invalida el guion y todo
+lo que cuelga. Nunca se escribe al consultar una pantalla. El guion nuevo lleva
+un hablante por bloque y `personaje_id`, `personajes_visibles`,
+`descripcion_visual`, nombre, categoría y voz resuelta. Conserva estos campos al
+normalizar, editar, revisar o regrabar; los nombres no identifican hablantes.
+
+Las voces distintas se sintetizan por turnos contiguos en p4, con caché en
+`medios_usuario/voces_personajes/` y marcas absolutas, antes del espaciado habitual.
+No la pongas solo en trabajo: `comun.preparar_trabajo` lo borra al reintentar y
+repagaría los turnos ya completados. Sin voz no se solicita
+TTS. P6 copia la referencia personalizada como hoja de reparto sin volver a
+generarla. Generar personajes bloquea las búsquedas visuales de bibliotecas en
+el motor, aunque Personalizar personajes esté apagado; no sobrescribas la
+preferencia guardada de bibliotecas para forzar IA. Regresión offline:
+`python pasos/prueba_personajes.py`.

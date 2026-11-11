@@ -285,6 +285,43 @@ decisión: no se dibujan hojas de reparto ni se adjuntan a sus planos, aunque el
 catálogo visual identifique personas en el relato. Los vídeos anteriores siguen
 con su configuración; las imágenes ya creadas no se borran.
 
+### Personalizar personajes de un vídeo
+
+Con **Generar personajes** activado en el estilo, **Crear/editar vídeo** muestra
+**Personalizar personajes**, debajo de Voz y encima de Incorporar avatar IA.
+Activa su casilla para abrir el editor y las tarjetas de personajes añadidos.
+
+- Elige **Personaje** o **Narrador**, escribe su nombre y descripción y pulsa
+  **Generar personaje**. La imagen se genera de cuerpo entero con el método de
+  imágenes configurado y su respaldo. También puedes subir una imagen propia.
+  **+ Agregar** se habilita cuando hay imagen, nombre y descripción.
+- **Editar** recupera el personaje en el editor. Puedes cambiar sus datos o
+  regenerar la imagen; **Guardar** actualiza la misma tarjeta y conserva su ID.
+  **Cancelar** descarta el borrador. **Eliminar** pide confirmación.
+  Antes de crear el vídeo, los personajes agregados se conservan como borrador
+  en este navegador; al crearlo pasan a guardarse dentro del proyecto.
+- Los personajes pueden tener una voz opcional. **Incorporar voz** abre un
+  selector con búsqueda y muestras; confirma con **Usar esta voz** y guarda el
+  personaje. Sin voz propia, sus intervenciones usan la voz general del vídeo.
+- Solo puede haber **un narrador**. Su voz siempre es la general; cambiarla en
+  Voz actualiza su asociación. Sin Incorporar voz, Narrador no se ofrece para
+  crear otro, y el narrador ya guardado se conserva inactivo para la locución.
+
+Al generar el guion, Claude utiliza las identidades personalizadas antes que
+las automáticas y distingue cada intervención de su descripción visual. Con
+voz puede combinar narración y diálogos; sin voz escribe una historia basada
+en conversaciones entre personajes, conservando los hablantes sin solicitar
+audio. Las voces se sintetizan en el orden del guion, con marcas temporales
+para las escenas y referencias de imagen para mantener la apariencia.
+
+Mientras **Generar personajes** esté activado, **Obtener recursos visuales**
+queda bloqueado en **100 % imágenes IA y 0 % bibliotecas**, también sin
+personajes personalizados. El motor no busca stock ni lo utiliza como respaldo
+si fallan los generadores. La preferencia anterior de bibliotecas e IA se
+conserva y reaparece al desactivar Generar personajes. Desactivar Personalizar
+personajes o Incorporar voz conserva las fichas, las imágenes y las voces
+guardadas; los archivos viajan al duplicar o exportar el vídeo.
+
 En **Estilos → Voz** y en el **encargo del vídeo** puedes desmarcar **Incorporar
 voz**. El estilo transmite su selección a los vídeos nuevos y cada encargo puede
 cambiarla. Sin voz no se llama a Cartesia: se crea una pista muda con tiempos

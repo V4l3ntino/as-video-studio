@@ -1571,6 +1571,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     if not ruta_plan or not ruta_mov:
         raise RuntimeError("faltan las salidas de assets o de callouts")
     plan = medios.leer_json(ruta_plan, {})
+    from pasos import personajes
+    personajes.exigir_visuales_ia(proyecto, plan, os.path.dirname(ruta_plan))
     base_callouts = os.path.dirname(ruta_mov)
     movimientos = {m["id"]: m for m in
                    (medios.leer_json(ruta_mov, {}) or {}).get("movimientos", [])

@@ -281,7 +281,13 @@ def _catalogo_de(params, proyecto):
     catalogo.setdefault("lugares", {})
     catalogo.setdefault("capitulos", {})
     catalogo.setdefault("beats", [])
-    return catalogo
+    try:
+        from . import personajes
+    except ImportError:
+        import personajes
+    opciones = personajes.params_de(proyecto, "guion")
+    documento = _guion_del_proyecto(proyecto) or {}
+    return personajes.integrar_catalogo(catalogo, documento, opciones)
 
 
 
@@ -1250,6 +1256,12 @@ def planificar(proyecto, params, inventario=None, replantear=False,
     _tramos_de_beats(catalogo, meta)
     _capitulos_por_escena(catalogo, escenas)
     beats = _asignar_sets(escenas, catalogo, p)
+    if p.get("generar_personajes") is not False:
+        try:
+            from . import personajes
+        except ImportError:
+            import personajes
+        personajes.aplicar_a_escenas(escenas, _guion_del_proyecto(proyecto) or {})
     # Las hojas solo tienen sentido como referencias de planos generados con IA.
     # Sin reparto, los planos pueden seguir dibujando personas genéricas según
     # su dirección, pero no se crean fichas ni se adjuntan identidades fijas.
@@ -1370,6 +1382,9 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         if beat.get("tono"):
             escena["tono"] = str(beat["tono"]).strip()
         escena["prompt"] = _prompt_visual(escena, beat, catalogo)
+        if escena.get("descripcion_visual"):
+            escena["accion"] = escena["descripcion_visual"]
+            escena["prompt"] = _unir(escena["prompt"], escena["descripcion_visual"])
         entra = bool(escena["set"]) and escena["set"] != set_anterior
         nuevos = [q for q in (escena.get("personajes") or []) if q not in presentados]
         presentados.update(nuevos)
@@ -1446,6 +1461,9 @@ def planificar(proyecto, params, inventario=None, replantear=False,
             candidatos = anteriores.get(texto) or []
             anterior = candidatos[0] if len(candidatos) == 1 else {}
         bibliotecas.restaurar(escena, anterior)
+        if p.get("generar_personajes") is True:
+            escena.pop("medio_biblioteca", None)
+            escena.pop("recurso_biblioteca", None)
         if _ajustes_unidad(p, f"escena:{escena['id']}").get("generar_ia"):
             escena.pop("medio_usuario", None)
             escena.pop("medio_biblioteca", None)
@@ -1926,6 +1944,7 @@ def _assets_necesarios(plan, catalogo, params=None):
             necesarios[f"asset:{personaje}"] = {
                 "tipo": "reparto", "nombre": personaje,
                 "descripcion": spec.get("descripcion", personaje),
+                **({"imagen_personalizada": spec["imagen"]} if spec.get("imagen") else {}),
                 "grupo": bool(spec.get("grupo")),
                 # lo que el revisor pidio para ESTA hoja, que tiene que entrar
                 # en su prompt (ver _texto_feedback)
@@ -3775,6 +3794,20 @@ def _generar_escenas(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
     return coste
 
 
+def _exigir_stock_en_peticion(plan, dirs, params, unidades):
+    if params.get("generar_personajes") is not True or unidades is None:
+        return
+    pedidas = set(unidades)
+    for escena in plan["escenas"]:
+        if f"escena:{escena['id']}" in pedidas or escena.get("medio_usuario"):
+            continue
+        ficha = medios.leer_json(os.path.join(dirs["escenas"], escena["id"] + ".json"), {}) or {}
+        if ficha.get("recurso_biblioteca") or ficha.get("medio_biblioteca"):
+            raise RuntimeError("Hay recursos de biblioteca en otras escenas. Con Generar personajes activado, "
+                               "regenera el conjunto de imágenes para sustituirlos por IA; una petición de una "
+                               "sola escena no puede regenerar las demás automáticamente.")
+
+
 def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                      forzar=False, notas_repaso=None, proyecto=None, recuperacion=None):
     """Genera los planos y devuelve el coste. En fila o en cadenas paralelas.
@@ -3813,6 +3846,7 @@ def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
     if recolocadas["movidas"]:
         avisar(0.34, "%d imagenes recolocadas: el corte les cambio el numero"
                      % recolocadas["movidas"], None)
+    _exigir_stock_en_peticion(plan, dirs, p, unidades)
     total = len(escenas)
     opciones_bibliotecas = bibliotecas.normalizar(p.get("bibliotecas") or {})
     configuracion_bibliotecas = (medios.huella({k: v for k, v in opciones_bibliotecas.items()
@@ -3857,6 +3891,8 @@ def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
             destino = os.path.join(dirs["escenas"], f"{sid}.png")
             ficha_json = os.path.join(dirs["escenas"], f"{sid}.json")
             guardada_biblioteca = medios.leer_json(ficha_json, {}) or {}
+            stock_bloqueado = p.get("generar_personajes") is True and bool(
+                guardada_biblioteca.get("recurso_biblioteca") or guardada_biblioteca.get("medio_biblioteca"))
             generar_ia = bool(_ajustes_unidad(p, uid).get("generar_ia"))
             if generar_ia:
                 escena.pop("medio_usuario", None)
@@ -3926,7 +3962,7 @@ def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                 and guardada_biblioteca.get("bibliotecas_peticion") == medios.huella(
                     {k: escena.get(k) for k in ("narracion", "direccion", "prompt")})
                 and not forzar and not generar_ia)
-            if hecho and (not pedida or misma_biblioteca):
+            if hecho and not stock_bloqueado and (not pedida or misma_biblioteca):
                 if not _sin_imagen(escena) and not escena.get("recurso_biblioteca"):
                     previas[sid] = destino
                     orden_cadena.append(sid)
@@ -5057,6 +5093,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
 
     avisar(0.03, "cortando la narracion en planos")
     plan = planificar(proyecto, p, replantear=replantear, previo=previo)
+    if not solo_assets:
+        _exigir_stock_en_peticion(plan, dirs, p, unidades)
     if bibliotecas.activa(p):
         bibliotecas.Biblioteca(proyecto, p, plan, avisar).verificar_claves()
     necesarios = plan["assets"]
@@ -5112,7 +5150,16 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
                (indice + 1, len(pendientes)))
         if ficha["tipo"] == "reparto":
             destino = os.path.join(dirs["reparto"], f"{ficha['nombre']}.png")
-            if pedido(uid) or not os.path.exists(destino):
+            if ficha.get("imagen_personalizada"):
+                try:
+                    from . import imagenes_animacion
+                except ImportError:
+                    import imagenes_animacion
+                origen = imagenes_animacion.ruta_de(proyecto, ficha["imagen_personalizada"])
+                shutil.copyfile(origen, destino)
+                resultados[uid] = {"tipo": "reparto", "png": os.path.relpath(destino, trabajo),
+                                   "origen": "personalizado", "imagen_personalizada": ficha["imagen_personalizada"]}
+            elif pedido(uid) or not os.path.exists(destino):
                 prompt = _prompt_reparto(ficha, p["estilo"])
                 # a una hoja de personaje le tocan los ejes de personas: la
                 # cara y los cuerpos, que es lo que esa hoja tiene que fijar

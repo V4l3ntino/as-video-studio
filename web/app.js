@@ -6220,7 +6220,11 @@ async function duplicarEstiloLight(ficha) {
    está tomada. */
 function elegirEstiloLight(ficha) {
   localStorage.setItem('estudio.light.estilo', ficha.id);
-  Object.assign(encargoVideoLight(), montajeDelEstiloLight(ficha));
+  const encargo = encargoVideoLight();
+  Object.assign(encargo, montajeDelEstiloLight(ficha), {
+    personajes: leerBorradorPersonajesLight(ficha.id) || { activo: false, items: [] },
+  });
+  PERSONALIZACION_PERSONAJES.delete(encargo);
   // se empieza en el ENCARGO: elegir un estilo es el principio de un vídeo
   // nuevo. Si había uno a medias, la propia pantalla lo ofrece.
   APP.light.video.vista = 'encargo';
@@ -6349,6 +6353,8 @@ function encargoVideoLight() {
       // solo pedir un comentario.
       cta: ctaPorDefecto(),
       ...montajeDelEstiloLight(fichaLight(APP.light.abierto) || estiloElegido()),
+      personajes: leerBorradorPersonajesLight((fichaLight(APP.light.abierto) || estiloElegido())?.id)
+        || { activo: false, items: [] },
     };
   }
   return v.encargo;
@@ -6621,7 +6627,7 @@ async function leerGuionLight() {
   const documento = await archivoDeVideoLight('guion', 'guion.json');
   if (!documento) return null;
   const bloques = (documento.guion || documento.bloques || [])
-    .map(b => ({ id: b.id, texto: b.texto || '' }));
+    .map(b => ({ ...b, id: b.id, texto: b.texto || '' }));
   if (!bloques.length) return null;
   return {
     titulo: documento.titulo || '',
@@ -6805,6 +6811,7 @@ function vistaElegidoLight() {
   caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(incorporarVozDelEncargo(e, () => pintarLight(), false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, ficha)] : [])));
+  if (e.generar_personajes !== false) caja.appendChild(personalizarPersonajesDelEncargo(e, ficha));
   caja.appendChild(avatarDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(parallaxDelEncargo(e));
@@ -6981,8 +6988,248 @@ function avatarDelEncargo(e, alCambiar, pid) {
     h('span', {}, 'Incorporar avatar IA')), contenido);
 }
 
+const PERSONALIZACION_PERSONAJES = new WeakMap();
+
+function claveBorradorPersonajesLight(estiloId) {
+  return `estudio.personajes.borrador:${BASE}:${estiloId || 'sin-estilo'}`;
+}
+
+function leerBorradorPersonajesLight(estiloId) {
+  try {
+    const datos = JSON.parse(localStorage.getItem(claveBorradorPersonajesLight(estiloId)) || 'null');
+    return datos && typeof datos.activo === 'boolean' && Array.isArray(datos.items) ? datos : null;
+  } catch (_) { return null; }
+}
+
+function personajesPendientesDelEncargo(e) {
+  const estado = e && PERSONALIZACION_PERSONAJES.get(e);
+  return !!(e?.generar_personajes !== false && e?.personajes?.activo
+    && (estado?.ocupado || estado?.editando || estado?.borrador?.descripcion || estado?.borrador?.nombre));
+}
+
+function abrirVocesPersonaje(ficha, actual, confirmar) {
+  const dialogo = h('dialog', { clase: 'personaje-voces-dialogo', 'aria-label': 'Seleccionar voz del personaje' });
+  let elegida = actual;
+  const lista = h('div', { clase: 'personaje-voces-lista' });
+  const usar = h('button', { clase: 'primario', disabled: !elegida,
+    onclick: () => { confirmar(elegida); dialogo.close(); } }, 'Usar esta voz');
+  const pintar = () => {
+    vaciar(lista);
+    const voces = vocesLight(ficha.idioma || 'es') || [];
+    const filtro = busca.value.trim().toLocaleLowerCase();
+    const visibles = voces.filter(v => `${v.nombre} ${v.descripcion || ''}`.toLocaleLowerCase().includes(filtro));
+    visibles.forEach(v => lista.appendChild(h('label', { clase: 'personaje-voz-opcion' },
+      botonEscuchaVoz(ficha, { voz: () => v.id, titulo: `Escuchar ${v.nombre || v.id}` }),
+      h('span', {}, h('b', {}, v.nombre || v.id), h('span', { clase: 'meta' }, v.descripcion || procedenciaDeVoz(v, ficha.idioma || 'es'))),
+      h('input', { type: 'radio', name: 'voz-personaje', checked: elegida?.id === v.id,
+        'aria-label': v.nombre || v.id, onchange: () => { elegida = v; usar.disabled = false; } }))));
+    if (!visibles.length) lista.appendChild(h('p', { clase: 'pista' }, voces.length ? 'Ninguna voz coincide con la búsqueda.' : 'No hay voces disponibles. Comprueba Cartesia en Configuración.'));
+  };
+  const busca = h('input', { type: 'search', placeholder: 'Buscar voz por nombre o estilo…',
+    'aria-label': 'Buscar voces del personaje', oninput: pintar });
+  dialogo.append(h('div', { clase: 'fila' }, h('h3', {}, 'Seleccionar voz del personaje'), h('span', { clase: 'crece' }),
+    h('button', { clase: 'mini', 'aria-label': 'Cerrar selección de voz', onclick: () => dialogo.close() }, '×')),
+    busca, lista, h('div', { clase: 'fila cierre' }, h('button', { onclick: () => dialogo.close() }, 'Cancelar'), usar));
+  dialogo.addEventListener('close', () => {
+    dialogo.querySelectorAll('audio').forEach(a => a.pause());
+    dialogo.remove();
+  });
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
+  pintar();
+  busca.focus();
+}
+
+function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
+  const nuevo = () => ({ id: `p_${crypto.randomUUID().replaceAll('-', '')}`, nombre: '',
+    descripcion: '', categoria: 'personaje', imagen: '', subida: '', voz_id: '', voz_nombre: '' });
+  if (!PERSONALIZACION_PERSONAJES.has(e)) PERSONALIZACION_PERSONAJES.set(e, {
+    borrador: nuevo(), editando: '', original: '', ocupado: false, error: '', busca: '',
+  });
+  const estado = PERSONALIZACION_PERSONAJES.get(e);
+  const config = () => e.personajes || { activo: false, items: [] };
+  const cambiar = valores => {
+    e.personajes = { ...config(), ...valores };
+    if (!pid) {
+      try { localStorage.setItem(claveBorradorPersonajesLight(estilo?.id), JSON.stringify(e.personajes)); }
+      catch (_) { toast('No se ha podido conservar el borrador de personajes en este navegador.', true); }
+    }
+    if (alCambiar) alCambiar();
+  };
+  const fichaVoz = () => pid ? { id: `video:${pid}`, proyecto_id: pid, idioma: estilo?.idioma || 'es',
+    datos: { voz: { ...(APP.light.video.fichas.voz?.params || {}) } } } : estilo;
+  const vozGeneral = () => e.voz_id || estilo?.datos?.voz?.voz_id || (pid ? APP.light.video.fichas.voz?.params?.voz_id : '') || '';
+  const vozDe = p => p.categoria === 'narrador' ? vozGeneral() : p.voz_id || '';
+  const nombreVoz = p => {
+    const id = vozDe(p);
+    return (vocesLight(estilo?.idioma || 'es') || []).find(v => v.id === id)?.nombre
+      || (p.categoria === 'narrador' ? estilo?.datos?.voz?.voz_nombre || 'Voz general del vídeo' : p.voz_nombre || id);
+  };
+  const urlImagen = p => p.imagen && pid ? API.archivo(pid, p.imagen) : p.subida ? API.imagenLight(p.subida) : '';
+  const limpiar = () => { estado.borrador = nuevo(); estado.editando = ''; estado.original = ''; estado.error = ''; estado.elegirVoz = false; };
+  const contenido = h('div', { clase: 'personajes-contenido' });
+  const activar = h('input', { type: 'checkbox', checked: config().activo,
+    'aria-label': 'Personalizar personajes', onchange: ev => { cambiar({ activo: ev.target.checked }); pintar(); } });
+  const seleccionarImagen = async nombre => {
+    if (pid) {
+      const resultado = await pedir(`${API.proyecto(pid)}/personajes/imagen`, { method: 'POST', cuerpo: { nombre } });
+      estado.borrador.imagen = resultado.ruta;
+      estado.borrador.subida = '';
+    } else { estado.borrador.subida = nombre; estado.borrador.imagen = ''; }
+  };
+  const generar = async () => {
+    if (estado.ocupado || !estado.borrador.descripcion.trim()) return;
+    if (pid && trabajoVideoLight()) { estado.error = 'Espera a que termine el trabajo del vídeo.'; pintar(); return; }
+    estado.ocupado = true; estado.error = ''; pintar();
+    try {
+      const d = estado.borrador;
+      const inicio = await pedir(`${BASE}/api/personajes/imagenes/generar`, { method: 'POST',
+        cuerpo: { descripcion: d.descripcion, pid, estilo_id: estilo?.id, imagen: d.imagen, subida: d.subida } });
+      for (;;) {
+        const t = await pedir(`${BASE}/api/personajes/imagenes/trabajos/${encodeURIComponent(inicio.trabajo_id)}`);
+        if (t.estado === 'listo') { await seleccionarImagen(t.resultado.nombre); break; }
+        if (['error', 'cancelado'].includes(t.estado)) throw new Error(t.error || 'La generación se ha detenido.');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+    } catch (error) { estado.error = error.message; }
+    finally { estado.ocupado = false; estado.repintar(); }
+  };
+  const subir = async archivo => {
+    if (!archivo || estado.ocupado) return;
+    estado.ocupado = true; estado.error = ''; pintar();
+    try {
+      if (archivo.size > 10 * 1024 * 1024) throw new Error('La imagen supera el límite de 10 MiB.');
+      const cuerpo = new FormData(); cuerpo.append('imagenes', archivo);
+      const datos = await pedir(API.imagenesLight(), { method: 'POST', cuerpo });
+      const nombre = datos.imagenes?.[0]?.nombre;
+      if (!nombre) throw new Error('No se pudo subir la imagen.');
+      await seleccionarImagen(nombre);
+    } catch (error) { estado.error = error.message; }
+    finally { estado.ocupado = false; estado.repintar(); }
+  };
+  const guardar = () => {
+    const d = JSON.parse(JSON.stringify(estado.borrador));
+    if (!d.nombre.trim() || !d.descripcion.trim() || !urlImagen(d) || estado.ocupado) return;
+    d.nombre = d.nombre.trim(); d.descripcion = d.descripcion.trim();
+    if (d.categoria === 'narrador') { delete d.voz_id; delete d.voz_nombre; }
+    const otros = config().items.filter(p => p.id !== estado.editando);
+    if (otros.some(p => p.nombre.toLocaleLowerCase() === d.nombre.toLocaleLowerCase())) {
+      estado.error = 'Ya existe un personaje con ese nombre.'; pintar(); return;
+    }
+    if (d.categoria === 'narrador' && otros.some(p => p.categoria === 'narrador')) {
+      estado.error = 'Solo se puede incorporar un narrador por vídeo.'; pintar(); return;
+    }
+    cambiar({ items: estado.editando ? config().items.map(p => p.id === d.id ? d : p) : [...config().items, d] });
+    limpiar(); pintar();
+  };
+  const pintar = () => {
+    vaciar(contenido); activar.disabled = estado.ocupado;
+    if (!config().activo) return;
+    const d = estado.borrador;
+    if (!estado.editando && e.incorporar_voz === false && d.categoria === 'narrador') d.categoria = 'personaje';
+    const foto = urlImagen(d);
+    const guardarBoton = h('button', { type: 'button', clase: 'mini', onclick: guardar }, estado.editando ? 'Guardar' : '+ Agregar');
+    const generarBoton = h('button', { type: 'button', clase: 'primario mini', disabled: estado.ocupado || !d.descripcion.trim(),
+      onclick: generar }, estado.ocupado ? 'Generando personaje…' : '✦ Generar personaje');
+    const actualizar = () => {
+      guardarBoton.disabled = estado.ocupado || !urlImagen(d) || !d.nombre.trim() || !d.descripcion.trim()
+        || (!!estado.editando && JSON.stringify(d) === estado.original);
+      generarBoton.disabled = estado.ocupado || !d.descripcion.trim();
+    };
+    const hayNarrador = config().items.some(p => p.categoria === 'narrador' && p.id !== estado.editando);
+    const categoria = h('select', { 'aria-label': 'Categoría del personaje', disabled: estado.ocupado,
+      onchange: ev => { d.categoria = ev.target.value; pintar(); } },
+      h('option', { value: 'personaje', selected: d.categoria === 'personaje' }, 'Personaje'),
+      ...(e.incorporar_voz !== false || (estado.editando && d.categoria === 'narrador')
+        ? [h('option', { value: 'narrador', disabled: hayNarrador, selected: d.categoria === 'narrador' }, 'Narrador')] : []));
+    const preview = h('div', { clase: 'personaje-previsualizacion', role: 'img', 'aria-label': 'Previsualización del personaje',
+      'aria-busy': String(estado.ocupado) }, foto ? h('img', { src: foto, alt: d.nombre || 'Personaje de cuerpo entero' })
+        : h('span', { clase: 'pista' }, 'Personaje'));
+    if (estado.ocupado) preview.appendChild(h('div', { clase: 'avatar-espera', role: 'status' }, 'Generando personaje'));
+    const nombre = h('input', { type: 'text', maxlength: 120, value: d.nombre, disabled: estado.ocupado,
+      'aria-label': 'Nombre del personaje', placeholder: 'Nombre del personaje', oninput: ev => { d.nombre = ev.target.value; actualizar(); } });
+    const descripcion = h('textarea', { rows: 5, maxlength: 4000, value: d.descripcion, disabled: estado.ocupado,
+      'aria-label': 'Descripción del personaje', placeholder: 'Apariencia, vestimenta, personalidad y papel en la historia…',
+      oninput: ev => { d.descripcion = ev.target.value; actualizar(); } });
+    const archivo = h('input', { type: 'file', clase: 'oculto', accept: 'image/png,image/jpeg,image/webp',
+      'aria-label': 'Subir imagen del personaje', onchange: ev => subir(ev.target.files[0]) });
+    const voces = h('div', { clase: 'personaje-voz-editor' });
+    if (d.categoria === 'narrador') {
+      voces.appendChild(h('p', { clase: 'pista' }, 'Vinculada a la voz general del vídeo. Cámbiala desde Incorporar voz.'));
+      if (vozGeneral()) voces.appendChild(h('div', { clase: 'fila' }, h('span', {}, nombreVoz(d)),
+        botonEscuchaVoz(fichaVoz(), { voz: vozGeneral, titulo: 'Escuchar voz del narrador' })));
+    } else {
+      voces.appendChild(h('label', { clase: 'efecto-encargo' }, h('input', { type: 'checkbox', checked: !!d.voz_id || !!estado.elegirVoz,
+        disabled: estado.ocupado, onchange: ev => { estado.elegirVoz = ev.target.checked;
+          if (!ev.target.checked) { d.voz_id = ''; d.voz_nombre = ''; } pintar(); } }), 'Incorporar voz'));
+      if (d.voz_id || estado.elegirVoz) voces.appendChild(h('div', { clase: 'fila' },
+        h('button', { type: 'button', clase: 'mini', disabled: estado.ocupado,
+          onclick: () => abrirVocesPersonaje(fichaVoz(), d.voz_id ? { id: d.voz_id, nombre: d.voz_nombre } : null,
+            v => { d.voz_id = v.id; d.voz_nombre = v.nombre || v.id; estado.repintar(); }) }, d.voz_id ? nombreVoz(d) : 'Seleccionar voz…'),
+        d.voz_id ? botonEscuchaVoz(fichaVoz(), { voz: () => d.voz_id, titulo: 'Escuchar voz del personaje' }) : null));
+    }
+    const editor = h('section', { clase: 'personaje-editor', 'aria-label': 'Generar personaje' },
+      h('div', { clase: 'fila' }, h('h4', {}, 'Generar personaje'), estado.editando ? h('span', { clase: 'personaje-etiqueta' }, 'Editando') : null),
+      h('label', { clase: 'campo' }, 'Categoría', categoria),
+      h('div', { clase: 'personaje-editor-campos' }, preview, h('div', {},
+        h('label', { clase: 'campo' }, 'Nombre', nombre), h('label', { clase: 'campo' }, 'Descripción del personaje', descripcion), voces)),
+      archivo, h('button', { type: 'button', clase: 'mini fantasma', disabled: estado.ocupado,
+        onclick: () => archivo.click() }, 'Subir imagen'),
+      h('div', { clase: 'fila cierre' }, generarBoton, guardarBoton,
+        h('button', { type: 'button', clase: 'mini', disabled: estado.ocupado,
+          onclick: () => { limpiar(); estado.elegirVoz = false; pintar(); } }, 'Cancelar')));
+    // Los campos del borrador no son params: solo Agregar/Guardar los publica.
+    ['input', 'change'].forEach(tipo => editor.addEventListener(tipo, ev => ev.stopPropagation()));
+    const cards = h('div', { clase: 'personajes-cards' });
+    const pintarCards = () => {
+      vaciar(cards);
+      config().items.filter(p => `${p.nombre} ${p.descripcion}`.toLocaleLowerCase().includes(estado.busca.toLocaleLowerCase())).forEach(p => {
+        const voz = vozDe(p);
+        cards.appendChild(h('article', { clase: `personaje-card${p.id === estado.editando ? ' editando' : ''}` },
+          h('img', { src: urlImagen(p), alt: p.nombre, loading: 'lazy' }),
+          h('div', { clase: 'personaje-card-datos' }, h('b', {}, p.nombre),
+            h('span', { clase: 'personaje-etiqueta' }, p.categoria === 'narrador' ? 'Narrador' : 'Personaje'),
+            h('p', {}, p.descripcion),
+            voz ? h('div', { clase: 'personaje-card-voz' }, h('span', { clase: 'meta' }, nombreVoz(p)),
+              botonEscuchaVoz(fichaVoz(), { voz: () => vozDe(p), titulo: `Escuchar voz de ${p.nombre}` }))
+              : h('p', { clase: 'meta' }, 'Sin voz propia · usa la voz general'),
+            e.incorporar_voz === false ? h('p', { clase: 'meta' }, 'Audio desactivado; configuración conservada.') : null,
+            h('div', { clase: 'fila' }, h('button', { type: 'button', clase: 'mini', disabled: estado.ocupado,
+              onclick: () => { estado.borrador = JSON.parse(JSON.stringify(p)); estado.editando = p.id;
+                estado.original = JSON.stringify(estado.borrador); estado.elegirVoz = !!p.voz_id; estado.error = ''; pintar(); } }, 'Editar'),
+              h('button', { type: 'button', clase: 'mini peligro', disabled: estado.ocupado,
+                onclick: () => { if (!window.confirm(`¿Eliminar a «${p.nombre}»?`)) return;
+                  cambiar({ items: config().items.filter(q => q.id !== p.id) });
+                  if (estado.editando === p.id) limpiar(); pintar(); } }, 'Eliminar')))));
+      });
+      if (!cards.children.length) cards.appendChild(h('p', { clase: 'pista' }, config().items.length ? 'No hay coincidencias.' : 'Todavía no has agregado personajes.'));
+    };
+    const busca = h('input', { type: 'search', value: estado.busca, placeholder: 'Buscar personaje…',
+      'aria-label': 'Buscar personajes añadidos', oninput: ev => { estado.busca = ev.target.value; pintarCards(); },
+      onchange: ev => ev.stopPropagation() });
+    busca.addEventListener('input', ev => ev.stopPropagation());
+    const anadidos = h('section', { clase: 'personajes-anadidos', 'aria-label': 'Personajes añadidos' },
+      h('div', { clase: 'fila' }, h('h4', {}, `Personajes añadidos (${config().items.length})`), busca), cards);
+    contenido.appendChild(h('div', { clase: 'personajes-paneles' }, editor, anadidos));
+    if (estado.error) contenido.appendChild(h('div', { clase: 'caja-error', role: 'alert' }, estado.error));
+    contenido.appendChild(h('p', { clase: 'caja-info' }, 'Puedes asignar una voz opcional a cada personaje. Sin voz propia usará la voz general del vídeo. '
+      + 'El narrador siempre utiliza la voz seleccionada arriba. Si desactivas Incorporar voz, la historia se desarrolla mediante diálogos sin audio.'));
+    actualizar(); pintarCards();
+  };
+  estado.repintar = pintar;
+  pintar();
+  const bloque = bloqueLight('Personalizar personajes', 'Crea y gestiona personajes para tus escenas',
+    h('label', { clase: 'efecto-encargo' }, activar, h('b', {}, 'Personalizar personajes')), contenido);
+  bloque.classList.add('bloque-personajes');
+  return bloque;
+}
+
 function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
-  const opciones = e.bibliotecas;
+  const bloqueado = e.generar_personajes !== false;
+  // La preferencia guardada queda intacta: al quitar Generar personajes se
+  // recupera exactamente el reparto anterior, incluso en proyectos antiguos.
+  const opciones = bloqueado ? { ...e.bibliotecas, proveedores: [], imagenes: true, video: false, origen_principal: 'ia',
+    porcentaje_bibliotecas: 0, modo_ia: 'porcentaje' } : e.bibliotecas;
   // El formulario interpreta el formato anterior sin escribir params al abrirlo.
   let origen = opciones.origen_principal || (opciones.proveedores.length ? 'bibliotecas' : 'ia');
   let porcentaje = opciones.porcentaje_bibliotecas ?? (opciones.proveedores.length ? 100 : 0);
@@ -7113,7 +7360,8 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
       boton.classList.toggle('activo', id === origen);
       boton.setAttribute('aria-pressed', String(id === origen));
     });
-    descripcionOrigen.textContent = ia ? 'Prioriza imágenes generadas con IA y complétalas con recursos de bibliotecas.'
+    descripcionOrigen.textContent = bloqueado ? 'Todas las imágenes se generan con IA para conservar la identidad de los personajes.'
+      : ia ? 'Prioriza imágenes generadas con IA y complétalas con recursos de bibliotecas.'
       : 'Prioriza recursos de bibliotecas y complétalos con imágenes generadas con IA.';
     distribucion.value = principal;
     distribucion.disabled = cada;
@@ -7136,7 +7384,7 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
     numero.disabled = !cada;
     const usaBibliotecas = opciones.proveedores.length > 0 && (!ia || cada || porcentaje > 0);
     reparto.disabled = !usaBibliotecas;
-    explicacion.textContent = !opciones.proveedores.length
+    explicacion.textContent = bloqueado ? '100 % imágenes IA · 0 % bibliotecas. No se buscarán imágenes ni vídeos de stock.' : !opciones.proveedores.length
       ? 'Sin bibliotecas seleccionadas, todos los recursos visuales se generan con IA. Selecciona Pixabay y/o Pexels para combinar ambos métodos.'
       : cada ? `Cada ${numero.value} escenas visuales se incorporará ${ia ? 'un recurso de biblioteca; las demás utilizarán IA.' : 'una imagen con IA; las demás buscarán en bibliotecas.'} La cadencia sustituye al reparto porcentual.`
       : `Se buscará aproximadamente el ${porcentaje}% de los recursos visuales principales en bibliotecas y se generará el ${100 - porcentaje}% con IA. El reparto se redondea a escenas completas.`;
@@ -7148,12 +7396,18 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
   const bloque = bloqueLight('Obtener recursos visuales', 'Configura de dónde se obtendrán las imágenes y vídeos de tus escenas.',
     cuerpo,
     h('p', { clase: 'pista recursos-pie' }, 'La generación de imágenes utiliza tu método principal y su respaldo configurados en Ajustes. '
-      + 'Si no hay un recurso adecuado en bibliotecas, se genera una imagen con IA como último recurso. Los vídeos se incorporan sin audio.'),
+      + (bloqueado ? 'Si ambos fallan se informa del error, sin sustituir la imagen por material de bibliotecas.'
+        : 'Si no hay un recurso adecuado en bibliotecas, se genera una imagen con IA como último recurso. Los vídeos se incorporan sin audio.')),
     esEstilo ? h('p', { clase: 'pista' }, 'Los vídeos nuevos heredarán esta selección.') : null,
     h('div', { clase: 'fila meta' },
       h('a', { href: 'https://pixabay.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pixabay'),
       h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels')));
   bloque.classList.add('bloque-recursos');
+  if (bloqueado) {
+    cuerpo.querySelectorAll('input, button, select, fieldset').forEach(n => { n.disabled = true; });
+    bloque.appendChild(h('p', { clase: 'caja-info recursos-bloqueados', role: 'note' },
+      'La generación de personajes está activada. Para mantener la coherencia visual de la historia, todos los recursos se generarán con inteligencia artificial. Desactiva "Generar personajes" en Crear/editar estilo para modificar esta configuración.'));
+  }
   return bloque;
 }
 
@@ -7277,6 +7531,9 @@ function personajesDelEncargo(e, alCambiar, esEstilo = false) {
         onchange: ev => {
           e.generar_personajes = ev.target.checked;
           if (alCambiar) alCambiar();
+          const formulario = ev.target.closest('.light-form') || ev.target.closest('.bloque-light').parentElement;
+          const recursos = formulario.querySelector('.bloque-recursos');
+          if (recursos) recursos.replaceWith(bibliotecasDelEncargo(e, alCambiar, esEstilo));
         },
       }),
       h('span', {}, h('b', {}, 'Generar personajes'),
@@ -7317,7 +7574,7 @@ function vozParaVideoLight(e, estilo) {
   }
   return campoSelect('Voz para este vídeo', e.voz_id || '', opciones,
     valor => { e.voz_id = valor || (APP.light.vista === 'elegido'
-      ? '' : (delEstilo.voz_id || '')); });
+      ? '' : (delEstilo.voz_id || '')); PERSONALIZACION_PERSONAJES.get(e)?.repintar(); });
 }
 
 /* El catálogo viene del motor: nombres, descripciones y las seis de fábrica.
@@ -7633,6 +7890,10 @@ function materialLight(e) {
    decisión, así que un botón. */
 async function crearYGenerarLight(estilo) {
   const e = encargoVideoLight();
+  if (personajesPendientesDelEncargo(e)) {
+    toast('Agrega, guarda o cancela el personaje del editor antes de generar el guion.', true);
+    return;
+  }
   if ((AVATARES_ENCARGO.get(e) || {}).ocupado) {
     toast('Espera a que termine de prepararse la imagen del avatar.', true);
     return;
@@ -7666,6 +7927,7 @@ async function crearYGenerarLight(estilo) {
         subtitulos: e.subtitulos !== false,
         parallax: parallaxPorDefectoLight(e.parallax),
         generar_personajes: e.generar_personajes !== false,
+        ...(e.personajes ? { personajes: e.personajes } : {}),
         incorporar_voz: e.incorporar_voz !== false,
         ...(e.voz_id ? { voz_id: e.voz_id } : {}),
         bibliotecas: e.bibliotecas,
@@ -7674,6 +7936,7 @@ async function crearYGenerarLight(estilo) {
     });
     const pid = (datos.proyecto || {}).id;
     if (!pid) throw new Error('el servidor no ha devuelto ningún proyecto');
+    try { localStorage.removeItem(claveBorradorPersonajesLight(estilo.id)); } catch (_) { /* el vídeo ya está guardado en el servidor */ }
     recordarVideoLight(pid);
     APP.light.video.nombre = (datos.proyecto || {}).nombre || pid;
     APP.light.video.estilo = estilo.id;
@@ -7741,6 +8004,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'avatar', paso: 'render', param: 'avatar' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
   { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
+  { clave: 'personajes', paso: 'guion', param: 'personajes' },
   { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
   { clave: 'voz_id', paso: 'voz', param: 'voz_id' },
 ];
@@ -7786,7 +8050,10 @@ function pedidoDelVideoLight() {
     subtitulos: params('render').subtitulos !== false,
     parallax: parallaxPorDefectoLight(params('render').parallax),
     avatar: JSON.parse(JSON.stringify(params('render').avatar || { activo: false, metodo: 'subir', imagen: '', prompt: '' })),
-    generar_personajes: params('assets').generar_personajes !== false,
+    // La ausencia en vídeos históricos conserva su flujo anterior de recursos;
+    // los nuevos heredan y guardan explícitamente la decisión del estilo.
+    generar_personajes: params('assets').generar_personajes === true,
+    personajes: JSON.parse(JSON.stringify(params('guion').personajes || { activo: false, items: [] })),
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
@@ -7851,6 +8118,7 @@ function vistaEncargoVideoLight() {
   caja.appendChild(incorporarVozDelEncargo(e,
     () => { programarGuardadoEncargo(); pintarLight(); }, false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
+  if (e.generar_personajes !== false) caja.appendChild(personalizarPersonajesDelEncargo(e, estilo, programarGuardadoEncargo, v.pid));
   caja.appendChild(avatarDelEncargo(e, programarGuardadoEncargo, v.pid));
   caja.appendChild(subtitulosDelEncargo(e));
   caja.appendChild(parallaxDelEncargo(e, programarGuardadoEncargo));
@@ -8024,6 +8292,10 @@ async function refrescarFichasLight() {
 async function lanzarTandaLight(tanda, modo) {
   const v = APP.light.video;
   if (!v.pid) return;
+  if (personajesPendientesDelEncargo(v.pedido?.copia)) {
+    toast('Agrega, guarda o cancela el personaje del editor antes de generar.', true);
+    return;
+  }
   limpiarError(CLAVE_VIDEO_LIGHT);
   try {
     if (v.pedido) await volcarEncargoLight(v.pedido);
@@ -8613,6 +8885,8 @@ function bloquesLight() {
     const hayAudio = !!(conAudio && (conAudio.palabras || []).length);
     ficha.appendChild(h('div', { clase: 'cabecera' },
       h('span', { clase: 'id' }, bloque.id),
+      'personaje_id' in bloque ? h('span', { clase: 'pastilla' },
+        `${bloque.personaje_nombre || 'Narración'} · ${bloque.categoria === 'personaje' ? 'Personaje' : 'Narrador'}`) : null,
       bloqueEditadoLight(bloque) ? h('span', { clase: 'pastilla tocado' }, 'editado') : null,
       h('span', { clase: 'crece' }),
       hayAudio ? h('button', {
@@ -8660,6 +8934,8 @@ function bloquesLight() {
       ficha.appendChild(area);
     }
 
+    if (bloque.descripcion_visual) ficha.appendChild(h('details', { clase: 'pista' },
+      h('summary', {}, 'Descripción visual de la escena'), h('p', {}, bloque.descripcion_visual)));
     if (v.abierto === bloque.id) ficha.appendChild(mandosBloqueLight(bloque, seccionDe));
     lista.appendChild(ficha);
   }
@@ -13904,6 +14180,7 @@ function botonEscuchaVoz(ficha, op) {
     try {
       const url = await pedirEscuchaVoz(ficha, vozId);
       APP.light.escuchas = Object.assign({}, APP.light.escuchas, { [clave]: url });
+      if (!caja.isConnected) { soltar(); return; }
       sonador().src = url;
       audio.play().catch(() => { /* el navegador puede negarse; el botón queda listo */ });
     } catch (e) {
@@ -13936,9 +14213,12 @@ async function pedirEscuchaVoz(ficha, vozId) {
   /* LO PENDIENTE PRIMERO. El autoguardado sale 900 ms después del último toque y
      el servidor sintetiza con lo que tenga GUARDADO el estilo: sin esto, subir
      la velocidad y darle al play escuchaba la de antes. */
-  await volcarPresetLight();
-  const datos = await pedir(`${API.presetLight(ficha.id)}/voz/previsualizar`,
-    { method: 'POST', cuerpo: { segundos: 12, voz_id: vozId || '' } });
+  if (!ficha.proyecto_id) await volcarPresetLight();
+  const url = ficha.proyecto_id ? `${API.proyecto(ficha.proyecto_id)}/voz/previsualizar`
+    : `${API.presetLight(ficha.id)}/voz/previsualizar`;
+  const datos = await pedir(url,
+    { method: 'POST', cuerpo: { segundos: 12, voz_id: vozId || '',
+      ...(ficha.proyecto_id ? { params: { ...(ficha.datos?.voz || {}), voz_id: vozId || ficha.datos?.voz?.voz_id || '' } } : {}) } });
   const tid = datos.trabajo_id || (datos.trabajo || {}).id;
   if (!tid) throw new Error('el servidor no ha devuelto ningún trabajo');
   return new Promise((salir, fallar) => {

@@ -33,6 +33,7 @@ PROPONER NO ES APROBAR
 Esto devuelve una propuesta. Lo que entra en los params es lo que una persona
 aprueba.
 """
+import json
 import os
 import re
 import sys
@@ -756,6 +757,9 @@ def _guion_legible(bloques):
         texto = " ".join(str(bloque.get("texto") or "").split())
         marca = " (EL PERSONAJE DA LA CARA)" if bloque.get("personaje") else ""
         lineas.append(f"[{bid}]{marca} {texto}")
+        if "personaje_id" in bloque:
+            lineas.append("Intervención: " + json.dumps({k: bloque.get(k) for k in
+                ("personaje_id", "personaje_nombre", "categoria", "personajes_visibles", "descripcion_visual")}, ensure_ascii=False))
     return "\n".join(lineas)
 
 
@@ -802,7 +806,7 @@ def _especie_legible(regla):
 
 def proponer(bloques, brief=None, ajuste=None, avisar=None, proyecto_id=None,
              cwd=None, peticion="", planos=0, min_s=None, max_s=None,
-             regla_personajes=""):
+             regla_personajes="", identidades=()):
     """Propone el catalogo visual del video. NO lo guarda: eso lo hace una persona.
 
     'bloques' son los del guion, con id y texto, EN ORDEN. Se manda el guion
@@ -838,6 +842,10 @@ def proponer(bloques, brief=None, ajuste=None, avisar=None, proyecto_id=None,
                                  regiones_mapa=", ".join(regiones_de_mapa())
                                                or "ninguna"),
         guion=guion)
+    if identidades:
+        instruccion += ("\nREPARTO YA DECIDIDO: conserva estas identidades, usa sus IDs y no crees duplicados. "
+                        "Las intervenciones del guion distinguen el hablante de quien aparece visualmente. "
+                        "Respeta descripcion_visual al preparar las acciones.\n" + json.dumps(list(identidades), ensure_ascii=False))
 
     palabras = sum(comun.contar_palabras(b.get("texto", "")) for b in bloques)
     prevision = estadisticas.estimar(PASO, tamano=palabras, ajuste=elegido)

@@ -103,7 +103,7 @@ import subprocess  # noqa: F401  (las pruebas sustituyen p3_guion.subprocess.Pop
 import time
 
 try:
-    from . import animaciones, cli_claude, comun, cta, estadisticas, fuentes, marcas_tts, medios
+    from . import animaciones, cli_claude, comun, cta, estadisticas, fuentes, marcas_tts, medios, personajes
 except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import animaciones
     import cli_claude
@@ -113,6 +113,7 @@ except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import fuentes
     import marcas_tts
     import medios
+    import personajes
 
 PASO = "guion"
 
@@ -239,6 +240,9 @@ def _normalizar(params, estricto=True):
     for clave, valor in (params or {}).items():
         if clave in PARAMS_POR_DEFECTO:
             opciones[clave] = valor
+    for clave in ("personajes", "sistema_personajes"):
+        if clave in (params or {}):
+            opciones[clave] = params[clave]
 
     opciones["prompt_general"] = str(opciones.get("prompt_general") or "").strip()
     opciones["regenerar_desde_cero"] = bool(opciones.get("regenerar_desde_cero"))
@@ -563,6 +567,11 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
     #
     # El cierre de marca, si lo hay, es lo ULTIMO del video: la llamada del
     # cierre se corre un bloque para no pelearse con el por el mismo sitio.
+    seccion_personajes = personajes.instruccion(opciones)
+    if seccion_personajes:
+        partes.extend(["", seccion_personajes])
+        if anterior and anterior.get("personajes_automaticos"):
+            partes.append("Reparto automático anterior (conserva IDs): " + json.dumps(anterior["personajes_automaticos"], ensure_ascii=False))
     seccion_cta = cta.bloque_para_guion(opciones.get("cta"))
     if seccion_cta:
         partes.extend(["", seccion_cta])
@@ -599,6 +608,8 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
             # lo que es y lo recortaria para cuadrar
             partes.append(f"{bloque.get('id', '?')} "
                           f"({marcas_tts.contar_palabras(texto)} pal.): {texto}")
+            if "personaje_id" in bloque:
+                partes.append("Intervención y escena: " + json.dumps(personajes.metadatos(bloque), ensure_ascii=False))
         partes.append("")
         partes.append("Ese guion es el punto de partida: conserva lo que sigue "
                       "sirviendo y cambia solo lo que pide la instruccion de "
@@ -902,15 +913,17 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
                    '"abre_seccion": true}, '
                    '{"id": "B002", "texto": "Aqui empieza el documental.", '
                    '"abre_seccion": true}]}')
-    if opciones.get("personajes"):
-        # con personaje, el ejemplo ensena la marca puesta en la presentacion:
-        # un modelo copia la forma del ejemplo antes que la regla
-        ejemplo = ('{"titulo": "titulo del video", "bloques": [{"id": "B001", '
-                   '"texto": "El gancho cierra aqui.<break time=\\"900ms\\"/>", '
-                   '"abre_seccion": true}, '
-                   '{"id": "B002", "texto": "Soy Nombre y en este video te voy a '
-                   'contar esta historia.", "personaje": true, "abre_seccion": true}, '
-                   '{"id": "B003", "texto": "Aqui sigue el documental."}]}')
+    if (opciones.get("sistema_personajes") or {}).get("generar_personajes"):
+        disponibles = [p for p in personajes.activos(opciones) if p["categoria"] == "personaje"
+                       or (opciones["sistema_personajes"].get("incorporar_voz", True))]
+        muestra = disponibles[0] if disponibles else {"id": "auto_exploradora", "nombre": "Exploradora",
+            "descripcion": "Exploradora de abrigo rojo, curiosa y decidida.", "categoria": "personaje"}
+        ejemplo = json.dumps({"titulo": "Titulo del video", "personajes_automaticos": [] if disponibles else [muestra],
+            "bloques": [{"id": "B001", "texto": "Voy a descubrir lo que ocurre en este bosque.",
+                "abre_seccion": True, "personaje_id": muestra["id"], "personajes_visibles": [muestra["id"]],
+                "descripcion_visual": muestra["nombre"] + " observa el camino con curiosidad."},
+                {"id": "B002", "texto": "Este camino nos llevará hasta el pueblo.", "personaje_id": muestra["id"],
+                 "personajes_visibles": [muestra["id"]], "descripcion_visual": muestra["nombre"] + " señala el camino."}]}, ensure_ascii=False)
     # LA CUENTA, OTRA VEZ Y AL FINAL. No es repetir la regla 3 por insistir: la
     # ULTIMA parte de un prompt es la que mas pesa --esta medido en este repo
     # con el feedback de un plano-- y la longitud es lo unico
@@ -1089,7 +1102,8 @@ def _normalizar_bloques(datos):
                                # la marco; `animaciones.etiquetar_bloques` comprueba
                                # que el texto la sostiene
                                "animacion": str(elemento.get("animacion") or "").strip(),
-                               "animacion_texto": str(elemento.get("animacion_texto") or "").strip()})
+                                "animacion_texto": str(elemento.get("animacion_texto") or "").strip(),
+                                **personajes.metadatos(elemento)})
         else:
             raise RuntimeError(f"bloque de guion con forma inesperada: {elemento!r}")
 
@@ -1542,6 +1556,9 @@ def _redactar(proyecto, params, avisar):
     """Redacta el guion con el CLI de Claude a partir del material y el brief."""
     arranque = time.time()
     opciones = _normalizar(params)
+    assets_actuales = personajes.params_de(proyecto, "assets")
+    if assets_actuales.get("generar_personajes") is True or "sistema_personajes" in opciones:
+        opciones["sistema_personajes"] = personajes.contexto(assets_actuales, personajes.params_de(proyecto, "voz"))
     trabajo = comun.preparar_trabajo(proyecto, PASO)
 
     avisar(0.02, "reuniendo el material")
@@ -1589,6 +1606,10 @@ def _redactar(proyecto, params, avisar):
                                   propios, idioma, intactos)
         datos["_bloques"] = bloques
         datos["_avisos"] = propios
+        try:
+            datos["_personajes_automaticos"] = personajes.preparar_intervenciones(datos, bloques, opciones)
+        except ValueError as fallo:
+            return [str(fallo)]
         palabras = sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques)
         return (_problemas(bloques, palabras, brief_doc, opciones, idioma)
                 + problemas_de_frases(bloques))
@@ -1605,6 +1626,8 @@ def _redactar(proyecto, params, avisar):
 
     avisos_marcas = list(datos.get("_avisos") or [])
     bloques = datos["_bloques"]
+    # Un contrato de hablantes incompleto no puede llegar a la voz ni al catálogo.
+    automaticos = personajes.preparar_intervenciones(datos, bloques, opciones)
     # las ediciones a mano mandan sobre lo que acabe de escribir el modelo: el
     # humano ya vio ese bloque y lo corrigio, y perder su texto en la siguiente
     # pasada seria tirar su trabajo.
@@ -1641,11 +1664,12 @@ def _redactar(proyecto, params, avisar):
               **({"personaje": True} if b.get("personaje") else {}),
               # y la animacion de motion graphics que lleva, si lleva alguna
               **({"animacion": b["animacion"]} if b.get("animacion") else {}),
+              **personajes.metadatos(b),
               **({"animacion_texto": b["animacion_texto"]} if b.get("animacion")
                  and b.get("animacion_texto") else {})}
              for b in bloques]
     detalle = [{"id": b["id"], "texto": b["texto"],
-                "palabras": marcas_tts.contar_palabras(b["texto"])}
+                "palabras": marcas_tts.contar_palabras(b["texto"]), **personajes.metadatos(b)}
                for b in bloques]
     avisos = list(_avisos(bloques, palabras, brief_doc, idioma))
     avisos.extend(pendientes)
@@ -1701,6 +1725,8 @@ def _redactar(proyecto, params, avisar):
         # cuales de ellas llegaron a colocarse (`animaciones.cobertura`).
         "animaciones": opciones.get("animaciones"),
     }
+    if (opciones.get("sistema_personajes") or {}).get("generar_personajes"):
+        documento["personajes_automaticos"] = automaticos
     comun.escribir_json(os.path.join(trabajo, "guion.json"), documento)
     comun.escribir_texto(
         os.path.join(trabajo, "guion.txt"),

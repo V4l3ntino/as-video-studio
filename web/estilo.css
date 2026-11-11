@@ -2898,6 +2898,51 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 }
 .avatar-opciones { display: grid; gap: 12px; }
 .avatar-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+/* Personajes del vídeo: editor y colección, con las mismas superficies del encargo. */
+.bloque-personajes { grid-template-columns: 180px minmax(0, 1fr); }
+.personajes-contenido { margin-top: 12px; min-width: 0; }
+.personajes-paneles { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.personaje-editor, .personajes-anadidos { padding: 14px; border: 1px solid var(--linea); border-radius: 10px; min-width: 0; }
+.personaje-editor { flex: 1 1 320px; }
+.personajes-anadidos { flex: 1.4 1 400px; }
+.personaje-editor h4, .personajes-anadidos h4 { margin: 0; font-size: 14px; }
+.personaje-editor > .campo { margin-top: 12px; }
+.personaje-editor .campo { display: flex; flex-direction: column; gap: 6px; }
+.personaje-editor-campos { display: grid; grid-template-columns: minmax(100px, .8fr) minmax(0, 1fr); gap: 12px; margin: 12px 0; }
+.personaje-previsualizacion { position: relative; display: flex; align-items: center; justify-content: center; min-height: 260px; border: 1px solid var(--linea); border-radius: 8px; overflow: hidden; background: var(--lienzo); }
+.personaje-previsualizacion img { width: 100%; height: 100%; max-height: 380px; object-fit: contain; }
+.personaje-voz-editor { border-top: 1px solid var(--linea); padding-top: 8px; }
+.personaje-voz-editor .fila { margin-top: 8px; }
+.personaje-etiqueta { display: inline-block; color: var(--acento); font-size: 11px; }
+.personajes-anadidos > .fila { justify-content: space-between; margin-bottom: 12px; }
+.personajes-anadidos input[type="search"] { width: 170px; min-width: 0; }
+.personajes-cards { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px; }
+.personaje-card { display: flex; flex: 1 1 220px; gap: 10px; padding: 10px; border: 1px solid var(--linea); border-radius: 8px; min-width: 0; background: var(--hueco); }
+.personaje-card.editando { border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
+.personaje-card > img { width: 32%; min-width: 60px; max-width: 100px; height: 170px; object-fit: contain; align-self: flex-start; }
+.personaje-card-datos { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.personaje-card-datos > b, .personaje-card-datos > .personaje-etiqueta { display: block; }
+.personaje-card-datos p { font-size: 12px; margin: 7px 0; white-space: pre-wrap; }
+.personaje-card-voz { display: flex; gap: 6px; align-items: center; margin: 8px 0; }
+.personaje-card .fila { gap: 5px; }
+.personaje-card .mini { padding: 5px 7px; }
+.recursos-bloqueados { grid-column: 1 / -1; margin: 8px 0 0; }
+.personaje-voces-dialogo { color: var(--texto); background: var(--panel); border: 1px solid var(--linea); border-radius: 12px; width: min(470px, calc(100vw - 32px)); max-height: 85vh; padding: 18px; }
+.personaje-voces-dialogo::backdrop { background: var(--velo); }
+.personaje-voces-dialogo > input { width: 100%; margin: 16px 0; }
+.personaje-voces-lista { overflow-y: auto; max-height: 48vh; }
+.personaje-voz-opcion { display: flex; align-items: center; gap: 10px; padding: 10px 5px; border-bottom: 1px solid var(--linea); }
+.personaje-voz-opcion > span:not(.escucha-voz) { flex: 1; min-width: 0; }
+.personaje-voz-opcion b, .personaje-voz-opcion .meta { display: block; }
+@media (max-width: 1000px) {
+  .bloque-light.bloque-personajes { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  .personaje-editor-campos { grid-template-columns: minmax(0, 1fr); }
+  .personaje-previsualizacion { height: 280px; min-height: 0; }
+  .personaje-card { flex-basis: 100%; }
+}
 .avatar-dropbox { position: relative; width: 100%; aspect-ratio: 4 / 3; align-self: start; overflow: hidden; border: 2px dashed var(--borde, #343844); border-radius: 12px; background: #111319; }
 .avatar-dropbox.encima { border-color: #8494ff; background: #22283d; }
 .avatar-dropbox.con-imagen { border-style: solid; }

@@ -507,6 +507,7 @@ def ejecutar(proyecto, params, avisar=None):
             avisos.append(f"comentario sobre un bloque inexistente: {bloque_id}")
 
     cfg = p4_voz.resolver_params(_config_voz(proyecto, params))
+    bloques = p4_voz.voces_del_proyecto(proyecto, bloques, cfg)
     sin_voz = _config_voz(proyecto, params).get("incorporar_voz") is False
 
     if not agrupados:
@@ -560,7 +561,7 @@ def ejecutar(proyecto, params, avisar=None):
         })
         if aviso:
             avisos.append(f"{bloque['id']}: {aviso}")
-        revisados.append({"id": bloque["id"], "texto": nuevo})
+        revisados.append(dict(bloque, texto=nuevo))
 
     modificados = [c["bloque_id"] for c in cambios if c["cambiado"]]
 
@@ -571,6 +572,7 @@ def ejecutar(proyecto, params, avisar=None):
 
     salidas = p4_voz.sintetizar_bloques(
         revisados, destino, cfg, avisar=progreso, sin_voz=sin_voz,
+        cache_voces=os.path.join(proyecto.raiz, "medios_usuario", "voces_personajes"),
         extra_meta={**p4_voz.contrato_de_escenas(proyecto),
                     "bloques_modificados": modificados,
                     "cambios": cambios,
