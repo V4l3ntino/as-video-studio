@@ -939,12 +939,21 @@ def _reparto(bloques, palabras):
     return escenas, motor._repartir_palabras(escenas, palabras or [])
 
 
-def voces_del_proyecto(proyecto, bloques, cfg):
+def voces_del_proyecto(proyecto, bloques, cfg, params=None):
     try:
         from . import personajes
     except ImportError:
         import personajes
-    return personajes.aplicar_voces(bloques, personajes.params_de(proyecto, "guion"), cfg["voz_id"])
+    return personajes.aplicar_voces(bloques, personajes.opciones_del_proyecto(proyecto, params), cfg["voz_id"])
+
+
+def sin_locucion(proyecto, params):
+    try:
+        from . import personajes
+    except ImportError:
+        import personajes
+    opciones = personajes.opciones_del_proyecto(proyecto, params)
+    return params.get("incorporar_voz") is False and not personajes.solo_personajes(opciones)
 
 
 def _toma_por_voces(bloques, cfg, destino, progreso, cache_voces=None):
@@ -1188,10 +1197,10 @@ def ejecutar(proyecto, params, avisar=None):
     avisa(0.01, "leyendo guion")
     bloques = cargar_guion(proyecto, params)
     cfg = resolver_params(params_con_idioma(proyecto, params))
-    bloques = voces_del_proyecto(proyecto, bloques, cfg)
+    bloques = voces_del_proyecto(proyecto, bloques, cfg, params)
     destino = comun.preparar_trabajo(proyecto, PASO)
 
-    sin_voz = params.get("incorporar_voz") is False
+    sin_voz = sin_locucion(proyecto, params)
     salidas = sintetizar_bloques(bloques, destino, cfg, avisar=avisa,
                                   proyecto_id=getattr(proyecto, "id", None),
                                   cache_voces=os.path.join(proyecto.raiz, "medios_usuario", "voces_personajes"),

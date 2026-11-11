@@ -106,8 +106,9 @@ class Personajes(unittest.TestCase):
                 personajes.preparar_intervenciones({}, [dict(bloques[1], **cambio)], self.opciones)
         automatico = {"id": "auto_guardian", "nombre": "Guardián", "descripcion": "Protector del bosque."}
         b = dict(id="B001", texto="No pases por aquí.", personaje_id="auto_guardian", personajes_visibles=["auto_guardian"], descripcion_visual="El guardián levanta una mano.")
-        self.assertEqual(personajes.preparar_intervenciones({"personajes_automaticos": [automatico]}, [b], sin_voz)[0]["id"], "auto_guardian")
-        self.assertEqual(b["voz_id"], "general")
+        with self.assertRaisesRegex(ValueError, "no tiene voz propia"):
+            personajes.preparar_intervenciones({"personajes_automaticos": [automatico]}, [b], sin_voz)
+        self.assertEqual(personajes.preparar_intervenciones({"personajes_automaticos": [automatico]}, [b], self.opciones)[0]["id"], "auto_guardian")
         with self.assertRaisesRegex(ValueError, "duplicó"):
             personajes.preparar_intervenciones({"personajes_automaticos": [dict(automatico, nombre="Ana")]}, [b], sin_voz)
 
@@ -137,7 +138,7 @@ class Personajes(unittest.TestCase):
         self.assertEqual([p["w"] for p in marcas], " ".join(b["texto"] for b in bloques).split())
         self.assertTrue(all(a["e"] <= b["s"] + .001 for a, b in zip(marcas, marcas[1:])))
 
-    def test_sin_voz_no_se_llama_tts_aunque_haya_voces_asignadas(self):
+    def test_pista_muda_explicita_sigue_sin_llamar_tts(self):
         cfg = p4_voz.resolver_params({"voz_id": "general"})
         with patch.object(p4_voz, "sintetizar_toma", side_effect=AssertionError("no llamar TTS")), patch.object(p4_voz, "_toma_por_contexto", side_effect=AssertionError("no llamar TTS")):
             salida = p4_voz.sintetizar_bloques(self.bloques(), self.tmp.name, cfg, sin_voz=True)
@@ -145,6 +146,66 @@ class Personajes(unittest.TestCase):
         self.assertEqual(salida["bloques"][1]["voz_id"], "voz_ana")
         pcm = p4_voz.motor._pcm_de_wav(Path(salida["pista"]).read_bytes())
         self.assertFalse(any(pcm))
+
+    def test_solo_personajes_exige_todas_las_voces_antes_de_claude(self):
+        opciones = copy.deepcopy(self.opciones)
+        opciones["sistema_personajes"]["incorporar_voz"] = False
+        personajes.validar_voces(opciones)  # El narrador no necesita voz propia.
+        for config in ({"activo": False, "items": [self.ana]}, {"activo": True, "items": []},
+                       {"activo": True, "items": [self.narrador]},
+                       {"activo": True, "items": [dict(self.ana, voz_id=" ")]}):
+            with self.subTest(config=config):
+                opciones["personajes"] = config
+                self.estado.actualizar_params("guion", opciones)
+                self.estado.actualizar_params("assets", {"generar_personajes": True})
+                self.estado.actualizar_params("voz", {"incorporar_voz": False})
+                with patch.object(p3_guion, "_llamar_claude", side_effect=AssertionError("no consumir cuota")):
+                    with self.assertRaisesRegex(ValueError, "antes de generar el guion"):
+                        p3_guion.ejecutar(self.proyecto, opciones, Mock())
+        opciones["sistema_personajes"]["generar_personajes"] = False
+        personajes.validar_voces(opciones)  # Sin sistema de personajes conserva el modo mudo.
+
+    def test_solo_personajes_sintetiza_voces_propias_y_revision_no_las_silencia(self):
+        opciones = copy.deepcopy(self.opciones)
+        opciones["sistema_personajes"]["incorporar_voz"] = False
+        otra = dict(self.ana, id="p_luz", nombre="Luz", voz_id="voz_luz")
+        opciones["personajes"]["items"].append(otra)
+        self.estado.actualizar_params("guion", opciones)
+        self.estado.actualizar_params("assets", {"generar_personajes": True})
+        params = {"incorporar_voz": False, "voz_id": "general"}
+        self.estado.actualizar_params("voz", params)
+        bloques = [dict(id="B001", texto="Vamos a explorar el bosque.", personaje_id="p_ana", personajes_visibles=["p_ana"], descripcion_visual="Ana camina."),
+                   dict(id="B002", texto="Te acompañaré por el camino.", personaje_id="p_luz", personajes_visibles=["p_luz"], descripcion_visual="Luz sigue a Ana.")]
+        personajes.preparar_intervenciones({}, bloques, opciones)
+        medios.escribir_json(os.path.join(self.proyecto.ruta_trabajo("guion"), "guion.json"), {"guion": bloques, "idioma": "es"})
+        self.estado.completar("guion", {"guion_fichero": "guion.json"})
+        voces = []
+        def toma(texto, cfg, progreso):
+            voces.append(cfg["voz_id"])
+            return p4_voz._toma_simulada(texto, cfg)
+        with patch.object(p4_voz, "sintetizar_toma", side_effect=toma):
+            salida = p4_voz.ejecutar(self.proyecto, params)
+        self.assertEqual(voces, ["voz_ana", "voz_luz"])
+        self.assertFalse(salida.get("sin_voz"))
+        self.estado.completar("voz", salida)
+        with patch.object(p4_voz, "sintetizar_toma", side_effect=AssertionError("no repagar al revisar")):
+            revision = p5_revision_audio.ejecutar(self.proyecto, {}, Mock())
+        self.assertTrue(revision["sellada_del_paso_4"])
+        self.assertFalse(revision.get("sin_voz"))
+        self.assertEqual([b["voz_id"] for b in revision["bloques"]], voces)
+        with self.assertRaisesRegex(ValueError, "regenera el guion"):
+            personajes.aplicar_voces([self.bloques()[0]], opciones, "general")
+
+    def test_api_bloquea_sin_voces_antes_de_lanzar_trabajo(self):
+        import app
+        self.estado.actualizar_params("assets", {"generar_personajes": True})
+        self.estado.actualizar_params("voz", {"incorporar_voz": False})
+        ctx = app.Contexto(self.proyecto.raiz)
+        impedimentos = app._impedimentos(ctx, "guion", [{"id": "guion"}])
+        self.assertIn("voz asignada", impedimentos[0]["que"])
+        with patch.object(ctx.gestor, "lanzar", side_effect=AssertionError("no lanzar")):
+            with self.assertRaises(app.ErrorApi):
+                app.lanzar_paso(ctx, "guion", None)
 
     def test_reintentar_paso_tras_fallo_no_repaga_turnos_completados(self):
         self.sembrar_guion()

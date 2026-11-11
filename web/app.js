@@ -6838,6 +6838,8 @@ function vistaElegidoLight() {
 
   const boton = h('button', {
     clase: 'primario grande',
+    'data-generar-guion-personajes': 'true',
+    disabled: !!errorVocesPersonajes(e),
     onclick: () => crearYGenerarLight(ficha),
   }, 'Generar el guion');
   caja.appendChild(h('div', { clase: 'fila cierre' }, boton, aviso));
@@ -7007,6 +7009,22 @@ function personajesPendientesDelEncargo(e) {
     && (estado?.ocupado || estado?.editando || estado?.borrador?.descripcion || estado?.borrador?.nombre));
 }
 
+function errorVocesPersonajes(e) {
+  if (!e || e.generar_personajes !== true || e.incorporar_voz !== false) return '';
+  const actores = e.personajes?.activo ? (e.personajes.items || []).filter(p => p.categoria === 'personaje') : [];
+  if (!actores.length) return 'Sin voz del narrador, activa Personalizar personajes y agrega al menos un personaje con voz asignada antes de generar el guion.';
+  const faltan = actores.filter(p => !String(p.voz_id || '').trim()).map(p => p.nombre);
+  return faltan.length ? `Asigna una voz propia a estos personajes antes de generar el guion: ${faltan.join(', ')}.` : '';
+}
+
+function actualizarBloqueoVocesPersonajes(e) {
+  document.querySelectorAll('[data-generar-guion-personajes]').forEach(b => {
+    b.disabled = !!errorVocesPersonajes(e);
+    b.title = errorVocesPersonajes(e);
+  });
+  repintarPieDeEncargo();
+}
+
 function abrirVocesPersonaje(ficha, actual, confirmar) {
   const dialogo = h('dialog', { clase: 'personaje-voces-dialogo', 'aria-label': 'Seleccionar voz del personaje' });
   let elegida = actual;
@@ -7055,6 +7073,7 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       catch (_) { toast('No se ha podido conservar el borrador de personajes en este navegador.', true); }
     }
     if (alCambiar) alCambiar();
+    actualizarBloqueoVocesPersonajes(e);
   };
   const fichaVoz = () => pid ? { id: `video:${pid}`, proyecto_id: pid, idioma: estilo?.idioma || 'es',
     datos: { voz: { ...(APP.light.video.fichas.voz?.params || {}) } } } : estilo;
@@ -7124,6 +7143,8 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
   };
   const pintar = () => {
     vaciar(contenido); activar.disabled = estado.ocupado;
+    const errorVoces = errorVocesPersonajes(e);
+    if (errorVoces) contenido.appendChild(h('p', { clase: 'caja-error', role: 'alert' }, errorVoces));
     if (!config().activo) return;
     const d = estado.borrador;
     if (!estado.editando && e.incorporar_voz === false && d.categoria === 'narrador') d.categoria = 'personaje';
@@ -7192,8 +7213,12 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
             h('p', {}, p.descripcion),
             voz ? h('div', { clase: 'personaje-card-voz' }, h('span', { clase: 'meta' }, nombreVoz(p)),
               botonEscuchaVoz(fichaVoz(), { voz: () => vozDe(p), titulo: `Escuchar voz de ${p.nombre}` }))
-              : h('p', { clase: 'meta' }, 'Sin voz propia · usa la voz general'),
-            e.incorporar_voz === false ? h('p', { clase: 'meta' }, 'Audio desactivado; configuración conservada.') : null,
+              : h('p', { clase: 'meta' }, e.incorporar_voz === false
+                ? p.categoria === 'narrador' ? 'Narrador sin locución' : 'Sin voz propia asignada'
+                : 'Sin voz propia · usa la voz general'),
+            e.incorporar_voz === false ? h('p', { clase: 'meta' }, p.categoria === 'narrador'
+              ? 'Voz del narrador desactivada; configuración conservada.'
+              : p.voz_id ? 'Se locutará con su voz propia.' : 'Asigna una voz propia para poder generar el guion.') : null,
             h('div', { clase: 'fila' }, h('button', { type: 'button', clase: 'mini', disabled: estado.ocupado,
               onclick: () => { estado.borrador = JSON.parse(JSON.stringify(p)); estado.editando = p.id;
                 estado.original = JSON.stringify(estado.borrador); estado.elegirVoz = !!p.voz_id; estado.error = ''; pintar(); } }, 'Editar'),
@@ -7212,8 +7237,9 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       h('div', { clase: 'fila' }, h('h4', {}, `Personajes añadidos (${config().items.length})`), busca), cards);
     contenido.appendChild(h('div', { clase: 'personajes-paneles' }, editor, anadidos));
     if (estado.error) contenido.appendChild(h('div', { clase: 'caja-error', role: 'alert' }, estado.error));
-    contenido.appendChild(h('p', { clase: 'caja-info' }, 'Puedes asignar una voz opcional a cada personaje. Sin voz propia usará la voz general del vídeo. '
-      + 'El narrador siempre utiliza la voz seleccionada arriba. Si desactivas Incorporar voz, la historia se desarrolla mediante diálogos sin audio.'));
+    contenido.appendChild(h('p', { clase: 'caja-info' }, e.incorporar_voz === false
+      ? 'La voz del narrador está desactivada. Solo se escucharán los personajes con sus voces propias. Asigna una voz a todos los personajes antes de generar el guion; no se utilizará la voz general como respaldo.'
+      : 'Puedes asignar una voz opcional a cada personaje. Sin voz propia usará la voz general del vídeo. El narrador siempre utiliza la voz seleccionada arriba. Si desactivas Incorporar voz, todos los personajes deberán tener voz propia.'));
     actualizar(); pintarCards();
   };
   estado.repintar = pintar;
@@ -7556,7 +7582,7 @@ function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
       h('span', {}, h('b', {}, 'Incorporar voz'),
         h('span', { clase: 'meta' }, esEstilo
           ? 'Los vídeos nuevos heredarán esta selección.'
-          : 'Sin voz se estiman los tiempos del guion. Cambiarla en un vídeo ya '
+          : 'Sin voz general, los personajes se locutan con sus voces propias obligatorias; sin generación de personajes, el vídeo queda sin locución. Cambiarla en un vídeo ya '
             + 'generado deja pendientes la sincronización y el montaje.'))),
     contenidos);
 }
@@ -7890,6 +7916,7 @@ function materialLight(e) {
    decisión, así que un botón. */
 async function crearYGenerarLight(estilo) {
   const e = encargoVideoLight();
+  if (errorVocesPersonajes(e)) { toast(errorVocesPersonajes(e), true); return; }
   if (personajesPendientesDelEncargo(e)) {
     toast('Agrega, guarda o cancela el personaje del editor antes de generar el guion.', true);
     return;
@@ -8149,11 +8176,12 @@ function pieDeEncargo() {
   refrescarPlanLight('guion');
   const queda = quedaTandaLight('guion');
   const hayGuion = !!v.guion;
+  const errorVoces = errorVocesPersonajes(pedidoDelVideoLight().copia);
   return h('div', { clase: 'pie-guion pie-encargo' },
-    conAyuda(unirAyuda(ayudaEncargo(hayGuion, queda), textoDelPlan('guion')),
+    conAyuda(errorVoces || unirAyuda(ayudaEncargo(hayGuion, queda), textoDelPlan('guion')),
       h('button', {
         clase: 'primario',
-        disabled: corriendo || queda === false,
+        disabled: corriendo || queda === false || !!errorVoces,
         /* 'pendientes' y no 'todo': REHACER UNA COSA REHACE ESA COSA. Lo que
            se ha tocado aquí ya ha dejado obsoleto lo suyo, y eso es lo que
            entra; lo que sigue al día se salta. */
@@ -8292,6 +8320,8 @@ async function refrescarFichasLight() {
 async function lanzarTandaLight(tanda, modo) {
   const v = APP.light.video;
   if (!v.pid) return;
+  const errorVoces = errorVocesPersonajes(v.pedido?.copia || pedidoDelVideoLight().copia);
+  if (['guion', 'voz', 'video'].includes(tanda) && errorVoces) { toast(errorVoces, true); return; }
   if (personajesPendientesDelEncargo(v.pedido?.copia)) {
     toast('Agrega, guarda o cancela el personaje del editor antes de generar.', true);
     return;
@@ -9242,7 +9272,8 @@ function pieLight() {
   refrescarPlanLight('video');
   const hayGuion = !!v.guion;
   const hayAudio = !!v.audio;
-  const sinVoz = pedidoDelVideoLight().copia.incorporar_voz === false;
+  const encargo = pedidoDelVideoLight().copia;
+  const sinVoz = encargo.incorporar_voz === false && encargo.generar_personajes !== true;
   const hayVideo = hayMp4Light();
   const obsoleto = videoObsoletoLight();
   /* SE PIDEN LOS DOS PLANES SIEMPRE, no solo mientras algo corre.

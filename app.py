@@ -669,8 +669,14 @@ def dependencias_que_faltan(ctx, paso_id, producidos=()):
 
 
 def lanzar_paso(ctx, paso_id, unidades, nombre=None, evento="paso_lanzado",
-                datos=None, opciones=None):
+                 datos=None, opciones=None):
     """Comprueba que el paso se puede correr y lo manda al gestor de trabajos."""
+    if paso_id == "guion":
+        from pasos import personajes
+        try:
+            personajes.validar_voces(personajes.opciones_del_proyecto(ctx.proyecto))
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
     estado_actual = ctx.estado.estado_de(paso_id)
     if estado_actual == "bloqueado":
         faltan = dependencias_que_faltan(ctx, paso_id)
@@ -7698,6 +7704,12 @@ def _impedimentos(ctx, pestana, pendientes):
     """
     ids = {f["id"] for f in pendientes}
     fuera = []
+    if pestana == "guion":
+        from pasos import personajes
+        try:
+            personajes.validar_voces(personajes.opciones_del_proyecto(ctx.proyecto))
+        except ValueError as fallo:
+            fuera.append({"tarea": "guion", "que": str(fallo), "donde": "Personalizar personajes"})
     if pestana != "video":
         return fuera
     if "guia_estilo" in ids:
@@ -11164,8 +11176,8 @@ def _con_origen(ctx, pestanas):
     una entrada que no ha cambiado.
     """
     lista = list(pestanas)
-    # Sin narración no hay botón de audio: la tanda de imágenes prepara la
-    # pista muda y sus marcas antes del corte. GET y POST comparten esta lista.
+    # Sin voz general, imágenes prepara antes del corte la pista de personajes
+    # (o la pista muda si no hay sistema de personajes). GET y POST comparten lista.
     if "video" in lista and "voz" not in lista \
             and ctx.estado.params("voz").get("incorporar_voz") is False \
             and not (ctx.estado.al_dia("voz")
@@ -11404,6 +11416,16 @@ def crear_video_light(preset_id: str, cuerpo: dict = Body(default=None)):
                             f"'{ficha_preset.get('tipo')}': el modo light hace "
                             f"videos con estilos de canal")
 
+    from pasos import personajes
+    montaje = (ficha_preset.get("datos") or {}).get("montaje") or {}
+    try:
+        config_personajes = personajes.normalizar(datos["personajes"], pendientes=True) if "personajes" in datos else {}
+        personajes.validar_voces({"personajes": config_personajes,
+            "sistema_personajes": personajes.contexto(
+                {"generar_personajes": datos.get("generar_personajes", montaje.get("generar_personajes", True))},
+                {"incorporar_voz": datos.get("incorporar_voz", montaje.get("incorporar_voz", True))})})
+    except ValueError as fallo:
+        raise ErrorApi(400, str(fallo)) from fallo
     nombre = str(datos.get("nombre") or "").strip()
     if not nombre:
         nombre = f"Vídeo de {ficha_preset.get('nombre') or preset_id}"

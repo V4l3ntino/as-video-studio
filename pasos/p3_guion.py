@@ -1559,6 +1559,7 @@ def _redactar(proyecto, params, avisar):
     assets_actuales = personajes.params_de(proyecto, "assets")
     if assets_actuales.get("generar_personajes") is True or "sistema_personajes" in opciones:
         opciones["sistema_personajes"] = personajes.contexto(assets_actuales, personajes.params_de(proyecto, "voz"))
+    personajes.validar_voces(opciones)
     trabajo = comun.preparar_trabajo(proyecto, PASO)
 
     avisar(0.02, "reuniendo el material")

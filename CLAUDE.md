@@ -806,8 +806,13 @@ normalizar, editar, revisar o regrabar; los nombres no identifican hablantes.
 Las voces distintas se sintetizan por turnos contiguos en p4, con caché en
 `medios_usuario/voces_personajes/` y marcas absolutas, antes del espaciado habitual.
 No la pongas solo en trabajo: `comun.preparar_trabajo` lo borra al reintentar y
-repagaría los turnos ya completados. Sin voz no se solicita
-TTS. P6 copia la referencia personalizada como hoja de reparto sin volver a
+repagaría los turnos ya completados. Con personajes, `incorporar_voz:false`
+desactiva SOLO al narrador: exige al menos un personaje personalizado y voz
+propia en todos los actores antes de pedir el guion. Solo esos actores pueden
+hablar; nunca uses la voz general como respaldo en esta modalidad. La validación
+vive en `personajes.validar_voces` y se aplica en UI, API y p3 antes de Claude.
+P4 y p5 usan `sin_locucion` para distinguir este modo del vídeo tradicional
+sin personajes, que sí mantiene pista muda sin TTS. P6 copia la referencia personalizada como hoja de reparto sin volver a
 generarla. Generar personajes bloquea las búsquedas visuales de bibliotecas en
 el motor, aunque Personalizar personajes esté apagado; no sobrescribas la
 preferencia guardada de bibliotecas para forzar IA. Regresión offline:

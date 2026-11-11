@@ -309,9 +309,15 @@ Activa su casilla para abrir el editor y las tarjetas de personajes añadidos.
 
 Al generar el guion, Claude utiliza las identidades personalizadas antes que
 las automáticas y distingue cada intervención de su descripción visual. Con
-voz puede combinar narración y diálogos; sin voz escribe una historia basada
-en conversaciones entre personajes, conservando los hablantes sin solicitar
-audio. Las voces se sintetizan en el orden del guion, con marcas temporales
+voz puede combinar narración y diálogos; al desactivar **Incorporar voz**, con
+**Generar personajes** activo, escribe una historia basada en conversaciones y
+se locutan únicamente las voces propias de los personajes, sin narrador ni voz
+general de respaldo. Antes de generar el guion debes activar Personalizar
+personajes, agregar al menos un personaje y asignar voz a todos los personajes
+de categoría Personaje. Si falta alguna voz, se bloquea la generación y se
+indican los nombres pendientes. El narrador guardado se conserva inactivo;
+los personajes automáticos adicionales solo pueden aparecer visualmente.
+Las voces se sintetizan en el orden del guion, con marcas temporales
 para las escenas y referencias de imagen para mantener la apariencia.
 
 Mientras **Generar personajes** esté activado, **Obtener recursos visuales**
@@ -324,9 +330,12 @@ guardadas; los archivos viajan al duplicar o exportar el vídeo.
 
 En **Estilos → Voz** y en el **encargo del vídeo** puedes desmarcar **Incorporar
 voz**. El estilo transmite su selección a los vídeos nuevos y cada encargo puede
-cambiarla. Sin voz no se llama a Cartesia: se crea una pista muda con tiempos
-estimados para sincronizar planos, cartelas y subtítulos. El vídeo no lleva
-narración, aunque conserva la música y los efectos si están configurados. En el
+cambiarla. Con Generar personajes activo, desactivar Incorporar voz elimina
+solo la voz general del narrador: los personajes deben tener voces propias y
+sus diálogos sí se locutan. Sin generación de personajes, no se llama a Cartesia:
+se crea una pista muda con tiempos estimados para sincronizar planos, cartelas y
+subtítulos. En ese caso el vídeo no lleva locución, aunque conserva la música y
+los efectos si están configurados. En el
 estilo, los campos de voz quedan desactivados hasta volver a marcar la casilla.
 
 En **Imágenes**, el botón **Regenerar imagen** de un apunte genera una imagen

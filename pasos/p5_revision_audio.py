@@ -455,6 +455,10 @@ def _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa, sin_voz=False):
     ahora = [(b.get("id"), (b.get("texto") or "").strip()) for b in bloques]
     if grabados != ahora:
         return None
+    if any("personaje_id" in b for b in bloques):
+        if [(b.get("personaje_id"), b.get("voz_id")) for b in meta.get("bloques") or []] != [
+                (b.get("personaje_id"), b.get("voz_id")) for b in bloques]:
+            return None
 
     avisa(0.3, "la toma del paso 4 vale tal cual: se sella sin regrabar")
     nombre = meta.get("archivo") or p4_voz.NOMBRE_PISTA
@@ -507,8 +511,8 @@ def ejecutar(proyecto, params, avisar=None):
             avisos.append(f"comentario sobre un bloque inexistente: {bloque_id}")
 
     cfg = p4_voz.resolver_params(_config_voz(proyecto, params))
-    bloques = p4_voz.voces_del_proyecto(proyecto, bloques, cfg)
-    sin_voz = _config_voz(proyecto, params).get("incorporar_voz") is False
+    bloques = p4_voz.voces_del_proyecto(proyecto, bloques, cfg, _config_voz(proyecto, params))
+    sin_voz = p4_voz.sin_locucion(proyecto, _config_voz(proyecto, params))
 
     if not agrupados:
         sellada = _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa,

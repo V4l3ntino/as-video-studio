@@ -90,6 +90,32 @@ def activos(opciones):
     return copy.deepcopy(config.get("items") or []) if config.get("activo") else []
 
 
+def solo_personajes(opciones):
+    modo = opciones.get("sistema_personajes") or {}
+    return bool(modo.get("generar_personajes") and modo.get("incorporar_voz") is False)
+
+
+def validar_voces(opciones):
+    """Antes de pedir un guion sin narrador: todo actor necesita voz propia."""
+    if not solo_personajes(opciones):
+        return
+    actores = [p for p in activos(opciones) if p.get("categoria") == "personaje"]
+    if not actores:
+        raise ValueError("Sin voz del narrador, activa Personalizar personajes y agrega al menos un personaje con voz asignada antes de generar el guion.")
+    faltan = [p["nombre"] for p in actores if not str(p.get("voz_id") or "").strip()]
+    if faltan:
+        raise ValueError("Asigna una voz propia a estos personajes antes de generar el guion: " + ", ".join(faltan) + ".")
+
+
+def opciones_del_proyecto(proyecto, voz=None):
+    opciones = dict(params_de(proyecto, "guion"))
+    assets = params_de(proyecto, "assets")
+    opciones["sistema_personajes"] = contexto(assets, voz if voz is not None else params_de(proyecto, "voz"))
+    if assets.get("generar_personajes") is not True and "sistema_personajes" not in params_de(proyecto, "guion"):
+        opciones["sistema_personajes"]["generar_personajes"] = False
+    return opciones
+
+
 def instruccion(opciones):
     modo = opciones.get("sistema_personajes") or {}
     if not modo.get("generar_personajes"):
@@ -103,12 +129,13 @@ def instruccion(opciones):
         json.dumps(reparto, ensure_ascii=False),
         ("Combina narración y diálogos naturales. El narrador personalizado es la figura narrativa principal y puede aparecer explicando al espectador."
          if con_voz else
-         "SIN VOZ: escribe una historia especializada en DIÁLOGOS entre personajes. Explica los acontecimientos, ideas, pensamientos y emociones mediante sus conversaciones y reacciones. NO uses narración en off ni intervenciones de categoría narrador. El narrador guardado queda inactivo. No se generará audio, pero conserva todas las intervenciones estructuradas."),
+         "SIN VOZ DEL NARRADOR: escribe una historia especializada en DIÁLOGOS entre personajes. Explica los acontecimientos, ideas, pensamientos y emociones mediante sus conversaciones y reacciones. NO uses narración en off ni intervenciones de categoría narrador. El narrador guardado queda inactivo. SÍ se generará audio, exclusivamente con las voces propias asignadas a los personajes personalizados. Solo esos personajes pueden hablar; los adicionales automáticos solo pueden aparecer visualmente, sin intervenciones."),
         "Puedes crear personajes adicionales necesarios, sin duplicar a los personalizados. Devuelve personajes_automaticos: [{id: auto_nombre_estable, nombre, descripcion, categoria: personaje}]. Conserva sus IDs si ya estaban en el guion anterior.",
         "Cada bloque es UNA intervención de UN hablante (puede tener varias frases completas). Nunca mezcles voces en el mismo bloque. texto contiene SOLO sus palabras, sin prefijos de nombre ni acotaciones escénicas. Mantén el resto del formato JSON solicitado.",
         "Añade a CADA bloque personaje_id (ID existente, o cadena vacía SOLO para narración general), personajes_visibles (lista de IDs que aparecen) y descripcion_visual (acción, postura, expresión y entorno, separada del texto hablado). Los diálogos deben desarrollar la historia sin intervenciones forzadas.",
         "Cuando el narrador aparece visualmente, inclúyelo en personajes_visibles. Una voz no implica presencia visual. Cada bloque conserva su id Bxxx, que identifica también la escena de la intervención; el montaje lo vinculará a sus escenas Sxxx.",
-        "La aplicación resolverá nombre, categoría y voz desde el ID: narración y narrador usan SIEMPRE la voz general; personajes con voz propia usan esa voz y el resto la general. No inventes IDs de voces.",
+        ("La aplicación resolverá nombre, categoría y voz desde el ID: narración y narrador usan SIEMPRE la voz general; personajes con voz propia usan esa voz y el resto la general. No inventes IDs de voces."
+         if con_voz else "La aplicación resolverá la voz desde el ID personalizado. Usa solo hablantes con voz propia asignada; nunca uses la voz general ni inventes voces."),
         "Este contrato de hablantes prevalece sobre las instrucciones genéricas de narración en off; si el usuario aporta un guion propio, respeta sus palabras y etiqueta sus intervenciones sin reescribirlo.",
     ])
 
@@ -151,7 +178,9 @@ def preparar_intervenciones(datos, bloques, opciones):
             raise ValueError(f"{b['id']}: personaje desconocido {ident}; usa un ID del reparto")
         f = reparto.get(ident) or {}
         if not modo.get("incorporar_voz", True) and (not ident or f.get("categoria") == "narrador"):
-            raise ValueError(f"{b['id']}: el modo sin voz requiere diálogo identificado de un personaje, sin narrador")
+            raise ValueError(f"{b['id']}: el modo sin voz general requiere diálogo identificado de un personaje, sin narrador")
+        if solo_personajes(opciones) and not str(f.get("voz_id") or "").strip():
+            raise ValueError(f"{b['id']}: {f.get('nombre') or ident} no tiene voz propia asignada; solo pueden hablar personajes con voz asignada")
         visibles = b.get("personajes_visibles") or []
         if not isinstance(visibles, list) or any(not isinstance(p, str) or p not in reparto for p in visibles):
             raise ValueError(f"{b['id']}: referencia visual a un personaje desconocido")
@@ -168,8 +197,13 @@ def metadatos(bloque):
 
 
 def aplicar_voces(bloques, opciones, voz_general):
+    validar_voces(opciones)
     reparto = {p["id"]: p for p in activos(opciones)}
     for b in bloques:
+        if solo_personajes(opciones):
+            f = reparto.get(b.get("personaje_id")) or {}
+            if f.get("categoria") != "personaje" or not str(f.get("voz_id") or "").strip():
+                raise ValueError(f"{b['id']}: regenera el guion para usar únicamente personajes con voz propia, sin narrador.")
         if "personaje_id" not in b:
             continue
         f = reparto.get(b["personaje_id"]) or {}
