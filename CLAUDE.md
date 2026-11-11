@@ -818,11 +818,13 @@ el motor, aunque Personalizar personajes esté apagado; no sobrescribas la
 preferencia guardada de bibliotecas para forzar IA. Regresión offline:
 `python pasos/prueba_personajes.py`.
 
-El narrador admite `primera_persona: true` en su ficha (ausencia = desactivado).
+Personaje y Narrador admiten `primera_persona: true` en su ficha (ausencia =
+desactivado), pero solo una ficha por vídeo puede activarla. `normalizar` rechaza
+duplicados y `personaje_pov` resuelve el observador sin depender de su categoría.
 Claude recibe la regla POV en guion, dirección y redacción visual; p6 la aplica
 a todas las escenas con `perspectiva_narrador` y la refuerza al final del prompt,
 también al corregir o preparar alternativas. La hoja completa sigue siendo una
-referencia de identidad obligatoria aunque el narrador no figure en
+referencia de identidad obligatoria aunque el personaje elegido no figure en
 `personajes_visibles`: `_personajes_referencia` la incluye en inventario,
 dependencias y adjuntos, sin forzar su presencia externa. No apliques POV al
 generador de la ficha de cuerpo entero ni añadas valores por defecto al abrir.

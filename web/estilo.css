@@ -2920,6 +2920,9 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .personajes-cards { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px; }
 .personaje-card { display: flex; flex: 1 1 220px; gap: 10px; padding: 10px; border: 1px solid var(--linea); border-radius: 8px; min-width: 0; background: var(--hueco); }
 .personaje-card.editando { border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
+.personaje-card.personaje-card-pov { border-color: var(--acento); box-shadow: inset 4px 0 0 var(--acento); }
+.personaje-card.personaje-card-pov.editando { box-shadow: inset 4px 0 0 var(--acento), 0 0 0 1px var(--acento); }
+.personaje-insignia-pov { display: inline-block; margin-top: 6px; padding: 4px 8px; border-radius: 6px; background: var(--acento); color: #101218; font-size: 12px; font-weight: 700; }
 .personaje-card > img { width: 32%; min-width: 60px; max-width: 100px; height: 170px; object-fit: contain; align-self: flex-start; }
 .personaje-card-datos { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .personaje-card-datos > b, .personaje-card-datos > .personaje-etiqueta { display: block; }

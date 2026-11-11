@@ -1280,7 +1280,7 @@ def planificar(proyecto, params, inventario=None, replantear=False,
     _asignar_cartas(escenas, p, sencillo=sencillo)
     for escena in escenas:
         if escena.get("perspectiva_narrador"):
-            escena["encuadre"] = "first-person POV through the narrator's eyes, never an external view of the narrator"
+            escena["encuadre"] = "first-person POV through the viewpoint character's eyes, never an external view of that character"
             escena.pop("abstracta", None)
     camaras = _repartir_zoom(escenas, sencillo=sencillo)
 
@@ -3078,13 +3078,13 @@ def _prompt_completo(escena, referencias, estilo, feedback="", idioma="",
     narrador = escena.get("perspectiva_narrador")
     if narrador:
         lineas.append(
-            f"MANDATORY FIRST-PERSON POV: the camera is the eyes of narrator '{narrador['id']}' "
+            f"MANDATORY FIRST-PERSON POV: the camera is the eyes of viewpoint character '{narrador['id']}' "
             f"({narrador['nombre']}). Show ONLY what they see, in EVERY scene, even when someone else speaks. "
-            "Never show the narrator from an external or third-person camera, including over-the-shoulder views. "
+            "Never show the viewpoint character from an external or third-person camera, including over-the-shoulder views. "
             "Their hands, arms, legs, clothing, held objects or physically plausible reflections may appear when relevant; "
             "do not force body parts or mirrors into the shot. Their full-body cast sheet is an identity reference ONLY, "
             "not a request to place their whole body in the scene. Preserve its face, body, clothes and physical traits "
-            f"in any visible parts or reflection. Narrator appearance: {narrador['descripcion']}. "
+            f"in any visible parts or reflection. Viewpoint character appearance: {narrador['descripcion']}. "
             "This POV requirement overrides conflicting shot types, scene descriptions, reference compositions and feedback.")
     # Aqui iba «No text, no letters, no numbers, no watermarks anywhere», y era
     # la ultima linea del prompt: la que mas pesa. Lo que se puede escribir

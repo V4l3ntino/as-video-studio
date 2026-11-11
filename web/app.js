@@ -7131,8 +7131,11 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     if (!d.nombre.trim() || !d.descripcion.trim() || !urlImagen(d) || estado.ocupado) return;
     d.nombre = d.nombre.trim(); d.descripcion = d.descripcion.trim();
     if (d.categoria === 'narrador') { delete d.voz_id; delete d.voz_nombre; }
-    else delete d.primera_persona;
     const otros = config().items.filter(p => p.id !== estado.editando);
+    if (d.primera_persona === true && otros.some(p => p.primera_persona === true)) {
+      estado.error = 'Solo un personaje o narrador puede tener activada la primera persona. Desactívala en la otra tarjeta primero.';
+      pintar(); return;
+    }
     if (otros.some(p => p.nombre.toLocaleLowerCase() === d.nombre.toLocaleLowerCase())) {
       estado.error = 'Ya existe un personaje con ese nombre.'; pintar(); return;
     }
@@ -7148,6 +7151,7 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     if (errorVoces) contenido.appendChild(h('p', { clase: 'caja-error', role: 'alert' }, errorVoces));
     if (!config().activo) return;
     const d = estado.borrador;
+    const otroPov = config().items.find(p => p.primera_persona === true && p.id !== estado.editando);
     if (!estado.editando && e.incorporar_voz === false && d.categoria === 'narrador') d.categoria = 'personaje';
     const foto = urlImagen(d);
     const guardarBoton = h('button', { type: 'button', clase: 'mini', onclick: guardar }, estado.editando ? 'Guardar' : '+ Agregar');
@@ -7195,10 +7199,11 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       h('label', { clase: 'campo' }, 'Categoría', categoria),
       h('div', { clase: 'personaje-editor-campos' }, preview, h('div', {},
         h('label', { clase: 'campo' }, 'Nombre', nombre), h('label', { clase: 'campo' }, 'Descripción del personaje', descripcion),
-        d.categoria === 'narrador' ? h('label', { clase: 'efecto-encargo' },
-          h('input', { type: 'checkbox', checked: d.primera_persona === true, disabled: estado.ocupado,
+        h('label', { clase: 'efecto-encargo' },
+          h('input', { type: 'checkbox', checked: d.primera_persona === true, disabled: estado.ocupado || !!otroPov,
             'aria-label': 'Activar primera persona', onchange: ev => { d.primera_persona = ev.target.checked; actualizar(); } }),
-          'Activar primera persona') : null, voces)),
+          'Activar primera persona'),
+        otroPov ? h('p', { clase: 'pista' }, `Primera persona ya está activada en «${otroPov.nombre}». Desactívala en su tarjeta para elegir otro personaje.`) : null, voces)),
       archivo, h('button', { type: 'button', clase: 'mini fantasma', disabled: estado.ocupado,
         onclick: () => archivo.click() }, 'Subir imagen'),
       h('div', { clase: 'fila cierre' }, generarBoton, guardarBoton,
@@ -7211,10 +7216,11 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       vaciar(cards);
       config().items.filter(p => `${p.nombre} ${p.descripcion}`.toLocaleLowerCase().includes(estado.busca.toLocaleLowerCase())).forEach(p => {
         const voz = vozDe(p);
-        cards.appendChild(h('article', { clase: `personaje-card${p.id === estado.editando ? ' editando' : ''}` },
+        cards.appendChild(h('article', { clase: `personaje-card${p.primera_persona === true ? ' personaje-card-pov' : ''}${p.id === estado.editando ? ' editando' : ''}` },
           h('img', { src: urlImagen(p), alt: p.nombre, loading: 'lazy' }),
           h('div', { clase: 'personaje-card-datos' }, h('b', {}, p.nombre),
             h('span', { clase: 'personaje-etiqueta' }, p.categoria === 'narrador' ? 'Narrador' : 'Personaje'),
+            p.primera_persona === true ? h('span', { clase: 'personaje-insignia-pov' }, '◉ Primera persona') : null,
             h('p', {}, p.descripcion),
             voz ? h('div', { clase: 'personaje-card-voz' }, h('span', { clase: 'meta' }, nombreVoz(p)),
               botonEscuchaVoz(fichaVoz(), { voz: () => vozDe(p), titulo: `Escuchar voz de ${p.nombre}` }))

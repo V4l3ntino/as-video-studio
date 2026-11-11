@@ -91,42 +91,63 @@ class Personajes(unittest.TestCase):
             personajes.normalizar(config)
         config["items"][1]["primera_persona"] = False
         config["items"][0]["primera_persona"] = True
-        self.assertNotIn("primera_persona", personajes.normalizar(config)["items"][0])
-        self.assertIsNone(personajes.narrador_pov(self.opciones))
+        self.assertTrue(personajes.normalizar(config)["items"][0]["primera_persona"])
+        self.assertEqual(personajes.personaje_pov(dict(self.opciones, personajes=config))["id"], "p_ana")
+        self.assertIsNone(personajes.personaje_pov(self.opciones))
+
+    def test_primera_persona_es_exclusiva_entre_todas_las_categorias(self):
+        for segundo in (self.narrador, dict(self.ana, id="p_luz", nombre="Luz")):
+            config = {"activo": True, "items": [dict(self.ana, primera_persona=True), dict(segundo, primera_persona=True)]}
+            with self.subTest(categoria=segundo["categoria"]):
+                with self.assertRaisesRegex(ValueError, "solo un personaje o narrador"):
+                    personajes.normalizar(config)
+                with self.assertRaisesRegex(ValueError, "solo un personaje o narrador"):
+                    personajes.personaje_pov(dict(self.opciones, personajes=config))
+                # Desactivar o eliminar al propietario libera la perspectiva.
+                config["items"][0]["primera_persona"] = False
+                self.assertTrue(personajes.normalizar(config)["items"][1]["primera_persona"])
+                config["items"].pop(0)
+                self.assertEqual(personajes.personaje_pov(dict(self.opciones, personajes=config))["id"], segundo["id"])
 
     def test_pov_todas_las_escenas_referencia_completa_y_prompts(self):
+        self._comprobar_pov_integrado(self.narrador)
+
+    def test_pov_de_personaje_aplica_tambien_durante_la_narracion(self):
+        self._comprobar_pov_integrado(self.ana)
+
+    def _comprobar_pov_integrado(self, observador):
         from pasos import direccion, redactor
-        self.narrador["primera_persona"] = True
+        observador["primera_persona"] = True
         self.sembrar_guion()
         with patch.object(p4_voz, "simulado", return_value=True):
             salida = p4_voz.ejecutar(self.proyecto, {"voz_id": "general"})
         self.estado.completar("voz", salida)
         plan = p6_assets.planificar(self.proyecto, self.estado.params("assets"))
         for escena in plan["escenas"]:
-            self.assertEqual(escena["perspectiva_narrador"]["id"], self.narrador["id"])
+            self.assertEqual(escena["perspectiva_narrador"]["id"], observador["id"])
             self.assertIn("first-person POV", escena["encuadre"])
-            self.assertIn("asset:p_narrador", p6_assets._assets_de_escena(escena))
+            self.assertIn("asset:" + observador["id"], p6_assets._assets_de_escena(escena))
             prompt = p6_assets._prompt_completo(escena, [], {}, feedback="Muestra al narrador desde fuera.")
             self.assertIn("MANDATORY FIRST-PERSON POV", prompt)
-            self.assertIn("Never show the narrator from an external", prompt)
+            self.assertIn("Never show the viewpoint character from an external", prompt)
             self.assertGreater(prompt.index("MANDATORY FIRST-PERSON POV"), prompt.index("Muestra al narrador"))
         self.assertIn("PRIMERA PERSONA (POV)", personajes.instruccion(self.opciones))
         self.assertIn("PRIMERA PERSONA (POV)", direccion._planos_legibles(plan["escenas"]))
         self.assertIn("PRIMERA PERSONA (POV)", redactor._planos_legibles(plan["escenas"]))
-        self.assertEqual(plan["assets"]["asset:p_narrador"]["imagen_personalizada"], self.imagen)
+        self.assertEqual(plan["assets"]["asset:" + observador["id"]]["imagen_personalizada"], self.imagen)
         # La hoja completa se copia incluso si solo hay planos sin cuerpo visible.
         params = dict(self.estado.params("assets"), estilo={"referencias": [self.proyecto.ruta(self.imagen)], "prompt": "Dibujo plano"})
         with patch.object(p6_assets, "_producir_imagen", side_effect=AssertionError("no redibujar referencias")):
             p6_assets.ejecutar(self.proyecto, params, tipos=["reparto"])
         trabajo = Path(self.proyecto.ruta_trabajo("assets"))
-        hoja = trabajo / "assets" / "reparto" / "p_narrador.png"
+        hoja = trabajo / "assets" / "reparto" / (observador["id"] + ".png")
         self.assertEqual(hoja.read_bytes(), Path(self.proyecto.ruta(self.imagen)).read_bytes())
         dirs = {"reparto": str(hoja.parent), "cache": str(trabajo / "cache"), "escenas": str(trabajo / "escenas")}
         escena = next(e for e in plan["escenas"] if not e["personajes"])
         refs = p6_assets._referencias_escena(escena, plan, dirs, params, dirs["cache"], {}, anteriores=[])
-        self.assertTrue(any(r.get("nombre") == "p_narrador" for r in refs))
+        self.assertTrue(any(r.get("nombre") == observador["id"] for r in refs))
         for config in (dict(self.opciones["personajes"], activo=False),
-                       dict(self.opciones["personajes"], items=[self.ana, dict(self.narrador, primera_persona=False)])):
+                       dict(self.opciones["personajes"], items=[dict(p, primera_persona=False) for p in self.opciones["personajes"]["items"]])):
             self.estado.actualizar_params("guion", dict(self.opciones, personajes=config))
             normal = p6_assets.planificar(self.proyecto, self.estado.params("assets"))
             self.assertTrue(all("perspectiva_narrador" not in e for e in normal["escenas"]))
@@ -423,7 +444,7 @@ class Personajes(unittest.TestCase):
 
     def test_api_persistencia_edicion_desactivacion_y_duplicacion(self):
         import app
-        self.narrador["primera_persona"] = True
+        self.ana["primera_persona"] = True
         with patch.object(app, "raiz_proyectos", return_value=self.tmp.name):
             ctx = app.contexto(self.proyecto.id)
             app._sembrar_video_light(ctx, dict(generar_personajes=True, incorporar_voz=True, personajes=self.opciones["personajes"]))
@@ -433,13 +454,18 @@ class Personajes(unittest.TestCase):
             cambio["items"][0]["nombre"] = "Alicia"
             app.fijar_params(ctx.id, "guion", {"personajes": cambio})
             self.assertEqual(Estado(self.proyecto).params("guion")["personajes"]["items"][0]["id"], "p_ana")
-            self.assertTrue(Estado(self.proyecto).params("guion")["personajes"]["items"][1]["primera_persona"])
+            self.assertTrue(Estado(self.proyecto).params("guion")["personajes"]["items"][0]["primera_persona"])
+            duplicada = copy.deepcopy(cambio)
+            duplicada["items"][1]["primera_persona"] = True
+            with self.assertRaises(app.ErrorApi):
+                app.fijar_params(ctx.id, "guion", {"personajes": duplicada})
+            self.assertNotIn("primera_persona", Estado(self.proyecto).params("guion")["personajes"]["items"][1])
             app.fijar_params(ctx.id, "voz", {"incorporar_voz": False})
             app.fijar_params(ctx.id, "assets", {"generar_personajes": False})
             self.assertEqual(len(ctx.estado.params("guion")["personajes"]["items"]), 2)
             copia = self.proyecto.duplicar(self.tmp.name, "Copia personajes")
             self.assertEqual(Estado(copia).params("guion")["personajes"]["items"][0]["id"], "p_ana")
-            self.assertTrue(Estado(copia).params("guion")["personajes"]["items"][1]["primera_persona"])
+            self.assertTrue(Estado(copia).params("guion")["personajes"]["items"][0]["primera_persona"])
             self.assertTrue(os.path.isfile(copia.ruta(self.imagen)))
             antes = Path(self.proyecto.ruta("estado.json")).read_bytes()
             app.leer_paso(ctx.id, "guion")
