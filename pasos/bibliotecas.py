@@ -20,12 +20,14 @@ except ImportError:
 
 DEFECTOS = {"proveedores": [], "imagenes": True, "video": True,
             "audio": False, "incorporar_ia": False, "ia_cada": 5}
+OPCIONES_REPARTO = {"origen_principal", "porcentaje_bibliotecas", "modo_bibliotecas",
+                    "modo_ia", "bibliotecas_cada"}
 
 
 def normalizar(crudo):
     if not isinstance(crudo, dict):
         raise ValueError("bibliotecas debe ser un objeto")
-    if set(crudo) - (set(DEFECTOS) | {"carga_claude"}):
+    if set(crudo) - (set(DEFECTOS) | {"carga_claude"} | OPCIONES_REPARTO):
         raise ValueError("bibliotecas contiene opciones desconocidas")
     p = dict(DEFECTOS, **copy.deepcopy(crudo))
     # Los proyectos anteriores tenían la cadencia activada implícitamente.
@@ -43,6 +45,21 @@ def normalizar(crudo):
     carga = p.get("carga_claude", 100)
     if type(carga) is not int or not 0 <= carga <= 100:
         raise ValueError("la carga de Claude debe ser un entero entre 0 y 100")
+    if OPCIONES_REPARTO.intersection(crudo):
+        origen = p.get("origen_principal")
+        if origen not in ("bibliotecas", "ia"):
+            raise ValueError("elige bibliotecas o ia como origen principal")
+        porcentaje = p.get("porcentaje_bibliotecas")
+        if type(porcentaje) is not int or not 0 <= porcentaje <= 100 or porcentaje % 10:
+            raise ValueError("el porcentaje de bibliotecas debe avanzar de 10 en 10 entre 0 y 100")
+        if (origen == "bibliotecas" and porcentaje < 50) or (origen == "ia" and porcentaje > 50):
+            raise ValueError("el origen principal debe representar al menos el 50 %")
+        for campo in ("modo_bibliotecas", "modo_ia"):
+            if p.get(campo, "porcentaje") not in ("porcentaje", "cada"):
+                raise ValueError("el reparto debe ser porcentaje o cada N escenas")
+        cada = p.get("bibliotecas_cada", 5)
+        if type(cada) is not int or not 1 <= cada <= 1000:
+            raise ValueError("la frecuencia de bibliotecas debe ser un entero entre 1 y 1000 escenas")
     return p
 
 
@@ -171,8 +188,21 @@ class Biblioteca:
         visuales = [e for e in plan["escenas"] if not e.get("medio_usuario")
                     and not e.get("sigue_a") and not e.get("componente")
                     and (not e.get("cartela") or e["cartela"].get("fondo") == "imagen")]
-        self.turnos = {e["id"]: self.p["incorporar_ia"] and (i + 1) % self.p["ia_cada"] == 0
-                       for i, e in enumerate(visuales)}
+        if "origen_principal" in self.p:
+            principal_ia = self.p["origen_principal"] == "ia"
+            modo = self.p.get("modo_ia" if principal_ia else "modo_bibliotecas", "porcentaje")
+            if modo == "cada":
+                cada = self.p.get("bibliotecas_cada", 5) if principal_ia else self.p["ia_cada"]
+                self.turnos = {e["id"]: ((i + 1) % cada != 0 if principal_ia else
+                                         (i + 1) % cada == 0) for i, e in enumerate(visuales)}
+            else:
+                cantidad_ia = (len(visuales) * (100 - self.p["porcentaje_bibliotecas"]) + 50) // 100
+                self.turnos = {e["id"]: (i + 1) * cantidad_ia // len(visuales) >
+                               i * cantidad_ia // len(visuales) for i, e in enumerate(visuales)}
+        else:
+            # No migrar implícitamente el reparto de los proyectos ya guardados.
+            self.turnos = {e["id"]: self.p["incorporar_ia"] and (i + 1) % self.p["ia_cada"] == 0
+                           for i, e in enumerate(visuales)}
         # Reparto estable y equilibrado sobre las escenas que buscan stock.
         # Redondear sobre el total limita la desviación a media escena.
         buscables = [e for e in visuales if not self.turnos[e["id"]]]
@@ -194,7 +224,8 @@ class Biblioteca:
         if os.environ.get("ESTUDIO_SIMULAR") == "1":
             return
         almacen = claves.leer()
-        for proveedor in self.p["proveedores"] if self.p["imagenes"] or self.p["video"] else []:
+        usa_visuales = bool(self.agentes) and (self.p["imagenes"] or self.p["video"])
+        for proveedor in self.p["proveedores"] if usa_visuales else []:
             variable = "PIXABAY_API_KEY" if proveedor == "pixabay" else "PEXELS_API_KEY"
             if not almacen[proveedor]["clave"] and not os.environ.get(variable):
                 raise RuntimeError(f"falta la clave de {proveedor.title()}: ponla en Configuración")

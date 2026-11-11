@@ -3407,6 +3407,30 @@ def probar_video_light(cliente):
         "montaje": {"bibliotecas": {"proveedores": ["inventada"]}}})
     igual(respuesta.status_code, 400, "el estilo rechaza bibliotecas desconocidas")
 
+    reparto_visual = dict(opciones_biblioteca, origen_principal="ia",
+                          porcentaje_bibliotecas=20, modo_ia="porcentaje",
+                          modo_bibliotecas="cada", bibliotecas_cada=5, carga_claude=70)
+    respuesta, _ = cliente.put(f"/api/presets-light/{estilo_id}", {
+        "montaje": {"bibliotecas": reparto_visual}})
+    igual(respuesta.status_code, 200, "el estilo guarda el reparto visual y ambos modos")
+    respuesta, mixto = cliente.post(f"/api/presets-light/{estilo_id}/video", {
+        "nombre": "Reparto visual heredado", "material": "Una escena del bosque."})
+    igual(respuesta.status_code, 201, "el nuevo reparto se hereda sin generar recursos")
+    mixto_id = mixto.get("proyecto", {}).get("id") or ""
+    _, assets_mixtos = cliente.get(f"/api/proyectos/{mixto_id}/pasos/assets")
+    igual(assets_mixtos["params"].get("bibliotecas"), reparto_visual,
+          "el reparto, cadencias por origen y carga llegan intactos al video")
+    reparto_visual.update(origen_principal="bibliotecas", porcentaje_bibliotecas=80)
+    respuesta, _ = cliente.put(f"/api/proyectos/{mixto_id}/pasos/assets/params", {
+        "bibliotecas": reparto_visual})
+    igual(respuesta.status_code, 200, "el video cambia de origen principal")
+    _, reabierto = cliente.get(f"/api/proyectos/{mixto_id}/pasos/assets")
+    igual(reabierto["params"].get("bibliotecas"), reparto_visual,
+          "reabrir conserva modalidades, frecuencias y porcentajes")
+    respuesta, _ = cliente.put(f"/api/proyectos/{mixto_id}/pasos/assets/params", {
+        "bibliotecas": dict(reparto_visual, porcentaje_bibliotecas=20)})
+    igual(respuesta.status_code, 400, "la API exige al menos 50 por ciento del origen principal")
+
     # ---- crear el video: los cuatro campos de la pantalla en un POST
     respuesta, creado = cliente.post(f"/api/presets-light/{estilo_id}/video", {
         "nombre": "El hackeo del banco",

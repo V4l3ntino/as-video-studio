@@ -222,36 +222,48 @@ a que termine el trabajo del vídeo o páralo antes de sustituir una escena.
 ### Combinar bibliotecas e imágenes con IA
 
 En los **estilos** y en el **encargo del vídeo**, justo encima de **Subtítulos**,
-aparece **Obtener recursos de bibliotecas**:
+aparece **Obtener recursos visuales**:
 
-- Selecciona **Pixabay**, **Pexels** o ambas.
-- Marca **Imágenes** y/o **Vídeo**.
-- Si quieres imágenes de IA periódicas, marca **Incorporar imágenes ia** y ajusta
-  **Una imagen con IA cada N escenas** (inicialmente 5).
+- Elige el origen principal: **Bibliotecas (Pixabay/Pexels)** o
+  **Inteligencia artificial**. El slider reparte los recursos en incrementos del
+  10 %; el origen principal representa al menos el 50 %. Al cambiar de origen,
+  el porcentaje se invierte si hace falta para conservar esa mayoría.
+- Selecciona **Pixabay**, **Pexels** o ambas, e **Imágenes** y/o **Vídeo**.
+- Puedes complementar **según el porcentaje configurado** o **cada N escenas**
+  (inicialmente 5). Son opciones excluyentes: la cadencia sustituye al porcentaje
+  y desactiva su slider. Si priorizas bibliotecas, cada N escenas se genera una
+  imagen IA; si priorizas IA, cada N escenas se busca un recurso de biblioteca.
+  Cada origen conserva su modalidad e intervalo al alternar entre ambos.
 - En **Repartir carga de trabajo**, el porcentaje indica cuántas escenas buscará
   **Claude**; el resto las buscará **ChatGPT/OpenAI**, usando Codex o la API key
   según la prioridad de **Configuración → Imágenes**. Si el principal no está
   disponible, se intenta el otro método. La API usa `gpt-4.1-mini` para preparar
   consultas y elegir recursos, con facturación por tokens; Codex usa tu sesión.
   Por ejemplo, 70% reparte aproximadamente siete de cada diez escenas a Claude;
-  0% encarga todas a ChatGPT y 100% todas a Claude. Se reparten tanto la preparación
+  0% encarga todas a ChatGPT y 100% todas a Claude, en incrementos del 10 %.
+  Se reparten tanto la preparación
   de la consulta como la elección del recurso. El reparto se redondea a escenas
   completas, excluyendo las reservadas para IA y los medios propios.
   Los vídeos nuevos parten de 50/50; los anteriores mantienen Claude hasta que
   cambies el control. También puedes configurarlo en un estilo para vídeos nuevos.
 
-Con esa opción marcada, las escenas ilustradas N, 2N, 3N… usan **IA** con el
-método principal y el respaldo ordenados en Configuración;
-las demás buscan recursos de los tipos y proveedores elegidos. Las cartelas de
+En la modalidad porcentual se reserva una proporción estable y equilibrada de
+escenas para cada origen, redondeada a escenas completas. En **cada N escenas**,
+las escenas ilustradas N, 2N, 3N… usan el origen complementario y las demás el
+principal. La generación de imágenes usa siempre el método principal y el
+respaldo ordenados en Configuración. Las cartelas de
 fondo sólido, los componentes
 ya construidos y las sustituciones manuales conservan su tratamiento propio.
 El selector prepara búsquedas para la escena y elige entre los resultados;
 si ninguno encaja o el archivo no es utilizable, se genera una imagen con IA
 y se indica en el progreso. Los vídeos se descargan y normalizan **sin audio**.
-Sin la opción de IA periódica, todas las escenas buscan primero en las
-bibliotecas seleccionadas; la IA solo interviene si no hay un recurso adecuado.
+Con 100 % bibliotecas y reparto porcentual, todas las escenas buscan primero en
+las bibliotecas seleccionadas; la IA solo interviene si no hay un recurso adecuado.
+Con 100 % IA y reparto porcentual, las bibliotecas no se consultan ni requieren
+clave, aunque conserves su selección para volver a combinarlas después.
 Sin bibliotecas visuales seleccionadas, las escenas se ilustran con IA.
-Los proyectos anteriores conservan su cadencia de IA al abrirse.
+Los proyectos anteriores conservan su reparto y cadencia de IA al abrirse;
+solo adoptan el nuevo reparto al editar los controles de origen o bibliotecas.
 
 Configura las claves de los proveedores elegidos en **⚙ Configuración →
 Bibliotecas, música y efectos** y los métodos de generación para las imágenes de IA.

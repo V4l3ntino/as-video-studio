@@ -560,16 +560,53 @@ button.pastilla { cursor: pointer; }
   font-size: 14px; text-transform: none; letter-spacing: normal;
   color: var(--texto); margin: 0; }
 .efecto-encargo input { flex: 0 0 auto; margin-top: 4px; }
-.bibliotecas-parametros { border: 0; padding: 0; margin: 0; min-width: 0; }
-.bibliotecas-parametros:disabled { opacity: .45; filter: grayscale(.7); }
-.bibliotecas-parametros:disabled label,
-.bibliotecas-parametros:disabled input { cursor: not-allowed; }
-.bibliotecas-carga { border: 1px solid var(--borde, #303640); border-radius: 10px; padding: 14px; margin: 14px 0; }
+.recursos-visuales { display: grid; gap: 18px; }
+.bloque-light.bloque-recursos { grid-template-columns: minmax(0, 1fr); }
+.recursos-origen { display: flex; align-items: flex-start; gap: 20px; }
+.recursos-origen > strong { padding-top: 10px; }
+.recursos-origen > div { flex: 1; min-width: 0; }
+.recursos-selector { display: flex; border: 1px solid var(--linea); border-radius: 8px; overflow: hidden; width: fit-content; max-width: 100%; }
+.recursos-selector button { border: 0; border-radius: 0; padding: 11px 20px; }
+.recursos-selector button.activo { background: var(--acento); color: var(--sobre-acento); }
+.recursos-origen-descripcion { margin: 7px 0 0; }
+.recursos-distribucion, .recursos-configuracion, .bibliotecas-carga {
+  border: 1px solid var(--linea); border-radius: 10px; padding: 16px; min-width: 0;
+}
+.recursos-distribucion-inactiva .bibliotecas-carga-control,
+.recursos-distribucion-inactiva .bibliotecas-carga-valor,
+.recursos-distribucion-inactiva .recursos-porcentajes { opacity: .45; }
+.recursos-porcentajes { display: flex; justify-content: space-between; gap: 16px; margin-top: 10px; }
+.recursos-porcentajes > :last-child { text-align: right; }
+.recursos-columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.recursos-configuracion > .pista { margin: 7px 0 14px; }
+.recursos-complemento { display: block; margin-bottom: 10px; }
+.recursos-casillas { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.recursos-casillas .efecto-encargo { align-items: center; min-width: 112px; }
+.recursos-casillas input { margin: 0; }
+.recursos-frecuencia { border-top: 1px solid var(--linea); padding-top: 14px; margin-top: 14px; display: grid; gap: 8px; }
+.recursos-frecuencia .efecto-encargo { border: 0; padding: 4px 0; align-items: center; }
+.recursos-frecuencia input[type="radio"] { margin: 0; }
+.recursos-intervalo { display: flex; gap: 12px; align-items: center; margin: 0 0 0 26px; text-transform: none; letter-spacing: normal; }
+.recursos-intervalo input { width: 85px; }
+.recursos-explicacion { border: 1px solid var(--acento-borde); border-radius: 10px; background: var(--info-fondo); padding: 16px; margin: 18px 0 0; line-height: 1.6; }
+.recursos-pie { border-top: 1px solid var(--linea); padding-top: 14px; margin-top: 20px; }
+.bibliotecas-carga { margin: 0; }
+.bibliotecas-carga:disabled { opacity: .45; }
 .bibliotecas-carga strong { display: block; }
-.bibliotecas-carga-valor { display: table; margin: 8px auto 2px; padding: 2px 10px; border: 1px solid var(--borde, #303640); border-radius: 10px; background: #222630; }
+.bibliotecas-carga-valor { display: table; margin: 8px auto 8px; padding: 2px 10px; border: 1px solid var(--linea); border-radius: 10px; background: var(--panel); }
 .bibliotecas-carga-control { display: flex; align-items: center; gap: 18px; }
-.bibliotecas-carga-control input[type="range"] { flex: 1; min-width: 0; width: 100%; padding: 0; accent-color: #7b83ff; cursor: pointer; }
+.bibliotecas-carga-control input[type="range"] { flex: 1; min-width: 0; width: 100%; padding: 0; accent-color: var(--acento); cursor: pointer; }
+.bibliotecas-carga-control > span { flex-shrink: 0; }
 .bibliotecas-carga-resumen { margin-bottom: 0; }
+@media (max-width: 760px) {
+  .recursos-origen { flex-direction: column; gap: 10px; }
+  .recursos-origen > strong { padding-top: 0; }
+  .recursos-selector button { padding: 10px; }
+  .recursos-columnas { grid-template-columns: 1fr; }
+  .recursos-distribucion .bibliotecas-carga-control { flex-wrap: wrap; gap: 10px; }
+  .recursos-distribucion .bibliotecas-carga-control input { order: 3; flex-basis: 100%; }
+  .recursos-distribucion .bibliotecas-carga-control > span:last-child { margin-left: auto; }
+}
 .efecto-encargo > span { display: flex; flex-direction: column; gap: 3px; }
 .efecto-sfx .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .efecto-sfx .icono {

@@ -6983,26 +6983,60 @@ function avatarDelEncargo(e, alCambiar, pid) {
 
 function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
   const opciones = e.bibliotecas;
+  // El formulario interpreta el formato anterior sin escribir params al abrirlo.
+  let origen = opciones.origen_principal || (opciones.proveedores.length ? 'bibliotecas' : 'ia');
+  let porcentaje = opciones.porcentaje_bibliotecas ?? (opciones.proveedores.length ? 100 : 0);
+  const modos = { bibliotecas: opciones.modo_bibliotecas || (opciones.incorporar_ia ? 'cada' : 'porcentaje'),
+    ia: opciones.modo_ia || 'porcentaje' };
+  const guardarReparto = () => {
+    Object.assign(opciones, { origen_principal: origen, porcentaje_bibliotecas: porcentaje,
+      modo_bibliotecas: modos.bibliotecas, modo_ia: modos.ia });
+  };
   const cambiar = () => { if (alCambiar) alCambiar(); };
-  const proveedores = h('div', { clase: 'tira-modos' });
+  const cuerpo = h('div', { clase: 'recursos-visuales' });
+  const selector = h('div', { clase: 'recursos-selector', role: 'group', 'aria-label': 'Origen principal de los recursos' });
+  const botones = {};
+  [['bibliotecas', '▱ Bibliotecas (Pixabay/Pexels)'], ['ia', '✦ Inteligencia artificial']].forEach(([id, nombre]) => {
+    botones[id] = h('button', { type: 'button', clase: 'mini', onclick: () => {
+      origen = id;
+      if ((id === 'bibliotecas' && porcentaje < 50) || (id === 'ia' && porcentaje > 50)) porcentaje = 100 - porcentaje;
+      guardarReparto(); actualizar(); cambiar();
+      botones[id].dispatchEvent(new Event('change', { bubbles: true }));
+    } }, nombre);
+    selector.appendChild(botones[id]);
+  });
+  const descripcionOrigen = h('p', { clase: 'pista recursos-origen-descripcion' });
+  const valorDistribucion = h('output', { clase: 'bibliotecas-carga-valor', 'aria-live': 'polite' });
+  const etiquetaPrincipal = h('span');
+  const etiquetaComplemento = h('span');
+  const resumenDistribucion = h('div', { clase: 'recursos-porcentajes pista' });
+  const distribucion = h('input', { type: 'range', min: 50, max: 100, step: 10,
+    'aria-label': 'Porcentaje del origen principal', 'data-foco': 'recursos-distribucion',
+    oninput: ev => {
+      porcentaje = origen === 'bibliotecas' ? Number(ev.target.value) : 100 - Number(ev.target.value);
+      guardarReparto(); actualizar();
+    }, onchange: cambiar });
+  const cajaDistribucion = h('div', { clase: 'recursos-distribucion' },
+    h('strong', {}, 'Distribución de recursos'), valorDistribucion,
+    h('div', { clase: 'bibliotecas-carga-control' }, etiquetaPrincipal, distribucion, etiquetaComplemento), resumenDistribucion);
+  const tituloConfiguracion = h('strong');
+  const descripcionConfiguracion = h('p', { clase: 'pista' });
+  const tituloBibliotecas = h('strong', { clase: 'recursos-complemento' });
+  const proveedores = h('div', { clase: 'recursos-casillas' });
   [['pixabay', 'Pixabay'], ['pexels', 'Pexels']].forEach(([id, nombre]) => {
-    const boton = h('button', {
-      type: 'button', clase: 'mini' + (opciones.proveedores.includes(id) ? ' activo' : ''),
-      'aria-pressed': opciones.proveedores.includes(id) ? 'true' : 'false',
-      onclick: () => {
-        const puesta = !opciones.proveedores.includes(id);
+    const entrada = h('input', {
+      type: 'checkbox', checked: opciones.proveedores.includes(id), 'data-foco': `bibliotecas-${id}`,
+      onchange: ev => {
+        const puesta = ev.target.checked;
         opciones.proveedores = puesta ? [...opciones.proveedores, id]
           : opciones.proveedores.filter(p => p !== id);
-        boton.classList.toggle('activo', puesta);
-        boton.setAttribute('aria-pressed', String(puesta));
-        actualizarDisponibilidad();
+        guardarReparto(); actualizar();
         cambiar();
-        boton.dispatchEvent(new Event('change', { bubbles: true }));
       },
-    }, nombre);
-    proveedores.appendChild(boton);
+    });
+    proveedores.appendChild(h('label', { clase: 'efecto-encargo' }, entrada, nombre));
   });
-  const tipos = h('div', { clase: 'fila' });
+  const tipos = h('div', { clase: 'recursos-casillas', role: 'group', 'aria-label': 'Tipos de recursos' });
   [['imagenes', 'Imágenes'], ['video', 'Vídeo']].forEach(([id, nombre]) => {
     const entrada = h('input', {
       type: 'checkbox', checked: opciones[id], 'data-foco': `bibliotecas-${id}`,
@@ -7013,40 +7047,45 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
           return;
         }
         opciones[id] = ev.target.checked;
+        guardarReparto();
         cambiar();
       },
     });
     tipos.appendChild(h('label', { clase: 'efecto-encargo' }, entrada, h('span', {}, nombre)));
   });
   const numero = h('input', {
-    type: 'number', min: 1, max: 1000, step: 1, value: opciones.ia_cada,
-    disabled: !opciones.incorporar_ia,
-    'aria-label': 'Una imagen con IA cada N escenas', 'data-foco': 'bibliotecas-ia-cada',
+    type: 'number', min: 1, max: 1000, step: 1,
+    'aria-label': 'Intervalo de escenas del origen complementario', 'data-foco': 'bibliotecas-ia-cada',
     onchange: ev => {
-      opciones.ia_cada = Math.max(1, Math.min(1000, Math.round(Number(ev.target.value) || 5)));
-      ev.target.value = opciones.ia_cada;
+      const campo = origen === 'ia' ? 'bibliotecas_cada' : 'ia_cada';
+      opciones[campo] = Math.max(1, Math.min(1000, Math.round(Number(ev.target.value) || 5)));
+      ev.target.value = opciones[campo];
+      guardarReparto(); actualizar();
       cambiar();
     },
   });
-  const frecuencia = h('div', { clase: 'campo' },
-    h('label', { clase: 'efecto-encargo' }, h('input', {
-      type: 'checkbox', checked: opciones.incorporar_ia, 'data-foco': 'bibliotecas-incorporar-ia',
-      onchange: ev => {
-        opciones.incorporar_ia = ev.target.checked;
-        numero.disabled = !opciones.incorporar_ia;
-        cambiar();
-      },
-    }), h('span', {}, 'Incorporar imágenes ia')),
-    h('label', {}, 'Una imagen con IA cada N escenas'), numero);
-  const porcentaje = opciones.carga_claude ?? 100;
-  const valorCarga = h('output', { clase: 'bibliotecas-carga-valor' }, `${porcentaje}%`);
+  const tituloFrecuencia = h('strong');
+  const textoPorcentaje = h('span');
+  const textoCada = h('span');
+  const radios = {};
+  const frecuencia = h('div', { clase: 'recursos-frecuencia', role: 'group', 'aria-label': 'Método de distribución' }, tituloFrecuencia);
+  ['porcentaje', 'cada'].forEach(id => {
+    radios[id] = h('input', { type: 'radio', name: 'recursos-metodo', value: id,
+      'data-foco': `recursos-metodo-${id}`, onchange: () => {
+        modos[origen] = id; guardarReparto(); actualizar(); cambiar();
+      } });
+    frecuencia.appendChild(h('label', { clase: 'efecto-encargo' }, radios[id], id === 'cada' ? textoCada : textoPorcentaje));
+  });
+  frecuencia.appendChild(h('label', { clase: 'recursos-intervalo' }, 'Cada', numero, 'escenas'));
+  const cargaInicial = opciones.carga_claude ?? 100;
+  const valorCarga = h('output', { clase: 'bibliotecas-carga-valor' }, `${cargaInicial}%`);
   const resumenCarga = h('p', { clase: 'pista bibliotecas-carga-resumen' });
   const actualizarCarga = valor => {
     valorCarga.textContent = `${valor}%`;
     resumenCarga.textContent = `Claude: ${valor}% · ChatGPT: ${100 - valor}% de las escenas que buscan recursos.`;
   };
   const carga = h('input', {
-    type: 'range', min: 0, max: 100, step: 1, value: porcentaje,
+    type: 'range', min: 0, max: 100, step: 10, value: cargaInicial,
     'aria-label': 'Porcentaje de búsquedas a cargo de Claude',
     'data-foco': 'bibliotecas-carga-claude',
     oninput: ev => {
@@ -7056,33 +7095,66 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
     },
     onchange: cambiar,
   });
-  carga.setAttribute('aria-valuetext', `${porcentaje}% Claude, ${100 - porcentaje}% ChatGPT`);
-  actualizarCarga(porcentaje);
-  const reparto = h('div', { clase: 'bibliotecas-carga' },
-    h('strong', {}, 'Repartir carga de trabajo'), valorCarga,
+  carga.setAttribute('aria-valuetext', `${cargaInicial}% Claude, ${100 - cargaInicial}% ChatGPT`);
+  actualizarCarga(cargaInicial);
+  const reparto = h('fieldset', { clase: 'bibliotecas-carga', 'aria-label': 'Repartir carga de trabajo' },
+    h('strong', {}, 'Repartir carga de trabajo'),
+    h('p', { clase: 'pista' }, 'Define qué IA realizará las búsquedas y seleccionará los recursos de bibliotecas.'), valorCarga,
     h('div', { clase: 'bibliotecas-carga-control' }, h('span', {}, 'Claude'), carga,
       h('span', {}, 'ChatGPT')), resumenCarga);
-  const parametros = h('fieldset', {
-    clase: 'bibliotecas-parametros', 'aria-label': 'Parámetros de las bibliotecas',
-  }, tipos, frecuencia, reparto);
-  const aviso = h('p', { clase: 'pista' },
-    'Selecciona Pixabay o Pexels para configurar los tipos de recurso y la frecuencia de IA.');
-  const actualizarDisponibilidad = () => {
-    parametros.disabled = opciones.proveedores.length === 0;
-    aviso.hidden = !parametros.disabled;
+  const configuracion = h('div', { clase: 'recursos-configuracion' }, tituloConfiguracion,
+    descripcionConfiguracion, tituloBibliotecas, proveedores, tipos, frecuencia);
+  const explicacion = h('p', { clase: 'recursos-explicacion pista', 'aria-live': 'polite' });
+  const actualizar = () => {
+    const ia = origen === 'ia';
+    const principal = ia ? 100 - porcentaje : porcentaje;
+    const cada = modos[origen] === 'cada';
+    Object.entries(botones).forEach(([id, boton]) => {
+      boton.classList.toggle('activo', id === origen);
+      boton.setAttribute('aria-pressed', String(id === origen));
+    });
+    descripcionOrigen.textContent = ia ? 'Prioriza imágenes generadas con IA y complétalas con recursos de bibliotecas.'
+      : 'Prioriza recursos de bibliotecas y complétalos con imágenes generadas con IA.';
+    distribucion.value = principal;
+    distribucion.disabled = cada;
+    distribucion.setAttribute('aria-valuetext', `${principal}% ${ia ? 'IA' : 'bibliotecas'}, ${100 - principal}% ${ia ? 'bibliotecas' : 'IA'}`);
+    valorDistribucion.textContent = `${principal}%`;
+    etiquetaPrincipal.textContent = ia ? '✦ Imágenes IA' : '▱ Bibliotecas';
+    etiquetaComplemento.textContent = ia ? '▱ Bibliotecas' : '✦ Imágenes IA';
+    resumenDistribucion.replaceChildren(h('span', {}, `${principal}% ${ia ? 'con IA (generadas)' : 'de bibliotecas (Pixabay/Pexels)'}`),
+      h('span', {}, `${100 - principal}% ${ia ? 'de bibliotecas (Pixabay/Pexels)' : 'con IA (generadas)'}`));
+    cajaDistribucion.classList.toggle('recursos-distribucion-inactiva', cada);
+    tituloConfiguracion.textContent = ia ? 'Configuración de imágenes IA' : 'Configuración de bibliotecas';
+    descripcionConfiguracion.textContent = ia ? 'Las imágenes se generan utilizando el método principal y de respaldo configurados en Ajustes.'
+      : 'Busca y selecciona recursos en Pixabay y Pexels según tus preferencias.';
+    tituloBibliotecas.textContent = ia ? 'Complementar con recursos de bibliotecas' : 'Bibliotecas disponibles';
+    tituloFrecuencia.textContent = ia ? '¿Cómo incorporar recursos de bibliotecas?' : 'Complementar con imágenes IA';
+    textoPorcentaje.textContent = `Según el porcentaje configurado (${100 - principal}%)`;
+    textoCada.textContent = ia ? 'Un recurso de biblioteca cada N escenas' : 'Una imagen con IA cada N escenas';
+    radios.porcentaje.checked = !cada; radios.cada.checked = cada;
+    numero.value = (ia ? opciones.bibliotecas_cada : opciones.ia_cada) ?? 5;
+    numero.disabled = !cada;
+    const usaBibliotecas = opciones.proveedores.length > 0 && (!ia || cada || porcentaje > 0);
+    reparto.disabled = !usaBibliotecas;
+    explicacion.textContent = !opciones.proveedores.length
+      ? 'Sin bibliotecas seleccionadas, todos los recursos visuales se generan con IA. Selecciona Pixabay y/o Pexels para combinar ambos métodos.'
+      : cada ? `Cada ${numero.value} escenas visuales se incorporará ${ia ? 'un recurso de biblioteca; las demás utilizarán IA.' : 'una imagen con IA; las demás buscarán en bibliotecas.'} La cadencia sustituye al reparto porcentual.`
+      : `Se buscará aproximadamente el ${porcentaje}% de los recursos visuales principales en bibliotecas y se generará el ${100 - porcentaje}% con IA. El reparto se redondea a escenas completas.`;
   };
-  actualizarDisponibilidad();
-  return bloqueLight('Obtener recursos de bibliotecas', 'combina recursos de stock e imágenes de IA',
-    proveedores, parametros, aviso,
-    h('p', { clase: 'pista' }, 'Puedes seleccionar ambas bibliotecas. Si incorporas imágenes IA, '
-      + 'las escenas N, 2N, 3N… se generan con tu método de IA principal y su respaldo; el resto busca imágenes o vídeos '
-      + 'según lo marcado. Si no hay un recurso adecuado, se usa la generación de IA como última instancia. '
-      + 'Los vídeos se incorporan sin su audio. Sin bibliotecas visuales seleccionadas, '
-      + 'todas las imágenes se generan con IA. Configura las claves en ⚙ Configuración.'),
+  actualizar();
+  cuerpo.append(h('div', { clase: 'recursos-origen' }, h('strong', {}, 'Origen principal de los recursos'),
+    h('div', {}, selector, descripcionOrigen)), cajaDistribucion,
+    h('div', { clase: 'recursos-columnas' }, configuracion, h('div', {}, reparto, explicacion)));
+  const bloque = bloqueLight('Obtener recursos visuales', 'Configura de dónde se obtendrán las imágenes y vídeos de tus escenas.',
+    cuerpo,
+    h('p', { clase: 'pista recursos-pie' }, 'La generación de imágenes utiliza tu método principal y su respaldo configurados en Ajustes. '
+      + 'Si no hay un recurso adecuado en bibliotecas, se genera una imagen con IA como último recurso. Los vídeos se incorporan sin audio.'),
     esEstilo ? h('p', { clase: 'pista' }, 'Los vídeos nuevos heredarán esta selección.') : null,
     h('div', { clase: 'fila meta' },
       h('a', { href: 'https://pixabay.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pixabay'),
       h('a', { href: 'https://www.pexels.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Pexels')));
+  bloque.classList.add('bloque-recursos');
+  return bloque;
 }
 
 const MOVIMIENTOS_PARALLAX = [

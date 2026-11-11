@@ -77,6 +77,61 @@ class Bibliotecas(unittest.TestCase):
         self.assertTrue(bibliotecas.normalizar(anterior)["incorporar_ia"])
         self.assertFalse(bibliotecas.normalizar({})["incorporar_ia"])
 
+    def test_porcentajes_reales_estables_y_solo_visuales_principales(self):
+        self.plan["escenas"] = [{"id": f"S{i:03}"} for i in range(10)] + [
+            {"id": "propio", "medio_usuario": {"archivo": "propio.png"}},
+            {"id": "cartela", "cartela": {"fondo": "solido"}},
+            {"id": "componente", "componente": "cifra"}, {"id": "continuacion", "sigue_a": "S000"}]
+        for stock in range(0, 101, 10):
+            with self.subTest(stock=stock):
+                self.config.update(origen_principal="ia" if stock < 50 else "bibliotecas",
+                                   porcentaje_bibliotecas=stock, modo_bibliotecas="porcentaje",
+                                   modo_ia="porcentaje", carga_claude=50)
+                b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+                self.assertEqual(sum(b.turnos.values()), 10 - stock // 10)
+                self.assertEqual(len(b.agentes), stock // 10)
+                self.assertEqual(len(b.turnos), 10)
+                self.assertEqual(b.turnos, bibliotecas.Biblioteca(
+                    self.proyecto, self.params, self.plan, self.avisar).turnos)
+        self.plan["escenas"] = []
+        self.assertEqual(bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar).turnos, {})
+
+    def test_cada_n_sustituye_porcentaje_en_ambos_sentidos(self):
+        self.config.update(origen_principal="ia", porcentaje_bibliotecas=0,
+                           modo_ia="cada", bibliotecas_cada=3,
+                           modo_bibliotecas="cada", ia_cada=2)
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        self.assertEqual(list(b.agentes), ["S003", "S006"])
+        with patch.object(b, "consulta") as consulta:
+            self.assertIsNone(b.visual(self.escenas[0], "no-se-escribe.png"))
+            consulta.assert_not_called()
+        self.config.update(origen_principal="bibliotecas", porcentaje_bibliotecas=100)
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        self.assertEqual([k for k, ia in b.turnos.items() if ia], ["S002", "S004", "S006"])
+        self.assertEqual(b.p["bibliotecas_cada"], 3)
+        self.assertEqual(b.p["modo_ia"], "cada")
+
+    def test_validacion_del_nuevo_reparto(self):
+        base = {"origen_principal": "bibliotecas", "porcentaje_bibliotecas": 80}
+        for cambio in ({"origen_principal": "otro"}, {"porcentaje_bibliotecas": 40},
+                       {"porcentaje_bibliotecas": 85}, {"porcentaje_bibliotecas": True},
+                       {"origen_principal": "ia"}, {"modo_ia": "ambos"},
+                       {"modo_bibliotecas": "otro"}, {"bibliotecas_cada": 0},
+                       {"bibliotecas_cada": True}):
+            with self.subTest(cambio=cambio), self.assertRaises(ValueError):
+                bibliotecas.normalizar(dict(base, **cambio))
+
+    def test_ia_total_no_exige_claves_de_bibliotecas_inactivas(self):
+        self.config.update(origen_principal="ia", porcentaje_bibliotecas=0, modo_ia="porcentaje")
+        b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+        with patch.dict(os.environ, {"ESTUDIO_SIMULAR": "0", "PIXABAY_API_KEY": "", "PEXELS_API_KEY": ""}), patch.object(
+                bibliotecas.claves, "leer", return_value={p: {"clave": ""} for p in ("pixabay", "pexels")}):
+            b.verificar_claves()
+            self.config["porcentaje_bibliotecas"] = 20
+            b = bibliotecas.Biblioteca(self.proyecto, self.params, self.plan, self.avisar)
+            with self.assertRaisesRegex(RuntimeError, "falta la clave"):
+                b.verificar_claves()
+
     def test_reparto_por_escenas_excluye_ia_y_medios_propios(self):
         for porcentaje, esperadas in ((0, 0), (50, 2), (70, 3), (100, 4)):
             with self.subTest(porcentaje=porcentaje):
