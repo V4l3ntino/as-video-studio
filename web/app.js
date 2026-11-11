@@ -7131,6 +7131,7 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     if (!d.nombre.trim() || !d.descripcion.trim() || !urlImagen(d) || estado.ocupado) return;
     d.nombre = d.nombre.trim(); d.descripcion = d.descripcion.trim();
     if (d.categoria === 'narrador') { delete d.voz_id; delete d.voz_nombre; }
+    else delete d.primera_persona;
     const otros = config().items.filter(p => p.id !== estado.editando);
     if (otros.some(p => p.nombre.toLocaleLowerCase() === d.nombre.toLocaleLowerCase())) {
       estado.error = 'Ya existe un personaje con ese nombre.'; pintar(); return;
@@ -7193,7 +7194,11 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       h('div', { clase: 'fila' }, h('h4', {}, 'Generar personaje'), estado.editando ? h('span', { clase: 'personaje-etiqueta' }, 'Editando') : null),
       h('label', { clase: 'campo' }, 'Categoría', categoria),
       h('div', { clase: 'personaje-editor-campos' }, preview, h('div', {},
-        h('label', { clase: 'campo' }, 'Nombre', nombre), h('label', { clase: 'campo' }, 'Descripción del personaje', descripcion), voces)),
+        h('label', { clase: 'campo' }, 'Nombre', nombre), h('label', { clase: 'campo' }, 'Descripción del personaje', descripcion),
+        d.categoria === 'narrador' ? h('label', { clase: 'efecto-encargo' },
+          h('input', { type: 'checkbox', checked: d.primera_persona === true, disabled: estado.ocupado,
+            'aria-label': 'Activar primera persona', onchange: ev => { d.primera_persona = ev.target.checked; actualizar(); } }),
+          'Activar primera persona') : null, voces)),
       archivo, h('button', { type: 'button', clase: 'mini fantasma', disabled: estado.ocupado,
         onclick: () => archivo.click() }, 'Subir imagen'),
       h('div', { clase: 'fila cierre' }, generarBoton, guardarBoton,

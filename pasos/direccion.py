@@ -520,6 +520,12 @@ def _planos_legibles(escenas, beats=None):
         # marco. Estaba al reves, y con el al reves salian planos que
         # ilustraban el tramo en vez de su propia frase.
         cuerpo = [f"    SE DICE AQUI: {str(escena.get('narracion') or '').strip()}"]
+        if escena.get("perspectiva_narrador"):
+            try:
+                from .personajes import instruccion_pov
+            except ImportError:
+                from personajes import instruccion_pov
+            cuerpo.append("    " + instruccion_pov(escena["perspectiva_narrador"]))
         accion = str(beat.get("accion") or "").strip()
         if accion:
             tono = str(beat.get("tono") or "").strip()

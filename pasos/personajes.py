@@ -30,7 +30,7 @@ def normalizar(crudo, proyecto=None, pendientes=False):
     resultado, ids, nombres = [], set(), set()
     narradores = 0
     for ficha in crudo.get("items", []):
-        if not isinstance(ficha, dict) or set(ficha) - {"id", "nombre", "descripcion", "categoria", "imagen", "subida", "voz_id", "voz_nombre"}:
+        if not isinstance(ficha, dict) or set(ficha) - {"id", "nombre", "descripcion", "categoria", "imagen", "subida", "voz_id", "voz_nombre", "primera_persona"}:
             raise ValueError("la ficha del personaje tiene campos desconocidos")
         f = copy.deepcopy(ficha)
         if not isinstance(f.get("id"), str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", f["id"]):
@@ -45,6 +45,10 @@ def normalizar(crudo, proyecto=None, pendientes=False):
         nombres.add(f["nombre"].casefold())
         if f.get("categoria") not in ("narrador", "personaje"):
             raise ValueError("elige Narrador o Personaje")
+        if "primera_persona" in f and not isinstance(f["primera_persona"], bool):
+            raise ValueError("primera_persona debe ser una casilla activada o desactivada")
+        if f["categoria"] != "narrador":
+            f.pop("primera_persona", None)
         narradores += f["categoria"] == "narrador"
         if narradores > 1:
             raise ValueError("solo se puede incorporar un narrador por vídeo")
@@ -116,6 +120,26 @@ def opciones_del_proyecto(proyecto, voz=None):
     return opciones
 
 
+def narrador_pov(opciones):
+    return next((p for p in activos(opciones)
+                 if p.get("categoria") == "narrador" and p.get("primera_persona") is True), None)
+
+
+def instruccion_pov(narrador):
+    if not narrador:
+        return ""
+    return (f"PERSPECTIVA OBLIGATORIA EN PRIMERA PERSONA (POV) de {narrador['nombre']} "
+            f"(ID {narrador['id']}): TODAS las escenas se ven directamente a través de sus ojos, "
+            "también durante los diálogos de otros personajes. Adapta el guion y cada descripción visual "
+            "a lo que ve y vive el narrador. La cámara ES su mirada, nunca una cámara externa ni "
+            "un plano en tercera persona del narrador. Pueden aparecer sus manos, brazos, piernas, "
+            "ropa, objetos que sostiene o su reflejo en espejos y superficies cuando corresponda, "
+            "sin forzar su presencia en todas las imágenes. Mantén su apariencia según su referencia "
+            "completa de rostro, cuerpo y vestimenta; esa hoja de referencia sigue siendo obligatoria "
+            "y de cuerpo entero, no es una escena POV. Esta perspectiva prevalece sobre encuadres "
+            "genéricos y no cambia quién habla ni las voces asignadas.")
+
+
 def instruccion(opciones):
     modo = opciones.get("sistema_personajes") or {}
     if not modo.get("generar_personajes"):
@@ -137,6 +161,7 @@ def instruccion(opciones):
         ("La aplicación resolverá nombre, categoría y voz desde el ID: narración y narrador usan SIEMPRE la voz general; personajes con voz propia usan esa voz y el resto la general. No inventes IDs de voces."
          if con_voz else "La aplicación resolverá la voz desde el ID personalizado. Usa solo hablantes con voz propia asignada; nunca uses la voz general ni inventes voces."),
         "Este contrato de hablantes prevalece sobre las instrucciones genéricas de narración en off; si el usuario aporta un guion propio, respeta sus palabras y etiqueta sus intervenciones sin reescribirlo.",
+        instruccion_pov(narrador_pov(opciones)),
     ])
 
 
@@ -233,9 +258,12 @@ def integrar_catalogo(catalogo, documento, opciones):
     return resultado
 
 
-def aplicar_a_escenas(escenas, documento):
+def aplicar_a_escenas(escenas, documento, opciones=None):
     bloques = {b["id"]: b for b in documento.get("guion") or []}
+    narrador = narrador_pov(opciones or {})
     for e in escenas:
+        if narrador:
+            e["perspectiva_narrador"] = {k: narrador[k] for k in ("id", "nombre", "descripcion")}
         b = bloques.get((e.get("origen") or {}).get("bloque")) or {}
         if "personaje_id" not in b:
             continue

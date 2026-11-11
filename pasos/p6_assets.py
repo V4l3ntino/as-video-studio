@@ -1261,7 +1261,8 @@ def planificar(proyecto, params, inventario=None, replantear=False,
             from . import personajes
         except ImportError:
             import personajes
-        personajes.aplicar_a_escenas(escenas, _guion_del_proyecto(proyecto) or {})
+        personajes.aplicar_a_escenas(escenas, _guion_del_proyecto(proyecto) or {},
+                                    personajes.params_de(proyecto, "guion"))
     # Las hojas solo tienen sentido como referencias de planos generados con IA.
     # Sin reparto, los planos pueden seguir dibujando personas genéricas según
     # su dirección, pero no se crean fichas ni se adjuntan identidades fijas.
@@ -1277,6 +1278,10 @@ def planificar(proyecto, params, inventario=None, replantear=False,
     # libre sobre el SHOT TYPE. Se reparte sobre las escenas YA ordenadas: la
     # regla de no repetir familia mira a los vecinos, no a un plano suelto.
     _asignar_cartas(escenas, p, sencillo=sencillo)
+    for escena in escenas:
+        if escena.get("perspectiva_narrador"):
+            escena["encuadre"] = "first-person POV through the narrator's eyes, never an external view of the narrator"
+            escena.pop("abstracta", None)
     camaras = _repartir_zoom(escenas, sencillo=sencillo)
 
     # Las duraciones definitivas ANTES de decidir los rotulos: un plano de menos
@@ -1910,6 +1915,15 @@ def _realternar_zoom(escenas):
 
 
 
+def _personajes_referencia(escena):
+    # El observador POV necesita su hoja incluso sin aparecer en el encuadre.
+    ids = list(escena.get("personajes") or [])
+    narrador = escena.get("perspectiva_narrador") or {}
+    if narrador.get("id") and narrador["id"] not in ids:
+        ids.append(narrador["id"])
+    return ids
+
+
 def _assets_de_escena(escena):
     usados = []
     if _sin_imagen(escena):
@@ -1922,9 +1936,9 @@ def _assets_de_escena(escena):
         return usados
     # El sitio no produce NADA: no es un asset del que depender, asi que
     # la cascada del plano cuelga de sus personajes y sus componentes.
-    for personaje in escena.get("personajes") or []:
+    for personaje in _personajes_referencia(escena):
         usados.append(f"asset:{personaje}")
-    if escena.get("componente"):
+    if escena.get("componente") and not escena.get("perspectiva_narrador"):
         usados.append(f"asset:{escena['componente']}")
     for elemento in escena.get("capa_vectorial") or []:
         if elemento.get("tipo") == "capitulo":
@@ -1939,7 +1953,7 @@ def _assets_necesarios(plan, catalogo, params=None):
     params = params or {}
     necesarios = {}
     for escena in plan["escenas"]:
-        for personaje in escena.get("personajes") or []:
+        for personaje in _personajes_referencia(escena):
             spec = catalogo["reparto"].get(personaje) or {}
             necesarios[f"asset:{personaje}"] = {
                 "tipo": "reparto", "nombre": personaje,
@@ -1951,7 +1965,7 @@ def _assets_necesarios(plan, catalogo, params=None):
                 "feedback": _texto_feedback(
                     _ajustes_unidad(params, f"asset:{personaje}").get("feedback")),
             }
-        if escena.get("componente"):
+        if escena.get("componente") and not escena.get("perspectiva_narrador"):
             spec = catalogo["componentes"].get(escena["componente"]) or {}
             necesarios[f"asset:{escena['componente']}"] = {
                 "tipo": spec.get("tipo", "mapa"), "nombre": escena["componente"],
@@ -3061,6 +3075,17 @@ def _prompt_completo(escena, referencias, estilo, feedback="", idioma="",
         lineas.append(cierre_idioma)
     if feedback:
         lineas.append(_bloque_feedback(feedback))
+    narrador = escena.get("perspectiva_narrador")
+    if narrador:
+        lineas.append(
+            f"MANDATORY FIRST-PERSON POV: the camera is the eyes of narrator '{narrador['id']}' "
+            f"({narrador['nombre']}). Show ONLY what they see, in EVERY scene, even when someone else speaks. "
+            "Never show the narrator from an external or third-person camera, including over-the-shoulder views. "
+            "Their hands, arms, legs, clothing, held objects or physically plausible reflections may appear when relevant; "
+            "do not force body parts or mirrors into the shot. Their full-body cast sheet is an identity reference ONLY, "
+            "not a request to place their whole body in the scene. Preserve its face, body, clothes and physical traits "
+            f"in any visible parts or reflection. Narrator appearance: {narrador['descripcion']}. "
+            "This POV requirement overrides conflicting shot types, scene descriptions, reference compositions and feedback.")
     # Aqui iba «No text, no letters, no numbers, no watermarks anywhere», y era
     # la ultima linea del prompt: la que mas pesa. Lo que se puede escribir
     # dentro del dibujo lo dice ahora la regla `texto-en-imagen-permitido-pero-
@@ -4041,7 +4066,9 @@ def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                         "sigue_a": escena["sigue_a"]}
                 prompt = ""
                 referencias = []
-            elif escena.get("componente"):
+            # En POV, incluso un mapa se ilustra desde los ojos del narrador;
+            # no se sustituye el plano por el PNG aislado del componente.
+            elif escena.get("componente") and not escena.get("perspectiva_narrador"):
                 fuente = os.path.join(dirs["componentes"],
                                       f"{escena['componente']}.png")
                 if not os.path.exists(fuente):
@@ -4106,6 +4133,9 @@ def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                         escena, plan, dirs, p, trabajo, notas_repaso, proyecto,
                         nota_texto, avisar)
                 if corregido and not corregido.get("error"):
+                    observador = (escena.get("perspectiva_narrador") or {}).get("id")
+                    referencia_pov = [r for r in referencias
+                                      if r.get("papel") == "reparto" and r.get("nombre") == observador]
                     escena_final = dict(escena, prompt=corregido["escena"],
                                         personajes=corregido["personajes"])
                     # las mismas clases y las mismas frases que en la primera
@@ -4117,6 +4147,10 @@ def _generar_planos(plan, dirs, p, trabajo, toca, unidades, resultados, avisar,
                         + [dict(r, ruta=motor_imagen.normalizar(r["ruta"],
                                                                 dirs["cache"]))
                            for r in corregido["referencias"]])
+                    for ref in referencia_pov:
+                        if not any(r.get("papel") == "reparto" and r.get("nombre") == observador
+                                   for r in referencias):
+                            referencias.append(ref)
                 prompt = _prompt_completo(
                     escena_final, referencias, p["estilo"],
                     feedback=nota_texto,
@@ -4659,7 +4693,7 @@ def _referencias_escena(escena, plan, dirs, p, cache, hechas, anteriores=None,
     # por un lado y de los params por otro es como se acaba con una hoja
     # enmascarada y unos planos que la destapan.
     fichas_asset = (plan or {}).get("assets") or {}
-    personajes = (escena.get("personajes") or []) if p.get("generar_personajes") is not False else []
+    personajes = _personajes_referencia(escena) if p.get("generar_personajes") is not False else []
     for personaje in personajes:
         hoja = os.path.join(dirs["reparto"], f"{personaje}.png")
         if os.path.exists(hoja):

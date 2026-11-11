@@ -306,6 +306,14 @@ Activa su casilla para abrir el editor y las tarjetas de personajes añadidos.
 - Solo puede haber **un narrador**. Su voz siempre es la general; cambiarla en
   Voz actualiza su asociación. Sin Incorporar voz, Narrador no se ofrece para
   crear otro, y el narrador ya guardado se conserva inactivo para la locución.
+- Al elegir **Narrador**, debajo de su descripción aparece **Activar primera
+  persona**. Al marcarla, Claude adapta el guion y las descripciones visuales y
+  todas las imágenes de escenas se generan desde los ojos del narrador (POV),
+  también durante los diálogos de otros personajes. Pueden verse partes de su
+  cuerpo, ropa, objetos o reflejos cuando corresponda, sin mostrarlo desde una
+  cámara externa. Su tarjeta y su imagen de referencia de cuerpo entero,
+  incluido el rostro, se mantienen. La opción se conserva al editar; desmarcarla
+  permite volver a los encuadres habituales en las nuevas generaciones.
 
 Al generar el guion, Claude utiliza las identidades personalizadas antes que
 las automáticas y distingue cada intervención de su descripción visual. Con

@@ -305,6 +305,12 @@ def _planos_legibles(escenas, catalogo=None):
         if encuadre:
             cabeza += f" tipo de plano (lo pone el codigo, no lo contradigas): {encuadre}"
         cuerpo = [f"    SE DICE AQUI: {str(escena.get('narracion') or '').strip()}"]
+        if escena.get("perspectiva_narrador"):
+            try:
+                from .personajes import instruccion_pov
+            except ImportError:
+                from personajes import instruccion_pov
+            cuerpo.append("    " + instruccion_pov(escena["perspectiva_narrador"]))
         disponibles = _sitios_de(escena)
         if disponibles:
             cuerpo.append("    sitios que su tramo pone a mano: "
