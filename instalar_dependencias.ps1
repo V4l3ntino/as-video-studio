@@ -5,6 +5,7 @@
 #
 #    .venv       el servicio (requirements.txt)
 #    .depthflow  el motor opcional de parallax (requirements-depthflow.txt)
+#    motores/remotion/node_modules  Remotion, si hay Node >=22 y npm
 #
 #  Uso:
 #
@@ -228,6 +229,7 @@ if (-not $navegador) {
   Escribir-Bien "Navegador: $navegador"
 }
 
+$mayorNode = 0
 $node = Get-Command node -ErrorAction SilentlyContinue
 if (-not $node) {
   Escribir-Aviso "No encuentro Node 20 o superior; los CLI de Claude y Codex lo necesitan."
@@ -241,6 +243,21 @@ if (-not $node) {
   } else {
     Escribir-Bien "Node: $versionNode"
   }
+}
+
+Escribir-Paso "El motor adicional de Remotion"
+# npm.cmd evita que la politica de PowerShell bloquee npm.ps1 en Windows.
+$npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
+if ($mayorNode -ge 22 -and $npm) {
+  & $npm.Source ci --prefix (Join-Path $Raiz "motores\remotion") --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) {
+    Fallar "No se han podido instalar las dependencias de Remotion. Revisa el error de npm de arriba y vuelve a lanzar."
+  }
+  Escribir-Bien "Remotion instalado"
+} else {
+  Escribir-Aviso "Remotion necesita Node 22 o superior y npm. Instala Node LTS y vuelve a ejecutar este archivo."
+  Escribir-Nota "Tambien puedes ejecutar despues: npm ci --prefix motores/remotion"
 }
 
 $claude = Get-Command claude -ErrorAction SilentlyContinue

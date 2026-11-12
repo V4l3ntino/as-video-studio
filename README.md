@@ -458,6 +458,10 @@ Instala su motor local con **Node >=22** desde la raíz del programa:
 npm ci --prefix motores/remotion
 ```
 
+Los instaladores `instalar_dependencias.sh` y `instalar_dependencias.ps1`
+también instalan estas dependencias si Node >=22 y npm ya están disponibles.
+Si acabas de instalar Node, abre una consola nueva antes de ejecutarlos.
+
 El frontend principal no necesita build. Las dependencias de React/Remotion
 pertenecen únicamente al motor de `motores/remotion/`. Remotion reutiliza el
 navegador local del estudio; `ESTUDIO_REMOTION_BROWSER` permite elegir otro.
