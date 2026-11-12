@@ -6222,7 +6222,7 @@ function elegirEstiloLight(ficha) {
   localStorage.setItem('estudio.light.estilo', ficha.id);
   const encargo = encargoVideoLight();
   Object.assign(encargo, montajeDelEstiloLight(ficha), {
-    personajes: leerBorradorPersonajesLight(ficha.id) || { activo: false, items: [] },
+    personajes: leerBorradorPersonajesLight(ficha.id) || { activo: false, items: [], incorporar_dialogos: false },
   });
   PERSONALIZACION_PERSONAJES.delete(encargo);
   // se empieza en el ENCARGO: elegir un estilo es el principio de un vídeo
@@ -6354,7 +6354,7 @@ function encargoVideoLight() {
       cta: ctaPorDefecto(),
       ...montajeDelEstiloLight(fichaLight(APP.light.abierto) || estiloElegido()),
       personajes: leerBorradorPersonajesLight((fichaLight(APP.light.abierto) || estiloElegido())?.id)
-        || { activo: false, items: [] },
+        || { activo: false, items: [], incorporar_dialogos: false },
     };
   }
   return v.encargo;
@@ -7010,7 +7010,7 @@ function personajesPendientesDelEncargo(e) {
 }
 
 function errorVocesPersonajes(e) {
-  if (!e || e.generar_personajes !== true || e.incorporar_voz !== false) return '';
+  if (!e || e.generar_personajes !== true || e.incorporar_voz !== false || e.personajes?.incorporar_dialogos === false) return '';
   const actores = e.personajes?.activo ? (e.personajes.items || []).filter(p => p.categoria === 'personaje') : [];
   if (!actores.length) return 'Sin voz del narrador, activa Personalizar personajes y agrega al menos un personaje con voz asignada antes de generar el guion.';
   const faltan = actores.filter(p => !String(p.voz_id || '').trim()).map(p => p.nombre);
@@ -7065,7 +7065,7 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     borrador: nuevo(), editando: '', original: '', ocupado: false, error: '', busca: '',
   });
   const estado = PERSONALIZACION_PERSONAJES.get(e);
-  const config = () => e.personajes || { activo: false, items: [] };
+  const config = () => e.personajes || { activo: false, items: [], incorporar_dialogos: false };
   const cambiar = valores => {
     e.personajes = { ...config(), ...valores };
     if (!pid) {
@@ -7150,6 +7150,12 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     const errorVoces = errorVocesPersonajes(e);
     if (errorVoces) contenido.appendChild(h('p', { clase: 'caja-error', role: 'alert' }, errorVoces));
     if (!config().activo) return;
+    contenido.appendChild(h('label', { clase: 'efecto-encargo' },
+      h('input', { type: 'checkbox', checked: config().incorporar_dialogos !== false,
+        disabled: estado.ocupado, 'aria-label': 'Incorporar diálogos', onchange: ev => {
+          cambiar({ incorporar_dialogos: ev.target.checked }); pintar();
+        } }), h('span', {}, h('b', {}, 'Incorporar diálogos'),
+        h('span', { clase: 'meta' }, 'Con Incorporar voz: narración principal y diálogos naturales. Sin Incorporar voz: solo diálogos entre personajes.'))));
     const d = estado.borrador;
     const otroPov = config().items.find(p => p.primera_persona === true && p.id !== estado.editando);
     if (!estado.editando && e.incorporar_voz === false && d.categoria === 'narrador') d.categoria = 'personaje';
@@ -7227,7 +7233,9 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
               : h('p', { clase: 'meta' }, e.incorporar_voz === false
                 ? p.categoria === 'narrador' ? 'Narrador sin locución' : 'Sin voz propia asignada'
                 : 'Sin voz propia · usa la voz general'),
-            e.incorporar_voz === false ? h('p', { clase: 'meta' }, p.categoria === 'narrador'
+            config().incorporar_dialogos === false && p.categoria === 'personaje'
+              ? h('p', { clase: 'meta' }, 'Sin intervenciones habladas · Incorporar diálogos desactivado')
+              : e.incorporar_voz === false ? h('p', { clase: 'meta' }, p.categoria === 'narrador'
               ? 'Voz del narrador desactivada; configuración conservada.'
               : p.voz_id ? 'Se locutará con su voz propia.' : 'Asigna una voz propia para poder generar el guion.') : null,
             h('div', { clase: 'fila' }, h('button', { type: 'button', clase: 'mini', disabled: estado.ocupado,
@@ -7248,7 +7256,11 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       h('div', { clase: 'fila' }, h('h4', {}, `Personajes añadidos (${config().items.length})`), busca), cards);
     contenido.appendChild(h('div', { clase: 'personajes-paneles' }, editor, anadidos));
     if (estado.error) contenido.appendChild(h('div', { clase: 'caja-error', role: 'alert' }, estado.error));
-    contenido.appendChild(h('p', { clase: 'caja-info' }, e.incorporar_voz === false
+    contenido.appendChild(h('p', { clase: 'caja-info' }, config().incorporar_dialogos === false
+      ? (e.incorporar_voz === false
+        ? 'Se conserva el guion habitual, sin locución ni intervenciones habladas de personajes.'
+        : 'El guion utilizará únicamente la narración habitual. Los personajes aparecerán sin intervenciones habladas.')
+      : e.incorporar_voz === false
       ? 'La voz del narrador está desactivada. Solo se escucharán los personajes con sus voces propias. Asigna una voz a todos los personajes antes de generar el guion; no se utilizará la voz general como respaldo.'
       : 'Puedes asignar una voz opcional a cada personaje. Sin voz propia usará la voz general del vídeo. El narrador siempre utiliza la voz seleccionada arriba. Si desactivas Incorporar voz, todos los personajes deberán tener voz propia.'));
     actualizar(); pintarCards();
@@ -7589,11 +7601,13 @@ function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
           e.incorporar_voz = ev.target.checked;
           contenidos.disabled = !e.incorporar_voz;
           if (alCambiar) alCambiar();
+          PERSONALIZACION_PERSONAJES.get(e)?.repintar?.();
+          actualizarBloqueoVocesPersonajes(e);
         } }),
       h('span', {}, h('b', {}, 'Incorporar voz'),
         h('span', { clase: 'meta' }, esEstilo
           ? 'Los vídeos nuevos heredarán esta selección.'
-          : 'Sin voz general, los personajes se locutan con sus voces propias obligatorias; sin generación de personajes, el vídeo queda sin locución. Cambiarla en un vídeo ya '
+          : 'Sin voz general y con Incorporar diálogos, solo se escuchan los personajes con sus voces propias. Con ambas opciones desactivadas, el vídeo queda sin locución. Cambiarla en un vídeo ya '
             + 'generado deja pendientes la sincronización y el montaje.'))),
     contenidos);
 }
@@ -9284,7 +9298,8 @@ function pieLight() {
   const hayGuion = !!v.guion;
   const hayAudio = !!v.audio;
   const encargo = pedidoDelVideoLight().copia;
-  const sinVoz = encargo.incorporar_voz === false && encargo.generar_personajes !== true;
+  const sinVoz = encargo.incorporar_voz === false
+    && (encargo.generar_personajes !== true || encargo.personajes?.incorporar_dialogos === false);
   const hayVideo = hayMp4Light();
   const obsoleto = videoObsoletoLight();
   /* SE PIDEN LOS DOS PLANES SIEMPRE, no solo mientras algo corre.

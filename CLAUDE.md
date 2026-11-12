@@ -818,6 +818,16 @@ el motor, aunque Personalizar personajes esté apagado; no sobrescribas la
 preferencia guardada de bibliotecas para forzar IA. Regresión offline:
 `python pasos/prueba_personajes.py`.
 
+La casilla **Incorporar diálogos** vive en
+`guion.params.personajes.incorporar_dialogos`. Los formularios nuevos la inician
+desactivada; la ausencia en proyectos antiguos conserva su contrato de hablantes
+sin escribir defaults al abrir. Activada combina narrador principal y diálogos
+si hay voz general, o exige solo diálogos con voces propias si no la hay.
+Desactivada permite únicamente narración; sin voz general conserva el guion
+habitual y la pista muda. `solo_personajes` y `sin_locucion` distinguen ambos
+caminos; la validación de intervenciones rechaza actores hablantes si la casilla
+está apagada. No vincules la presencia visual de un personaje a su intervención.
+
 Personaje y Narrador admiten `primera_persona: true` en su ficha (ausencia =
 desactivado), pero solo una ficha por vídeo puede activarla. `normalizar` rechaza
 duplicados y `personaje_pov` resuelve el observador sin depender de su categoría.

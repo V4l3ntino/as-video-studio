@@ -23,8 +23,10 @@ CAMPOS_INTERVENCION = ("personaje_id", "personaje_nombre", "categoria", "voz_id"
 
 
 def normalizar(crudo, proyecto=None, pendientes=False):
-    if not isinstance(crudo, dict) or set(crudo) - {"activo", "items"}:
+    if not isinstance(crudo, dict) or set(crudo) - {"activo", "items", "incorporar_dialogos"}:
         raise ValueError("personajes debe contener activo e items")
+    if "incorporar_dialogos" in crudo and not isinstance(crudo["incorporar_dialogos"], bool):
+        raise ValueError("incorporar_dialogos debe ser una casilla activada o desactivada")
     if not isinstance(crudo.get("activo", False), bool) or not isinstance(crudo.get("items", []), list):
         raise ValueError("elige Personalizar personajes y una lista de personajes")
     resultado, ids, nombres = [], set(), set()
@@ -75,7 +77,10 @@ def normalizar(crudo, proyecto=None, pendientes=False):
         if not subida:
             f.pop("subida", None)
         resultado.append(f)
-    return {"activo": crudo.get("activo", False), "items": resultado}
+    config = {"activo": crudo.get("activo", False), "items": resultado}
+    if "incorporar_dialogos" in crudo:
+        config["incorporar_dialogos"] = crudo["incorporar_dialogos"]
+    return config
 
 
 def params_de(proyecto, paso):
@@ -96,9 +101,15 @@ def activos(opciones):
     return copy.deepcopy(config.get("items") or []) if config.get("activo") else []
 
 
+def dialogos_habilitados(opciones):
+    # La ausencia conserva el contrato de los proyectos anteriores a la casilla.
+    return (opciones.get("personajes") or {}).get("incorporar_dialogos", True)
+
+
 def solo_personajes(opciones):
     modo = opciones.get("sistema_personajes") or {}
-    return bool(modo.get("generar_personajes") and modo.get("incorporar_voz") is False)
+    return bool(modo.get("generar_personajes") and modo.get("incorporar_voz") is False
+                and dialogos_habilitados(opciones))
 
 
 def validar_voces(opciones):
@@ -151,11 +162,15 @@ def instruccion(opciones):
     import json
     reparto = activos(opciones)
     con_voz = modo.get("incorporar_voz", True)
+    dialogos = dialogos_habilitados(opciones)
     return "\n".join([
         "== PERSONAJES E INTERVENCIONES (contrato adicional obligatorio) ==",
         "Los personajes personalizados tienen prioridad. Respeta sus IDs, nombres, personalidad, función y apariencia; no los dupliques.",
         json.dumps(reparto, ensure_ascii=False),
-        ("Combina narración y diálogos naturales. El narrador personalizado es la figura narrativa principal y puede aparecer explicando al espectador."
+        (("SIN DIÁLOGOS: utiliza únicamente la narración habitual, sin intervenciones habladas de los personajes. Los personajes pueden aparecer y actuar visualmente, pero no hablar. Usa personaje_id del narrador personalizado o cadena vacía para narración general."
+          + (" La locución está desactivada: conserva el guion narrativo habitual como base visual y temporal; no lo conviertas en conversaciones." if not con_voz else ""))
+         if not dialogos else
+         "Combina narración y diálogos naturales, coherentes y cinematográficos. El narrador lleva principalmente el relato; decide cuándo intercalar intervenciones de los personajes para desarrollar la historia de forma natural, sin forzarlas. El narrador personalizado es la figura narrativa principal y puede aparecer explicando al espectador."
          if con_voz else
          "SIN VOZ DEL NARRADOR: escribe una historia especializada en DIÁLOGOS entre personajes. Explica los acontecimientos, ideas, pensamientos y emociones mediante sus conversaciones y reacciones. NO uses narración en off ni intervenciones de categoría narrador. El narrador guardado queda inactivo. SÍ se generará audio, exclusivamente con las voces propias asignadas a los personajes personalizados. Solo esos personajes pueden hablar; los adicionales automáticos solo pueden aparecer visualmente, sin intervenciones."),
         "Puedes crear personajes adicionales necesarios, sin duplicar a los personalizados. Devuelve personajes_automaticos: [{id: auto_nombre_estable, nombre, descripcion, categoria: personaje}]. Conserva sus IDs si ya estaban en el guion anterior.",
@@ -163,7 +178,7 @@ def instruccion(opciones):
         "Añade a CADA bloque personaje_id (ID existente, o cadena vacía SOLO para narración general), personajes_visibles (lista de IDs que aparecen) y descripcion_visual (acción, postura, expresión y entorno, separada del texto hablado). Los diálogos deben desarrollar la historia sin intervenciones forzadas.",
         "Cuando el narrador aparece visualmente, inclúyelo en personajes_visibles. Una voz no implica presencia visual. Cada bloque conserva su id Bxxx, que identifica también la escena de la intervención; el montaje lo vinculará a sus escenas Sxxx.",
         ("La aplicación resolverá nombre, categoría y voz desde el ID: narración y narrador usan SIEMPRE la voz general; personajes con voz propia usan esa voz y el resto la general. No inventes IDs de voces."
-         if con_voz else "La aplicación resolverá la voz desde el ID personalizado. Usa solo hablantes con voz propia asignada; nunca uses la voz general ni inventes voces."),
+         if not solo_personajes(opciones) else "La aplicación resolverá la voz desde el ID personalizado. Usa solo hablantes con voz propia asignada; nunca uses la voz general ni inventes voces."),
         "Este contrato de hablantes prevalece sobre las instrucciones genéricas de narración en off; si el usuario aporta un guion propio, respeta sus palabras y etiqueta sus intervenciones sin reescribirlo.",
         instruccion_pov(personaje_pov(opciones)),
     ])
@@ -201,12 +216,14 @@ def preparar_intervenciones(datos, bloques, opciones):
         ident = b.get("personaje_id", "")
         if not isinstance(ident, str) or not isinstance(b.get("descripcion_visual", ""), str):
             raise ValueError(f"{b['id']}: el ID y la descripción visual deben ser texto")
-        if not ident and modo.get("incorporar_voz", True):
+        if not ident and not solo_personajes(opciones):
             ident = next((p["id"] for p in manuales if p["categoria"] == "narrador"), "")
         if ident and ident not in reparto:
             raise ValueError(f"{b['id']}: personaje desconocido {ident}; usa un ID del reparto")
         f = reparto.get(ident) or {}
-        if not modo.get("incorporar_voz", True) and (not ident or f.get("categoria") == "narrador"):
+        if not dialogos_habilitados(opciones) and f.get("categoria") == "personaje":
+            raise ValueError(f"{b['id']}: Incorporar diálogos está desactivado; solo se permite narración, sin intervenciones habladas de personajes")
+        if solo_personajes(opciones) and (not ident or f.get("categoria") == "narrador"):
             raise ValueError(f"{b['id']}: el modo sin voz general requiere diálogo identificado de un personaje, sin narrador")
         if solo_personajes(opciones) and not str(f.get("voz_id") or "").strip():
             raise ValueError(f"{b['id']}: {f.get('nombre') or ident} no tiene voz propia asignada; solo pueden hablar personajes con voz asignada")

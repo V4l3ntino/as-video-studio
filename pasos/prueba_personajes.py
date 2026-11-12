@@ -167,6 +167,51 @@ class Personajes(unittest.TestCase):
         self.assertNotIn('"p_ana"', personajes.instruccion(apagada))
         self.assertEqual(len(apagada["personajes"]["items"]), 2)
 
+    def test_casilla_dialogos_cuatro_combinaciones_y_hablantes(self):
+        for voz in (False, True):
+            for dialogos in (False, True):
+                with self.subTest(voz=voz, dialogos=dialogos):
+                    opciones = copy.deepcopy(self.opciones)
+                    opciones["personajes"]["incorporar_dialogos"] = dialogos
+                    opciones["sistema_personajes"]["incorporar_voz"] = voz
+                    self.assertEqual(personajes.normalizar(opciones["personajes"])["incorporar_dialogos"], dialogos)
+                    instruccion = personajes.instruccion(opciones)
+                    self.assertEqual("SIN DIÁLOGOS" in instruccion, not dialogos)
+                    self.assertEqual("SIN VOZ DEL NARRADOR" in instruccion, dialogos and not voz)
+                    self.estado.actualizar_params("guion", opciones)
+                    self.estado.actualizar_params("assets", {"generar_personajes": True})
+                    self.assertEqual(p4_voz.sin_locucion(self.proyecto, {"incorporar_voz": voz}), not voz and not dialogos)
+                    bloque = dict(id="B001", texto="El camino cruza el bosque.",
+                                  personaje_id="p_ana" if dialogos else "", personajes_visibles=["p_ana"],
+                                  descripcion_visual="Ana recorre el bosque.")
+                    personajes.preparar_intervenciones({}, [bloque], opciones)
+                    self.assertEqual(bloque["personaje_id"], "p_ana" if dialogos else "p_narrador")
+                    bloque["personaje_id"] = "p_narrador" if dialogos and not voz else "p_ana"
+                    if not dialogos or not voz:
+                        with self.assertRaises(ValueError):
+                            personajes.preparar_intervenciones({}, [bloque], opciones)
+        with self.assertRaisesRegex(ValueError, "casilla"):
+            personajes.normalizar(dict(self.opciones["personajes"], incorporar_dialogos="false"))
+        self.assertNotIn("incorporar_dialogos", personajes.normalizar(self.opciones["personajes"]))
+
+    def test_sin_dialogos_sin_voz_no_exige_actores_y_produce_pista_muda(self):
+        opciones = copy.deepcopy(self.opciones)
+        opciones["personajes"].update(incorporar_dialogos=False, items=[self.narrador])
+        opciones["sistema_personajes"]["incorporar_voz"] = False
+        self.estado.actualizar_params("guion", opciones)
+        self.estado.actualizar_params("assets", {"generar_personajes": True})
+        self.estado.actualizar_params("voz", {"incorporar_voz": False})
+        personajes.validar_voces(opciones)
+        bloques = [dict(id="B001", texto="El bosque ocultaba un camino.", personaje_id="",
+                        personajes_visibles=[], descripcion_visual="Un camino en el bosque.")]
+        personajes.preparar_intervenciones({}, bloques, opciones)
+        medios.escribir_json(os.path.join(self.proyecto.ruta_trabajo("guion"), "guion.json"),
+                             {"guion": bloques, "idioma": "es"})
+        self.estado.completar("guion", {"guion_fichero": "guion.json"})
+        with patch.object(p4_voz, "sintetizar_toma", side_effect=AssertionError("sin TTS")):
+            salida = p4_voz.ejecutar(self.proyecto, {"incorporar_voz": False})
+        self.assertTrue(salida["sin_voz"])
+
     def test_pov_componentes_tambien_generan_un_plano_subjetivo(self):
         dirs = {k: os.path.join(self.tmp.name, k) for k in ("escenas", "componentes", "cache")}
         for ruta in dirs.values():
@@ -451,6 +496,7 @@ class Personajes(unittest.TestCase):
             app.fijar_params(ctx.id, "voz", {"voz_id": "otra_general"})
             self.assertEqual(ctx.estado.params("guion")["sistema_personajes"]["voz_id"], "otra_general")
             cambio = copy.deepcopy(self.opciones["personajes"])
+            cambio["incorporar_dialogos"] = False
             cambio["items"][0]["nombre"] = "Alicia"
             app.fijar_params(ctx.id, "guion", {"personajes": cambio})
             self.assertEqual(Estado(self.proyecto).params("guion")["personajes"]["items"][0]["id"], "p_ana")
@@ -466,6 +512,7 @@ class Personajes(unittest.TestCase):
             copia = self.proyecto.duplicar(self.tmp.name, "Copia personajes")
             self.assertEqual(Estado(copia).params("guion")["personajes"]["items"][0]["id"], "p_ana")
             self.assertTrue(Estado(copia).params("guion")["personajes"]["items"][0]["primera_persona"])
+            self.assertFalse(Estado(copia).params("guion")["personajes"]["incorporar_dialogos"])
             self.assertTrue(os.path.isfile(copia.ruta(self.imagen)))
             antes = Path(self.proyecto.ruta("estado.json")).read_bytes()
             app.leer_paso(ctx.id, "guion")

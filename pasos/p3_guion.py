@@ -924,6 +924,12 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
                 "descripcion_visual": muestra["nombre"] + " observa el camino con curiosidad."},
                 {"id": "B002", "texto": "Este camino nos llevará hasta el pueblo.", "personaje_id": muestra["id"],
                  "personajes_visibles": [muestra["id"]], "descripcion_visual": muestra["nombre"] + " señala el camino."}]}, ensure_ascii=False)
+        if not personajes.dialogos_habilitados(opciones):
+            narrador = next((p["id"] for p in personajes.activos(opciones) if p["categoria"] == "narrador"), "")
+            ejemplo = json.dumps({"titulo": "Titulo del video", "personajes_automaticos": [],
+                "bloques": [{"id": "B001", "texto": "El bosque ocultaba un camino hacia el pueblo.",
+                    "personaje_id": narrador, "personajes_visibles": [],
+                    "descripcion_visual": "Un camino serpentea entre los árboles."}]}, ensure_ascii=False)
     # LA CUENTA, OTRA VEZ Y AL FINAL. No es repetir la regla 3 por insistir: la
     # ULTIMA parte de un prompt es la que mas pesa --esta medido en este repo
     # con el feedback de un plano-- y la longitud es lo unico
