@@ -100,7 +100,7 @@ class EditorGlobal(unittest.TestCase):
                     pagina.wait_for_timeout(500)
                     self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes(), 'Abrir el editor no escribe params')
                     activo = pagina.locator('.editor-global-escena:not([hidden])')
-                    self.assertEqual(activo.get_by_role('tab').count(), 6)
+                    self.assertEqual(activo.get_by_role('tab').count(), 7)
                     self.assertEqual(pagina.locator('dialog[open]').count(), 0)
                     if clip:
                         pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .previa-clip")?.readyState >= 2')

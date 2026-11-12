@@ -55,3 +55,11 @@ echo "Listo. Arranca el estudio con:"
 echo "  .venv/bin/python app.py --puerto 8020"
 echo
 echo "Si mueves .depthflow, exporta ESTUDIO_DEPTHFLOW_PYTHON con su ruta."
+
+# Motor adicional: la aplicación Python sigue siendo independiente de Node.
+if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
+  npm ci --prefix "$RAIZ/motores/remotion" --no-audit --no-fund
+  echo "Motor Remotion instalado"
+else
+  echo "Remotion opcional: instala Node >=22 y ejecuta npm ci --prefix motores/remotion"
+fi

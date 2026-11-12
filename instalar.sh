@@ -317,7 +317,7 @@ node_y_claude() {
 
   local mayor=0
   command -v node >/dev/null 2>&1 && mayor="$(node -v | sed 's/^v\([0-9]*\).*/\1/')"
-  if [ "$mayor" -lt 20 ]; then
+  if [ "$mayor" -lt 22 ]; then
     nota "instalando Node 22..."
     curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource.sh
     bash /tmp/nodesource.sh >/dev/null 2>&1
@@ -477,6 +477,9 @@ ENTORNO
 # ------------------------------------------------------------- 9. el acceso
 
 el_login() {
+  npm ci --prefix "$RAIZ/app/motores/remotion" --no-audit --no-fund \
+    || aviso "Remotion pendiente de instalación; el resto del estudio está disponible."
+  chown -R "$USUARIO:$USUARIO" "$RAIZ/app/motores/remotion"
   paso "El acceso (para que no entre cualquiera)"
 
   # EL ESTUDIO NO SABE LO QUE ES UN USUARIO, a proposito: se sirve a quien

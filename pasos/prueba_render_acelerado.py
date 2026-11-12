@@ -10,12 +10,14 @@ from unittest.mock import patch
 from PIL import Image
 
 import p8_render
+from nucleo.proyecto import Proyecto
 
 
 class RenderAcelerado(unittest.TestCase):
     def test_desactivar_subtitulos_conserva_cartelas_y_capas_originales(self):
         with tempfile.TemporaryDirectory(prefix="estudio_subtitulos_") as carpeta:
             raiz = Path(carpeta)
+            proyecto = Proyecto.crear(carpeta, 'Render de prueba')
             hyper = raiz / "hyper.png"
             hyper.touch()
             movil = raiz / "cartela.svg"
@@ -38,7 +40,7 @@ class RenderAcelerado(unittest.TestCase):
                         p8_render, "_elegir_codec", return_value="libx264"), patch.object(
                         p8_render, "correr_lote", side_effect=RuntimeError("captura de prueba")) as lote:
                     with self.assertRaisesRegex(RuntimeError, "captura de prueba"):
-                        p8_render.ejecutar(None, dict(
+                        p8_render.ejecutar(proyecto, dict(
                             plan=str(plan), movimiento=str(movimiento), audio="voz.wav", **opcion))
                     tarea = lote.call_args.args[0][0]
                     self.assertEqual(tarea["capa_fija"], esperado)

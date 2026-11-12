@@ -10439,6 +10439,160 @@ const CACHE_EDITOR = {
   },
 };
 
+/* Taller opcional: React vive dentro del Player aislado, no en la aplicación. */
+function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar}) {
+  let plantillas = [], elegida, compilada, version = 0, cerrado = false, pestaña = 'codigo';
+  const mensaje = h('p', { clase: 'remotion-estado', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
+  const rejilla = h('div', { clase: 'remotion-catalogo' });
+  const cuenta = h('span', { clase: 'meta' });
+  const detalle = h('div', { clase: 'remotion-detalle' });
+  const props = h('div', { clase: 'remotion-props-campos' });
+  const nombre = h('input', { clase: 'remotion-nombre', 'aria-label': 'Nombre de la plantilla', oninput: () => { if (elegida) elegida.nombre = nombre.value; } });
+  const numeros = h('pre', { clase: 'remotion-lineas', 'aria-hidden': 'true' });
+  const sintaxis = h('pre', { clase: 'remotion-sintaxis', 'aria-hidden': 'true' });
+  const codigo = h('textarea', { clase: 'remotion-codigo', spellcheck: false, 'aria-label': 'Código React TSX de la plantilla Remotion',
+    oninput: () => { elegida.codigo = codigo.value; compilada = null; version++; colorear(); },
+    onscroll: () => { sintaxis.scrollTop = numeros.scrollTop = codigo.scrollTop; sintaxis.scrollLeft = codigo.scrollLeft; },
+    onkeydown: ev => {
+      if (ev.key === 'Tab') { ev.preventDefault(); const a = codigo.selectionStart, b = codigo.selectionEnd;
+        codigo.setRangeText('  ', a, b, 'end'); codigo.dispatchEvent(new Event('input')); }
+    } });
+  const editor = h('div', { clase: 'remotion-editor-codigo' }, numeros, sintaxis, codigo);
+  const propsCaja = h('section', { clase: 'remotion-props' }, h('h4', {}, 'Props'), props);
+  const ajustes = h('div', { clase: 'remotion-ajustes', hidden: true });
+  const iframe = h('iframe', { clase: 'remotion-player', title: 'Previsualización React de Remotion', sandbox: 'allow-scripts', hidden: true });
+  let configuracionPlayer, reproduccionPendiente = false, listaParaMensajes = false;
+  function enviar(datos) { iframe.contentWindow?.postMessage({ tipo: 'asvs-remotion', ...datos }, '*'); }
+  const recibir = ev => {
+    if (ev.source === iframe.contentWindow && ev.data?.tipo === 'asvs-remotion-listo' && configuracionPlayer) {
+      listaParaMensajes = true; enviar({config: configuracionPlayer});
+      if (reproduccionPendiente) setTimeout(() => enviar({reproducir: true}), 100);
+    }
+  };
+  window.addEventListener('message', recibir);
+  function colorear() {
+    numeros.textContent = codigo.value.split('\n').map((_, i) => i + 1).join('\n');
+    const partes = codigo.value.split(/("[^"\n]*"|'[^'\n]*'|\b(?:import|from|export|default|return|const|function|if|else|let)\b|\b\d+(?:\.\d+)?\b)/g);
+    sintaxis.replaceChildren(...partes.map((p, i) => i % 2 ? h('span', { clase: /^["']/.test(p) ? 'cadena' : /^\d/.test(p) ? 'numero' : 'palabra' }, p) : document.createTextNode(p)));
+    sintaxis.appendChild(document.createTextNode('\n'));
+  }
+  function datos() {
+    return {...elegida, codigo: codigo.value, nombre: nombre.value};
+  }
+  async function compilar() {
+    if (ocupado()) throw new Error('Espera a que termine el trabajo actual.');
+    const v = version;
+    mensaje.textContent = 'Compilando composición React…';
+    const r = await trabajo(`${API.proyecto(pid)}/remotion/compilar`, datos(), mensaje);
+    if (cerrado || v !== version) throw new Error('El código cambió durante la compilación. Compila de nuevo.');
+    compilada = r;
+    configuracionPlayer = {...datos(), props: structuredClone(elegida.props)};
+    listaParaMensajes = false;
+    iframe.src = `${API.proyecto(pid)}/remotion/compilados/${r.compilado}/preview.html`;
+    iframe.hidden = false;
+    mensaje.textContent = 'Compilación lista. Puedes previsualizar o aplicar a la escena.';
+    return r;
+  }
+  async function insertar() {
+    if (!elegida || ocupado()) return;
+    try {
+      const r = compilada || await compilar();
+      enviar({reproducir: false}); iframe.hidden = true;
+      await aplicar(r, datos(), mensaje);
+      mensaje.textContent = 'Animación incorporada. Pulsa «Guardar cambios» para conservarla en el vídeo.';
+    } catch (error) { mensaje.textContent = error.message; }
+  }
+  function accion(texto, ejecutar, clase = '') {
+    return h('button', { clase: `remotion-boton ${clase}`, onclick: async () => {
+      if (ocupado()) return;
+      try { await ejecutar(); } catch (error) { mensaje.textContent = error.message; }
+    } }, texto);
+  }
+  const barra = h('div', { clase: 'remotion-subtabs', role: 'tablist', 'aria-label': 'Taller de Remotion' },
+    ...[['codigo', '‹/› Código'], ['props', '▱ Props'], ['previa', '◉ Previsualización']].map(([id, texto]) => h('button', {
+      role: 'tab', 'aria-selected': String(id === pestaña), onclick: () => {
+        pestaña = id; barra.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-selected', String(['codigo', 'props', 'previa'][i] === id)));
+        editor.hidden = id !== 'codigo'; ajustes.hidden = id !== 'previa'; propsCaja.hidden = id === 'previa';
+      } }, texto)));
+  const taller = h('aside', { clase: 'remotion-taller', hidden: true },
+    h('h3', {}, '‹/›  Taller de Remotion'), h('div', { clase: 'remotion-plantilla-cab' }, h('span', {}, 'Plantilla:'), nombre),
+    barra, editor, propsCaja, ajustes,
+    h('div', { clase: 'remotion-acciones' }, accion('‹/›  Compilar', compilar),
+      accion('▶  Previsualizar', async () => { if (!compilada) await compilar(); reproduccionPendiente = true; iframe.hidden = false; if (listaParaMensajes) enviar({frame: 0, reproducir: true}); }),
+      accion('♧  Guardar plantilla', async () => {
+        const r = await pedir(`${BASE}/api/remotion/plantillas`, {method: 'POST', cuerpo: datos()});
+        plantillas = [...plantillas.filter(p => p.id !== r.id), r]; pintarCatalogo();
+        mensaje.textContent = 'Versión guardada en tu biblioteca de plantillas.';
+      }), accion('✓  Aplicar a la escena', insertar, 'primario')),
+    h('button', {clase: 'mini remotion-parar', onclick: cancelar}, 'Parar Remotion'), mensaje);
+  const panel = h('section', { clase: 'remotion-biblioteca' },
+    h('div', { clase: 'remotion-biblioteca-cab' }, h('b', {}, 'Plantillas Remotion'), cuenta), rejilla, detalle,
+    accion('+  Nueva plantilla', () => seleccionar({...plantillas[0], id: 'nueva', nombre: 'Nueva plantilla',
+      codigo: "import React from 'react';\nimport {AbsoluteFill, useCurrentFrame} from 'remotion';\n\nexport default function Plantilla({titulo = 'Mi animación'}) {\n  const frame = useCurrentFrame();\n  return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', color: 'white', fontSize: 80, opacity: Math.min(1, frame / 20)}}>{titulo}</AbsoluteFill>;\n}", props: {titulo: 'Mi animación'}})));
+  function pintarProps() {
+    props.replaceChildren(...Object.entries(elegida.props).map(([k, v]) => {
+      const complejo = typeof v === 'object', booleano = typeof v === 'boolean';
+      return h('label', { clase: 'remotion-prop' }, h('span', {}, k), h('input', {
+        type: booleano ? 'checkbox' : typeof v === 'number' ? 'number' : 'text',
+        ...(booleano ? {checked: v} : {value: complejo ? JSON.stringify(v) : v}),
+        onchange: ev => {
+          try { elegida.props[k] = booleano ? ev.target.checked : complejo ? JSON.parse(ev.target.value) : typeof v === 'number' ? Number(ev.target.value) : ev.target.value;
+            enviar({config: {...datos(), props: elegida.props}}); }
+          catch (error) { mensaje.textContent = `Prop ${k}: introduce JSON válido.`; }
+        } }));
+    }), h('label', { clase: 'remotion-prop' }, h('span', {}, 'duración (s)'), h('input', {type: 'number', min: .1, max: 120, step: .1, value: elegida.duracion,
+      onchange: ev => { elegida.duracion = Number(ev.target.value); compilada = null; version++; } })),
+      h('details', {}, h('summary', {}, 'Editar Props como JSON'), h('textarea', {rows: 7, 'aria-label': 'Props JSON', value: JSON.stringify(elegida.props, null, 2),
+        onchange: ev => { try { const p = JSON.parse(ev.target.value); if (!p || Array.isArray(p) || typeof p !== 'object') throw new Error(); elegida.props = p; pintarProps(); enviar({config: datos()}); }
+          catch (e) { mensaje.textContent = 'Props debe ser un objeto JSON válido.'; } } })));
+    ajustes.replaceChildren(h('p', {clase: 'meta'}, 'Previsualización local de tu componente React. Las animaciones se aplican con fondo transparente y sin audio.'),
+      ...[['ancho', 'Ancho'], ['alto', 'Alto'], ['fps', 'FPS']].map(([k, n]) => h('label', {clase: 'remotion-prop'}, n,
+        h('input', {type: 'number', value: elegida[k], onchange: ev => {elegida[k] = Number(ev.target.value); compilada = null; version++;}}))));
+  }
+  function pintarCatalogo() {
+    cuenta.textContent = `${plantillas.length} de ${plantillas.length}`;
+    rejilla.replaceChildren(...plantillas.map(p => {
+      const mini = h('div', {clase: `remotion-mini remotion-mini-${p.tipo || 'titulo'}`},
+        escena.imagen ? h('img', {src: API.archivo(pid, escena.imagen), alt: '', loading: 'lazy'}) : null,
+        p.tipo === 'barras' ? h('span', {clase: 'remotion-mini-barras'}, ...[1, 2, 3, 4, 5].map(() => h('i'))) :
+        p.tipo === 'circular' ? h('span', {clase: 'remotion-mini-circular'}, '72 %') :
+        p.tipo === 'fechas' ? h('span', {clase: 'remotion-mini-fechas'}, '1990　2000　2010　2020', h('hr'), '●　　 ●　　 ●　　 ●') :
+        p.tipo === 'mapa' ? h('img', {clase: 'remotion-mini-mapa', alt: 'Mapa animado', src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400"><path d="M50 80L170 30 250 80 215 150 150 140 100 200 80 130ZM230 210L290 180 330 240 280 365 245 300ZM360 65L440 40 500 90 580 40 740 90 710 170 600 190 540 150 500 240 420 180 390 110ZM430 180L490 210 460 330 400 260ZM650 280L740 270 760 330 680 345Z" fill="#929fae"/><circle cx="440" cy="100" r="12" fill="#819aff"/></svg>')}) :
+        p.tipo === 'galeria' ? h('span', {clase: 'remotion-mini-galeria'}, '▧ ▧') :
+        h('span', {}, p.props.titulo, h('small', {}, p.props.subtitulo)));
+      return h('button', {clase: 'remotion-tarjeta', 'aria-pressed': String(elegida?.id === p.id), onclick: () => seleccionar(p)}, mini, h('span', {}, p.nombre));
+    }));
+  }
+  function seleccionar(p) {
+    if (ocupado()) return;
+    alElegir(); elegida = structuredClone(p); compilada = null; version++; iframe.hidden = true;
+    codigo.value = elegida.codigo; nombre.value = elegida.nombre; colorear(); pintarProps(); pintarCatalogo();
+    detalle.replaceChildren(h('h4', {}, p.nombre), h('p', {clase: 'meta'}, p.descripcion), accion('◉  Insertar en la línea de tiempo', insertar));
+    mensaje.textContent = 'Edita el componente o sus props y pulsa «Compilar».';
+  }
+  return {panel, taller, iframe,
+    editar: async b => {
+      const v = ++version;
+      const p = await pedir(`${API.proyecto(pid)}/remotion/plantillas/${b.plantilla}`);
+      if (cerrado || v !== version) return false;
+      seleccionar({...p, props: structuredClone(b.props), duracion: b.fin - b.inicio});
+      taller.dataset.plantillaEditada = b.plantilla;
+      return true;
+    },
+    activar: async activo => {
+      taller.hidden = !activo;
+      if (!activo) {iframe.hidden = true; enviar({reproducir: false}); return;}
+      if (!plantillas.length) {
+        try { const r = await pedir(`${BASE}/api/remotion/plantillas`); if (cerrado) return;
+          plantillas = r.plantillas; seleccionar(plantillas[0]);
+          if (!r.disponible) mensaje.textContent = 'Motor pendiente de instalación: npm ci --prefix motores/remotion';
+        } catch (error) {mensaje.textContent = error.message;}
+      }
+    }, ocultarPlayer: () => {reproduccionPendiente = false; iframe.hidden = true; enviar({reproducir: false});},
+    cerrar: () => {cerrado = true; window.removeEventListener('message', recibir); iframe.removeAttribute('src');}
+  };
+}
+
 /* Cada escena conserva su borrador en memoria y en IndexedDB. La revisión de
    la previsualización permite reutilizarla sin un GET individual de validación. */
 let EDITOR_GLOBAL = null;
@@ -10525,9 +10679,9 @@ function editorGlobalImagenes(escenas) {
   const zoom = h('input', { type: 'range', min: 1, max: Math.max(12, escenas.length / 2), step: .5, value: zoomInicial,
     'aria-label': 'Zoom del timeline', oninput: ev => { columnas.style.width = `${Number(ev.target.value) * 100}%`; estudio.ajustarPistas(); } });
   const etiquetas = h('div', { clase: 'editor-global-etiquetas' }, h('span', {}, ''),
-    ...['▱ Bloques', '♪ Audio', '✦ Animación', '♫ Sonidos', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n)));
+    ...['▱ Bloques', '♪ Audio', '‹/› Remotion', '✦ Animación', '♫ Sonidos', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n)));
   const scroll = h('div', { clase: 'editor-global-scroll' }, columnas);
-  const timeline = h('section', { clase: 'editor-global-timeline escena-timeline', 'aria-label': 'Timeline global del vídeo: seis pistas' },
+  const timeline = h('section', { clase: 'editor-global-timeline escena-timeline', 'aria-label': 'Timeline global del vídeo: siete pistas' },
     h('div', { clase: 'anim-timeline-cab' }, play, tiempoGlobal,
       h('label', { clase: 'editor-global-zoom' }, '−', zoom, '+'),
       h('button', { clase: 'mini', 'aria-label': 'Ampliar editor', onclick: () => {
@@ -10666,7 +10820,7 @@ function editorGlobalImagenes(escenas) {
       if (estudio.modificado()) estudio.cambio();
     },
     ajustarPistas: () => {
-      ['bloques', 'audio', 'animacion', 'sonidos', 'avatar', 'transiciones'].forEach((tipo, i) => {
+      ['bloques', 'audio', 'remotion', 'animacion', 'sonidos', 'avatar', 'transiciones'].forEach((tipo, i) => {
         const alto = Math.max(36, ...[...controles.values()].flatMap(c =>
           Array.from(c.filas[tipo].querySelectorAll('.anim-timeline-bloque')).map(n => (parseFloat(n.style.top) || 0) + 30)));
         controles.forEach(c => { c.filas[tipo].style.height = `${alto}px`; });
@@ -10751,6 +10905,7 @@ async function abrirEditorEscena(escena, estudio) {
   let temporizador, revision = 0, tid = '', generando = false, pintor, pintorEnlace, cuadroEnlace = 0, cuadroBase, preparandoEnlace;
   let arrastrando = false, revisionVisual = 0, revisionReproduccion = 0, cancelarAvatar = false;
   let revisionDatos = escena.editor_revision, recuperacion, revalidando = false;
+  let remotionOcupado = false, capasRemotion = [], firmaRemotion = '', tallerRemotion, indiceRemotion = -1;
   const identidadLocal = () => JSON.stringify([escena.id, escena.narracion, escena.t_in, escena.t_out, ficha?.avatar.resolucion]);
   const historial = [], ondas = [];
   const buffersSonido = new Map(), reproduccionesSonido = [];
@@ -10761,6 +10916,7 @@ async function abrirEditorEscena(escena, estudio) {
   const muestra = h('div', { clase: `previa-marco anim-editor-previa escena-editor-previa con-avatar ${formatoDelVideo()}` });
   engancharSwipePrevia(muestra);
   const capa = h('div', { clase: 'previa-anim' });
+  const capaRemotion = h('div', { clase: 'remotion-capas', 'aria-label': 'Animaciones Remotion de la escena' });
   let canvas = h('canvas', { clase: 'escena-transicion', hidden: true });
   let canvasEnlace = h('canvas', { clase: 'escena-transicion', hidden: true });
   const medios = h('div', { hidden: true });
@@ -10772,7 +10928,7 @@ async function abrirEditorEscena(escena, estudio) {
   const onda = h('canvas', { clase: 'anim-timeline-onda', 'aria-label': 'Forma de onda real del narrador' });
   const pistas = h('div', { clase: 'anim-timeline-pistas', onpointerdown: buscar }, regla);
   const filas = {};
-  const ordenPistas = ['bloques', 'audio', 'animacion', 'sonidos', 'avatar', 'transiciones'];
+  const ordenPistas = ['bloques', 'audio', 'remotion', 'animacion', 'sonidos', 'avatar', 'transiciones'];
   ordenPistas.forEach(id => {
     filas[id] = h('div', { clase: `anim-timeline-pista ${id}`, 'aria-label': `Pista ${id}` });
     if (id === 'audio') filas[id].appendChild(onda);
@@ -10783,11 +10939,11 @@ async function abrirEditorEscena(escena, estudio) {
   const timeline = h('section', { clase: 'anim-timeline escena-timeline', 'aria-label': 'Línea de tiempo de cinco pistas' },
     h('div', { clase: 'anim-timeline-cab' }, reproducir, reloj),
     h('div', { clase: 'anim-timeline-fila' }, h('div', { clase: 'anim-timeline-etiquetas' },
-      ...['▱ Bloques', '♪ Audio', '✦ Animación', '♫ Sonidos', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n))), pistas), datosTiempo);
+      ...['▱ Bloques', '♪ Audio', '‹/› Remotion', '✦ Animación', '♫ Sonidos', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n))), pistas), datosTiempo);
   const guardarBoton = h('button', { clase: 'primario', disabled: true, onclick: guardar }, 'Guardar');
   const deshacerBoton = h('button', { clase: 'mini anim-editor-deshacer', disabled: true, onclick: deshacer }, '↶ Deshacer');
   const nombres = [['imagenes', '▧', 'Imágenes'], ['animacion', '✦', 'Animación'], ['sonidos', '♫', 'Sonidos'], ['parallax', '◇', 'Efecto Parallax'],
-    ['transiciones', '◩', 'Transición'], ['avatar', '♙', 'Avatar']];
+    ['transiciones', '◩', 'Transición'], ['avatar', '♙', 'Avatar'], ['remotion', '‹/›', 'Plantillas Remotion']];
   const tabs = h('div', { clase: 'escena-editor-tabs', role: 'tablist', 'aria-label': 'Elementos de escena' },
     ...nombres.map(([id, icono, nombre]) => h('button', { role: 'tab',
       'aria-controls': `escena-configuracion-${escena.id}`, 'aria-selected': String(id === pestaña),
@@ -10799,6 +10955,7 @@ async function abrirEditorEscena(escena, estudio) {
         seleccionarPestaña(nombres[siguiente][0]); tabs.children[siguiente].focus();
       } }, h('span', { 'aria-hidden': 'true' }, icono), nombre)));
   const cerrar = () => {
+    tallerRemotion?.cerrar();
     clearTimeout(temporizador); revision++; pausar();
     if (tid) pedir(API.cancelar(tid), { method: 'POST' }).catch(() => {});
     [pintor, pintorEnlace].forEach(p => p?.cerrar());
@@ -10817,6 +10974,22 @@ async function abrirEditorEscena(escena, estudio) {
     h('aside', { clase: 'editor-global-panel' }, tabs, avisoRecuperacion, panel,
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
     h('div', { clase: 'editor-global-visual' }, muestra), medios);
+  tallerRemotion = crearTallerRemotion({pid, escena, trabajo: trabajoRemotion, ocupado, alElegir: () => {indiceRemotion = -1;},
+    cancelar: () => {if (remotionOcupado && tid) pedir(API.cancelar(tid), {method: 'POST'}).catch(error => {estado.textContent = error.message;});},
+    aplicar: async (compilada, plantilla, mensaje) => {
+      if (ocupado() || ((borrador.remotion || []).length >= 16 && indiceRemotion < 0)) throw new Error('Espera al trabajo actual o elimina un bloque Remotion.');
+      const reemplazar = indiceRemotion >= 0 && borrador.remotion?.[indiceRemotion];
+      const inicio = reemplazar ? reemplazar.inicio : Math.max(0, Math.min(tiempo, total - .1));
+      const bloque = {plantilla: compilada.plantilla, nombre: plantilla.nombre, props: structuredClone(plantilla.props),
+        inicio, fin: Math.min(total, inicio + plantilla.duracion)};
+      const bloques = structuredClone(borrador.remotion || []);
+      if (reemplazar) bloques[indiceRemotion] = bloque; else bloques.push(bloque);
+      const resultado = await trabajoRemotion(`${base}/remotion/preparar`, {ancla: ficha.animacion.ancla, bloques}, mensaje);
+      recordar(); borrador.remotion = bloques; seleccionado = bloques.length - 1;
+      capasRemotion = resultado.capas; firmaRemotion = JSON.stringify(bloques);
+      cambio(false); pintarPanel();
+    }});
+  dialogo.appendChild(tallerRemotion.taller);
   const notasEscena = h('div', { clase: 'editor-global-notas' },
     escena.obsoleta ? avisoImagenObsoleta(escena) : null,
     escena.recurso_biblioteca ? h('p', { clase: 'meta' }, `${escena.recurso_biblioteca.tipo === 'video' ? 'Vídeo' : 'Imagen'} de ${escena.recurso_biblioteca.autor || 'autor'} · `,
@@ -10917,7 +11090,26 @@ async function abrirEditorEscena(escena, estudio) {
     } };
   estudio.registrar(escena, control);
 
-  function ocupado() { return guardando || subiendo || generando || revalidando || !!trabajoVideoLight(); }
+  function ocupado() { return guardando || subiendo || generando || remotionOcupado || revalidando || !!trabajoVideoLight(); }
+  async function trabajoRemotion(ruta, datos, mensaje) {
+    if (ocupado()) throw new Error('Espera a que termine la operación actual.');
+    remotionOcupado = true; pausar();
+    dialogo.classList.add('remotion-trabajando');
+    try {
+      const r = await pedir(ruta, {method: 'POST', cuerpo: datos}); tid = r.trabajo_id;
+      if (!dialogo.isConnected) {await pedir(API.cancelar(tid), {method: 'POST'}); throw new Error('Editor cerrado.');}
+      while (dialogo.isConnected) {
+        const t = await pedir(API.trabajo(tid)); mensaje.textContent = `${t.mensaje || 'Preparando Remotion'} · ${Math.round(t.progreso * 100)} %`;
+        if (t.estado === 'listo') return t.resultado;
+        if (['error', 'cancelado'].includes(t.estado)) throw new Error(t.error || 'Trabajo detenido.');
+        await new Promise(r => setTimeout(r, 400));
+      }
+      throw new Error('Editor cerrado.');
+    } finally {
+      if (!dialogo.isConnected && tid) pedir(API.cancelar(tid), {method: 'POST'}).catch(() => {});
+      tid = ''; remotionOcupado = false; dialogo.classList.remove('remotion-trabajando');
+    }
+  }
   function registroLocal() {
     return { formato: 1, revision: revisionDatos, identidad: identidadLocal(), ficha: structuredClone(ficha),
       original, borrador: JSON.stringify(borrador), historial: structuredClone(historial), recuperacion: recuperacion || null };
@@ -10973,6 +11165,12 @@ async function abrirEditorEscena(escena, estudio) {
   function seleccionarPestaña(id, indice) {
     cancelAnimationFrame(cuadroEnlace); canvasEnlace.hidden = true;
     pestaña = id;
+    if (estudio.esActual(escena.id)) estudio.nodo.classList.toggle('con-remotion', id === 'remotion');
+    tallerRemotion.activar(id === 'remotion');
+    if (id === 'remotion' && indice != null && indice >= 0 && borrador?.remotion?.[indice]) {
+      const bloque = borrador.remotion[indice];
+      tallerRemotion.editar(bloque).then(ok => {if (ok && borrador.remotion[indice] === bloque) indiceRemotion = indice;}).catch(error => {estado.textContent = error.message;});
+    }
     const lista = borrador?.[id];
     seleccionado = indice == null ? (Array.isArray(lista) && lista.length ? 0
       : id === 'transiciones' && bloqueEnlace() ? -2 : -1) : indice;
@@ -11030,6 +11228,21 @@ async function abrirEditorEscena(escena, estudio) {
   function pintarPanel() {
     vaciar(panel);
     if (!ficha || !borrador) return;
+    if (pestaña === 'remotion') {
+      panel.appendChild(tallerRemotion.panel);
+      const bloques = borrador.remotion || [];
+      if (bloques.length) panel.appendChild(h('div', {clase: 'remotion-bloques-escena'}, h('h4', {}, 'En esta escena'),
+        ...bloques.map((b, i) => h('div', {clase: 'remotion-bloque-edicion'}, h('b', {}, b.nombre),
+          ...[['inicio', 'Inicio'], ['fin', 'Final']].map(([k, n]) => campo(n, h('input', {type: 'number', min: 0, max: total, step: .01, value: b[k],
+            onchange: ev => {const valor = Number(ev.target.value); if (!Number.isFinite(valor) || ocupado()) return;
+              recordar(); b[k] = k === 'inicio' ? Math.max(0, Math.min(b.fin - .1, valor)) : Math.max(b.inicio + .1, Math.min(total, valor)); cambio(false);}}))),
+          h('button', {clase: 'mini peligro', onclick: () => {if (ocupado()) return; recordar(); bloques.splice(i, 1); pintarPanel(); cambio(false);}}, 'Eliminar bloque'))),
+        h('button', {clase: 'mini', onclick: async () => {try {
+          const r = await trabajoRemotion(`${base}/remotion/preparar`, {ancla: ficha.animacion.ancla, bloques}, estado);
+          capasRemotion = r.capas; firmaRemotion = JSON.stringify(bloques); pintarReloj();
+        } catch (error) {estado.textContent = error.message;}}}, '↻ Preparar previsualización')));
+      return;
+    }
     if (pestaña === 'imagenes') {
       if (estudio.esActual(escena.id)) panel.appendChild(estudio.galeria());
       panel.appendChild(h('p', { clase: 'meta' }, `${escena.id} · ${total.toFixed(2)} s. Selecciona una imagen o un bloque para editar su escena.`));
@@ -11145,6 +11358,7 @@ async function abrirEditorEscena(escena, estudio) {
     } }, b.enlace ? 'Eliminar transición entre escenas' : 'Eliminar bloque'));
   }
   function nombreBloque(tipo, b) {
+    if (tipo === 'remotion') return b.nombre || 'Remotion';
     if (tipo === 'sonidos') return ficha.sonidos.fuentes.find(f => f.id === b.id)?.nombre || 'Sonido';
     if (tipo === 'animacion') return ficha.animacion.opciones.find(o => o.id === b.id)?.nombre || 'Animación';
     if (tipo === 'avatar') return ficha.avatar.opciones.find(o => o.id === b.entrada)?.nombre || 'Avatar';
@@ -11153,9 +11367,9 @@ async function abrirEditorEscena(escena, estudio) {
   }
   function pintarPistas() {
     if (!borrador || arrastrando) return;
-    ['animacion', 'sonidos', 'avatar', 'transiciones'].forEach(tipo => {
+    ['remotion', 'animacion', 'sonidos', 'avatar', 'transiciones'].forEach(tipo => {
       vaciar(filas[tipo]);
-      const lista = [...borrador[tipo]];
+      const lista = [...(borrador[tipo] || [])];
       const enlace = tipo === 'transiciones' ? bloqueEnlace() : null;
       if (enlace) lista.push(enlace);
       lista.forEach((b, i) => {
@@ -11243,6 +11457,7 @@ async function abrirEditorEscena(escena, estudio) {
     mover(ev); capturar(ev, mover);
   }
   function pausar(detenerAudio = true) {
+    tallerRemotion?.ocultarPlayer();
     revisionReproduccion++;
     reproduccionesSonido.splice(0).forEach(s => s.stop());
     if (detenerAudio && estudio.esActual(escena.id)) { audio?.pause(); estudio.pausado(escena.id); }
@@ -11327,6 +11542,14 @@ async function abrirEditorEscena(escena, estudio) {
     cabezal.style.left = `${tiempo / total * 100}%`;
     estudio.reloj(escena, tiempo);
     animarPrevia(capa, fondo, tiempo);
+    const preparadas = firmaRemotion === JSON.stringify(borrador.remotion || []);
+    const activas = preparadas ? capasRemotion.filter(c => c.inicio <= tiempo && tiempo < c.fin) : [];
+    while (capaRemotion.children.length > activas.length) capaRemotion.lastChild.remove();
+    activas.forEach((c, i) => {
+      let img = capaRemotion.children[i]; if (!img) {img = h('img', {alt: ''}); capaRemotion.appendChild(img);}
+      const numero = Math.min(c.fotogramas.length - 1, Math.max(0, Math.floor((tiempo - c.inicio) * c.fps + 1e-7)));
+      const url = API.archivo(pid, c.fotogramas[numero]); if (img.getAttribute('src') !== url) img.src = url;
+    });
     [fondo, avatar].forEach(v => sincronizarMedioEditor(v, tiempo, !!audio && !audio.paused));
     if (avatar) {
       const arrastre = ARRASTRES_AVATAR.get(avatar);
@@ -11390,6 +11613,7 @@ async function abrirEditorEscena(escena, estudio) {
   function payload() {
     const d = {};
     const anterior = JSON.parse(original);
+    if (JSON.stringify(borrador.remotion || []) !== JSON.stringify(anterior.remotion || [])) d.remotion = {ancla: ficha.animacion.ancla, bloques: borrador.remotion || []};
     if (JSON.stringify(borrador.animacion) !== JSON.stringify(anterior.animacion)) d.animacion = datosAnimacion();
     if (JSON.stringify(borrador.sonidos) !== JSON.stringify(anterior.sonidos)) d.sonidos = { ancla: ficha.animacion.ancla, bloques: borrador.sonidos };
     if (JSON.stringify(borrador.parallax) !== JSON.stringify(anterior.parallax)) d.parallax = borrador.parallax;
@@ -11419,6 +11643,8 @@ async function abrirEditorEscena(escena, estudio) {
         presentacion: borrador.avatar.length ? { ...borrador.avatar[0], bloques: structuredClone(borrador.avatar) } : ficha.avatar.actual.presentacion };
       ficha.parallax.actual = structuredClone(borrador.parallax);
       ficha.transiciones = structuredClone(borrador.transiciones);
+      ficha.remotion = structuredClone(borrador.remotion || []);
+      ficha.remotion_capas = firmaRemotion === JSON.stringify(borrador.remotion || []) ? structuredClone(capasRemotion) : [];
       if (ficha.enlace) ficha.enlace.actual = { tipo: borrador.enlace, ...(borrador.enlace !== 'corte' ? borrador.intervaloEnlace : {}) };
       original = JSON.stringify(borrador); estado.textContent = 'Escena guardada. Los cambios se aplicarán al volver a montar el vídeo.';
       await persistirLocal();
@@ -11507,12 +11733,14 @@ async function abrirEditorEscena(escena, estudio) {
       return b;
     };
     borrador = { animacion: actual && actual.id !== 'sin-animacion' ? (actual.bloques || [actual]).map(convertir) : [],
+      remotion: structuredClone(ficha.remotion || []),
       sonidos: structuredClone(ficha.sonidos.actual ?? ficha.sonidos.fuentes.map(f => ({ id: f.id, inicio: f.inicio, fin: f.fin }))),
       avatar: ficha.avatar.actual.activo ? structuredClone(ficha.avatar.actual.presentacion.bloques || [ficha.avatar.actual.presentacion]) : [],
       posicion: structuredClone(ficha.avatar.actual.posicion),
       parallax: { ...ficha.parallax.actual, ancla: ficha.parallax.ancla }, transiciones: structuredClone(ficha.transiciones), enlace: ficha.enlace?.actual.tipo || 'corte',
       intervaloEnlace: ficha.enlace?.actual.inicio != null ? { inicio: ficha.enlace.actual.inicio, fin: ficha.enlace.actual.fin } : null };
     original = JSON.stringify(borrador);
+    capasRemotion = structuredClone(ficha.remotion_capas || []); firmaRemotion = JSON.stringify(borrador.remotion);
   }
   try {
     const guardadoLocal = await estudio.cache(escena.id);
@@ -11534,7 +11762,7 @@ async function abrirEditorEscena(escena, estudio) {
     fondo = h(escena.clip ? 'video' : 'img', { clase: escena.clip ? 'previa-clip' : '',
       ...(estudio.esActual(escena.id) && (escena.clip || escena.imagen) ? { src: API.archivo(pid, escena.clip || escena.imagen) } : {}),
       alt: escena.id, muted: true, playsinline: true, preload: 'auto' });
-    muestra.append(fondo, capa, canvas, canvasEnlace, botonSustituirEscena(escena)); montarAvatar(); seleccionarPestaña(pestaña); prepararAnimacion();
+    muestra.append(fondo, capa, capaRemotion, canvas, canvasEnlace, tallerRemotion.iframe, botonSustituirEscena(escena)); montarAvatar(); seleccionarPestaña(pestaña); prepararAnimacion();
     if (ficha.animacion.audio) {
       audio = estudio.audio(ficha.animacion.audio); reproducir.disabled = false;
       cargarOnda();

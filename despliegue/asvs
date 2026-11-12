@@ -111,12 +111,16 @@ actualizar() {
   # reglas.py): asi llegan tambien con el `asvs actualizar` de antes, que es el
   # que corre la primera vez. Los datos viven fuera de app/ y no se tocan.
   rsync -a --delete --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' \
-    --exclude='cache/' --exclude='proyectos/' --exclude='banco/' --exclude='secretos/' \
+    --exclude='cache/' --exclude='proyectos/' --exclude='banco/' --exclude='secretos/' --exclude='node_modules/' \
     "$codigo/" "$RAIZ/app/"
   rsync -a --delete --exclude='node_modules' --exclude='datos' --exclude='.env' \
     "$RAIZ/app/despliegue/login/" "$RAIZ/login/"
   ( cd "$RAIZ/login" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 ) || true
   "$RAIZ/venv/bin/pip" install --quiet -r "$RAIZ/app/requirements.txt"
+  if node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' 2>/dev/null; then
+    npm ci --prefix "$RAIZ/app/motores/remotion" --no-audit --no-fund \
+      || echo "Remotion pendiente: ejecuta npm ci --prefix $RAIZ/app/motores/remotion"
+  fi
   if ! codex --version >/dev/null 2>&1; then
     npm install -g @openai/codex@0.165.0 >/dev/null 2>&1
   fi

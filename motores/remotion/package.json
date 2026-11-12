@@ -1,0 +1,16 @@
+{
+  "name": "as-video-studio-remotion",
+  "private": true,
+  "type": "module",
+  "scripts": {"comprobar": "node motor.mjs --comprobar"},
+  "engines": {"node": ">=22"},
+  "dependencies": {
+    "@remotion/bundler": "4.0.484",
+    "@remotion/player": "4.0.484",
+    "@remotion/renderer": "4.0.484",
+    "esbuild": "0.25.12",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.484"
+  }
+}

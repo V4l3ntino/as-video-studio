@@ -50,6 +50,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Configuración efectiva del parallax de una imagen, sin modificar el proyecto. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/remotion/preparar` | Renderiza los bloques del borrador en PNG transparentes, sin guardar params. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/sonidos` | Prepara un efecto seleccionado; el bloque solo se persiste al guardar la escena. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Guarda el efecto y su intervalo opcional; actualiza los clips afectados y el montaje. |
@@ -65,6 +66,9 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/previsualizacion/parallax` | Prepara los clips DepthFlow seleccionados sin cambiar versiones ni firmas. |
 | `PUT` | `/api/proyectos/{pid}/redactor` | Guarda el prompt escrito de cada plano. Un prompt vacío lo quita. |
 | `POST` | `/api/proyectos/{pid}/redactor/proponer` | Escribe el prompt de cada plano, con TODOS los planos delante de una vez. |
+| `GET` | `/api/proyectos/{pid}/remotion/compilados/{clave}/{fichero}` | Sirve el reproductor compilado aislado, nunca el código de la aplicación. |
+| `POST` | `/api/proyectos/{pid}/remotion/compilar` | Compila código React y prepara su Player sin modificar el montaje. |
+| `GET` | `/api/proyectos/{pid}/remotion/plantillas/{referencia}` | Recupera el código de la versión utilizada en un bloque de escena. |
 | `GET` | `/api/proyectos/{pid}/repaso` | Las notas escritas sobre el vídeo montado, con los cortes para anclarlas. |
 | `POST` | `/api/proyectos/{pid}/repaso` | Una nota nueva, anclada al segundo en el que se pausó. |
 | `POST` | `/api/proyectos/{pid}/repaso/aplicar` | Aplica las notas del repaso y vuelve a generar SOLO lo que cambian. |
@@ -307,10 +311,12 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `PUT` | `/api/imagenes/proveedores` | Guarda la prioridad de Codex y API sin modificar los proyectos. |
 | `POST` | `/api/personajes/imagenes/generar` | Genera un personaje de cuerpo entero con el motor principal y su respaldo. |
 | `GET` | `/api/personajes/imagenes/trabajos/{tid}` | Consulta el progreso y la imagen generada del personaje. |
+| `GET` | `/api/remotion/plantillas` | Biblioteca de componentes React reutilizables y estado del motor local. |
+| `POST` | `/api/remotion/plantillas` | Guarda una versión inmutable de una plantilla Remotion en la biblioteca. |
 | `GET` | `/api/sonidos/buscar` | Busca efectos en todo el catálogo de Freesound, con resultados paginados. |
 | `GET` | `/api/sonidos/{identificador}/muestra` | Escucha la muestra de un efecto de Freesound desde el banco local. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**199 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**205 endpoints.** Escrito por `generar_api.py` desde `app.py`.

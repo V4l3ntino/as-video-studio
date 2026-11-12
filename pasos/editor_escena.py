@@ -6,9 +6,12 @@ from pasos import animaciones, avatar, parallax, transiciones
 
 
 def validar(datos, escena, resolucion):
-    if not isinstance(datos, dict) or set(datos) - {'animacion', 'avatar', 'parallax', 'transiciones', 'sonidos'}:
+    if not isinstance(datos, dict) or set(datos) - {'animacion', 'avatar', 'parallax', 'transiciones', 'sonidos', 'remotion'}:
         raise ValueError('opciones de escena desconocidas')
     limpio = {}
+    if 'remotion' in datos:
+        from pasos import remotion
+        limpio['remotion'] = remotion.validar_edicion(datos['remotion'], escena)
     duracion = float(escena.get('duracion') or (float(escena['t_out']) - float(escena['t_in'])))
     if 'animacion' in datos:
         limpio['animacion'] = animaciones.validar_edicion(datos['animacion'], escena)

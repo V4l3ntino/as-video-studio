@@ -444,13 +444,69 @@ En un vídeo ya generado, volver a activar una cartela recupera las escenas que
 tenían ese contenido planificado. Las animaciones del guion conservan su selección
 independiente dentro de la misma sección.
 
+### Taller de Remotion: plantillas React adicionales
+
+En **Imágenes → Plantillas Remotion**, el editor muestra tres columnas: la
+biblioteca de plantillas, el previsualizador con el timeline y el taller de código
+y propiedades. Incluye doce ejemplos editables, como Título Cinematográfico,
+Lower Third, Línea de Tiempo y gráficos. Este taller es adicional al catálogo de
+Motion animation.
+
+Instala su motor local con **Node >=22** desde la raíz del programa:
+
+```bash
+npm ci --prefix motores/remotion
+```
+
+El frontend principal no necesita build. Las dependencias de React/Remotion
+pertenecen únicamente al motor de `motores/remotion/`. Remotion reutiliza el
+navegador local del estudio; `ESTUDIO_REMOTION_BROWSER` permite elegir otro.
+El render se ejecuta en la máquina del servicio Python: si abres un servidor
+desde otro ordenador, renderiza ese servidor.
+
+1. Selecciona un ejemplo o pulsa **Nueva plantilla**.
+2. Introduce un componente JSX/TSX con **`export default`**. Están disponibles
+   `react` y `remotion`; los imports de ficheros propios y de otros paquetes
+   requieren ampliar el motor. Usa `useCurrentFrame`, `interpolate` o `spring`
+   para que el movimiento siga los fotogramas, y pasa los datos mediante props.
+3. Ajusta **Props**, duración, resolución y FPS. Puedes editar las propiedades
+   existentes o introducir un objeto JSON completo.
+4. **Compilar** prepara el reproductor; **Previsualizar** reproduce la composición
+   sobre la imagen de la escena. Los errores se muestran en el taller.
+5. **Guardar plantilla** conserva una versión reutilizable en la biblioteca.
+6. **Aplicar a la escena** o **Insertar en la línea de tiempo** prepara sus
+   fotogramas transparentes y añade un bloque en la pista **Remotion**.
+7. Ajusta los tiempos arrastrando el bloque o sus extremos. Tras cambiar su
+   intervalo, **Preparar previsualización** actualiza la muestra. Pulsa un bloque
+   para recuperar su código y props en el taller; aplicar de nuevo lo sustituye.
+8. **Guardar cambios** conserva los bloques del vídeo; **Montar el vídeo** los
+   compone con las capas actuales. **Parar Remotion** cancela un trabajo local.
+
+Las composiciones se incorporan sin audio propio: narración, música y efectos
+siguen usando sus pistas del editor. El recurso conserva el orden de los bloques,
+se pinta sobre las capas gráficas de la escena y debajo del avatar, antes de las
+transiciones. Conserva la proporción y el tamaño relativo de su composición al
+adaptarse al formato de la escena. El montaje prepara automáticamente los
+fotogramas que falten.
+
+La biblioteca vive junto a la carpeta de proyectos, en `plantillas_remotion/`, o
+en **`ESTUDIO_REMOTION`** si está definido. Cada vídeo guarda una instantánea
+inmutable del código utilizado dentro de `remotion/`: editar la biblioteca no
+cambia los vídeos anteriores. Esa carpeta viaja al duplicar o exportar el vídeo.
+Compilaciones y fotogramas se reutilizan por huella de contenido; guardar estos
+bloques solo afecta al render de las escenas correspondientes.
+
+Verificación aislada: `python pasos/prueba_remotion.py`; con `--real` comprueba
+el taller en Chromium, compila React, prepara PNG con transparencia y genera un
+clip real con el motor actual. Requiere Playwright, navegador y ffmpeg.
+
 ### Editar o crear una animación en una escena
 
 En **Imágenes** se abre directamente el **editor global del vídeo**. El panel
 izquierdo reúne **Imágenes**, **Animación**, **Sonidos**, **Efecto Parallax**,
 **Transición** y **Avatar**. A la derecha están el previsualizador y el timeline
-de todas las escenas consecutivas, con seis pistas: **Bloques**, **Audio**,
-**Animación**, **Sonidos**, **Avatar** y **Transición**.
+de todas las escenas consecutivas, con siete pistas: **Bloques**, **Audio**,
+**Remotion**, **Animación**, **Sonidos**, **Avatar** y **Transición**.
 
 Seleccionar una miniatura lleva el cursor a su escena; seleccionar un bloque
 del timeline abre su escena y la pestaña correspondiente. Puedes buscar un

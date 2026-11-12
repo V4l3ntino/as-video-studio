@@ -33,6 +33,7 @@ estado.roto.*
 despliegue/login/node_modules/
 despliegue/login/datos/
 node_modules/
+plantillas_remotion/
 .claude/
 animaciones/
 

@@ -5109,7 +5109,7 @@ def preparar_sonido_escena(pid: str, sid: str, datos: dict = Body(...)):
 @app.get("/api/proyectos/{pid}/escenas/{sid}/editor")
 def leer_editor_escena(pid: str, sid: str):
     """Borrador conjunto de las pistas de escena, sin modificar parámetros."""
-    from pasos import editor_escena, sonido, transiciones
+    from pasos import editor_escena, sonido, transiciones, remotion
     ctx = contexto(pid)
     plan = _plan_de_previsualizacion(ctx)
     escena = next((e for e in plan.get('escenas', []) if e['id'] == sid), None)
@@ -5124,10 +5124,13 @@ def leer_editor_escena(pid: str, sid: str):
     fuentes, actual = sonido.bloques_de_escena(plan['escenas'], cortes, params, sid, plan.get('semilla') or 0, proyecto=ctx.proyecto)
     desfase = float(escena['t_in']) - float(plan['escenas'][0]['t_in'])
     fuentes = [_fuente_sonido_editor(ctx, b, desfase) for b in fuentes]
+    bloques_remotion = remotion.bloques_de(params, escena)
     return dict(animacion=leer_animacion_escena(pid, sid), parallax=leer_parallax_escena(pid, sid),
                 sonidos=dict(fuentes=fuentes if params.get('sonido', True) else [], actual=actual),
                 avatar=leer_editor_avatar(pid, sid), enlace=transicion,
-                transiciones=editor_escena.transiciones_de(unidad, escena))
+                transiciones=editor_escena.transiciones_de(unidad, escena), remotion=bloques_remotion,
+                remotion_capas=remotion.capas_guardadas(ctx.proyecto, bloques_remotion,
+                    plan.get('resolucion') or [1920, 1080], params.get('fps', 30)))
 
 
 @app.put("/api/proyectos/{pid}/escenas/{sid}/editor")
@@ -5143,6 +5146,10 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
         enlace = cambios.pop('enlace', None)
         try:
             limpio = editor_escena.validar(cambios, escena, plan.get('resolucion') or [1920, 1080])
+            if 'remotion' in limpio:
+                from pasos import remotion
+                for bloque in limpio['remotion']['bloques']:
+                    remotion.resolver(ctx.proyecto, bloque['plantilla'])
             if 'sonidos' in limpio:
                 from pasos import sonido
                 for bloque in limpio['sonidos']['bloques']:
@@ -5200,6 +5207,102 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
             PASOS_MODULOS.medios.escribir_json(ctx.proyecto.ruta('avatar', 'previa-' + clave + '.json'),
                 {'seleccion': sorted(seleccion), 'clips': clips})
     return leer_previsualizacion(pid)
+
+
+@app.get("/api/remotion/plantillas")
+def plantillas_remotion():
+    """Biblioteca de componentes React reutilizables y estado del motor local."""
+    from pasos import remotion
+    return dict(plantillas=remotion.catalogo(raiz_proyectos()), disponible=remotion.disponible())
+
+
+@app.post("/api/remotion/plantillas", status_code=201)
+def guardar_plantilla_remotion(datos: dict = Body(...)):
+    """Guarda una versión inmutable de una plantilla Remotion en la biblioteca."""
+    from pasos import remotion
+    try:
+        return remotion.guardar(raiz_proyectos(), datos)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+
+
+@app.post("/api/proyectos/{pid}/remotion/compilar", status_code=202)
+def compilar_remotion(pid: str, datos: dict = Body(...)):
+    """Compila código React y prepara su Player sin modificar el montaje."""
+    from pasos import remotion
+    ctx = contexto(pid)
+    try:
+        plantilla = remotion.validar_plantilla(datos)
+        if not remotion.disponible():
+            raise ValueError('Instala el motor local: npm ci --prefix motores/remotion (Node >=22)')
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        tid = ctx.gestor.lanzar('remotion:compilar', lambda avisar: remotion.compilar(ctx.proyecto, plantilla, avisar))
+        _registrar_trabajo(tid, pid)
+    return {'trabajo_id': tid}
+
+
+@app.get("/api/proyectos/{pid}/remotion/plantillas/{referencia}")
+def leer_plantilla_remotion(pid: str, referencia: str):
+    """Recupera el código de la versión utilizada en un bloque de escena."""
+    from pasos import remotion
+    try:
+        return remotion.resolver(contexto(pid).proyecto, referencia)
+    except ValueError as exc:
+        raise ErrorApi(404, str(exc)) from exc
+
+
+@app.get("/api/proyectos/{pid}/remotion/compilados/{clave}/{fichero}")
+def recurso_remotion(pid: str, clave: str, fichero: str):
+    """Sirve el reproductor compilado aislado, nunca el código de la aplicación."""
+    ctx = contexto(pid)
+    if not re.fullmatch('[a-f0-9]{64}', clave) or fichero not in ('preview.html', 'preview.js'):
+        raise ErrorApi(404, 'recurso Remotion desconocido')
+    ruta = ctx.proyecto.ruta('remotion', 'compilados', clave, fichero)
+    if not os.path.isfile(ruta):
+        raise ErrorApi(404, 'compila la plantilla antes de previsualizarla')
+    cabeceras = {'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src * data:; connect-src 'none'", 'Cache-Control': 'no-cache'}
+    if fichero == 'preview.html':
+        # Un iframe sandbox tiene origen opaco: no depender de otra petición
+        # autenticada para su JS (las cookies SameSite pueden excluirla).
+        with open(ruta, encoding='utf-8') as fuente:
+            html = fuente.read()
+        with open(ctx.proyecto.ruta('remotion', 'compilados', clave, 'preview.js'), encoding='utf-8') as fuente:
+            codigo = fuente.read().replace('</', '<\\/')
+        return HTMLResponse(html.replace('<script src="preview.js"></script>', '<script>' + codigo + '</script>'), headers=cabeceras)
+    return FileResponse(ruta, headers=cabeceras)
+
+
+@app.post("/api/proyectos/{pid}/escenas/{sid}/remotion/preparar", status_code=202)
+def preparar_remotion(pid: str, sid: str, datos: dict = Body(...)):
+    """Renderiza los bloques del borrador en PNG transparentes, sin guardar params."""
+    from pasos import remotion
+    ctx = contexto(pid)
+    plan = _plan_de_previsualizacion(ctx)
+    escena = next((e for e in plan.get('escenas', []) if e['id'] == sid), None)
+    if escena is None:
+        raise ErrorApi(404, 'esa escena no está en el plan del vídeo')
+    try:
+        ficha = remotion.validar_edicion(datos, escena)
+        for b in ficha['bloques']:
+            remotion.resolver(ctx.proyecto, b['plantilla'])
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    def correr(avisar):
+        capas = [remotion.preparar(ctx.proyecto, b, plan.get('resolucion') or [1920, 1080],
+                                 (ctx.estado.params('render') or {}).get('fps', 30), avisar) for b in ficha['bloques']]
+        for capa in capas:
+            capa['fotogramas'] = [os.path.relpath(p, ctx.proyecto.raiz).replace('\\', '/') for p in capa['fotogramas']]
+        return {'capas': capas}
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        tid = ctx.gestor.lanzar('remotion:render', correr)
+        _registrar_trabajo(tid, pid)
+    return {'trabajo_id': tid}
 
 
 @app.get("/api/proyectos/{pid}/escenas/{sid}/animacion")

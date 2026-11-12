@@ -1227,11 +1227,17 @@ def _renderizar_flujo(tarea, navegador):
 
 def _capturar_con_avatar(tarea, navegador, numero, destino=None):
     fotogramas = tarea.get('fotogramas_avatar') or []
-    if not fotogramas:
+    capas_remotion = tarea.get('remotion') or []
+    if not fotogramas and not capas_remotion:
         return navegador.capturar(destino) if destino else navegador.capturar()
-    ficha = tarea['avatar']
-    png = avatar.superponer_png(navegador.capturar(), fotogramas[min(numero, len(fotogramas) - 1)],
-                               ficha['posicion'], ficha['presentacion'], numero / float(tarea['fps']))
+    png = navegador.capturar()
+    if capas_remotion:
+        from pasos import remotion
+        png = remotion.superponer(png, capas_remotion, numero / float(tarea['fps']))
+    if fotogramas:
+        ficha = tarea['avatar']
+        png = avatar.superponer_png(png, fotogramas[min(numero, len(fotogramas) - 1)],
+                                   ficha['posicion'], ficha['presentacion'], numero / float(tarea['fps']))
     if destino:
         with open(destino, 'wb') as fh:
             fh.write(png)
@@ -1257,10 +1263,14 @@ def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulo
             return fh.read()
     animada = animadas.get(sid) or {}
     medio = escena.get('medio_usuario') or escena.get('medio_biblioteca') or {}
+    from pasos import remotion
+    capas_remotion = [remotion.preparar(proyecto, b, salida, (params or {}).get('fps', 30))
+                      for b in remotion.bloques_de(params, escena)]
     return dict(escena=escena, mov=mov, hyper=hyper, capa=leer_svg('capa'),
                 capa_fija=leer_svg('capa_fija') if subtitulos and not animaciones.es_cartela_editor(animada.get('animacion')) else '',
                 capa_anim=animada.get('svg', ''), fondo_anim=animada.get('fondo'), precarga=animada.get('imagenes') or [],
                 video=proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else None,
+                remotion=capas_remotion,
                 avatar=dict(clip=clips_avatar[sid], posicion=avatar.posicion_de(params, escena, salida),
                             presentacion=avatar.presentacion_de(params, escena)) if (clips_avatar or {}).get(sid) else None)
 
@@ -1281,7 +1291,7 @@ def _componer_enlace_salida(tarea, navegador):
     destino = os.path.join(carpeta, 'primero.png')
     navegador.abrir(pagina)
     navegador.pintar(0)
-    captura = dict(fps=fps, avatar=fuente.get('avatar'))
+    captura = dict(fps=fps, avatar=fuente.get('avatar'), remotion=fuente.get('remotion'))
     if fuente.get('avatar'):
         captura['fotogramas_avatar'] = avatar.fotogramas(fuente['avatar']['clip'],
             os.path.join(carpeta, 'avatar'), 1, fps, tarea['resolucion'])
@@ -1767,6 +1777,9 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                 original if os.path.isfile(original) else hyper, seleccion_parallax[sid], fps)
             video = clips_parallax.generar(proyecto, pedido, latido=lambda: avisar(0.02, mensaje))
 
+        from pasos import remotion
+        capas_remotion = [remotion.preparar(proyecto, b, (ancho, alto), fps, avisar)
+                          for b in remotion.bloques_de(p, escena)]
         tareas.append({
             "id": sid, "escena": {"id": sid, "t_in": escena["t_in"],
                                   "t_out": escena["t_out"]},
@@ -1780,6 +1793,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             "precarga": (animadas.get(sid) or {}).get("imagenes") or [],
             "hyper": hyper, "frames": total, "fps": fps,
             "video": video,
+            "remotion": capas_remotion,
             "avatar": dict(clip=clips_avatar[sid], posicion=avatar.posicion_de(p, escena, (ancho, alto)),
                            presentacion=avatar.presentacion_de(p, escena)) if sid in clips_avatar else None,
             "resolucion": [ancho, alto], "calidad": p["calidad_video"],

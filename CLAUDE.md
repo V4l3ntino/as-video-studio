@@ -340,6 +340,28 @@ que nunca la fijaron, y regenerarlas se paga.
 
 ## Motion animation (`pasos/animaciones.py`)
 
+### Taller Remotion adicional (`pasos/remotion.py`, `motores/remotion/`)
+
+El taller es opcional y no modifica `animaciones.CATALOGO` ni el grafo. React vive
+en un Player dentro de un iframe sandbox, con una CSP propia que admite sus estilos.
+El servicio Python coordina procesos Node >=22 por JSON, con progreso, timeout y
+cancelación de su grupo de procesos. Instalar con `npm ci --prefix motores/remotion`.
+Los componentes son un solo TSX con export default e imports de React/Remotion.
+
+La biblioteca global vive en `ESTUDIO_REMOTION` o junto a proyectos, nunca como
+datos dentro de motores. Aplicar guarda una instantánea por hash en el proyecto,
+`remotion/plantillas/<hash>.json`; params de `render.unidades[escena:<sid>].remotion`
+solo guardan ancla, referencia inmutable, props e intervalo. No escribir params al
+abrir. Compilar/preparar son trabajos sin paso del grafo; los GET solo leen.
+El código y los props entran en la huella de caché junto a versión del motor,
+resolución, FPS y duración. Cambiar dependencias o el motor requiere cambiar VERSION.
+
+P8 prepara PNG RGBA y los superpone al reloj de cada escena antes del avatar y las
+transiciones, también para el primer fotograma del destino en enlaces de salida.
+Sin bloques, conserva el camino anterior de captura. La carpeta `remotion` viaja
+al duplicar/exportar. `pasos/prueba_remotion.py --real` comprueba el taller, la
+compilación, el canal alpha y un clip codificado; sin flag verifica contratos.
+
 La sección incluye también las diez cartelas de `cartelas.PLANTILLAS`, con GIF
 `anim_cartela-<id>.gif`. Su selección independiente es
 `montaje.plantillas_cartela` en estilos y `callouts.params.plantillas_cartela`
