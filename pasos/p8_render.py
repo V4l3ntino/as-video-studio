@@ -1248,8 +1248,8 @@ def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulo
                        clips_avatar=None, params=None, salida=(1920, 1080)):
     """Fuente del primer cuadro siguiente, sin esperar a otro lote ni generar recursos."""
     sid = escena['id']
-    mov = movimientos[sid]
-    hyper = mov['hyperframe']
+    mov = movimientos.get(sid) or {}
+    hyper = mov.get('hyperframe') or ''
     if not os.path.isabs(hyper):
         hyper = os.path.join(base, hyper)
     def leer_svg(campo):
@@ -1266,10 +1266,15 @@ def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulo
     from pasos import remotion
     capas_remotion = [remotion.preparar(proyecto, b, salida, (params or {}).get('fps', 30))
                       for b in remotion.bloques_de(params, escena)]
+    sustitucion = next((c['clip'] for c in capas_remotion if c.get('modo') == 'sustituir'), None)
+    capas_remotion = [c for c in capas_remotion if c.get('modo') != 'sustituir']
+    if sustitucion:
+        mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=list(salida))
+        hyper = os.path.join(os.path.dirname(sustitucion), 'fondo.png')
     return dict(escena=escena, mov=mov, hyper=hyper, capa=leer_svg('capa'),
                 capa_fija=leer_svg('capa_fija') if subtitulos and not animaciones.es_cartela_editor(animada.get('animacion')) else '',
                 capa_anim=animada.get('svg', ''), fondo_anim=animada.get('fondo'), precarga=animada.get('imagenes') or [],
-                video=proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else None,
+                video=sustitucion or (proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else None),
                 remotion=capas_remotion,
                 avatar=dict(clip=clips_avatar[sid], posicion=avatar.posicion_de(params, escena, salida),
                             presentacion=avatar.presentacion_de(params, escena)) if (clips_avatar or {}).get(sid) else None)
@@ -1734,7 +1739,15 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                                "frames": total, "origen": "conservado"}
             continue
 
+        from pasos import remotion
+        bloques_remotion = remotion.bloques_de(p, escena)
+        capas_remotion = [remotion.preparar(proyecto, b, (ancho, alto), fps, avisar)
+                          for b in bloques_remotion]
+        sustitucion = next((c['clip'] for c in capas_remotion if c.get('modo') == 'sustituir'), None)
         mov = movimientos.get(sid)
+        if sustitucion:
+            mov = dict(mov or {}, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1],
+                       hyperframe_px=[ancho, alto], hyperframe=os.path.join(os.path.dirname(sustitucion), 'fondo.png'))
         if not mov:
             raise RuntimeError(f"{sid}: el paso callouts no dejo movimiento")
         hyper = mov.get("hyperframe")
@@ -1744,7 +1757,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             raise RuntimeError(f"{sid}: falta el hyperframe {hyper}")
         capa = os.path.join(base_callouts, mov.get("capa") or "")
         svg = ""
-        if os.path.exists(capa):
+        if os.path.isfile(capa):
             with open(capa, "r", encoding="utf-8") as fh:
                 svg = fh.read()
         # LA CAPA QUIETA. Puede faltar --un movimiento.json de antes del 23-08 no
@@ -1767,7 +1780,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
 
         video = ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
                  if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None)
-        if sid in seleccion_parallax:
+        if sid in seleccion_parallax and not any(b.get('modo') == 'sustituir' and 'origen' not in b for b in bloques_remotion):
             from pasos import clips_parallax
             mensaje = f"{sid}: creando efecto parallax con DepthFlow"
             avisar(0.02, mensaje)
@@ -1777,9 +1790,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
                 original if os.path.isfile(original) else hyper, seleccion_parallax[sid], fps)
             video = clips_parallax.generar(proyecto, pedido, latido=lambda: avisar(0.02, mensaje))
 
-        from pasos import remotion
-        capas_remotion = [remotion.preparar(proyecto, b, (ancho, alto), fps, avisar)
-                          for b in remotion.bloques_de(p, escena)]
+        video = sustitucion or video
+        capas_remotion = [c for c in capas_remotion if c.get('modo') != 'sustituir']
         tareas.append({
             "id": sid, "escena": {"id": sid, "t_in": escena["t_in"],
                                   "t_out": escena["t_out"]},

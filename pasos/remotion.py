@@ -1,5 +1,7 @@
 """Plantillas Remotion independientes: contratos, biblioteca y recursos locales."""
 import copy
+import base64
+import mimetypes
 import hashlib
 import io
 import json
@@ -18,7 +20,7 @@ from nucleo.proyecto import escribir_json, leer_json
 from pasos import animaciones
 
 MOTOR = Path(__file__).resolve().parents[1] / 'motores' / 'remotion'
-VERSION = '2-remotion-4.0.484'
+VERSION = '3-remotion-4.0.484'
 _LOCK = threading.RLock()
 
 
@@ -51,7 +53,28 @@ def validar_plantilla(datos):
     if len(crudo) > 100_000:
         raise ValueError('Props supera 100.000 caracteres')
     limpio['props'] = copy.deepcopy(props)
+    if 'modo' in datos:
+        if datos['modo'] not in ('superponer', 'sustituir'):
+            raise ValueError('modo de aplicación Remotion no válido')
+        limpio['modo'] = datos['modo']
     return limpio
+
+
+def props_recursos(proyecto, props):
+    """Referencias portables del proyecto; el navegador recibe imágenes autocontenidas."""
+    if isinstance(props, dict):
+        return {k: props_recursos(proyecto, v) for k, v in props.items()}
+    if isinstance(props, list):
+        return [props_recursos(proyecto, v) for v in props]
+    if isinstance(props, str) and props.startswith('proyecto://'):
+        raiz = Path(proyecto.raiz).resolve()
+        ruta = (raiz / props[len('proyecto://'):].replace('\\', '/')).resolve()
+        if not ruta.is_relative_to(raiz) or ruta.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.gif') or not ruta.is_file():
+            raise ValueError('el recurso Remotion debe ser una imagen existente del proyecto')
+        if ruta.stat().st_size > 20 * 1024 * 1024:
+            raise ValueError('la imagen Remotion supera 20 MiB')
+        return 'data:' + mimetypes.guess_type(ruta.name)[0] + ';base64,' + base64.b64encode(ruta.read_bytes()).decode()
+    return props
 
 
 def biblioteca(raiz_proyectos):
@@ -73,9 +96,11 @@ def catalogo(raiz_proyectos):
              ('cifra', 'Cifra Destacada', '72 %', 'Del territorio explorado'),
              ('remate', 'Cierre Documental', 'La historia continúa', 'AS Video Studio')]
     ejemplos = [dict(id='ejemplo-' + tipo, tipo=tipo, nombre=nombre,
-                     descripcion='Título principal animado con tipografía cinematográfica, ideal para documentales y piezas narrativas.' if tipo == 'titulo' else nombre + ' reutilizable. Personaliza el código y sus propiedades.',
+                     descripcion=('Tres fotografías animadas. Elige las imágenes del proyecto o sube tus fotos desde Props.' if tipo == 'galeria' else
+                                  'Título principal animado con tipografía cinematográfica, ideal para documentales y piezas narrativas.' if tipo == 'titulo' else nombre + ' reutilizable. Personaliza el código y sus propiedades.'),
                      codigo=codigo.replace('__VARIANTE__', tipo), ancho=1920, alto=1080, fps=30, duracion=5,
-                     props=(dict(valor=72, color='#c4cfec') if tipo == 'circular' else
+                     props=(dict(imagen1='', imagen2='', imagen3='') if tipo == 'galeria' else
+                            dict(valor=72, color='#c4cfec') if tipo == 'circular' else
                             dict(valores=[25, 40, 58, 75, 96], color='#769ec7') if tipo == 'barras' else
                             dict(titulo=titulo, subtitulo=subtitulo, autor='Un documental de AS Video Studio')))
                 for tipo, nombre, titulo, subtitulo in tipos]
@@ -162,7 +187,7 @@ def compilar(proyecto, datos, avisar=None):
         # Instantánea independiente del nombre, los props y de la biblioteca global.
         referencia = huella(plantilla)
         escribir_json(proyecto.ruta('remotion', 'plantillas', referencia + '.json'), plantilla)
-        return dict(plantilla=referencia, compilado=clave, **plantilla)
+        return dict(plantilla=referencia, compilado=clave, **dict(plantilla, props=props_recursos(proyecto, plantilla['props'])))
     finally:
         _LOCK.release()
 
@@ -185,8 +210,10 @@ def validar_edicion(datos, escena):
         raise ValueError('utiliza como máximo 16 bloques Remotion por escena')
     limpios = []
     for b in bloques:
-        if not isinstance(b, dict) or set(b) != {'plantilla', 'nombre', 'props', 'inicio', 'fin'}:
+        if not isinstance(b, dict) or set(b) - {'plantilla', 'nombre', 'props', 'inicio', 'fin', 'modo', 'origen'} or not {'plantilla', 'nombre', 'props', 'inicio', 'fin'} <= set(b):
             raise ValueError('bloque Remotion no válido')
+        if b.get('modo', 'superponer') not in ('superponer', 'sustituir'):
+            raise ValueError('modo de aplicación Remotion no válido')
         if not isinstance(b['plantilla'], str) or not re.fullmatch('[a-f0-9]{64}', b['plantilla']):
             raise ValueError('elige una versión de plantilla guardada')
         if not isinstance(b['nombre'], str) or len(b['nombre']) > 120 or not isinstance(b['props'], dict):
@@ -194,23 +221,58 @@ def validar_edicion(datos, escena):
         for k in ('inicio', 'fin'):
             if isinstance(b[k], bool) or not isinstance(b[k], (int, float)) or not math.isfinite(b[k]):
                 raise ValueError('los tiempos deben ser números finitos')
-        if not 0 <= b['inicio'] < b['fin'] <= duracion + 1e-6 or b['fin'] - b['inicio'] < .1 - 1e-6:
-            raise ValueError('el bloque Remotion debe quedar dentro de la escena y durar al menos 0,1 s')
+        libre = 'origen' in b
+        if libre and (isinstance(b['origen'], bool) or not isinstance(b['origen'], (int, float)) or not math.isfinite(b['origen']) or b['origen'] != float(escena['t_in'])):
+            raise ValueError('el origen del bloque Remotion no corresponde al timeline')
+        minimo = -b['origen'] if libre else 0
+        maximo = float(escena.get('timeline_fin', escena['t_out'])) - b['origen'] if libre else duracion
+        if not minimo <= b['inicio'] < b['fin'] <= maximo + 1e-6 or b['fin'] - b['inicio'] < .1 - 1e-6 or (libre and b['fin'] - b['inicio'] > 120 + 1e-6):
+            raise ValueError('el bloque Remotion debe quedar dentro del timeline y durar entre 0,1 y 120 s' if libre else 'el bloque Remotion debe quedar dentro de la escena y durar al menos 0,1 s')
+        if not libre and b.get('modo') == 'sustituir' and (b['inicio'] != 0 or abs(b['fin'] - duracion) > 1e-6):
+            raise ValueError('la composición completa debe cubrir toda la escena')
         validar_plantilla(dict(codigo='export default () => null', props=b['props']))
         limpios.append(copy.deepcopy(b))
+    if sum(b.get('modo') == 'sustituir' and 'origen' not in b for b in limpios) > 1:
+        raise ValueError('solo puede haber una sustitución Remotion por escena')
     return dict(ancla=datos['ancla'], bloques=limpios)
 
 
-def bloques_de(params, escena):
+def bloques_de(params, escena, propios=False):
     ficha = ((params or {}).get('unidades') or {}).get('escena:' + escena['id'], {}).get('remotion')
-    return validar_edicion(ficha, escena)['bloques'] if ficha and ficha.get('ancla') == animaciones.ancla_de(escena) else []
+    locales = []
+    if ficha:
+        # Los bloques libres conservan su reloj absoluto aunque cambie la narración.
+        locales = [copy.deepcopy(b) for b in ficha['bloques'] if 'origen' in b or ficha.get('ancla') == animaciones.ancla_de(escena)]
+    if propios:
+        return [dict(b, origen=float(escena['t_in']),
+                     inicio=b['inicio'] + b['origen'] - float(escena['t_in']),
+                     fin=b['fin'] + b['origen'] - float(escena['t_in'])) if 'origen' in b else b for b in locales]
+    resultado = [b for b in locales if 'origen' not in b]
+    for _, unidad in sorted(((params or {}).get('unidades') or {}).items()):
+        for bloque in (unidad.get('remotion') or {}).get('bloques', []):
+            if 'origen' not in bloque:
+                continue
+            inicio = bloque['origen'] + bloque['inicio'] - float(escena['t_in'])
+            fin = bloque['origen'] + bloque['fin'] - float(escena['t_in'])
+            if inicio < float(escena['t_out']) - float(escena['t_in']) and fin > 0:
+                resultado.append(dict(bloque, inicio=inicio, fin=fin))
+    return resultado
+
+
+def dependencias(params, escenas):
+    """Sella también las escenas atravesadas, incluida la retirada de un bloque."""
+    return {e['id']: [b for b in bloques_de(params, e) if 'origen' in b] for e in escenas}
 
 
 def pedido_de(proyecto, bloque, resolucion, fps):
     plantilla = resolver(proyecto, bloque['plantilla'])
-    plantilla.update(props=bloque['props'], fps=int(fps),
-                     duracion=bloque['fin'] - bloque['inicio'])
-    clave = huella(dict(plantilla=plantilla, salida=list(resolucion), motor=VERSION))
+    plantilla['props'] = props_recursos(proyecto, bloque['props'])
+    if bloque.get('modo') != 'sustituir' or 'origen' in bloque:
+        plantilla.update(fps=int(fps), duracion=round(bloque['fin'] - bloque['inicio'], 9))
+    modo = bloque.get('modo', 'superponer')
+    if modo == 'sustituir' and 'origen' in bloque:
+        modo = 'sustituir-timeline'
+    clave = huella(dict(plantilla=plantilla, salida=list(resolucion), motor=VERSION, modo=modo))
     carpeta = Path(proyecto.ruta('remotion', 'renders', clave))
     return plantilla, carpeta
 
@@ -220,8 +282,12 @@ def capas_guardadas(proyecto, bloques, resolucion, fps):
     for bloque in bloques:
         _, carpeta = pedido_de(proyecto, bloque, resolucion, fps)
         ficha = leer_json(str(carpeta / 'listo.json'))
+        if bloque.get('modo') == 'sustituir' and 'origen' not in bloque:
+            if ficha and (carpeta / 'video.mp4').is_file():
+                capas.append(dict(modo='sustituir', inicio=0, fin=bloque['fin'], clip=os.path.relpath(carpeta / 'video.mp4', proyecto.raiz).replace('\\', '/')))
+            continue
         if ficha and all((carpeta / n).is_file() for n in ficha['frames']):
-            capas.append(dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps,
+            capas.append(dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, libre='origen' in bloque, opaca=bloque.get('modo') == 'sustituir',
                               fotogramas=[os.path.relpath(carpeta / n, proyecto.raiz).replace('\\', '/') for n in ficha['frames']]))
     return capas
 
@@ -232,8 +298,20 @@ def preparar(proyecto, bloque, resolucion, fps, avisar=None):
         if avisar:
             avisar(0, 'Esperando al motor Remotion')
     try:
+        if bloque.get('modo') == 'sustituir' and 'origen' not in bloque:
+            if not (carpeta / 'listo.json').is_file() or not (carpeta / 'video.mp4').is_file():
+                compilado = compilar(proyecto, resolver(proyecto, bloque['plantilla']), avisar)
+                _correr(dict(accion='render', formato='mp4', carpeta=str(carpeta), plantilla=plantilla,
+                             compilado=proyecto.ruta('remotion', 'compilados', compilado['compilado'])), avisar)
+                if not (carpeta / 'video.mp4').is_file():
+                    raise ValueError('Remotion no entregó el vídeo MP4')
+                escribir_json(str(carpeta / 'listo.json'), {'video': 'video.mp4'})
+            if not (carpeta / 'fondo.png').is_file():
+                from PIL import Image
+                Image.new('RGB', tuple(resolucion), 'black').save(carpeta / 'fondo.png')
+            return dict(modo='sustituir', inicio=0, fin=bloque['fin'], clip=str(carpeta / 'video.mp4'))
         if not (carpeta / 'listo.json').is_file():
-            compilado = compilar(proyecto, plantilla, avisar)
+            compilado = compilar(proyecto, resolver(proyecto, bloque['plantilla']), avisar)
             _correr(dict(accion='render', carpeta=str(carpeta), plantilla=plantilla,
                          escala=min(resolucion[0] / plantilla['ancho'], resolucion[1] / plantilla['alto']),
                          compilado=proyecto.ruta('remotion', 'compilados', compilado['compilado'])), avisar)
@@ -245,7 +323,7 @@ def preparar(proyecto, bloque, resolucion, fps, avisar=None):
         marcos = [str(carpeta / n) for n in nombres]
         if not all(Path(p).is_file() for p in marcos):
             raise ValueError('faltan fotogramas del render Remotion; elimina su caché para prepararlo de nuevo')
-        return dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, fotogramas=marcos)
+        return dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, fotogramas=marcos, libre='origen' in bloque, opaca=bloque.get('modo') == 'sustituir')
     finally:
         _LOCK.release()
 
@@ -258,6 +336,8 @@ def superponer(png, capas, tiempo):
             continue
         if base is None:
             base = Image.open(io.BytesIO(png)).convert('RGBA')
+        if capa.get('opaca'):
+            base.paste((0, 0, 0, 255), (0, 0, base.width, base.height))
         numero = min(len(capa['fotogramas']) - 1, max(0, int((tiempo - capa['inicio']) * capa['fps'] + 1e-7)))
         with Image.open(capa['fotogramas'][numero]) as imagen:
             imagen = ImageOps.contain(imagen.convert('RGBA'), base.size, Image.Resampling.LANCZOS)

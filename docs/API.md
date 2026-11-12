@@ -50,7 +50,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/medio` | Sustituye un plano por imagen o clip propio de 2 a 15 s; recorta el exceso. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Configuración efectiva del parallax de una imagen, sin modificar el proyecto. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
-| `POST` | `/api/proyectos/{pid}/escenas/{sid}/remotion/preparar` | Renderiza los bloques del borrador en PNG transparentes, sin guardar params. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/remotion/preparar` | Prepara superposiciones PNG o escenas completas MP4, sin guardar params. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/sonidos` | Prepara un efecto seleccionado; el bloque solo se persiste al guardar la escena. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Guarda el efecto y su intervalo opcional; actualiza los clips afectados y el montaje. |

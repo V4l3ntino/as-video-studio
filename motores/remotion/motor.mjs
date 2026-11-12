@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {bundle} from '@remotion/bundler';
-import {renderFrames, selectComposition} from '@remotion/renderer';
+import {renderFrames, renderMedia, selectComposition} from '@remotion/renderer';
 import {build} from 'esbuild';
 
 const raiz = path.dirname(fileURLToPath(import.meta.url));
@@ -53,6 +53,17 @@ createRoot(document.getElementById('root')).render(<Previa/>);`);
   } else if (accion === 'render') {
     const serveUrl = path.join(pedido.compilado, 'render');
     const composition = await selectComposition({serveUrl, id: 'plantilla', inputProps: plantilla.props, browserExecutable: pedido.navegador});
+    if (pedido.formato === 'mp4') {
+      const temporal = path.join(carpeta, 'parcial.mp4');
+      await renderMedia({serveUrl, composition: {...composition, width: plantilla.ancho, height: plantilla.alto,
+        fps: plantilla.fps, durationInFrames: Math.max(1, Math.round(plantilla.duracion * plantilla.fps))},
+        inputProps: plantilla.props, codec: 'h264', pixelFormat: 'yuv420p', muted: true,
+        outputLocation: temporal, browserExecutable: pedido.navegador, concurrency: 2,
+        onProgress: ({progress}) => informar(progress, 'Renderizando vídeo Remotion')});
+      await fs.rename(temporal, path.join(carpeta, 'video.mp4'));
+      informar(1, 'Listo');
+      return;
+    }
     await renderFrames({serveUrl, composition: {...composition, width: plantilla.ancho,
       height: plantilla.alto, fps: plantilla.fps,
       durationInFrames: Math.max(1, Math.round(plantilla.duracion * plantilla.fps))},

@@ -1,11 +1,11 @@
 import React from 'react';
-import {AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Img, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 
 // Edita este componente o pega otro con «export default».
-// Props: título, subtítulo, autor, color y valores numéricos.
+// La galería recibe imagen1, imagen2 e imagen3; las demás variantes usan textos o datos.
 export default function Plantilla({titulo = 'La Cordillera', subtitulo = 'Territorio, agua y memoria',
   autor = 'Un documental de AS Video Studio', color = '#c4cfec', valor = 72,
-  valores = [25, 40, 58, 75, 96], variante = '__VARIANTE__'}) {
+  valores = [25, 40, 58, 75, 96], imagen1 = '', imagen2 = '', imagen3 = '', variante = '__VARIANTE__'}) {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
   const entrada = spring({frame, fps, config: {damping: 24}});
@@ -29,7 +29,9 @@ export default function Plantilla({titulo = 'La Cordillera', subtitulo = 'Territ
     <path d="M50 80L170 30 250 80 215 150 150 140 100 200 80 130ZM230 210L290 180 330 240 280 365 245 300ZM360 65L440 40 500 90 580 40 740 90 710 170 600 190 540 150 500 240 420 180 390 110ZM430 180L490 210 460 330 400 260ZM650 280L740 270 760 330 680 345Z" fill={color} opacity=".6"/>
     <circle cx="440" cy="100" r={10 + entrada * 10} fill="#819aff"/><path d="M180 100Q300 -10 440 100" stroke={color} strokeWidth="3" fill="none" strokeDasharray={`${500 * entrada} 500`}/></svg>;
   else if (variante === 'galeria') contenido = <div style={{display: 'flex', gap: 20, transform: `scale(${.8 + entrada * .2})`}}>
-    {[0, 1, 2].map(i => <div key={i} style={{width: 300, height: 340, background: `linear-gradient(${120 + i * 30}deg, #637789, #192b32)`, border: '8px solid #ddd', transform: `rotate(${(i - 1) * 5}deg)`}}/>)}</div>;
+    {[imagen1, imagen2, imagen3].map((src, i) => <div key={i} style={{width: 300, height: 340, overflow: 'hidden', background: `linear-gradient(${120 + i * 30}deg, #637789, #192b32)`, border: '8px solid #ddd', transform: `rotate(${(i - 1) * 5}deg)`}}>
+      {src ? <Img src={src} style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : <div style={{display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', fontSize: 28}}>Foto {i + 1}</div>}
+    </div>)}</div>;
   else contenido = <div style={{textAlign: 'center', transform: `translateY(${(1 - entrada) * 30}px)`}}>
     <div style={{fontSize: 20, letterSpacing: 10, textTransform: 'uppercase'}}>{autor}</div>
     <h1 style={{...tituloEstilo, fontFamily: variante === 'titulo' ? 'Georgia, serif' : 'Arial',

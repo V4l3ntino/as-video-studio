@@ -362,6 +362,42 @@ Sin bloques, conserva el camino anterior de captura. La carpeta `remotion` viaja
 al duplicar/exportar. `pasos/prueba_remotion.py --real` comprueba el taller, la
 compilación, el canal alpha y un clip codificado; sin flag verifica contratos.
 
+Los bloques Remotion admiten `modo: superponer|sustituir`; ausencia mantiene la
+superposición histórica. En el formato anterior, una sustitución es única y cubre toda la escena, mientras
+la instantánea de plantilla conserva resolución, FPS y duración propios del MP4.
+El motor usa `renderMedia` con H.264 sin audio y publica la caché solo al terminar.
+P8 lo decodifica como fondo con ventana completa, antes de las capas independientes,
+sin generar parallax ni requerir el hyperframe original. Nunca pases ese bloque a
+`superponer`: la previa y p8 separan clips y capas explícitamente. Eliminarlo restaura
+el medio anterior. Props puede referenciar imágenes con `proyecto://ruta`: se validan
+dentro del proyecto y se resuelven como data URI para Player/render; no persistas
+esas URI en params ni instantáneas. Los contenidos entran en la huella de caché.
+
+Los nuevos bloques incluyen `origen` (segundo absoluto de la escena que conserva
+su borrador), con `inicio`/`fin` relativos a ese origen, que admiten valores negativos
+y sobrepasar el corte. Su intervalo absoluto es libre dentro del vídeo (0,1–120 s).
+`remotion.bloques_de` proyecta todos los bloques libres sobre cada escena sin
+recortar su intervalo: el inicio negativo conserva el reloj y la misma caché de
+fotogramas. `propios=True` devuelve solo los editables de ese controlador.
+Guardar recalcula `remotion_timeline` en las unidades atravesadas, también al
+mover o eliminar, para invalidar sus clips sin tocar voz/assets/callouts. Los
+bloques libres de sustitución usan fotogramas con fondo negro durante su intervalo;
+los antiguos sin `origen` siguen usando el MP4 de escena. El editor comparte las
+capas preparadas entre controladores y dibuja bloques continuos entre columnas.
+`capasActualesRemotion` reutiliza cada recurso por plantilla, props, modo y duración,
+sin incluir inicio/fin/origen en su identidad: mover un bloque retima su capa sin
+invalidar los PNG ni ocultar otros bloques. La ficha local guardada conserva esas
+capas retimadas. El taller empieza contraído y su botón controla un estado del editor
+global; seleccionar plantillas o bloques no cambia ese estado.
+No hay panel de intervalos/eliminación de Remotion: los extremos del bloque
+retiman y preparan automáticamente la muestra al soltar. La papelera está en la
+cabecera derecha del timeline y comprueba coordenadas del puntero capturado;
+solo `pointerup` sobre ella elimina, nunca `pointercancel`/`lostpointercapture`.
+Cancelar restaura el borrador previo y la eliminación se puede deshacer. Biblioteca
+y taller comparten el texto de progreso y errores; Insertar lo muestra con el taller
+contraído. `remotion_previa` conserva firma y capas preparadas en la caché local,
+también tras redimensionar sin guardar.
+
 La sección incluye también las diez cartelas de `cartelas.PLANTILLAS`, con GIF
 `anim_cartela-<id>.gif`. Su selección independiente es
 `montaje.plantillas_cartela` en estilos y `callouts.params.plantillas_cartela`

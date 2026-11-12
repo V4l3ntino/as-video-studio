@@ -2759,6 +2759,16 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 }
 .escena-editor { width: min(1080px, calc(100vw - 48px)); background: linear-gradient(135deg, #151922, #0e1118); box-shadow: 0 24px 100px #0009; }
 /* Taller Remotion: biblioteca / lienzo y timeline / código y props. */
+.remotion-modos, .remotion-salida { margin: 0 12px 12px; border-top: 1px solid #303946; padding-top: 10px; }
+.remotion-modos h4, .remotion-salida h4 { margin: 0 0 10px; font-size: 12px; }
+.remotion-modo-opciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.remotion-modo { text-align: left; background: #191f29; color: #dfe3ee; border: 1px solid #354052; border-radius: 7px; padding: 10px; }
+.remotion-modo b { display: block; font-size: 11px; }
+.remotion-modo small { display: block; margin-top: 8px; font-size: 10px; line-height: 1.5; color: #aab9d4; }
+.remotion-modo[aria-pressed="true"] { border-color: #a4b0ff; background: #252c46; box-shadow: inset 0 0 0 1px #8192ff; }
+.remotion-salida[hidden] { display: none; }
+.remotion-salida > button { width: 100%; }
+.remotion-trabajando .remotion-modos, .remotion-trabajando .remotion-salida { pointer-events: none; opacity: .65; }
 .editor-global.con-remotion { grid-template-columns: minmax(250px, 26%) minmax(320px, 1fr) minmax(310px, 24%); gap: 16px 20px; background: #0d1117; }
 .editor-global.con-remotion .editor-global-panel { padding: 10px; grid-row: 3 / 6; }
 .editor-global.con-remotion .editor-global-acciones { flex-direction: row; align-items: center; }
@@ -2793,6 +2803,13 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-props { border: 1px solid #303946; border-radius: 7px; margin: 0 12px 12px; overflow: hidden; }
 .remotion-props h4 { padding: 11px 13px; margin: 0; border-bottom: 1px solid #303946; background: #191f2a; font-size: 12px; }
 .remotion-props-campos { padding: 9px 13px; max-height: 260px; overflow: auto; }
+.remotion-props-campos:has(> .remotion-imagen-prop) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 360px; }
+.remotion-props-campos:has(> .remotion-imagen-prop) > .remotion-prop, .remotion-props-campos:has(> .remotion-imagen-prop) > details { grid-column: 1 / -1; }
+.remotion-imagen-prop { border: 1px solid #303946; border-radius: 5px; padding: 7px; min-width: 0; }
+.remotion-imagen-prop .remotion-prop { display: flex; flex-direction: column; align-items: stretch; }
+.remotion-imagen-prop > button { width: 100%; padding: 7px 3px; }
+.remotion-imagen-prop select { min-width: 0; width: 100%; background: #131923; color: #ecedf4; border: 1px solid #354052; border-radius: 5px; padding: 7px; font-size: 11px; }
+.remotion-foto-mini { display: block; width: 100%; height: 64px; object-fit: cover; border: 1px solid #354052; border-radius: 5px; margin: 7px 0; box-sizing: border-box; }
 .remotion-prop { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 8px; margin-bottom: 7px; font-size: 11px; color: #bfc7d5; }
 .remotion-taller input, .remotion-taller textarea:not(.remotion-codigo) { box-sizing: border-box; min-width: 0; width: 100%; background: #131923; color: #ecedf4; border: 1px solid #354052; border-radius: 5px; padding: 7px 9px; font-size: 11px; }
 .remotion-taller details { margin: 10px 0; font-size: 11px; }
@@ -2805,6 +2822,11 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-parar { display: none; margin: 6px 12px; }.remotion-trabajando .remotion-parar { display: block; }
 .remotion-trabajando .remotion-acciones, .remotion-trabajando .remotion-catalogo, .remotion-trabajando .remotion-props-campos, .remotion-trabajando .remotion-editor-codigo { pointer-events: none; opacity: .65; }
 .remotion-biblioteca-cab { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #29313e; border-bottom: 1px solid #29313e; padding: 14px 4px; font-size: 12px; }
+.remotion-desplegar { width: 100%; margin-top: 10px; text-align: left; }
+.timeline-papelera { display: grid; place-items: center; flex: 0 0 36px; height: 36px; margin-left: 6px; border: 1px solid #515b6d; border-radius: 6px; color: #aeb8ca; font-size: 21px; }
+.timeline-papelera.disponible { border-color: #d58a8a; color: #f2b1b1; background: #33232a; }
+.timeline-papelera.encima { border-color: #ff8b8b; background: #803640; color: white; box-shadow: 0 0 0 3px #ff8b8b44; }
+.remotion-estado-biblioteca { padding: 6px 0; }
 .remotion-catalogo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 12px 0; }
 .remotion-tarjeta { padding: 0; min-width: 0; overflow: hidden; border: 1px solid #080c12; border-radius: 7px; background: #171e27; color: #dbe1ed; }
 .remotion-tarjeta[aria-pressed="true"] { border-color: #879aff; box-shadow: 0 0 0 1px #879aff; }
@@ -2830,10 +2852,11 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-capas { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .remotion-capas img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .remotion-ajustes { padding: 12px; }
-.remotion-bloques-escena { border-top: 1px solid #303946; margin-top: 12px; }
-.remotion-bloque-edicion { padding: 10px 0; border-bottom: 1px solid #303946; display: grid; gap: 7px; }
-.remotion-bloque-edicion .campo { margin: 0; font-size: 11px; }
 .anim-timeline-pista.remotion .anim-timeline-bloque { background: #594589; border-color: #9b84d2; }
+.anim-timeline-pista.remotion .remotion-completa { background: #344e75; border-color: #8bb7ed; }
+.editor-global .anim-timeline-pista.remotion { overflow: visible; }
+.editor-global .anim-timeline-pista.remotion .anim-timeline-bloque { z-index: 4; }
+.remotion-capas img.remotion-opaca { background: black; }
 @media (min-width: 1500px) { .editor-global.con-remotion { grid-template-columns: minmax(300px, 26%) minmax(400px, 1fr) minmax(340px, 24%); }.remotion-editor-codigo { height: 260px; flex-basis: 260px; } }
 @media (max-width: 1100px) { .editor-global.con-remotion { grid-template-columns: minmax(230px, 32%) minmax(0, 1fr); }.editor-global.con-remotion .remotion-taller { grid-column: 1 / -1; grid-row: 6; }.editor-global.con-remotion .editor-global-estados { grid-row: 7; }.editor-global.con-remotion .editor-global-lista-notas { grid-row: 8; } }
 @media (max-width: 700px) { .editor-global.con-remotion { display: block; }.remotion-taller { margin-top: 12px; }.editor-global.con-remotion .escena-editor-panel { max-height: 50vh; }.remotion-catalogo { grid-template-columns: repeat(3, minmax(0, 1fr)); }.remotion-editor-codigo { height: 280px; flex-basis: 280px; } }

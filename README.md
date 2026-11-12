@@ -448,7 +448,9 @@ independiente dentro de la misma sección.
 
 En **Imágenes → Plantillas Remotion**, el editor muestra tres columnas: la
 biblioteca de plantillas, el previsualizador con el timeline y el taller de código
-y propiedades. Incluye doce ejemplos editables, como Título Cinematográfico,
+y propiedades. El taller empieza contraído: pulsa **Taller de Remotion** para
+desplegarlo o contraerlo. Seleccionar plantillas o bloques no lo abre automáticamente.
+Incluye doce ejemplos editables, como Título Cinematográfico,
 Lower Third, Línea de Tiempo y gráficos. Este taller es adicional al catálogo de
 Motion animation.
 
@@ -475,20 +477,65 @@ desde otro ordenador, renderiza ese servidor.
    para que el movimiento siga los fotogramas, y pasa los datos mediante props.
 3. Ajusta **Props**, duración, resolución y FPS. Puedes editar las propiedades
    existentes o introducir un objeto JSON completo.
-4. **Compilar** prepara el reproductor; **Previsualizar** reproduce la composición
-   sobre la imagen de la escena. Los errores se muestran en el taller.
+4. Elige **Modo de aplicación**, debajo del código: **Superponer animación**
+   añade una capa transparente; **Sustituir contenido visual** crea
+   una composición completa, sin necesitar una imagen de fondo.
+   **Compilar** prepara el reproductor y **Previsualizar** reproduce el componente.
+   Los errores se muestran en el taller.
 5. **Guardar plantilla** conserva una versión reutilizable en la biblioteca.
-6. **Aplicar a la escena** o **Insertar en la línea de tiempo** prepara sus
-   fotogramas transparentes y añade un bloque en la pista **Remotion**.
-7. Ajusta los tiempos arrastrando el bloque o sus extremos. Tras cambiar su
-   intervalo, **Preparar previsualización** actualiza la muestra. Pulsa un bloque
+6. **Aplicar al timeline** o **Insertar en la línea de tiempo** prepara sus
+     fotogramas y añade un bloque libre en la pista **Remotion**, desde el cursor.
+     Conserva la duración de la plantilla hasta el final del vídeo: puede atravesar
+     varias escenas sin cortarse ni reiniciar su animación.
+     El progreso, por ejemplo **Renderizando Remotion · 53 %**, aparece también
+     junto a Insertar, aunque el taller esté contraído.
+7. Ajusta los tiempos arrastrando el bloque o sus extremos. Moverlo conserva la
+   previsualización y adapta su reloj al nuevo inicio, sin volver a renderizar.
+   Al cambiar su duración desde los extremos, la muestra se prepara automáticamente.
+   Pulsa un bloque
    para recuperar su código y props en el taller; aplicar de nuevo lo sustituye.
 8. **Guardar cambios** conserva los bloques del vídeo; **Montar el vídeo** los
-   compone con las capas actuales. **Parar Remotion** cancela un trabajo local.
+     compone con las capas actuales. **Parar Remotion** cancela un trabajo local.
+
+Para eliminar un bloque, arrástralo a la **papelera de la esquina superior derecha
+del timeline** y suéltalo cuando se ilumine. **Deshacer** permite recuperarlo;
+**Guardar cambios** conserva la eliminación. Los tiempos se ajustan directamente
+en la pista, sin un panel adicional de bloques.
+
+En el modo de sustitución, **Salida y renderizado** parte de la resolución y FPS
+del proyecto y conserva la duración de la plantilla. Puedes ajustar ancho, alto, FPS y
+duración, y pulsar **Renderizar vídeo (MP4)**. El porcentaje y **Parar Remotion**
+permiten seguir y cancelar el trabajo. El MP4 queda guardado en `remotion/renders/`
+del proyecto. **Aplicar al timeline** prepara los fotogramas de la animación y la
+incorpora al borrador; **Guardar cambios** la conserva en el montaje.
+
+Los bloques azules de **Sustitución** y los morados de **Superposición** tienen
+intervalos ajustables en el timeline completo. Arrástralos a cualquier posición,
+incluso a escenas anteriores o posteriores, y ajusta la duración desde sus extremos.
+Una sustitución reemplaza la imagen durante su intervalo;
+fuera de él reaparece el contenido original. Las sustituciones guardadas con el
+formato anterior conservan su MP4 de escena hasta que edites su intervalo.
+Seleccionar el bloque recupera código, propiedades y modo.
+Eliminarlo recupera el contenido visual anterior, sin borrar imágenes ni vídeos.
+La animación sigue el reloj de narración y termina al alcanzar el final de su
+bloque. Cambiar código, props o salida crea otro recurso por
+huella al renderizar/aplicar; el montaje prepara automáticamente los recursos pendientes.
+
+Para usar imágenes existentes, introduce en Props referencias relativas como
+`{"imagen":"proyecto://pasos/assets/v1/escenas/S001.png"}` y muestra esa propiedad
+con `<Img src={imagen} />` (importa `Img` desde `remotion`). Se admiten PNG, JPEG,
+WebP y GIF de hasta 20 MiB por imagen, también en listas y objetos de props.
+La previa y el render reciben los mismos recursos; sus contenidos participan en
+la caché. Las plantillas guardan también el modo elegido para reutilizarlo.
+
+**Galería Animada** recibe tres imágenes (`imagen1`, `imagen2`, `imagen3`). En
+**Props**, cada **Foto** permite elegir una imagen del proyecto o subir un PNG,
+JPG o WebP, y muestra su miniatura. Compila para ver las fotografías dentro de
+los tres marcos animados; las subidas se conservan dentro del proyecto.
 
 Las composiciones se incorporan sin audio propio: narración, música y efectos
 siguen usando sus pistas del editor. El recurso conserva el orden de los bloques,
-se pinta sobre las capas gráficas de la escena y debajo del avatar, antes de las
+en modo superposición se pinta sobre las capas gráficas de la escena y debajo del avatar, antes de las
 transiciones. Conserva la proporción y el tamaño relativo de su composición al
 adaptarse al formato de la escena. El montaje prepara automáticamente los
 fotogramas que falten.
@@ -498,7 +545,8 @@ en **`ESTUDIO_REMOTION`** si está definido. Cada vídeo guarda una instantánea
 inmutable del código utilizado dentro de `remotion/`: editar la biblioteca no
 cambia los vídeos anteriores. Esa carpeta viaja al duplicar o exportar el vídeo.
 Compilaciones y fotogramas se reutilizan por huella de contenido; guardar estos
-bloques solo afecta al render de las escenas correspondientes.
+bloques solo afecta al render de las escenas correspondientes, incluidas todas
+las que atraviesa su intervalo anterior o nuevo.
 
 Verificación aislada: `python pasos/prueba_remotion.py`; con `--real` comprueba
 el taller en Chromium, compila React, prepara PNG con transparencia y genera un
@@ -524,7 +572,8 @@ debajo de **Guardar cambios**, con un punto rojo a su izquierda.
 varios bloques independientes: pulsa uno para editarlo en el panel izquierdo,
 arrástralo para desplazarlo o tira de sus extremos para ajustar su intervalo.
 También puedes escribir el inicio, el final y la duración en segundos. Los
-bloques quedan dentro de la escena; si se solapan se muestran en carriles dentro
+bloques quedan dentro de la escena, excepto **Remotion**, que puede atravesar
+cualquier número de escenas; si se solapan se muestran en carriles dentro
 de su pista. La narración conserva su reloj y su duración originales.
 
 Cada escena conserva su borrador al seleccionar otra. **Guardar cambios** y

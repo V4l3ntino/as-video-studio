@@ -99,6 +99,74 @@ class Contratos(unittest.TestCase):
             mezclado = p8_render._capturar_con_avatar({'fps': 30, 'remotion': capas}, Navegador(), 30)
             self.assertEqual(Image.open(io.BytesIO(mezclado)).getpixel((0, 0)), (128, 0, 127, 255))
 
+    def test_timeline_cruza_escenas_sin_reiniciar_y_sella_destinos(self):
+        escenas = [dict(id=f'S00{i + 1}', narracion=f'Frase {i}.', t_in=i * 2, t_out=(i + 1) * 2, timeline_fin=6) for i in range(3)]
+        bloque = dict(plantilla='a' * 64, nombre='Libre', props={}, inicio=1, fin=5, origen=0)
+        ficha = dict(ancla=animaciones.ancla_de(escenas[0]), bloques=[bloque])
+        remotion.validar_edicion(ficha, escenas[0])
+        params = {'unidades': {'escena:S001': {'remotion': ficha}}}
+        proyectados = [remotion.bloques_de(params, e)[0] for e in escenas]
+        self.assertEqual([(b['inicio'], b['fin']) for b in proyectados], [(1, 5), (-1, 3), (-3, 1)])
+        with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+            proyecto = Proyecto.crear(tmp, 'Reloj libre')
+            plantilla = remotion.catalogo(tmp)[0]
+            with patch.object(remotion, 'resolver', side_effect=lambda *_: copy.deepcopy(plantilla)):
+                carpetas = [remotion.pedido_de(proyecto, b, [1280, 720], 30)[1] for b in proyectados]
+                self.assertEqual(len(set(carpetas)), 1)
+                libre = dict(proyectados[0], modo='sustituir')
+                remotion.validar_edicion(dict(ficha, bloques=[libre]), escenas[0])
+                antigua = dict(libre); del antigua['origen']
+                self.assertNotEqual(remotion.pedido_de(proyecto, libre, [1280, 720], 30)[1],
+                                    remotion.pedido_de(proyecto, antigua, [1280, 720], 30)[1])
+            marcos = []
+            for i in range(4):
+                ruta = Path(tmp) / f'{i}.png'
+                Image.new('RGBA', (2, 2), (i * 60, 0, 0, 255)).save(ruta)
+                marcos.append(str(ruta))
+            base = io.BytesIO(); Image.new('RGB', (2, 2)).save(base, format='PNG')
+            for escena, b in zip(escenas, proyectados):
+                capa = dict(b, fps=1, fotogramas=marcos)
+                t = max(0, b['inicio'])
+                pixel = Image.open(io.BytesIO(remotion.superponer(base.getvalue(), [capa], t))).getpixel((0, 0))
+                self.assertEqual(pixel[0], int(t - b['inicio']) * 60)
+        self.assertTrue(all(remotion.dependencias(params, escenas).values()))
+        params['unidades']['escena:S001']['remotion']['bloques'] = []
+        self.assertFalse(any(remotion.dependencias(params, escenas).values()))
+        # Puede desplazarse antes de la escena desde la que se insertó.
+        bloque.update(origen=2, inicio=-2, fin=1)
+        remotion.validar_edicion(dict(ancla=animaciones.ancla_de(escenas[1]), bloques=[bloque]), escenas[1])
+        for cambio in ({'inicio': -3}, {'fin': 5}, {'origen': float('nan')}):
+            with self.assertRaises(ValueError):
+                remotion.validar_edicion(dict(ancla=animaciones.ancla_de(escenas[1]), bloques=[dict(bloque, **cambio)]), escenas[1])
+
+    def test_sustitucion_exclusiva_y_recursos_portables(self):
+        escena = dict(id='S001', narracion='Una escena.', t_in=0, t_out=6)
+        b = dict(plantilla='a' * 64, nombre='Completa', props={}, inicio=0, fin=6, modo='sustituir')
+        ficha = dict(ancla=animaciones.ancla_de(escena), bloques=[b])
+        self.assertEqual(remotion.validar_edicion(ficha, escena)['bloques'][0]['modo'], 'sustituir')
+        for bloques in ([b, b], [dict(b, inicio=1)], [dict(b, modo='otro')], [dict(b, fin='6')]):
+            with self.assertRaises(ValueError):
+                remotion.validar_edicion(dict(ficha, bloques=bloques), escena)
+        with tempfile.TemporaryDirectory() as tmp:
+            from PIL import Image
+            proyecto = Proyecto.crear(tmp, 'Recursos')
+            imagen = Path(proyecto.ruta('imagen.png'))
+            Image.new('RGB', (4, 4), 'red').save(imagen)
+            props = {'imagenes': ['proyecto://imagen.png']}
+            a = remotion.props_recursos(proyecto, props)
+            self.assertTrue(a['imagenes'][0].startswith('data:image/png;base64,'))
+            Image.new('RGB', (4, 4), 'blue').save(imagen)
+            self.assertNotEqual(a, remotion.props_recursos(proyecto, props))
+            self.assertEqual(props['imagenes'][0], 'proyecto://imagen.png')
+            for ref in ('proyecto://../fuera.png', 'proyecto://estado.json', 'proyecto://falta.png'):
+                with self.assertRaises(ValueError):
+                    remotion.props_recursos(proyecto, {'imagen': ref})
+
+    def test_galeria_recibe_tres_imagenes(self):
+        galeria = next(p for p in remotion.catalogo(_DATOS.name) if p['id'] == 'ejemplo-galeria')
+        self.assertEqual(galeria['props'], dict(imagen1='', imagen2='', imagen3=''))
+
     @unittest.skipUnless(REAL, 'usa --real para compilar, previsualizar y renderizar en Chromium')
     def test_taller_y_render_local(self):
         from playwright.sync_api import sync_playwright
@@ -120,7 +188,9 @@ class Contratos(unittest.TestCase):
                     navegador = pw.chromium.launch(headless=True, executable_path=os.environ.get('ESTUDIO_EDGE') or None)
                     pagina = navegador.new_page(viewport={'width': 1920, 'height': 1080})
                     errores = []
+                    preparaciones = []
                     pagina.on('pageerror', lambda e: errores.append(str(e)))
+                    pagina.on('request', lambda r: preparaciones.append(r.url) if r.url.endswith('/remotion/preparar') else None)
                     pagina.goto(url)
                     pagina.wait_for_function('APP.light.datos && !APP.light.cargando')
                     pagina.evaluate('''async pid => {
@@ -135,9 +205,17 @@ class Contratos(unittest.TestCase):
                     pagina.wait_for_selector('.remotion-tarjeta')
                     self.assertEqual(activo.locator('.remotion-tarjeta').count(), 12)
                     self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes())
-                    self.assertTrue(activo.locator('.remotion-taller').is_visible())
+                    self.assertFalse(activo.locator('.remotion-taller').is_visible())
+                    activo.get_by_role('button', name='Gráfico Circular', exact=False).click()
+                    self.assertFalse(activo.locator('.remotion-taller').is_visible())
+                    activo.get_by_role('button', name='Título Cinematográfico', exact=False).click()
                     pagina.evaluate('document.querySelector("#panel").scrollTop = 0')
                     pagina.screenshot(path='/tmp/opencode/remotion-biblioteca.png', full_page=True)
+                    desplegar = activo.get_by_role('button', name='Taller de Remotion', exact=False)
+                    self.assertEqual(desplegar.get_attribute('aria-expanded'), 'false')
+                    desplegar.click()
+                    self.assertTrue(activo.locator('.remotion-taller').is_visible())
+                    self.assertEqual(desplegar.get_attribute('aria-expanded'), 'true')
                     # El ejemplo incluido también compila: la biblioteca no es una maqueta.
                     activo.get_by_role('button', name='Compilar', exact=False).click()
                     pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Compilación lista")', timeout=120000)
@@ -161,9 +239,27 @@ class Contratos(unittest.TestCase):
                     frame = activo.locator('.remotion-player').content_frame
                     frame.get_by_text('La Cordillera', exact=False).wait_for(timeout=30000)
                     pagina.screenshot(path='/tmp/opencode/remotion-taller.png', full_page=True)
-                    activo.get_by_role('button', name='Aplicar a la escena', exact=False).click()
+                    desplegar.click()
+                    pagina.evaluate('''() => {
+                        window.progresoBiblioteca = [];
+                        const n = document.querySelector('.editor-global-escena:not([hidden]) .remotion-estado-biblioteca');
+                        new MutationObserver(() => progresoBiblioteca.push(n.textContent)).observe(n, {childList:true, subtree:true});
+                    }''')
+                    activo.get_by_role('button', name='Insertar en la línea de tiempo', exact=False).click()
                     pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Animación incorporada")', timeout=180000)
+                    self.assertTrue(pagina.evaluate("progresoBiblioteca.some(t => /Renderizando Remotion.*[0-9]+ %/.test(t))"))
+                    self.assertTrue(activo.locator('.remotion-estado-biblioteca').is_visible())
+                    self.assertEqual(activo.locator('.remotion-bloque-edicion').count(), 0)
+                    self.assertEqual(activo.get_by_text('Bloques libres en el timeline', exact=True).count(), 0)
                     self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
+                    # Contraer no pierde el trabajo ni cambia el borrador.
+                    self.assertFalse(activo.locator('.remotion-taller').is_visible())
+                    self.assertFalse(pagina.locator('.editor-global').evaluate("n => n.classList.contains('con-remotion')"))
+                    pagina.screenshot(path='/tmp/opencode/remotion-taller-contraido.png', full_page=True)
+                    pagina.locator('.remotion .anim-timeline-bloque').first.click()
+                    self.assertFalse(activo.locator('.remotion-taller').is_visible())
+                    desplegar.click()
+                    self.assertTrue(activo.locator('.remotion-taller').is_visible())
                     pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
                     pagina.wait_for_function('!EDITOR_GLOBAL.modificado()', timeout=30000)
                     # Seleccionar un bloque recupera su código y permite sustituirlo.
@@ -171,7 +267,7 @@ class Contratos(unittest.TestCase):
                     pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-taller").dataset.plantillaEditada')
                     titulo = activo.locator('.remotion-prop').filter(has=pagina.get_by_text('titulo', exact=True)).locator('input')
                     titulo.fill('Título corregido'); titulo.press('Tab')
-                    activo.get_by_role('button', name='Aplicar a la escena', exact=False).click()
+                    activo.get_by_role('button', name='Aplicar al timeline', exact=False).click()
                     pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Animación incorporada")', timeout=120000)
                     self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
                     pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
@@ -207,6 +303,152 @@ class Contratos(unittest.TestCase):
                     self.assertGreater(Path(tarea['clip']).stat().st_size, 100)
                     with Image.open(tarea['ultimo']) as im:
                         self.assertGreater(im.getpixel((1279, 719))[0], 70)
+                    limite = pagina.evaluate('PREVIA.ficha.escenas[0].t_out')
+                    bloque_dom = pagina.locator('.remotion .anim-timeline-bloque').first
+                    pista = pagina.locator('.editor-global-columna').first.locator('.anim-timeline-pistas')
+                    def intervalo():
+                        return bloque_dom.evaluate('''(n, total) => ({inicio:parseFloat(n.style.left)*total/100,
+                            duracion:parseFloat(n.style.width)*total/100})''', limite)
+                    def arrastrar(inicio=None, fin=None, borrar=False, cancelar=False):
+                        p = intervalo()
+                        objetivo = bloque_dom.locator('[data-extremo="fin"]') if fin is not None else bloque_dom
+                        caja = objetivo.bounding_box()
+                        x, y = caja['x'] + caja['width'] / 2, caja['y'] + caja['height'] / 2
+                        if borrar:
+                            basura = pagina.get_by_role('img', name='Papelera de bloques', exact=True).bounding_box()
+                            destino = (basura['x'] + basura['width'] / 2, basura['y'] + basura['height'] / 2)
+                        else:
+                            delta = fin - p['inicio'] - p['duracion'] if fin is not None else inicio - p['inicio']
+                            destino = (x + delta / limite * pista.evaluate('n => n.clientWidth'), y)
+                        pagina.mouse.move(x, y); pagina.mouse.down()
+                        pagina.mouse.move(*destino, steps=10)
+                        if borrar:
+                            pagina.screenshot(path='/tmp/opencode/remotion-papelera.png', full_page=True)
+                            self.assertTrue(pagina.locator('.timeline-papelera').evaluate("n => n.classList.contains('encima')"))
+                        if cancelar:
+                            pagina.evaluate('''() => {
+                                const n = document.querySelector('.remotion .anim-timeline-bloque');
+                                n.dispatchEvent(new PointerEvent('pointercancel', {pointerId:1, bubbles:true}));
+                            }''')
+                        pagina.mouse.up()
+                    # Redimensionar prepara automáticamente los nuevos fotogramas.
+                    pagina.get_by_label('Zoom del timeline', exact=True).evaluate("n => {n.value = 6; n.dispatchEvent(new Event('input'));}")
+                    arrastrar(fin=2)
+                    pagina.wait_for_function('!document.querySelector(".remotion-trabajando")', timeout=180000)
+                    self.assertAlmostEqual(intervalo()['duracion'], 2, places=4)
+                    pagina.wait_for_function("async pid => (await CACHE_EDITOR.leer(pid, 'S001'))?.remotion_previa?.capas[0]?.fotogramas?.length === 60", arg=proyecto.id)
+                    pagina.get_by_label('Zoom del timeline', exact=True).evaluate("n => {n.value = 1; n.dispatchEvent(new Event('input'));}")
+                    solicitudes = len(preparaciones)
+                    # Desplazar conserva el recurso y su reloj sin trabajo nuevo.
+                    arrastrar(inicio=limite + 1)
+                    self.assertGreater(intervalo()['inicio'], limite)
+                    self.assertAlmostEqual(intervalo()['duracion'], 2, places=4)
+                    inicio_movido = intervalo()['inicio']
+                    pagina.evaluate("t => EDITOR_GLOBAL.seleccionar('S002', 'remotion', t)", inicio_movido - limite + .1)
+                    self.assertRegex(activo.locator('.remotion-capas img').get_attribute('src'), r'/f0*3\.png$')
+                    pagina.evaluate("EDITOR_GLOBAL.seleccionar('S001', 'remotion', 0, 0)")
+                    arrastrar(inicio=limite - .1)
+                    pagina.evaluate("EDITOR_GLOBAL.seleccionar('S002', 'remotion', 0)")
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-capas img")')
+                    continuada = activo.locator('.remotion-capas img').get_attribute('src')
+                    self.assertRegex(continuada, r'/f0*3\.png$')
+                    self.assertEqual(len(preparaciones), solicitudes)
+                    pagina.screenshot(path='/tmp/opencode/remotion-cruza-escenas.png', full_page=True)
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
+                    pagina.wait_for_function('!EDITOR_GLOBAL.modificado()', timeout=30000)
+                    datos = leer_json(proyecto.ruta('estado.json'))['pasos']['render']['params']
+                    self.assertTrue(datos['unidades']['escena:S002']['remotion_timeline'])
+                    pagina.evaluate("EDITOR_GLOBAL.seleccionar('S001', 'remotion', 0, 0)")
+                    arrastrar(inicio=0)
+                    arrastrar(fin=.2)
+                    pagina.wait_for_function('!document.querySelector(".remotion-trabajando")', timeout=180000)
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
+                    pagina.wait_for_function('!EDITOR_GLOBAL.modificado()', timeout=30000)
+                    # Escena completa: render separado, MP4 cacheado y fondo del editor.
+                    datos = leer_json(proyecto.ruta('estado.json'))['pasos']['render']['params']
+                    self.assertEqual(datos['unidades']['escena:S002']['remotion_timeline'], [])
+                    activo.get_by_role('button', name='Sustituir contenido visual', exact=False).click()
+                    salida = activo.locator('.remotion-salida')
+                    self.assertTrue(salida.is_visible())
+                    salida.get_by_role('spinbutton', name='Duración (s)', exact=True).fill('0.2')
+                    salida.get_by_role('button', name='Renderizar vídeo (MP4)', exact=False).click()
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("MP4 listo")', timeout=180000)
+                    self.assertFalse(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    pagina.screenshot(path='/tmp/opencode/remotion-escena-completa.png', full_page=True)
+                    activo.get_by_role('button', name='Aplicar al timeline', exact=False).click()
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Animación incorporada")', timeout=180000)
+                    self.assertEqual(pagina.locator('.remotion-completa').count(), 1)
+                    pagina.evaluate("EDITOR_GLOBAL.seleccionar('S001', undefined, 0.1)")
+                    self.assertTrue(activo.locator('.remotion-capas img.remotion-opaca').is_visible())
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
+                    pagina.wait_for_function('!EDITOR_GLOBAL.modificado()', timeout=30000)
+                    ficha = pagina.evaluate('''async pid => await pedir(`${API.proyecto(pid)}/escenas/S001/editor`)''', proyecto.id)
+                    completa = ficha['remotion'][0]
+                    self.assertEqual(completa['modo'], 'sustituir')
+                    self.assertIn('origen', completa)
+                    # Las sustituciones históricas de escena mantienen su contrato MP4.
+                    completa = dict(completa, inicio=0, fin=limite); del completa['origen']
+                    capa_completa = remotion.preparar(proyecto, completa, [1280, 720], 30)
+                    mp4 = Path(capa_completa['clip']); sello = mp4.stat().st_mtime_ns
+                    self.assertEqual(remotion.preparar(proyecto, completa, [1280, 720], 30), capa_completa)
+                    self.assertEqual(mp4.stat().st_mtime_ns, sello)
+                    escena = pagina.evaluate('''async pid => (await pedir(`${API.proyecto(pid)}/previsualizacion`)).escenas[0]''', proyecto.id)
+                    fuente = p8_render._fuente_para_enlace(escena, {}, tmp, {}, proyecto, True,
+                        params={'unidades': {'escena:S001': {'remotion': {'ancla': ficha['animacion']['ancla'], 'bloques': [completa]}}}},
+                        salida=(1280, 720))
+                    self.assertEqual(fuente['video'], str(mp4))
+                    self.assertTrue(Path(fuente['hyper']).is_file())
+                    self.assertEqual(fuente['mov']['ventana_ini'], [0, 0, 1, 1])
+                    # P8 decodifica ese MP4, mantiene su último cuadro y añade una capa independiente.
+                    tarea.update(video=str(mp4), hyper=fuente['hyper'], mov=fuente['mov'], remotion=[], frames=12, escena={'t_in': 0, 't_out': .4},
+                                 capa_fija='<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="30" height="30" fill="lime"/></svg>')
+                    renderer = p8_render.Navegador(1280, 720)
+                    try:
+                        p8_render.renderizar_plano(tarea, renderer)
+                    finally:
+                        renderer.cerrar()
+                    with Image.open(tarea['ultimo']) as im:
+                        self.assertGreater(im.getpixel((10, 10))[1], 200)
+                        self.assertGreater(im.getpixel((1279, 719))[0], 70)
+                        self.assertLess(im.getpixel((1279, 719))[2], 10)
+                    # Eliminar la sustitución recupera la imagen, sin borrar el MP4 ni el original.
+                    arrastrar(borrar=True, cancelar=True)
+                    self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
+                    self.assertFalse(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    arrastrar(borrar=True)
+                    self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 0)
+                    self.assertFalse(pagina.locator('.timeline-papelera').evaluate("n => n.classList.contains('encima')"))
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Deshacer', exact=False).click()
+                    self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
+                    arrastrar(borrar=True)
+                    self.assertEqual(activo.locator('.escena-editor-previa > video.previa-clip').count(), 0)
+                    self.assertTrue(mp4.is_file()); self.assertTrue(Path(hyper).is_file())
+                    # La galería acepta imágenes del proyecto y una subida propia, no textos.
+                    activo.get_by_role('button', name='Galería Animada', exact=False).click()
+                    activo.get_by_role('tab', name='Props', exact=False).click()
+                    self.assertEqual(activo.locator('.remotion-imagen-prop').count(), 3)
+                    self.assertEqual(activo.locator('.remotion-prop').filter(has=pagina.get_by_text('titulo', exact=True)).count(), 0)
+                    activo.get_by_role('combobox', name='Foto 1', exact=True).select_option(index=1)
+                    activo.get_by_role('combobox', name='Foto 2', exact=True).select_option(index=2)
+                    foto = io.BytesIO(); Image.new('RGB', (200, 200), '#00ff00').save(foto, format='PNG')
+                    activo.get_by_label('Subir foto 3', exact=True).set_input_files({'name': 'foto.png', 'mimeType': 'image/png', 'buffer': foto.getvalue()})
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Foto 3 preparada")')
+                    activo.locator('.remotion-prop').filter(has=pagina.locator('span', has_text='duración (s)')).locator('input').fill('0.2')
+                    activo.get_by_role('button', name='Compilar', exact=False).click()
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Compilación lista")', timeout=120000)
+                    frame = activo.locator('.remotion-player').content_frame
+                    frame.locator('img').nth(2).wait_for()
+                    self.assertEqual(frame.locator('img').count(), 3)
+                    activo.locator('.remotion-player').evaluate("n => n.contentWindow.postMessage({tipo:'asvs-remotion',frame:3}, '*')")
+                    pagina.screenshot(path='/tmp/opencode/remotion-galeria-fotos.png', full_page=True)
+                    activo.get_by_role('button', name='Aplicar al timeline', exact=False).click()
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Animación incorporada")', timeout=180000)
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
+                    pagina.wait_for_function('!EDITOR_GLOBAL.modificado()', timeout=30000)
+                    ficha = pagina.evaluate('''async pid => await pedir(`${API.proyecto(pid)}/escenas/S001/editor`)''', proyecto.id)
+                    self.assertTrue(ficha['remotion'][0]['props']['imagen3'].startswith('proyecto://medios_usuario/'))
+                    with Image.open(proyecto.ruta(ficha['remotion_capas'][0]['fotogramas'][3])) as im:
+                        self.assertGreater(im.getpixel((867, 360))[1], 200)
                     self.assertEqual(errores, [])
                     navegador.close()
             finally:

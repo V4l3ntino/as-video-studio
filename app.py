@@ -5124,11 +5124,12 @@ def leer_editor_escena(pid: str, sid: str):
     fuentes, actual = sonido.bloques_de_escena(plan['escenas'], cortes, params, sid, plan.get('semilla') or 0, proyecto=ctx.proyecto)
     desfase = float(escena['t_in']) - float(plan['escenas'][0]['t_in'])
     fuentes = [_fuente_sonido_editor(ctx, b, desfase) for b in fuentes]
-    bloques_remotion = remotion.bloques_de(params, escena)
+    bloques_remotion = remotion.bloques_de(params, escena, propios=True)
     return dict(animacion=leer_animacion_escena(pid, sid), parallax=leer_parallax_escena(pid, sid),
                 sonidos=dict(fuentes=fuentes if params.get('sonido', True) else [], actual=actual),
                 avatar=leer_editor_avatar(pid, sid), enlace=transicion,
                 transiciones=editor_escena.transiciones_de(unidad, escena), remotion=bloques_remotion,
+                remotion_fps=params.get('fps', 30),
                 remotion_capas=remotion.capas_guardadas(ctx.proyecto, bloques_remotion,
                     plan.get('resolucion') or [1920, 1080], params.get('fps', 30)))
 
@@ -5142,6 +5143,7 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
         if ctx.gestor.listar(activos=True):
             raise ErrorApi(409, 'espera a que termine el trabajo del vídeo o páralo antes de guardar')
         params, plan, audio, escena = _escena_editor_avatar(ctx, sid)
+        escena = dict(escena, timeline_fin=max(e['t_out'] for e in plan['escenas']))
         cambios = dict(datos)
         enlace = cambios.pop('enlace', None)
         try:
@@ -5183,9 +5185,16 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
         unidades = {}
         uid = f'escena:{sid}'
         unidades[uid] = dict((params.get('unidades') or {}).get(uid) or {}, **limpio)
+        if 'remotion' in limpio:
+            combinado = dict(params, unidades=dict(params.get('unidades') or {}, **unidades))
+            for eid, bloques in remotion.dependencias(combinado, plan['escenas']).items():
+                clave_unidad = f'escena:{eid}'
+                anterior_unidad = (params.get('unidades') or {}).get(clave_unidad) or {}
+                if bloques or anterior_unidad.get('remotion_timeline'):
+                    unidades.setdefault(clave_unidad, dict(anterior_unidad))['remotion_timeline'] = bloques
         if enlace is not None:
             siguiente = f"escena:{hasta['id']}"
-            unidades[siguiente] = dict((params.get('unidades') or {}).get(siguiente) or {}, transicion=enlace)
+            unidades[siguiente] = dict(unidades.get(siguiente) or (params.get('unidades') or {}).get(siguiente) or {}, transicion=enlace)
             if 'inicio' in enlace or 'salida_transicion' in unidades[uid]:
                 unidades[uid]['salida_transicion'] = enlace
         anterior = avatar.estado_previa(ctx.proyecto, params, plan, audio) or {}
@@ -5278,7 +5287,7 @@ def recurso_remotion(pid: str, clave: str, fichero: str):
 
 @app.post("/api/proyectos/{pid}/escenas/{sid}/remotion/preparar", status_code=202)
 def preparar_remotion(pid: str, sid: str, datos: dict = Body(...)):
-    """Renderiza los bloques del borrador en PNG transparentes, sin guardar params."""
+    """Prepara superposiciones PNG o escenas completas MP4, sin guardar params."""
     from pasos import remotion
     ctx = contexto(pid)
     plan = _plan_de_previsualizacion(ctx)
@@ -5286,7 +5295,7 @@ def preparar_remotion(pid: str, sid: str, datos: dict = Body(...)):
     if escena is None:
         raise ErrorApi(404, 'esa escena no está en el plan del vídeo')
     try:
-        ficha = remotion.validar_edicion(datos, escena)
+        ficha = remotion.validar_edicion(datos, dict(escena, timeline_fin=max(e['t_out'] for e in plan['escenas'])))
         for b in ficha['bloques']:
             remotion.resolver(ctx.proyecto, b['plantilla'])
     except ValueError as exc:
@@ -5295,7 +5304,10 @@ def preparar_remotion(pid: str, sid: str, datos: dict = Body(...)):
         capas = [remotion.preparar(ctx.proyecto, b, plan.get('resolucion') or [1920, 1080],
                                  (ctx.estado.params('render') or {}).get('fps', 30), avisar) for b in ficha['bloques']]
         for capa in capas:
-            capa['fotogramas'] = [os.path.relpath(p, ctx.proyecto.raiz).replace('\\', '/') for p in capa['fotogramas']]
+            if capa.get('clip'):
+                capa['clip'] = os.path.relpath(capa['clip'], ctx.proyecto.raiz).replace('\\', '/')
+            else:
+                capa['fotogramas'] = [os.path.relpath(p, ctx.proyecto.raiz).replace('\\', '/') for p in capa['fotogramas']]
         return {'capas': capas}
     with _LOCK:
         if ctx.gestor.listar(activos=True):
@@ -5863,7 +5875,7 @@ def _revisiones_editor(ctx, plan, escenas, audio):
         'retrato': [retrato, _sello_fichero(ctx.proyecto.ruta(retrato))],
         'inicio': escenas[0]['t_in'],
         'contrato': [_sello_fichero(os.path.join(os.path.dirname(__file__), nombre)) for nombre in
-                     ('app.py', 'pasos/editor_escena.py', 'pasos/animaciones.py',
+                      ('app.py', 'pasos/editor_escena.py', 'pasos/animaciones.py', 'pasos/remotion.py',
                       'pasos/avatar.py', 'pasos/parallax.py', 'pasos/sonido.py', 'pasos/transiciones.py')],
     }
     base = json.dumps(comunes, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
@@ -5895,7 +5907,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
     params_callouts = ctx.estado.params("callouts") or {}
     medir, banda = _medidor_de_subtitulo(ctx, plan)
     hechos = PASOS_MODULOS.p6_assets.planos_hechos(ctx.proyecto)
-    from pasos import parallax, clips_parallax
+    from pasos import parallax, clips_parallax, remotion
     render = ctx.estado.params("render") or {}
     from pasos import avatar
     audio_avatar = render.get("audio") or audio
@@ -5941,6 +5953,10 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         if dibujada and dice and p6._mismo_dicho(dibujada, dice):
             imagen = ficha.get("ruta") or imagen
         medio_usuario = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
+        sustituciones = [b for b in remotion.bloques_de(render, escena) if b.get('modo') == 'sustituir' and 'origen' not in b]
+        remotion_listas = remotion.capas_guardadas(ctx.proyecto, sustituciones,
+            plan.get('resolucion') or [1920, 1080], render.get('fps', 30))
+        clip_remotion = remotion_listas[0]['clip'] if remotion_listas else None
         if medio_usuario:
             imagen = medio_usuario.get("poster") or imagen
         efecto_parallax = None
@@ -5968,6 +5984,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             "cartela": (escena.get("cartela") or {}).get("plantilla") or "",
             "imagen": _ruta_publica_proyecto(ctx, imagen),
             "imagen_tarjeta": imagen_tarjeta,
+            "remotion_clip": clip_remotion,
             "clip": (_ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
                     if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, clip_parallax)),
             "parallax": efecto_parallax,
