@@ -43,6 +43,11 @@ el estilo obligaba a acordarse de cambiarlas en cada encargo.
 
 ## Sincronizar los sonidos de una escena
 
+En la fase **Imágenes**, **Reproducir** usa la toma completa de narración sin
+pausarla ni reposicionarla al pasar de una escena a otra. Las imágenes y las
+animaciones siguen el reloj del audio. Seleccionar una escena o una posición
+del timeline permite cambiar el punto desde el que se reproduce.
+
 En el editor de escena, la pista **Sonidos**, debajo de **Animación**, muestra los
 efectos disponibles, incluida la mecanografía de las cartelas. Arrastra un bloque
 para cambiar su inicio, o sus extremos para ajustar el tiempo que suena.

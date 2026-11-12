@@ -10440,6 +10440,30 @@ function editorGlobalImagenes(escenas) {
   let actual = escenas[PREVIA.i]?.id || escenas[0].id, reproduciendo = false, cerrado = false;
   let ultimaEdicion = [], ondaPromesa, galeriaCompartida, aplicandoPosicion = false;
   let cargandoPistas = false;
+  // Una sola toma y un solo reloj: cambiar de plano nunca busca ni pausa la voz.
+  const narracion = new Audio();
+  narracion.preload = 'auto';
+  let cuadroAudio;
+  function avanzarAudio() {
+    if (cerrado || narracion.paused) return;
+    const t = narracion.currentTime;
+    const e = escenas.find(e => t < e.t_out) || escenas[escenas.length - 1];
+    if (e.id !== actual && controles.get(e.id)?.listo) {
+      estudio.seleccionar(e.id, undefined, Math.max(0, t - e.t_in), undefined, true);
+      controles.get(e.id).continuar();
+    }
+    controles.get(actual)?.avanzar(t);
+    cuadroAudio = requestAnimationFrame(avanzarAudio);
+  }
+  narracion.addEventListener('play', () => {
+    estudio.sonando(actual);
+    cancelAnimationFrame(cuadroAudio); avanzarAudio();
+  });
+  narracion.addEventListener('pause', () => {
+    cancelAnimationFrame(cuadroAudio);
+    estudio.pausado(actual);
+  });
+  narracion.addEventListener('ended', () => estudio.pausar());
   const cacheProyecto = CACHE_EDITOR.proyecto(pid).catch(() => { estudio.falloLocal(); return new Map(); });
   let firmaGaleria = JSON.stringify(escenas.map(e => e.imagen));
   const duracion = Math.max(...escenas.map(e => e.t_out));
@@ -10509,6 +10533,11 @@ function editorGlobalImagenes(escenas) {
     h('div', { clase: 'editor-global-lista-notas' }, notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()] : null));
   const estudio = {
     clave, nodo, esActual: id => actual === id,
+    audio: ruta => {
+      const url = API.archivo(pid, ruta);
+      if (narracion.getAttribute('src') !== url) narracion.src = url;
+      return narracion;
+    },
     cerrado: () => cerrado,
     cache: async sid => (await cacheProyecto).get(sid),
     falloLocal: () => {
@@ -10567,15 +10596,16 @@ function editorGlobalImagenes(escenas) {
       const galeria = galeriaImagenesPrevia(escenas, id => estudio.seleccionar(id, 'imagenes', 0));
       galeriaCompartida = galeria; return galeria;
     },
-    seleccionar: (id, tab, t = 0, indice) => {
+    seleccionar: (id, tab, t = 0, indice, continuo = false) => {
       if (cerrado || aplicandoPosicion) return;
       if (!controles.has(id)) {
         const e = escenas.find(e => e.id === id); if (!e) return;
         cargarEscena(e);
       }
       const c = controles.get(id); if (!c) return;
-      if (id !== actual && controles.get(actual)?.ocupado()) return;
-      controles.get(actual)?.pausar(); reproduciendo = false;
+      if (!continuo && id !== actual && controles.get(actual)?.ocupado()) return;
+      controles.get(actual)?.pausar(!continuo);
+      if (!continuo) reproduciendo = false;
       actual = id; PREVIA.i = escenas.findIndex(e => e.id === id);
       PREVIA.t = escenas[PREVIA.i].t_in + t;
       controles.forEach((otro, sid) => {
@@ -10603,14 +10633,7 @@ function editorGlobalImagenes(escenas) {
       const musica = camaPrevia('musica');
       if (musica) { musica.currentTime = PREVIA.t; musica.play().catch(() => {}); }
     },
-    pausado: id => { if (id === actual) { play.textContent = '▶ Reproducir'; pararCamaPrevia(); } },
-    siguiente: async id => {
-      if (!reproduciendo || cerrado) return;
-      const siguiente = escenas[escenas.findIndex(e => e.id === id) + 1];
-      if (!siguiente || !controles.get(siguiente.id)?.listo) { reproduciendo = false; return; }
-      estudio.seleccionar(siguiente.id); reproduciendo = true;
-      await controles.get(siguiente.id).reproducir();
-    },
+    pausado: id => { if (id === actual) { reproduciendo = false; play.textContent = '▶ Reproducir'; pararCamaPrevia(); } },
     cambio: () => {
       const pendientes = [...controles.values()].filter(c => c.modificado()).length;
       guardar.disabled = aplicandoPosicion || !pendientes || !!trabajoVideoLight();
@@ -10658,7 +10681,11 @@ function editorGlobalImagenes(escenas) {
       nodo.querySelectorAll('.editor-global-configuraciones').forEach(n => n.classList.toggle('generacion-activa', !!trabajoVideoLight()));
       setTimeout(cargarPendientes, 0);
     },
-    cerrar: () => { cerrado = true; observador.disconnect(); controles.forEach(c => c.cerrar()); nodo.remove(); },
+    cerrar: () => {
+      cerrado = true; narracion.pause(); cancelAnimationFrame(cuadroAudio);
+      observador.disconnect(); controles.forEach(c => c.cerrar());
+      narracion.removeAttribute('src'); narracion.load(); nodo.remove();
+    },
   };
   escenas.forEach(e => {
     const columna = h('div', { clase: 'editor-global-columna' });
@@ -10705,7 +10732,7 @@ async function abrirEditorEscena(escena, estudio) {
   const base = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}`;
   const total = Number(escena.duracion), minimo = Math.min(.1, total);
   let ficha, borrador, original, pestaña = 'imagenes', seleccionado = -1;
-  let tiempo = 0, audio, avatar, fondo, cuadro = 0, guardando = false, subiendo = false;
+  let tiempo = 0, audio, avatar, fondo, guardando = false, subiendo = false;
   let temporizador, revision = 0, tid = '', generando = false, pintor, pintorEnlace, cuadroEnlace = 0, cuadroBase, preparandoEnlace;
   let arrastrando = false, revisionVisual = 0, revisionReproduccion = 0, cancelarAvatar = false;
   let revisionDatos = escena.editor_revision, recuperacion, revalidando = false;
@@ -10757,11 +10784,10 @@ async function abrirEditorEscena(escena, estudio) {
         seleccionarPestaña(nombres[siguiente][0]); tabs.children[siguiente].focus();
       } }, h('span', { 'aria-hidden': 'true' }, icono), nombre)));
   const cerrar = () => {
-    clearTimeout(temporizador); revision++; cancelAnimationFrame(cuadro); pausar();
+    clearTimeout(temporizador); revision++; pausar();
     if (tid) pedir(API.cancelar(tid), { method: 'POST' }).catch(() => {});
     [pintor, pintorEnlace].forEach(p => p?.cerrar());
     dialogo.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
-    if (audio) { audio.removeAttribute('src'); audio.load(); }
     contextoSonido?.close();
     PREVIA.arrastrandoAvatar = false; PREVIA.repintadoAvatarPendiente = false;
     dialogo.remove(); timeline.remove();
@@ -10812,7 +10838,7 @@ async function abrirEditorEscena(escena, estudio) {
         ficha = nueva; revisionDatos = nuevaRevision;
         iniciarBorrador(); historial.length = 0;
         seleccionado = Math.min(seleccionado, listaActual().length - 1);
-        if (audio && ficha.animacion.audio) audio.src = API.archivo(pid, ficha.animacion.audio);
+        if (audio && ficha.animacion.audio) audio = estudio.audio(ficha.animacion.audio);
         control.liberarVisual();
         pintarRecuperacion(); montarAvatar(); pintarPanel();
         if (estudio.esActual(escena.id)) control.prepararVisual?.();
@@ -10829,6 +10855,17 @@ async function abrirEditorEscena(escena, estudio) {
       seleccionarPestaña(tab || pestaña, indice); pintarReloj();
       if (control.animacionPendiente) prepararAnimacion();
     }, pausar, reproducir: () => alternar(),
+    avanzar: t => {
+      tiempo = Math.max(0, Math.min(total, t - ficha.animacion.t_in));
+      reproducir.textContent = 'Ⅱ Pausar'; pintarReloj();
+    },
+    continuar: async () => {
+      const intento = ++revisionReproduccion;
+      await prepararSonidos();
+      if (intento !== revisionReproduccion || !estudio.esActual(escena.id) || audio.paused) return;
+      tiempo = Math.max(0, Math.min(total, audio.currentTime - ficha.animacion.t_in));
+      reproducirSonidos();
+    },
     pendiente: () => historial.length > 0, deshacer,
     aplicarPosicionAvatar: posicion => {
       if (!control.listo || ocupado() || !borrador.avatar.length) return false;
@@ -11190,11 +11227,12 @@ async function abrirEditorEscena(escena, estudio) {
     pausar(); const mover = e => estudio.buscar(e.clientX, tab);
     mover(ev); capturar(ev, mover);
   }
-  function pausar() {
+  function pausar(detenerAudio = true) {
     revisionReproduccion++;
     reproduccionesSonido.splice(0).forEach(s => s.stop());
-    audio?.pause(); fondo?.pause?.(); avatar?.pause?.(); cancelAnimationFrame(cuadroEnlace);
-    estudio.pausado(escena.id);
+    if (detenerAudio && estudio.esActual(escena.id)) { audio?.pause(); estudio.pausado(escena.id); }
+    reproducir.textContent = '▶ Reproducir';
+    fondo?.pause?.(); avatar?.pause?.(); cancelAnimationFrame(cuadroEnlace);
   }
   async function prepararSonidos() {
     contextoSonido ||= new AudioContext();
@@ -11483,14 +11521,7 @@ async function abrirEditorEscena(escena, estudio) {
       alt: escena.id, muted: true, playsinline: true, preload: 'auto' });
     muestra.append(fondo, capa, canvas, canvasEnlace, botonSustituirEscena(escena)); montarAvatar(); seleccionarPestaña(pestaña); prepararAnimacion();
     if (ficha.animacion.audio) {
-      audio = new Audio(API.archivo(pid, ficha.animacion.audio)); audio.preload = 'metadata'; reproducir.disabled = false;
-      const avanzar = () => {
-        if (!dialogo.isConnected || audio.paused) return;
-        tiempo = Math.max(0, Math.min(total, audio.currentTime - ficha.animacion.t_in)); pintarReloj();
-        if (tiempo >= total - .015) { pausar(); estudio.siguiente(escena.id); } else cuadro = requestAnimationFrame(avanzar);
-      };
-      audio.addEventListener('play', () => { estudio.sonando(escena.id); reproducir.textContent = 'Ⅱ Pausar'; cancelAnimationFrame(cuadro); avanzar(); });
-      audio.addEventListener('pause', () => { reproducir.textContent = '▶ Reproducir'; cancelAnimationFrame(cuadro); fondo?.pause?.(); avatar?.pause?.(); });
+      audio = estudio.audio(ficha.animacion.audio); reproducir.disabled = false;
       cargarOnda();
     }
     control.prepararVisual = async () => {

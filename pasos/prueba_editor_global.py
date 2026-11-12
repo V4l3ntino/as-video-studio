@@ -148,8 +148,28 @@ class EditorGlobal(unittest.TestCase):
                         activo.get_by_role('tab', name=nombre, exact=True).click()
                     bloques.nth(0).click()
                     mandos = pagina.locator('.editor-global-timeline > .anim-timeline-cab')
+                    # La narración es una sola toma: los cortes visuales no
+                    # provocan pause/play, seeking ni una recarga del archivo.
+                    pagina.evaluate('''() => {
+                        const a = EDITOR_GLOBAL.audio(PREVIA.ficha.audio);
+                        window.eventosVoz = [];
+                        for (const ev of ['pause', 'play', 'seeking', 'emptied'])
+                            a.addEventListener(ev, () => eventosVoz.push(ev));
+                        a.playbackRate = 4;
+                    }''')
                     mandos.get_by_role('button', name='Reproducir', exact=False).click()
-                    pagina.wait_for_function('PREVIA.i >= 1', timeout=15000)
+                    pagina.wait_for_function('PREVIA.i >= 2', timeout=15000)
+                    eventos = pagina.evaluate('eventosVoz')
+                    self.assertEqual(eventos.count('play'), 1, eventos)
+                    self.assertLessEqual(eventos.count('seeking'), 1, eventos)
+                    self.assertNotIn('pause', eventos)
+                    self.assertNotIn('emptied', eventos)
+                    mandos.get_by_role('button', name='Pausar', exact=False).click()
+                    detenido = pagina.evaluate('PREVIA.t')
+                    pagina.wait_for_timeout(200)
+                    self.assertAlmostEqual(pagina.evaluate('PREVIA.t'), detenido, places=2)
+                    mandos.get_by_role('button', name='Reproducir', exact=False).click()
+                    pagina.wait_for_function('t => PREVIA.t > t + .2', arg=detenido)
                     mandos.get_by_role('button', name='Pausar', exact=False).click()
                     activo.get_by_role('tab', name='Imágenes', exact=True).click()
                     activo.locator('[data-escena="S003"]').click()
