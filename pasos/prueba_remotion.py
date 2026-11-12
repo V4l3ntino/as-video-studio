@@ -80,6 +80,29 @@ class Contratos(unittest.TestCase):
         with self.assertRaises(ValueError):
             remotion.validar_edicion(mala, escena)
 
+    def test_eliminar_biblioteca_conserva_instantaneas(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'ESTUDIO_REMOTION': str(Path(tmp) / 'biblioteca')}):
+            proyecto = Proyecto.crear(tmp, 'Con plantilla')
+            ejemplo = remotion.catalogo(tmp)[0]
+            propia = remotion.guardar(tmp, ejemplo)
+            fuente = remotion.validar_plantilla(propia)
+            referencia = remotion.huella(fuente)
+            escribir_json(proyecto.ruta('remotion', 'plantillas', referencia + '.json'), fuente)
+            remotion.eliminar(tmp, propia['id'])
+            self.assertNotIn(propia['id'], [p['id'] for p in remotion.catalogo(tmp)])
+            self.assertEqual(remotion.resolver(proyecto, referencia), fuente)
+            remotion.eliminar(tmp, ejemplo['id'])
+            self.assertEqual(len(remotion.catalogo(tmp)), 11)
+            self.assertNotIn(ejemplo['id'], [p['id'] for p in remotion.catalogo(tmp)])
+            for identificador in ('../fuera', 'ejemplo-inventado', 'a.json', None):
+                with self.assertRaises(ValueError):
+                    remotion.eliminar(tmp, identificador)
+            for plantilla in remotion.catalogo(tmp):
+                remotion.eliminar(tmp, plantilla['id'])
+            self.assertEqual(remotion.catalogo(tmp), [])
+            remotion.guardar(tmp, ejemplo)
+            self.assertEqual(len(remotion.catalogo(tmp)), 1)
+
     def test_capas_reloj_alpha_y_camino_actual(self):
         from PIL import Image
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,9 +229,9 @@ class Contratos(unittest.TestCase):
                     self.assertEqual(activo.locator('.remotion-tarjeta').count(), 12)
                     self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes())
                     self.assertFalse(activo.locator('.remotion-taller').is_visible())
-                    activo.get_by_role('button', name='Gráfico Circular', exact=False).click()
+                    activo.get_by_role('button', name='Gráfico Circular', exact=True).click()
                     self.assertFalse(activo.locator('.remotion-taller').is_visible())
-                    activo.get_by_role('button', name='Título Cinematográfico', exact=False).click()
+                    activo.get_by_role('button', name='Título Cinematográfico', exact=True).click()
                     pagina.evaluate('document.querySelector("#panel").scrollTop = 0')
                     pagina.screenshot(path='/tmp/opencode/remotion-biblioteca.png', full_page=True)
                     desplegar = activo.get_by_role('button', name='Taller de Remotion', exact=False)
@@ -424,7 +447,7 @@ class Contratos(unittest.TestCase):
                     self.assertEqual(activo.locator('.escena-editor-previa > video.previa-clip').count(), 0)
                     self.assertTrue(mp4.is_file()); self.assertTrue(Path(hyper).is_file())
                     # La galería acepta imágenes del proyecto y una subida propia, no textos.
-                    activo.get_by_role('button', name='Galería Animada', exact=False).click()
+                    activo.get_by_role('button', name='Galería Animada', exact=True).click()
                     activo.get_by_role('tab', name='Props', exact=False).click()
                     self.assertEqual(activo.locator('.remotion-imagen-prop').count(), 3)
                     self.assertEqual(activo.locator('.remotion-prop').filter(has=pagina.get_by_text('titulo', exact=True)).count(), 0)
@@ -449,6 +472,51 @@ class Contratos(unittest.TestCase):
                     self.assertTrue(ficha['remotion'][0]['props']['imagen3'].startswith('proyecto://medios_usuario/'))
                     with Image.open(proyecto.ruta(ficha['remotion_capas'][0]['fotogramas'][3])) as im:
                         self.assertGreater(im.getpixel((867, 360))[1], 200)
+                    # Los tres puntos no seleccionan la tarjeta y eliminan solo la biblioteca.
+                    activo.get_by_label('Nombre de la plantilla', exact=True).fill('Galería para borrar')
+                    activo.get_by_role('button', name='Guardar plantilla', exact=False).click()
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-escena:not([hidden]) .remotion-tarjeta").length === 13')
+                    tarjeta = activo.locator('.remotion-tarjeta-contenedor').filter(has=pagina.get_by_role('button', name='Galería para borrar', exact=True))
+                    seleccionada = activo.locator('.remotion-tarjeta[aria-pressed="true"]').inner_text()
+                    puntos = tarjeta.get_by_role('button', name='Más opciones de Galería para borrar', exact=True)
+                    puntos.click()
+                    self.assertEqual(activo.locator('.remotion-tarjeta[aria-pressed="true"]').inner_text(), seleccionada)
+                    self.assertTrue(tarjeta.get_by_role('menuitem', name='Eliminar plantilla', exact=True).is_visible())
+                    self.assertEqual(tarjeta.get_by_role('menuitemradio', name='Superponer Animación', exact=True).get_attribute('aria-checked'), 'true')
+                    self.assertEqual(tarjeta.get_by_role('menuitemradio', name='Sustituir contenido', exact=True).get_attribute('aria-checked'), 'false')
+                    pagina.keyboard.press('Escape')
+                    self.assertEqual(puntos.get_attribute('aria-expanded'), 'false')
+                    # El modo del menú se usa al insertar, también con el taller contraído.
+                    desplegar.click()
+                    for modo, texto in [('sustituir', 'Sustituir contenido'), ('superponer', 'Superponer Animación')]:
+                        puntos.click()
+                        tarjeta.get_by_role('menuitemradio', name=texto, exact=True).click()
+                        self.assertFalse(activo.locator('.remotion-taller').is_visible())
+                        self.assertEqual(activo.locator('.remotion-modo').nth(1 if modo == 'sustituir' else 0).get_attribute('aria-pressed'), 'true')
+                        puntos.click()
+                        self.assertEqual(tarjeta.get_by_role('menuitemradio', name=texto, exact=True).get_attribute('aria-checked'), 'true')
+                        pagina.keyboard.press('Escape')
+                        with pagina.expect_request(lambda r: r.url.endswith('/remotion/preparar')) as solicitud:
+                            activo.get_by_role('button', name='Insertar en la línea de tiempo', exact=False).click()
+                        pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Animación incorporada")', timeout=180000)
+                        self.assertEqual(solicitud.value.post_data_json['bloques'][-1]['modo'], modo)
+                        self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 2)
+                        self.assertEqual(activo.locator('.remotion-capas img.remotion-opaca').count(), 1 if modo == 'sustituir' else 0)
+                        pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Deshacer', exact=False).click()
+                        self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
+                    puntos.click()
+                    pagina.screenshot(path='/tmp/opencode/remotion-menu-plantilla.png', full_page=True)
+                    tarjeta.get_by_role('menuitem', name='Eliminar plantilla', exact=True).click()
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-escena:not([hidden]) .remotion-tarjeta").length === 12')
+                    activo.get_by_role('button', name='Más opciones de Galería Animada', exact=True).click()
+                    activo.get_by_role('menuitem', name='Eliminar plantilla', exact=True).click()
+                    pagina.wait_for_function('document.querySelectorAll(".editor-global-escena:not([hidden]) .remotion-tarjeta").length === 11')
+                    biblioteca = pagina.evaluate('async () => await pedir(`${BASE}/api/remotion/plantillas`)')
+                    self.assertNotIn('ejemplo-galeria', [p['id'] for p in biblioteca['plantillas']])
+                    self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
+                    self.assertEqual(remotion.resolver(proyecto, ficha['remotion'][0]['plantilla'])['props']['imagen3'], ficha['remotion'][0]['props']['imagen3'])
+                    pagina.evaluate("EDITOR_GLOBAL.seleccionar('S002', 'remotion', 0)")
+                    self.assertEqual(activo.locator('.remotion-tarjeta').count(), 11)
                     self.assertEqual(errores, [])
                     navegador.close()
             finally:

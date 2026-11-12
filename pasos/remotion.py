@@ -22,6 +22,7 @@ from pasos import animaciones
 MOTOR = Path(__file__).resolve().parents[1] / 'motores' / 'remotion'
 VERSION = '3-remotion-4.0.484'
 _LOCK = threading.RLock()
+_LOCK_BIBLIOTECA = threading.RLock()
 
 
 def huella(datos):
@@ -81,7 +82,7 @@ def biblioteca(raiz_proyectos):
     return Path(os.environ.get('ESTUDIO_REMOTION') or Path(raiz_proyectos).resolve().parent / 'plantillas_remotion')
 
 
-def catalogo(raiz_proyectos):
+def _ejemplos():
     codigo = (MOTOR / 'Plantilla.tsx').read_text(encoding='utf-8')
     tipos = [('titulo', 'Título Cinematográfico', 'La Cordillera', 'Territorio, agua y memoria'),
              ('mapa', 'Mapa Animado', 'Un mundo conectado', 'Rutas y territorios'),
@@ -104,15 +105,40 @@ def catalogo(raiz_proyectos):
                             dict(valores=[25, 40, 58, 75, 96], color='#769ec7') if tipo == 'barras' else
                             dict(titulo=titulo, subtitulo=subtitulo, autor='Un documental de AS Video Studio')))
                 for tipo, nombre, titulo, subtitulo in tipos]
-    propias = [leer_json(str(p)) for p in sorted(biblioteca(raiz_proyectos).glob('*.json'))]
-    return ejemplos + [p for p in propias if p]
+    return ejemplos
+
+
+def catalogo(raiz_proyectos):
+    with _LOCK_BIBLIOTECA:
+        carpeta = biblioteca(raiz_proyectos)
+        eliminadas = leer_json(str(carpeta / '_config' / 'eliminadas.json')) or []
+        propias = [leer_json(str(p)) for p in sorted(carpeta.glob('*.json'))]
+        return [p for p in _ejemplos() if p['id'] not in eliminadas] + [p for p in propias if p]
 
 
 def guardar(raiz_proyectos, datos):
     plantilla = validar_plantilla(datos)
     plantilla['id'] = huella(plantilla)
-    escribir_json(str(biblioteca(raiz_proyectos) / (plantilla['id'] + '.json')), plantilla)
+    with _LOCK_BIBLIOTECA:
+        escribir_json(str(biblioteca(raiz_proyectos) / (plantilla['id'] + '.json')), plantilla)
     return plantilla
+
+
+def eliminar(raiz_proyectos, referencia):
+    """Retira la ficha de la biblioteca; las instantáneas de proyectos son independientes."""
+    if not isinstance(referencia, str) or not re.fullmatch(r'ejemplo-[a-z]+|[a-f0-9]{64}', referencia):
+        raise ValueError('identificador de plantilla Remotion no válido')
+    with _LOCK_BIBLIOTECA:
+        carpeta = biblioteca(raiz_proyectos)
+        if referencia.startswith('ejemplo-'):
+            if referencia not in {p['id'] for p in _ejemplos()}:
+                raise ValueError('esa plantilla no está en la biblioteca')
+            ruta = carpeta / '_config' / 'eliminadas.json'
+            eliminadas = set(leer_json(str(ruta)) or [])
+            eliminadas.add(referencia)
+            escribir_json(str(ruta), sorted(eliminadas))
+        else:
+            (carpeta / (referencia + '.json')).unlink(missing_ok=True)
 
 
 def disponible():

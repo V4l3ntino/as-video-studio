@@ -483,6 +483,13 @@ desde otro ordenador, renderiza ese servidor.
    **Compilar** prepara el reproductor y **Previsualizar** reproduce el componente.
    Los errores se muestran en el taller.
 5. **Guardar plantilla** conserva una versión reutilizable en la biblioteca.
+   Cada tarjeta tiene un menú **⋯** en la esquina superior derecha con **Eliminar
+   plantilla**. La quita de la biblioteca, también si es uno de los ejemplos;
+   los bloques ya insertados en vídeos conservan su copia y siguen funcionando.
+   El menú también permite elegir **Superponer Animación** (por defecto) o
+   **Sustituir contenido**. Una marca indica la selección: **Insertar en la línea
+   de tiempo** aplica ese modo, también con el taller contraído. El selector del
+   taller y el menú de la tarjeta se mantienen sincronizados.
 6. **Aplicar al timeline** o **Insertar en la línea de tiempo** prepara sus
      fotogramas y añade un bloque libre en la pista **Remotion**, desde el cursor.
      Conserva la duración de la plantilla hasta el final del vídeo: puede atravesar

@@ -313,10 +313,11 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/personajes/imagenes/trabajos/{tid}` | Consulta el progreso y la imagen generada del personaje. |
 | `GET` | `/api/remotion/plantillas` | Biblioteca de componentes React reutilizables y estado del motor local. |
 | `POST` | `/api/remotion/plantillas` | Guarda una versión inmutable de una plantilla Remotion en la biblioteca. |
+| `DELETE` | `/api/remotion/plantillas/{referencia}` | Elimina una plantilla de la biblioteca sin modificar los bloques de los vídeos. |
 | `GET` | `/api/sonidos/buscar` | Busca efectos en todo el catálogo de Freesound, con resultados paginados. |
 | `GET` | `/api/sonidos/{identificador}/muestra` | Escucha la muestra de un efecto de Freesound desde el banco local. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**205 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**206 endpoints.** Escrito por `generar_api.py` desde `app.py`.

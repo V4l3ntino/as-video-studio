@@ -397,6 +397,18 @@ Cancelar restaura el borrador previo y la eliminación se puede deshacer. Biblio
 y taller comparten el texto de progreso y errores; Insertar lo muestra con el taller
 contraído. `remotion_previa` conserva firma y capas preparadas en la caché local,
 también tras redimensionar sin guardar.
+El menú ⋯ de cada tarjeta elimina mediante `DELETE /api/remotion/plantillas/{referencia}`.
+Las propias se retiran de la biblioteca global; los ejemplos incluidos se ocultan
+persistentemente en `plantillas_remotion/_config/eliminadas.json` (respetando
+`ESTUDIO_REMOTION`). Nunca borres las instantáneas de `proyecto/remotion/plantillas`:
+los vídeos existentes dependen de ellas. La notificación del navegador retira la
+tarjeta también de los controladores de otras escenas ya cargadas. La biblioteca
+vacía permite crear una plantilla nueva sin reponer los ejemplos eliminados.
+El menú incluye `menuitemradio` para Superponer Animación/Sustituir contenido:
+ausencia de modo selecciona Superponer. `cambiarModoRemotion` sincroniza la tarjeta
+y el taller e invalida la compilación anterior antes de insertar. La selección
+solo modifica el borrador de la plantilla; el modo efectivo viaja en la instantánea
+y en el bloque al insertarlo, sin cambiar los bloques existentes al abrir el menú.
 
 La sección incluye también las diez cartelas de `cartelas.PLANTILLAS`, con GIF
 `anim_cartela-<id>.gif`. Su selección independiente es

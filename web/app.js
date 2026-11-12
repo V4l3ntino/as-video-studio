@@ -10442,13 +10442,13 @@ const CACHE_EDITOR = {
 /* Taller opcional: React vive dentro del Player aislado, no en la aplicación. */
 function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar, proyecto, tallerAbierto, alternarTaller}) {
   let plantillas = [], elegida, compilada, version = 0, cerrado = false, pestaña = 'codigo';
-  let subiendoImagen = false;
+  let subiendoImagen = false, bibliotecaCargada = false, eliminandoPlantilla = false, menuAbierto;
   const estadoTaller = h('p', { clase: 'remotion-estado', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
   const estadoBiblioteca = h('p', { clase: 'remotion-estado remotion-estado-biblioteca', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
-  const mensaje = {
-    get textContent() { return estadoTaller.textContent; },
-    set textContent(texto) { estadoTaller.textContent = estadoBiblioteca.textContent = texto; }
-  };
+  const mensaje = Object.defineProperty({}, 'textContent', {
+    get: () => estadoTaller.textContent,
+    set: texto => {estadoTaller.textContent = estadoBiblioteca.textContent = texto;}
+  });
   const rejilla = h('div', { clase: 'remotion-catalogo' });
   const cuenta = h('span', { clase: 'meta' });
   const detalle = h('div', { clase: 'remotion-detalle' });
@@ -10516,19 +10516,24 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
   }
   const modos = h('section', {clase: 'remotion-modos'}, h('h4', {}, 'Modo de aplicación'));
   const salida = h('section', {clase: 'remotion-salida', hidden: true});
+  function cambiarModoRemotion(modo) {
+    if (ocupado() || subiendoImagen) return;
+    elegida.modo = modo; compilada = null; version++; iframe.hidden = true;
+    enviar({reproducir: false});
+    if (modo === 'sustituir') {
+      const p = proyecto(); [elegida.ancho, elegida.alto] = p.resolucion;
+      elegida.fps = p.fps;
+    }
+    const tarjeta = plantillas.find(p => p.id === elegida.id);
+    if (tarjeta) tarjeta.modo = modo;
+    pintarModo(); pintarProps(); pintarCatalogo();
+  }
   function pintarModo() {
     modos.replaceChildren(h('h4', {}, 'Modo de aplicación'), h('div', {clase: 'remotion-modo-opciones'},
       ...[['superponer', '▱ Superponer animación', 'Añade una capa durante su intervalo en el vídeo.'],
         ['sustituir', '▣ Sustituir contenido visual', 'Reemplaza la imagen durante su intervalo, aunque atraviese varias escenas.']].map(([modo, titulo, texto]) =>
-        h('button', {clase: 'remotion-modo', 'aria-pressed': String((elegida.modo || 'superponer') === modo), onclick: () => {
-          if (ocupado()) return;
-          elegida.modo = modo; compilada = null; version++;
-          if (modo === 'sustituir') {
-            const p = proyecto(); [elegida.ancho, elegida.alto] = p.resolucion;
-            elegida.fps = p.fps;
-          }
-          pintarModo(); pintarProps();
-        }}, h('b', {}, titulo), h('small', {}, texto)))));
+        h('button', {clase: 'remotion-modo', 'aria-pressed': String((elegida.modo || 'superponer') === modo),
+          onclick: () => cambiarModoRemotion(modo)}, h('b', {}, titulo), h('small', {}, texto)))));
     salida.hidden = elegida.modo !== 'sustituir';
     salida.replaceChildren(h('h4', {}, 'Salida y renderizado'), h('p', {clase: 'meta'}, 'Resolución del vídeo'),
       ...[['ancho', 'Ancho (px)'], ['alto', 'Alto (px)'], ['fps', 'FPS'], ['duracion', 'Duración (s)']].map(([k, texto]) =>
@@ -10564,8 +10569,30 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
   const panel = h('section', { clase: 'remotion-biblioteca' },
     h('div', { clase: 'remotion-biblioteca-cab' }, h('b', {}, 'Plantillas Remotion'), cuenta), desplegar, rejilla, detalle, estadoBiblioteca,
     h('button', {clase: 'mini remotion-parar', onclick: cancelar}, 'Parar Remotion'),
-    accion('+  Nueva plantilla', () => seleccionar({...plantillas[0], id: 'nueva', nombre: 'Nueva plantilla',
-      codigo: "import React from 'react';\nimport {AbsoluteFill, useCurrentFrame} from 'remotion';\n\nexport default function Plantilla({titulo = 'Mi animación'}) {\n  const frame = useCurrentFrame();\n  return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', color: 'white', fontSize: 80, opacity: Math.min(1, frame / 20)}}>{titulo}</AbsoluteFill>;\n}", props: {titulo: 'Mi animación'}})));
+    accion('+  Nueva plantilla', nuevaPlantilla));
+  function nuevaPlantilla() {
+    seleccionar({ancho: 1920, alto: 1080, fps: 30, duracion: 5, ...plantillas[0], id: 'nueva', nombre: 'Nueva plantilla',
+      codigo: "import React from 'react';\nimport {AbsoluteFill, useCurrentFrame} from 'remotion';\n\nexport default function Plantilla({titulo = 'Mi animación'}) {\n  const frame = useCurrentFrame();\n  return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', color: 'white', fontSize: 80, opacity: Math.min(1, frame / 20)}}>{titulo}</AbsoluteFill>;\n}", props: {titulo: 'Mi animación'}});
+  }
+  function cerrarMenuPlantilla() {
+    if (!menuAbierto) return;
+    menuAbierto.menu.hidden = true;
+    menuAbierto.boton.setAttribute('aria-expanded', 'false');
+    menuAbierto = null;
+  }
+  const cerrarMenuFuera = ev => {if (menuAbierto && !menuAbierto.esquina.contains(ev.target)) cerrarMenuPlantilla();};
+  const cerrarMenuTeclado = ev => {
+    if (ev.key === 'Escape' && menuAbierto) {
+      const boton = menuAbierto.boton; cerrarMenuPlantilla(); boton.focus();
+    }
+  };
+  const bibliotecaActualizada = ev => {
+    plantillas = plantillas.filter(p => p.id !== ev.detail.id);
+    pintarCatalogo();
+  };
+  document.addEventListener('pointerdown', cerrarMenuFuera);
+  document.addEventListener('keydown', cerrarMenuTeclado, true);
+  window.addEventListener('remotion-plantilla-eliminada', bibliotecaActualizada);
   function pintarProps() {
     props.replaceChildren(...Object.entries(elegida.props).map(([k, v]) => {
       if (/^imagen[1-3]$/.test(k) && typeof v === 'string') {
@@ -10618,6 +10645,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         h('input', {type: 'number', value: elegida[k], onchange: ev => {elegida[k] = Number(ev.target.value); compilada = null; version++; pintarModo();}}))));
   }
   function pintarCatalogo() {
+    cerrarMenuPlantilla();
     cuenta.textContent = `${plantillas.length} de ${plantillas.length}`;
     rejilla.replaceChildren(...plantillas.map(p => {
       const mini = h('div', {clase: `remotion-mini remotion-mini-${p.tipo || 'titulo'}`},
@@ -10628,7 +10656,34 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         p.tipo === 'mapa' ? h('img', {clase: 'remotion-mini-mapa', alt: 'Mapa animado', src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400"><path d="M50 80L170 30 250 80 215 150 150 140 100 200 80 130ZM230 210L290 180 330 240 280 365 245 300ZM360 65L440 40 500 90 580 40 740 90 710 170 600 190 540 150 500 240 420 180 390 110ZM430 180L490 210 460 330 400 260ZM650 280L740 270 760 330 680 345Z" fill="#929fae"/><circle cx="440" cy="100" r="12" fill="#819aff"/></svg>')}) :
         p.tipo === 'galeria' ? h('span', {clase: 'remotion-mini-galeria'}, '▧ ▧') :
         h('span', {}, p.props.titulo, h('small', {}, p.props.subtitulo)));
-      return h('button', {clase: 'remotion-tarjeta', 'aria-pressed': String(elegida?.id === p.id), onclick: () => seleccionar(p)}, mini, h('span', {}, p.nombre));
+      const menu = h('div', {clase: 'remotion-menu', role: 'menu', hidden: true},
+        ...[['superponer', 'Superponer Animación'], ['sustituir', 'Sustituir contenido']].map(([modo, texto]) =>
+          h('button', {role: 'menuitemradio', 'aria-checked': String((p.modo || 'superponer') === modo), onclick: () => {
+            if (ocupado() || subiendoImagen || eliminandoPlantilla) return;
+            if (elegida?.id !== p.id) seleccionar(p);
+            cambiarModoRemotion(modo);
+          }}, h('span', {clase: 'remotion-menu-marca', 'aria-hidden': 'true'}, (p.modo || 'superponer') === modo ? '✓' : ''), texto)),
+        h('hr', {clase: 'remotion-menu-separador'}),
+        h('button', {role: 'menuitem', clase: 'peligro', onclick: async ev => {
+          if (ocupado() || subiendoImagen || eliminandoPlantilla) return;
+          const boton = ev.currentTarget;
+          eliminandoPlantilla = true; boton.disabled = true; boton.textContent = 'Eliminando…';
+          try {
+            await pedir(`${BASE}/api/remotion/plantillas/${encodeURIComponent(p.id)}`, {method: 'DELETE'});
+            window.dispatchEvent(new CustomEvent('remotion-plantilla-eliminada', {detail: {id: p.id}}));
+            if (cerrado) return;
+            mensaje.textContent = `Plantilla «${p.nombre}» eliminada de la biblioteca.`;
+          } catch (error) {mensaje.textContent = error.message;}
+          finally {eliminandoPlantilla = false; boton.disabled = false; boton.textContent = 'Eliminar plantilla';}
+        }}, 'Eliminar plantilla'));
+      const puntos = h('button', {clase: 'remotion-puntos', title: 'Más opciones', 'aria-label': `Más opciones de ${p.nombre}`,
+        'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => {
+          const abrir = menu.hidden; cerrarMenuPlantilla();
+          if (abrir) {menu.hidden = false; puntos.setAttribute('aria-expanded', 'true'); menuAbierto = {menu, boton: puntos, esquina};}
+        }}, '⋯');
+      const esquina = h('div', {clase: 'remotion-menu-esquina'}, puntos, menu);
+      return h('div', {clase: 'remotion-tarjeta-contenedor'},
+        h('button', {clase: 'remotion-tarjeta', 'aria-label': p.nombre, 'aria-pressed': String(elegida?.id === p.id), onclick: () => seleccionar(p)}, mini, h('span', {}, p.nombre)), esquina);
     }));
   }
   function seleccionar(p) {
@@ -10655,14 +10710,20 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
       desplegar.textContent = `‹/› Taller de Remotion ${abierto ? '▾' : '▸'}`;
       if (!activo || !abierto) {reproduccionPendiente = false; iframe.hidden = true; enviar({reproducir: false});}
       if (!activo) return;
-      if (!plantillas.length) {
+      if (!bibliotecaCargada) {
         try { const r = await pedir(`${BASE}/api/remotion/plantillas`); if (cerrado) return;
-          plantillas = r.plantillas; seleccionar(plantillas[0]);
+          plantillas = r.plantillas; bibliotecaCargada = true;
+          if (plantillas.length) seleccionar(plantillas[0]); else nuevaPlantilla();
           if (!r.disponible) mensaje.textContent = 'Motor pendiente de instalación: npm ci --prefix motores/remotion';
         } catch (error) {mensaje.textContent = error.message;}
       }
     }, ocultarPlayer: () => {reproduccionPendiente = false; iframe.hidden = true; enviar({reproducir: false});},
-    cerrar: () => {cerrado = true; window.removeEventListener('message', recibir); iframe.removeAttribute('src');}
+    cerrar: () => {
+      cerrado = true; window.removeEventListener('message', recibir); iframe.removeAttribute('src');
+      document.removeEventListener('pointerdown', cerrarMenuFuera);
+      document.removeEventListener('keydown', cerrarMenuTeclado, true);
+      window.removeEventListener('remotion-plantilla-eliminada', bibliotecaActualizada);
+    }
   };
 }
 

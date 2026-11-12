@@ -5235,6 +5235,17 @@ def guardar_plantilla_remotion(datos: dict = Body(...)):
         raise ErrorApi(400, str(exc)) from exc
 
 
+@app.delete("/api/remotion/plantillas/{referencia}")
+def eliminar_plantilla_remotion(referencia: str):
+    """Elimina una plantilla de la biblioteca sin modificar los bloques de los vídeos."""
+    from pasos import remotion
+    try:
+        remotion.eliminar(raiz_proyectos(), referencia)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    return {'eliminada': referencia}
+
+
 @app.post("/api/proyectos/{pid}/remotion/compilar", status_code=202)
 def compilar_remotion(pid: str, datos: dict = Body(...)):
     """Compila código React y prepara su Player sin modificar el montaje."""
