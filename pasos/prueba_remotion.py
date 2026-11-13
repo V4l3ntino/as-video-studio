@@ -115,6 +115,11 @@ class Contratos(unittest.TestCase):
             self.assertEqual(remotion.superponer(png, capas, 2), png)
             resultado = Image.open(io.BytesIO(remotion.superponer(png, capas, 1)))
             self.assertEqual(resultado.getpixel((0, 0)), (128, 0, 127, 255))
+            desplazada = dict(capas[0], posicion={'x': .25, 'y': -.25})
+            resultado = Image.open(io.BytesIO(remotion.superponer(png, [desplazada], 1)))
+            self.assertEqual(resultado.getpixel((0, 0)), (0, 0, 255, 255))
+            self.assertEqual(resultado.getpixel((1, 0)), (128, 0, 127, 255))
+            self.assertEqual(resultado.getpixel((1, 3)), (0, 0, 255, 255))
             class Navegador:
                 def capturar(self, destino=None):
                     return png
@@ -293,11 +298,57 @@ class Contratos(unittest.TestCase):
                     activo.get_by_role('button', name='Aplicar al timeline', exact=False).click()
                     pagina.wait_for_function('document.querySelector(".editor-global-escena:not([hidden]) .remotion-estado").textContent.includes("Animación incorporada")', timeout=120000)
                     self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 1)
+                    # Arrastre espacial real: un gesto, deshacer, sin preparar más PNG.
+                    muestra = activo.locator('.escena-editor-previa')
+                    activo.locator('.remotion-agarre').wait_for()
+                    # PNG disperso: dos formas separadas por un hueco transparente.
+                    # El gesto empieza en ese hueco, dentro del recuadro visible.
+                    activo.locator('.remotion-capas img').first.evaluate('''img => new Promise(resolve => {
+                        const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+                        const ctx = c.getContext('2d'); ctx.fillStyle = '#819aff';
+                        ctx.fillRect(c.width * .2, c.height * .4, c.width * .1, c.height * .2);
+                        ctx.fillRect(c.width * .7, c.height * .4, c.width * .1, c.height * .2);
+                        img.addEventListener('load', resolve, {once:true}); img.src = c.toDataURL();
+                    })''')
+                    recuadro = activo.locator('.remotion-agarre').bounding_box()
+                    caja = muestra.bounding_box()
+                    self.assertLess(recuadro['width'], caja['width'] * .8)
+                    self.assertGreater(recuadro['width'], caja['width'] * .6)
+                    self.assertGreaterEqual(recuadro['height'], 44)
+                    pagina.screenshot(path='/tmp/opencode/remotion-area-agarre.png', full_page=True)
+                    previas = len(preparaciones)
+                    pagina.evaluate('''() => {
+                        window.arrastresNativosRemotion = 0;
+                        document.addEventListener('dragstart', () => arrastresNativosRemotion++);
+                    }''')
+                    def mover_plantilla():
+                        caja = muestra.bounding_box()
+                        x, y = caja['x'] + caja['width'] / 2, caja['y'] + caja['height'] / 2
+                        pagina.mouse.move(x, y); pagina.mouse.down()
+                        pagina.mouse.move(x + caja['width'] * .08, y + caja['height'] * .07, steps=5)
+                        pagina.mouse.up()
+                    mover_plantilla()
+                    self.assertTrue(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    transformacion = activo.locator('.remotion-capas img').first.evaluate('n => n.style.transform')
+                    self.assertNotEqual(transformacion, 'translate(0%, 0%)')
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Deshacer', exact=False).click()
+                    self.assertEqual(activo.locator('.remotion-capas img').first.evaluate('n => n.style.transform'), 'translate(0%, 0%)')
+                    # La posición se edita también desde Imágenes: no arrastra el PNG
+                    # ni activa la animación SVG que haya debajo.
+                    activo.get_by_role('tab', name='Imágenes', exact=True).click()
+                    mover_plantilla()
+                    self.assertEqual(pagina.evaluate('arrastresNativosRemotion'), 0)
+                    self.assertFalse(activo.locator('.remotion-capas img').first.evaluate('n => n.draggable'))
+                    activo.get_by_role('tab', name='Plantillas Remotion', exact=True).click()
+                    self.assertEqual(len(preparaciones), previas)
+                    pagina.screenshot(path='/tmp/opencode/remotion-posicion.png', full_page=True)
                     pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Guardar cambios', exact=True).click()
                     pagina.wait_for_function('!EDITOR_GLOBAL.modificado()', timeout=30000)
                     datos = leer_json(proyecto.ruta('estado.json'))
                     bloques = datos['pasos']['render']['params']['unidades']['escena:S001']['remotion']['bloques']
                     self.assertEqual(bloques[0]['props']['titulo'], 'Título corregido')
+                    self.assertAlmostEqual(bloques[0]['posicion']['x'], .08, places=2)
+                    self.assertAlmostEqual(bloques[0]['posicion']['y'], .07, places=2)
                     capas = remotion.capas_guardadas(proyecto, bloques, [1280, 720], 30)
                     # El fixture tiene resolución propia; se comprueba el contrato publicado.
                     self.assertTrue(list(Path(proyecto.ruta('remotion', 'renders')).glob('*/listo.json')))

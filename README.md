@@ -199,9 +199,9 @@ autentica nada, a propósito (ver «Quién está dentro» más abajo).
 
 ### Sustituir una escena por una imagen o un clip propio
 
-En **Imágenes**, pasa el cursor sobre el cuadro de la escena y pulsa
-**Sustituir**, en su parte inferior. En dispositivos táctiles el botón está
-siempre visible. Elige una imagen **PNG, JPG o WebP**, o un vídeo **MP4, MOV,
+En **Imágenes**, selecciona la escena y pulsa **↔ Sustituir imagen**, encima del
+previsualizador. El botón está siempre visible y sustituye el material de la
+escena actual. Elige una imagen **PNG, JPG o WebP**, o un vídeo **MP4, MOV,
 WebM, MKV, M4V o AVI** (hasta 200 MiB por archivo).
 
 Los clips deben durar **al menos 2 segundos**. Si superan **15 segundos**, el
@@ -503,6 +503,16 @@ desde otro ordenador, renderiza ese servidor.
    para recuperar su código y props en el taller; aplicar de nuevo lo sustituye.
 8. **Guardar cambios** conserva los bloques del vídeo; **Montar el vídeo** los
      compone con las capas actuales. **Parar Remotion** cancela un trabajo local.
+
+Pincha sobre la animación Remotion en el previsualizador y arrástrala para cambiar
+su posición desde cualquier pestaña del editor. Con la reproducción parada,
+un recuadro discontinuo **↔ Arrastrar** muestra la zona de agarre: puedes pinchar
+en cualquier punto de su interior, incluidos los huecos entre letras o formas.
+La zona incluye un margen alrededor y un tamaño mínimo para elementos pequeños.
+Se mueve el conjunto de
+la plantilla; **Deshacer** recupera la posición anterior y **Guardar cambios**
+la conserva para la previsualización y el montaje, también si atraviesa varias
+escenas. Moverla reutiliza los fotogramas preparados.
 
 Para eliminar un bloque, arrástralo a la **papelera de la esquina superior derecha
 del timeline** y suéltalo cuando se ilumine. **Deshacer** permite recuperarlo;

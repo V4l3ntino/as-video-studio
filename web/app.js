@@ -10165,11 +10165,11 @@ function botonSustituirEscena(escena) {
   const entrada = h('input', {type: 'file', hidden: true,
     accept: '.png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.m4v,.avi',
     onchange: ev => sustituirMedioEscena(escena, ev.target.files[0]) });
-  return h('div', {clase: 'sustituir-medio'}, entrada,
-    h('button', {clase: 'primario', disabled: !!trabajoVideoLight() || !!PREVIA.sustituyendo,
+  return h('div', {clase: 'editor-previa-acciones'}, entrada,
+    h('button', {clase: 'mini', disabled: !!trabajoVideoLight() || !!PREVIA.sustituyendo,
       title: 'Elige una imagen o clip de al menos 2 s. Si supera 15 s, se recorta desde el inicio.',
       onclick: ev => { ev.stopPropagation(); entrada.click(); }},
-    PREVIA.sustituyendo ? 'Subiendo…' : 'Sustituir'));
+    h('span', {'aria-hidden': 'true'}, '↔'), PREVIA.sustituyendo ? 'Subiendo…' : 'Sustituir imagen'));
 }
 
 /* ---------------------------------------- la animación de motion graphics
@@ -10847,8 +10847,10 @@ function editorGlobalImagenes(escenas) {
     },
     capasRemotion: destino => escenas.flatMap(e => {
       return (controles.get(e.id)?.capasRemotion?.() || []).filter(capa => e.id === destino.id || capa.libre).map(capa =>
-        ({...capa, inicio: capa.inicio + e.t_in - destino.t_in, fin: capa.fin + e.t_in - destino.t_in}));
+        ({...capa, mover: (ev, marco) => controles.get(e.id).moverRemotion(ev, capa.indice, marco),
+          inicio: capa.inicio + e.t_in - destino.t_in, fin: capa.fin + e.t_in - destino.t_in}));
     }),
+    refrescarRemotion: () => controles.get(actual)?.pintarRemotion(),
     audio: ruta => {
       const url = API.archivo(pid, ruta);
       if (narracion.getAttribute('src') !== url) narracion.src = url;
@@ -11075,8 +11077,22 @@ async function abrirEditorEscena(escena, estudio) {
   const avisoRecuperacion = h('div', { clase: 'editor-recuperacion', hidden: true, role: 'status' });
   const muestra = h('div', { clase: `previa-marco anim-editor-previa escena-editor-previa con-avatar ${formatoDelVideo()}` });
   engancharSwipePrevia(muestra);
+  muestra.addEventListener('dragstart', ev => ev.preventDefault());
   const capa = h('div', { clase: 'previa-anim' });
   const capaRemotion = h('div', { clase: 'remotion-capas', 'aria-label': 'Animaciones Remotion de la escena' });
+  const agarresRemotion = h('div', {clase: 'remotion-agarres', 'aria-hidden': 'true'});
+  const observadorAgarres = new ResizeObserver(pintarAgarresRemotion);
+  observadorAgarres.observe(muestra);
+  muestra.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 || arrastrando || ev.target.closest('.previa-avatar')) return;
+    const marco = capaRemotion.getBoundingClientRect();
+    for (const img of [...capaRemotion.children].reverse()) {
+      const caja = cajaAgarreRemotion(img, marco), x = ev.clientX - marco.left, y = ev.clientY - marco.top;
+      if (caja && x >= caja.x && x <= caja.x + caja.ancho && y >= caja.y && y <= caja.y + caja.alto) {
+        img.remotionCapa.mover(ev, marco); break;
+      }
+    }
+  }, {capture: true});
   let canvas = h('canvas', { clase: 'escena-transicion', hidden: true });
   let canvasEnlace = h('canvas', { clase: 'escena-transicion', hidden: true });
   const medios = h('div', { hidden: true });
@@ -11115,6 +11131,7 @@ async function abrirEditorEscena(escena, estudio) {
         seleccionarPestaña(nombres[siguiente][0]); tabs.children[siguiente].focus();
       } }, h('span', { 'aria-hidden': 'true' }, icono), nombre)));
   const cerrar = () => {
+    observadorAgarres.disconnect();
     tallerRemotion?.cerrar();
     clearTimeout(temporizador); revision++; pausar();
     if (tid) pedir(API.cancelar(tid), { method: 'POST' }).catch(() => {});
@@ -11133,7 +11150,7 @@ async function abrirEditorEscena(escena, estudio) {
     } },
     h('aside', { clase: 'editor-global-panel' }, tabs, avisoRecuperacion, panel,
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
-    h('div', { clase: 'editor-global-visual' }, muestra), medios);
+    h('div', { clase: 'editor-global-visual' }, botonSustituirEscena(escena), muestra), medios);
   tallerRemotion = crearTallerRemotion({pid, escena, trabajo: trabajoRemotion, ocupado, alElegir: () => {indiceRemotion = -1;},
     tallerAbierto: () => estudio.tallerRemotionAbierto,
     alternarTaller: () => {estudio.tallerRemotionAbierto = !estudio.tallerRemotionAbierto; control.actualizarTaller();},
@@ -11145,6 +11162,7 @@ async function abrirEditorEscena(escena, estudio) {
       const inicio = reemplazar ? reemplazar.inicio : Math.max(-escena.t_in, Math.min(tiempo, estudio.duracion - escena.t_in - .1));
       const bloque = {plantilla: compilada.plantilla, nombre: plantilla.nombre, props: structuredClone(plantilla.props),
         modo: plantilla.modo || 'superponer', origen: escena.t_in, inicio, fin: Math.min(estudio.duracion - escena.t_in, inicio + plantilla.duracion)};
+      if (reemplazar?.posicion) bloque.posicion = structuredClone(reemplazar.posicion);
       if (soloRender) {
         const mp4 = {...bloque, inicio: 0, fin: total}; delete mp4.origen;
         await trabajoRemotion(`${base}/remotion/preparar`, {ancla: ficha.animacion.ancla, bloques: [mp4]}, mensaje); return;
@@ -11168,6 +11186,8 @@ async function abrirEditorEscena(escena, estudio) {
   filas.bloques.appendChild(bloqueEscena);
   const control = { nodo: dialogo, notas: notasEscena, timeline, pistas, filas, total, cerrar, guardar,
     capasRemotion: capasActualesRemotion,
+    moverRemotion,
+    pintarRemotion: pintarReloj,
     actualizarTaller: () => {
       if (estudio.esActual(escena.id)) estudio.nodo.classList.toggle('con-remotion', pestaña === 'remotion' && estudio.tallerRemotionAbierto);
       tallerRemotion.activar(pestaña === 'remotion');
@@ -11341,22 +11361,23 @@ async function abrirEditorEscena(escena, estudio) {
     // Desplazar no modifica el recurso: solo cambia el origen de su reloj.
     // Se resuelve por bloque para que eliminar o editar otro no borre todas las capas.
     const firmaRecurso = b => {
-      const {inicio, fin, origen, ...recurso} = b;
+      const {inicio, fin, origen, posicion, ...recurso} = b;
       return JSON.stringify({...recurso, formato: recurso.modo === 'sustituir' && origen == null ? 'mp4' : 'png',
         duracion: Math.round((fin - inicio) * 1e6) / 1e6});
     };
-    return (borrador?.remotion || []).flatMap(b => {
+    return (borrador?.remotion || []).flatMap((b, indice) => {
       const i = preparados.findIndex(p => firmaRecurso(p) === firmaRecurso(b));
       if (i < 0) return [];
       const anterior = preparados[i];
       const capa = capasRemotion.length === preparados.length ? capasRemotion[i] : capasRemotion.find(c =>
         c.inicio === anterior.inicio && c.fin === anterior.fin && !!c.opaca === (anterior.modo === 'sustituir'));
-      return capa ? [{...capa, inicio: b.inicio, fin: b.fin, libre: b.origen != null}] : [];
+      return capa ? [{...capa, indice, posicion: b.posicion || {}, inicio: b.inicio, fin: b.fin, libre: b.origen != null}] : [];
     });
   }
   function seleccionarPestaña(id, indice) {
     cancelAnimationFrame(cuadroEnlace); canvasEnlace.hidden = true;
     pestaña = id;
+    capaRemotion.classList.toggle('remotion-editable', id === 'remotion');
     control.actualizarTaller();
     if (id === 'remotion' && indice != null && indice >= 0 && borrador?.remotion?.[indice]) {
       const bloque = borrador.remotion[indice];
@@ -11420,7 +11441,7 @@ async function abrirEditorEscena(escena, estudio) {
     vaciar(panel);
     if (!ficha || !borrador) return;
     if (pestaña === 'remotion') {
-      panel.appendChild(tallerRemotion.panel);
+      panel.append(tallerRemotion.panel, h('p', {clase: 'meta'}, 'Arrastra desde cualquier punto del recuadro de la animación para colocarla, incluidos sus huecos. Guarda los cambios para aplicar la posición al vídeo.'));
       return;
     }
     if (pestaña === 'imagenes') {
@@ -11763,11 +11784,21 @@ async function abrirEditorEscena(escena, estudio) {
     const activas = estudio.capasRemotion(escena).filter(c => c.modo !== 'sustituir' && c.inicio <= tiempo && tiempo < c.fin);
     while (capaRemotion.children.length > activas.length) capaRemotion.lastChild.remove();
     activas.forEach((c, i) => {
-      let img = capaRemotion.children[i]; if (!img) {img = h('img', {alt: ''}); capaRemotion.appendChild(img);}
+      let img = capaRemotion.children[i];
+      if (!img) {
+        img = h('img', {alt: '', draggable: 'false', onload: () => {
+          img.remotionLimites = limitesRemotion(img); pintarAgarresRemotion();
+        }});
+        capaRemotion.appendChild(img);
+      }
       img.classList.toggle('remotion-opaca', !!c.opaca);
+      img.remotionCapa = c;
+      img.style.transform = `translate(${(c.posicion?.x || 0) * 100}%, ${(c.posicion?.y || 0) * 100}%)`;
       const numero = Math.min(c.fotogramas.length - 1, Math.max(0, Math.floor((tiempo - c.inicio) * c.fps + 1e-7)));
-      const url = API.archivo(pid, c.fotogramas[numero]); if (img.getAttribute('src') !== url) img.src = url;
+      const url = API.archivo(pid, c.fotogramas[numero]);
+      if (img.getAttribute('src') !== url) {img.remotionLimites = null; img.src = url;}
     });
+    pintarAgarresRemotion();
     [fondo, avatar].forEach(v => sincronizarMedioEditor(v, tiempo, !!audio && !audio.paused));
     if (avatar) {
       const arrastre = ARRASTRES_AVATAR.get(avatar);
@@ -11790,6 +11821,52 @@ async function abrirEditorEscena(escena, estudio) {
       if (origen) pintorEnlace.actualizar(0, origen);
       pintorEnlace.pintar(enlace.tipo, Math.min(1, Math.max(0, (tiempo - enlace.inicio) / (enlace.fin - enlace.inicio))));
     }
+  }
+  function limitesRemotion(img) {
+    if (!img.complete || !img.naturalWidth) return null;
+    // El alpha localiza el conjunto una vez por fotograma; los huecos interiores
+    // también pertenecen al área de agarre. La miniatura evita leer PNG completos.
+    const mini = document.createElement('canvas');
+    const escala = Math.min(1, 320 / Math.max(img.naturalWidth, img.naturalHeight));
+    mini.width = Math.max(1, Math.round(img.naturalWidth * escala));
+    mini.height = Math.max(1, Math.round(img.naturalHeight * escala));
+    const ctx = mini.getContext('2d', {willReadFrequently: true});
+    ctx.drawImage(img, 0, 0, mini.width, mini.height);
+    const pixeles = ctx.getImageData(0, 0, mini.width, mini.height).data;
+    let izquierda = mini.width, arriba = mini.height, derecha = -1, abajo = -1;
+    for (let y = 0; y < mini.height; y++) for (let x = 0; x < mini.width; x++) {
+      if (!pixeles[(y * mini.width + x) * 4 + 3]) continue;
+      izquierda = Math.min(izquierda, x); derecha = Math.max(derecha, x);
+      arriba = Math.min(arriba, y); abajo = Math.max(abajo, y);
+    }
+    return derecha < 0 ? null : {x: izquierda / mini.width, y: arriba / mini.height,
+      ancho: (derecha - izquierda + 1) / mini.width, alto: (abajo - arriba + 1) / mini.height};
+  }
+  function cajaAgarreRemotion(img, marco) {
+    const limite = img.remotionLimites;
+    if (!limite || !marco.width || !marco.height) return null;
+    const escala = Math.min(marco.width / img.naturalWidth, marco.height / img.naturalHeight);
+    const ancho = img.naturalWidth * escala, alto = img.naturalHeight * escala;
+    const p = img.remotionCapa.posicion || {};
+    const centroX = (marco.width - ancho) / 2 + (limite.x + limite.ancho / 2) * ancho + (p.x || 0) * marco.width;
+    const centroY = (marco.height - alto) / 2 + (limite.y + limite.alto / 2) * alto + (p.y || 0) * marco.height;
+    const mitadX = Math.max(44, limite.ancho * ancho + 20) / 2;
+    const mitadY = Math.max(44, limite.alto * alto + 20) / 2;
+    const x = Math.max(0, centroX - mitadX), y = Math.max(0, centroY - mitadY);
+    const derecha = Math.min(marco.width, centroX + mitadX), abajo = Math.min(marco.height, centroY + mitadY);
+    return derecha <= x || abajo <= y ? null : {x, y, ancho: derecha - x, alto: abajo - y};
+  }
+  function pintarAgarresRemotion() {
+    const marco = capaRemotion.getBoundingClientRect();
+    agarresRemotion.hidden = !!audio && !audio.paused;
+    const cajas = [...capaRemotion.children].map(img => cajaAgarreRemotion(img, marco)).filter(Boolean);
+    while (agarresRemotion.children.length > cajas.length) agarresRemotion.lastChild.remove();
+    cajas.forEach((caja, i) => {
+      let recuadro = agarresRemotion.children[i];
+      if (!recuadro) {recuadro = h('div', {clase: 'remotion-agarre'}); agarresRemotion.appendChild(recuadro);}
+      recuadro.style.left = `${caja.x / marco.width * 100}%`; recuadro.style.top = `${caja.y / marco.height * 100}%`;
+      recuadro.style.width = `${caja.ancho / marco.width * 100}%`; recuadro.style.height = `${caja.alto / marco.height * 100}%`;
+    });
   }
   async function prepararAnimacion() {
     control.animacionPendiente = true;
@@ -11823,6 +11900,25 @@ async function abrirEditorEscena(escena, estudio) {
       b.posiciones = { conjunto: { x: p.x + (punto.x - origen.x) / caja.width, y: p.y + (punto.y - origen.y) / caja.height } };
       grupo.setAttribute('transform', `translate(${b.posiciones.conjunto.x * caja.width} ${b.posiciones.conjunto.y * caja.height})`);
     }, () => { arrastrando = false; cambio(movido); });
+  }
+  function moverRemotion(ev, i, marco) {
+    if (ocupado() || arrastrando) return;
+    const b = borrador.remotion[i]; if (!b) return;
+    estudio.pausar();
+    const p = {...(b.posicion || {x: 0, y: 0})}, x = ev.clientX, y = ev.clientY;
+    let movido = false;
+    arrastrando = true;
+    capturar(ev, e => {
+      if (!movido && Math.hypot(e.clientX - x, e.clientY - y) < 2) return;
+      if (!movido) { recordar(); movido = true; }
+      b.posicion = {x: Math.max(-1, Math.min(1, p.x + (e.clientX - x) / marco.width)),
+        y: Math.max(-1, Math.min(1, p.y + (e.clientY - y) / marco.height))};
+      estudio.refrescarRemotion();
+    }, evento => {
+      arrastrando = false;
+      if (movido && evento.type !== 'pointerup') {borrador = historial.pop(); estudio.cancelarRecuerdo(escena.id);}
+      cambio(false); estudio.refrescarRemotion();
+    });
   }
   function datosAnimacion() {
     const bloques = structuredClone(borrador.animacion);
@@ -11983,7 +12079,7 @@ async function abrirEditorEscena(escena, estudio) {
     fondo = h(escena.clip ? 'video' : 'img', { clase: escena.clip ? 'previa-clip' : '',
       ...(estudio.esActual(escena.id) && (escena.clip || escena.imagen) ? { src: API.archivo(pid, escena.clip || escena.imagen) } : {}),
       alt: escena.id, muted: true, playsinline: true, preload: 'auto' });
-    muestra.append(fondo, capa, capaRemotion, canvas, canvasEnlace, tallerRemotion.iframe, botonSustituirEscena(escena)); montarAvatar(); seleccionarPestaña(pestaña); prepararAnimacion();
+    muestra.append(fondo, capa, capaRemotion, agarresRemotion, canvas, canvasEnlace, tallerRemotion.iframe); montarAvatar(); seleccionarPestaña(pestaña); prepararAnimacion();
     if (ficha.animacion.audio) {
       audio = estudio.audio(ficha.animacion.audio); reproducir.disabled = false;
       cargarOnda();

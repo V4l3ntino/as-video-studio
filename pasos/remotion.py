@@ -236,8 +236,13 @@ def validar_edicion(datos, escena):
         raise ValueError('utiliza como máximo 16 bloques Remotion por escena')
     limpios = []
     for b in bloques:
-        if not isinstance(b, dict) or set(b) - {'plantilla', 'nombre', 'props', 'inicio', 'fin', 'modo', 'origen'} or not {'plantilla', 'nombre', 'props', 'inicio', 'fin'} <= set(b):
+        if not isinstance(b, dict) or set(b) - {'plantilla', 'nombre', 'props', 'inicio', 'fin', 'modo', 'origen', 'posicion'} or not {'plantilla', 'nombre', 'props', 'inicio', 'fin'} <= set(b):
             raise ValueError('bloque Remotion no válido')
+        if 'posicion' in b:
+            posicion = b['posicion']
+            if (not isinstance(posicion, dict) or set(posicion) != {'x', 'y'} or
+                    any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > 1 for v in posicion.values())):
+                raise ValueError('la posición Remotion debe contener desplazamientos x/y entre -1 y 1')
         if b.get('modo', 'superponer') not in ('superponer', 'sustituir'):
             raise ValueError('modo de aplicación Remotion no válido')
         if not isinstance(b['plantilla'], str) or not re.fullmatch('[a-f0-9]{64}', b['plantilla']):
@@ -313,7 +318,7 @@ def capas_guardadas(proyecto, bloques, resolucion, fps):
                 capas.append(dict(modo='sustituir', inicio=0, fin=bloque['fin'], clip=os.path.relpath(carpeta / 'video.mp4', proyecto.raiz).replace('\\', '/')))
             continue
         if ficha and all((carpeta / n).is_file() for n in ficha['frames']):
-            capas.append(dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, libre='origen' in bloque, opaca=bloque.get('modo') == 'sustituir',
+            capas.append(dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, posicion=bloque.get('posicion', {}), libre='origen' in bloque, opaca=bloque.get('modo') == 'sustituir',
                               fotogramas=[os.path.relpath(carpeta / n, proyecto.raiz).replace('\\', '/') for n in ficha['frames']]))
     return capas
 
@@ -349,7 +354,7 @@ def preparar(proyecto, bloque, resolucion, fps, avisar=None):
         marcos = [str(carpeta / n) for n in nombres]
         if not all(Path(p).is_file() for p in marcos):
             raise ValueError('faltan fotogramas del render Remotion; elimina su caché para prepararlo de nuevo')
-        return dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, fotogramas=marcos, libre='origen' in bloque, opaca=bloque.get('modo') == 'sustituir')
+        return dict(inicio=bloque['inicio'], fin=bloque['fin'], fps=fps, fotogramas=marcos, posicion=bloque.get('posicion', {}), libre='origen' in bloque, opaca=bloque.get('modo') == 'sustituir')
     finally:
         _LOCK.release()
 
@@ -367,7 +372,9 @@ def superponer(png, capas, tiempo):
         numero = min(len(capa['fotogramas']) - 1, max(0, int((tiempo - capa['inicio']) * capa['fps'] + 1e-7)))
         with Image.open(capa['fotogramas'][numero]) as imagen:
             imagen = ImageOps.contain(imagen.convert('RGBA'), base.size, Image.Resampling.LANCZOS)
-            base.alpha_composite(imagen, ((base.width - imagen.width) // 2, (base.height - imagen.height) // 2))
+            posicion = capa.get('posicion') or {}
+            base.alpha_composite(imagen, ((base.width - imagen.width) // 2 + round(posicion.get('x', 0) * base.width),
+                                          (base.height - imagen.height) // 2 + round(posicion.get('y', 0) * base.height)))
     if base is None:
         return png
     salida = io.BytesIO()

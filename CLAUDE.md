@@ -410,6 +410,20 @@ y el taller e invalida la compilación anterior antes de insertar. La selección
 solo modifica el borrador de la plantilla; el modo efectivo viaja en la instantánea
 y en el bloque al insertarlo, sin cambiar los bloques existentes al abrir el menú.
 
+Los bloques admiten `posicion: {x, y}` como desplazamiento normalizado al lienzo
+(-1 a 1; ausencia = centrado). No forma parte de la identidad del recurso PNG:
+`capasActualesRemotion` aplica el desplazamiento actual sin preparar fotogramas
+nuevos. El previsualizador captura el puntero desde cualquier pestaña y bloquea
+el arrastre nativo de imágenes (`draggable="false"` como cadena: `h` omite el
+booleano falso). El alpha de una miniatura de cada fotograma delimita el conjunto:
+el recuadro de agarre incluye los huecos interiores, 10 px de margen y un mínimo
+de 44 px por eje. El mismo cálculo dibuja el recuadro y resuelve el hitbox, de
+delante hacia atrás; al reproducir se ocultan las guías y un ResizeObserver las
+adapta al tamaño del previsualizador. El arrastre edita su controlador de origen, también al atravesar
+escenas. Un gesto añade un recuerdo; cancelar lo restaura. Previa y
+`remotion.superponer` desplazan el conjunto conservando escala y reloj; Guardar
+persiste la posición y las dependencias del timeline invalidan el montaje afectado.
+
 La sección incluye también las diez cartelas de `cartelas.PLANTILLAS`, con GIF
 `anim_cartela-<id>.gif`. Su selección independiente es
 `montaje.plantillas_cartela` en estilos y `callouts.params.plantillas_cartela`

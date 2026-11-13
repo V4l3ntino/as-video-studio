@@ -2607,7 +2607,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 }
 .previa-feedback .aportadas { margin: 6px 0 8px; }
 .previa-feedback .zona-suelta { padding: 9px 11px; font-size: 12px; }
-/* Sustitucion del material del plano: visible al apuntar, con teclado y en tactil. */
+/* Sustitución del material del plano desde la barra del previsualizador. */
 .previa-marco .previa-clip { width: 100%; height: 100%; object-fit: cover; display: block; }
 .previa-marco.con-avatar > img { object-fit: cover; }
 .previa-marco .previa-avatar { position: absolute; left: var(--avatar-x, 73.375%); top: var(--avatar-y, 4%); right: auto; bottom: auto; width: 23.625%; height: auto; aspect-ratio: 1; object-fit: contain; background: #000; display: block; user-select: none; }
@@ -2615,15 +2615,8 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .previa-marco .previa-avatar { z-index: 3; }
 .previa-marco .previa-avatar.avatar-arrastrando { cursor: grabbing; outline: 2px solid var(--acento, #8294ff); }
 .avatar-editor-tiempos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.previa-marco .sustituir-medio {
-  position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
-  z-index: 4; opacity: 0; pointer-events: none; transition: opacity .15s;
-}
-.previa-marco:hover .sustituir-medio,
-.previa-marco:focus-within .sustituir-medio { opacity: 1; pointer-events: auto; }
-@media (hover: none) {
-  .previa-marco .sustituir-medio { opacity: 1; pointer-events: auto; }
-}
+.editor-previa-acciones { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.editor-previa-acciones button { display: inline-flex; align-items: center; gap: 7px; }
 
 /* -------------------------------- Motion animation y Efectos (dos recuadros)
    Izquierda: lo que hay. Derecha: lo que entra al montar. Pulsar una tarjeta la
@@ -2862,13 +2855,19 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-detalle .remotion-boton { margin-top: 6px; }
 .remotion-player { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; z-index: 8; pointer-events: none; background: transparent; }
 .remotion-capas { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
-.remotion-capas img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.remotion-capas img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.remotion-capas.remotion-editable { pointer-events: auto; cursor: grab; touch-action: none; }
+.remotion-capas.remotion-editable:active { cursor: grabbing; }
+.remotion-agarres { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.remotion-agarre { position: absolute; box-sizing: border-box; border: 1px dashed #afbcff; border-radius: 5px; box-shadow: 0 0 0 1px #11182780; pointer-events: auto; cursor: grab; touch-action: none; }
+.remotion-agarre:active { cursor: grabbing; }
+.remotion-agarre::before { content: '↔ Arrastrar'; position: absolute; left: 3px; top: 3px; padding: 2px 5px; border-radius: 3px; background: #17213be6; color: #e2e7ff; font: 10px/1.3 system-ui, sans-serif; }
 .remotion-ajustes { padding: 12px; }
 .anim-timeline-pista.remotion .anim-timeline-bloque { background: #594589; border-color: #9b84d2; }
 .anim-timeline-pista.remotion .remotion-completa { background: #344e75; border-color: #8bb7ed; }
 .editor-global .anim-timeline-pista.remotion { overflow: visible; }
 .editor-global .anim-timeline-pista.remotion .anim-timeline-bloque { z-index: 4; }
-.remotion-capas img.remotion-opaca { background: black; }
+.remotion-capas img.remotion-opaca { background: black; box-shadow: 0 0 0 200vmax black; }
 @media (min-width: 1500px) { .editor-global.con-remotion { grid-template-columns: minmax(300px, 26%) minmax(400px, 1fr) minmax(340px, 24%); }.remotion-editor-codigo { height: 260px; flex-basis: 260px; } }
 @media (max-width: 1100px) { .editor-global.con-remotion { grid-template-columns: minmax(230px, 32%) minmax(0, 1fr); }.editor-global.con-remotion .remotion-taller { grid-column: 1 / -1; grid-row: 6; }.editor-global.con-remotion .editor-global-estados { grid-row: 7; }.editor-global.con-remotion .editor-global-lista-notas { grid-row: 8; } }
 @media (max-width: 700px) { .editor-global.con-remotion { display: block; }.remotion-taller { margin-top: 12px; }.editor-global.con-remotion .escena-editor-panel { max-height: 50vh; }.remotion-catalogo { grid-template-columns: repeat(3, minmax(0, 1fr)); }.remotion-editor-codigo { height: 280px; flex-basis: 280px; } }
