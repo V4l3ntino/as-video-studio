@@ -503,7 +503,9 @@ desde otro ordenador, renderiza ese servidor.
    previsualización y adapta su reloj al nuevo inicio, sin volver a renderizar.
    Al cambiar su duración desde los extremos, la muestra se prepara automáticamente.
    Pulsa un bloque
-   para recuperar su código y props en el taller; aplicar de nuevo lo sustituye.
+    para recuperar su código y props en el taller. Haz doble clic sobre el bloque
+    para abrir el popup y editar sus props; **Guardar** actualiza ese mismo bloque.
+    Al pasar el cursor por el bloque se muestra la indicación de doble clic.
 8. **Guardar cambios** conserva los bloques del vídeo; **Montar el vídeo** los
      compone con las capas actuales. **Parar Remotion** cancela un trabajo local.
 

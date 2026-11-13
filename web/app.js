@@ -10500,7 +10500,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
     mensaje.textContent = 'Compilación lista. Puedes previsualizar o aplicar a la escena.';
     return r;
   }
-  function insertar() {
+  function insertar(editando = false) {
     if (!elegida || ocupado() || subiendoImagen || popupProps) return;
     const anterior = structuredClone(elegida), foco = document.activeElement;
     let guardando = false, confirmado = false;
@@ -10520,7 +10520,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         guardando = false; guardar.disabled = cancelarProps.disabled = false; props.inert = false; parar.hidden = true;
       }
     }}, h('h3', {}, `Configurar animación · ${elegida.nombre}`),
-      h('p', {clase: 'meta'}, 'Ajusta las props de esta animación. Guardar la incorpora a la línea de tiempo.'),
+      h('p', {clase: 'meta'}, editando ? 'Edita las props de esta animación. Guardar actualiza el bloque seleccionado.' : 'Ajusta las props de esta animación. Guardar la incorpora a la línea de tiempo.'),
       props, estadoPopup, h('div', {clase: 'remotion-popup-acciones'}, parar, cancelarProps, guardar));
     popupProps = h('dialog', {clase: 'remotion-popup-props', 'aria-label': `Props de ${elegida.nombre}`,
       oncancel: ev => {if (guardando || subiendoImagen) ev.preventDefault();},
@@ -10726,13 +10726,13 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
     detalle.replaceChildren(h('h4', {}, p.nombre), h('p', {clase: 'meta'}, p.descripcion), accion('◉  Insertar en la línea de tiempo', insertar));
     mensaje.textContent = 'Edita el componente o sus props y pulsa «Compilar».';
   }
-  return {panel, taller, iframe, mensaje,
+  return {panel, taller, iframe, mensaje, configurar: () => insertar(true),
     editar: async b => {
       const v = ++version;
       delete taller.dataset.plantillaEditada;
       const p = await pedir(`${API.proyecto(pid)}/remotion/plantillas/${b.plantilla}`);
       if (cerrado || v !== version) return false;
-      seleccionar({...p, modo: b.modo || 'superponer', props: structuredClone(b.props), duracion: b.modo === 'sustituir' ? p.duracion : b.fin - b.inicio});
+      seleccionar({...p, modo: b.modo || 'superponer', props: structuredClone(b.props), duracion: b.modo === 'sustituir' && b.origen == null ? p.duracion : b.fin - b.inicio});
       taller.dataset.plantillaEditada = b.plantilla;
       return true;
     },
@@ -11600,6 +11600,16 @@ async function abrirEditorEscena(escena, estudio) {
     if (b.enlace) return `→ ${ficha.enlace.escenas[1].id} · ${ficha.enlace.transiciones.find(t => t.id === b.tipo)?.nombre || b.tipo}`;
     return `${b.sentido === 'entrada' ? 'Entrada' : 'Salida'} · ${(ficha.enlace || ficha.catalogo).transiciones.find(t => t.id === b.tipo)?.nombre || b.tipo}`;
   }
+  async function configurarBloqueRemotion(b) {
+    if (ocupado()) return;
+    try {
+      if (!await tallerRemotion.editar(b)) return;
+      const indice = borrador.remotion.indexOf(b);
+      if (indice < 0) return;
+      indiceRemotion = seleccionado = indice;
+      tallerRemotion.configurar();
+    } catch (error) {estado.textContent = error.message;}
+  }
   function pintarPistas() {
     if (!borrador || arrastrando) return;
     ['remotion', 'animacion', 'sonidos', 'avatar', 'transiciones'].forEach(tipo => {
@@ -11612,14 +11622,14 @@ async function abrirEditorEscena(escena, estudio) {
         const indice = b.enlace ? -2 : i;
         const seleccionar = () => estudio.seleccionar(escena.id, tipo, Math.max(0, Math.min(total, inicio)), indice);
         const nodo = h('div', { clase: `anim-timeline-bloque${b.enlace ? ' enlace' : ''}${b.modo === 'sustituir' ? ' remotion-completa' : ''}`, role: 'button', tabindex: 0,
-          title: nombreBloque(tipo, b),
-          'aria-label': `${nombreBloque(tipo, b)}: ${inicio.toFixed(3)} a ${fin.toFixed(3)} segundos`,
+          title: nombreBloque(tipo, b) + (tipo === 'remotion' ? ' · Doble clic para editar props' : ''),
+          'aria-label': `${nombreBloque(tipo, b)}: ${inicio.toFixed(3)} a ${fin.toFixed(3)} segundos${tipo === 'remotion' ? '. Doble clic o Intro para editar props' : ''}`,
           'aria-pressed': String(tipo === pestaña && indice === seleccionado),
           onpointerdown: ev => arrastrarBloque(ev, tipo, indice),
-          onkeydown: ev => { if (['Enter', ' '].includes(ev.key)) { ev.preventDefault(); seleccionar(); } } },
-          h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'inicio', title: 'Ajustar inicio' }),
+          onkeydown: ev => { if (['Enter', ' '].includes(ev.key)) { ev.preventDefault(); seleccionar(); if (tipo === 'remotion') configurarBloqueRemotion(b); } } },
+          h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'inicio', title: 'Ajustar inicio' + (tipo === 'remotion' ? ' · Doble clic para editar props' : '') }),
           h('span', { clase: 'anim-timeline-nombre' }, `${nombreBloque(tipo, b)} (${(fin - inicio).toFixed(2)} s)`),
-          h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'fin', title: 'Ajustar final' }));
+          h('span', { clase: 'anim-timeline-asa', 'data-extremo': 'fin', title: 'Ajustar final' + (tipo === 'remotion' ? ' · Doble clic para editar props' : '') }));
         nodo.style.left = `${inicio / total * 100}%`; nodo.style.width = `${(fin - inicio) / total * 100}%`;
         // Los solapamientos se muestran en carriles dentro de la misma pista.
         const ocupados = new Set(Array.from(filas[tipo].children).filter((n, j) => {
@@ -11662,6 +11672,7 @@ async function abrirEditorEscena(escena, estudio) {
     nodo.addEventListener('pointermove', mover); nodo.addEventListener('pointerup', fin);
     nodo.addEventListener('pointercancel', fin); nodo.addEventListener('lostpointercapture', fin);
   }
+  let ultimoClicRemotion;
   function arrastrarBloque(ev, tipo, i) {
     if (ev.button !== 0 || ocupado()) return;
     pausar();
@@ -11689,6 +11700,12 @@ async function abrirEditorEscena(escena, estudio) {
       datosTiempo.textContent = `Inicio ${p.inicio.toFixed(3)} s · Fin ${p.fin.toFixed(3)} s · Duración ${(p.fin - p.inicio).toFixed(3)} s`;
     }, evento => {
       const eliminar = movido && evento.type === 'pointerup' && estudio.papelera(evento, true);
+      // Las pistas recrean sus nodos al soltar: el dblclick nativo perdería su destino.
+      const dobleClic = tipo === 'remotion' && !movido && evento.type === 'pointerup' &&
+        ultimoClicRemotion?.bloque === b && evento.timeStamp - ultimoClicRemotion.tiempo < 500 &&
+        Math.hypot(evento.clientX - ultimoClicRemotion.x, evento.clientY - ultimoClicRemotion.y) < 5;
+      ultimoClicRemotion = tipo === 'remotion' && !movido && evento.type === 'pointerup' && !dobleClic
+        ? {bloque: b, tiempo: evento.timeStamp, x: evento.clientX, y: evento.clientY} : null;
       estudio.papelera(evento, false);
       arrastrando = false;
       if (movido && evento.type !== 'pointerup') {borrador = historial.pop(); estudio.cancelarRecuerdo(escena.id); movido = false;}
@@ -11699,6 +11716,7 @@ async function abrirEditorEscena(escena, estudio) {
         if (tipo === 'remotion') indiceRemotion = -1;
       }
       pintarPanel(); cambio(movido && tipo !== 'remotion');
+      if (dobleClic) configurarBloqueRemotion(b);
       if (!eliminar && movido && tipo === 'remotion' && capasActualesRemotion().length < borrador.remotion.length) prepararRemotion();
     });
   }
