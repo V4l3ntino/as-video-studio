@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {bundle} from '@remotion/bundler';
-import {renderFrames, renderMedia, selectComposition} from '@remotion/renderer';
+import {renderFrames, renderMedia, renderStill, selectComposition} from '@remotion/renderer';
 import {build} from 'esbuild';
 
 const raiz = path.dirname(fileURLToPath(import.meta.url));
@@ -50,6 +50,12 @@ createRoot(document.getElementById('root')).render(<Previa/>);`);
       platform: 'browser', format: 'iife', jsx: 'automatic', nodePaths: [dependencias],
       define: {'process.env.NODE_ENV': '"production"'}});
     await fs.writeFile(path.join(carpeta, 'preview.html'), '<!doctype html><html><head><meta charset="utf-8"><style>html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}*{box-sizing:border-box}</style></head><body><div id="root"></div><script src="preview.js"></script></body></html>');
+  } else if (accion === 'miniatura') {
+    const serveUrl = path.join(pedido.compilado, 'render');
+    const composition = await selectComposition({serveUrl, id: 'plantilla', inputProps: plantilla.props, browserExecutable: pedido.navegador});
+    await renderStill({serveUrl, composition, inputProps: plantilla.props, output: path.join(carpeta, 'miniatura.png'),
+      frame: Math.min(composition.durationInFrames - 1, Math.round(composition.durationInFrames / 2)),
+      scale: Math.min(320 / plantilla.ancho, 180 / plantilla.alto), browserExecutable: pedido.navegador});
   } else if (accion === 'render') {
     const serveUrl = path.join(pedido.compilado, 'render');
     const composition = await selectComposition({serveUrl, id: 'plantilla', inputProps: plantilla.props, browserExecutable: pedido.navegador});

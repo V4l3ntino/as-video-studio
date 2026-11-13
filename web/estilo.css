@@ -2693,6 +2693,9 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .editor-global-configuraciones { display: contents; }
 .editor-global-escena.anim-editor { display: contents; }
 .editor-global-escena[hidden] { display: none; }
+.editor-global-escena[data-panel-activo="false"] > .editor-global-panel,
+.editor-global-escena[data-panel-activo="false"] > .remotion-taller,
+.editor-global-escena[data-visual-activo="false"] > .editor-global-visual { display: none; }
 .editor-global-panel { grid-column: 1; grid-row: 3 / 6; min-width: 0; padding: 12px; background: #12161e; border: 1px solid #303745; border-radius: 10px; }
 .editor-recuperacion { padding: 10px; margin: 8px 0; border: 1px solid var(--acento); border-radius: 8px; }
 .editor-recuperacion button { margin: 4px 4px 0 0; }
@@ -2752,6 +2755,42 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 }
 .escena-editor { width: min(1080px, calc(100vw - 48px)); background: linear-gradient(135deg, #151922, #0e1118); box-shadow: 0 24px 100px #0009; }
 /* Taller Remotion: biblioteca / lienzo y timeline / código y props. */
+.remotion-selector-biblioteca { width: 100%; margin: 12px 0 0; padding: 8px; color: #dfe3ee; background: #12171f; border: 1px solid #8192ff; border-radius: 5px; }
+.remotion-crear-signo { display: grid; place-items: center; font-size: 38px; color: #8192ff; }
+.remotion-tarjeta.remotion-crear { border: 1px dashed #8192ff; }
+.remotion-chat { display: flex; flex: 1; flex-direction: column; padding: 0 12px 12px; overflow: auto; min-height: 200px; }
+.remotion-chat > * { flex-shrink: 0; }
+.remotion-chat[hidden] { display: none; }
+.remotion-chat h4 { margin: 10px 0; font-size: 15px; }
+.remotion-chat .meta { font-size: 11px; }
+.remotion-chat-escenas { padding: 10px 0; font-size: 11px; }
+.remotion-chat-escenas > button { float: right; }
+.remotion-escenas-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0; }
+.remotion-escenas-chips button { background: #8192ff; color: #10172c; }
+.remotion-chat-escenas details label { display: inline-flex; align-items: center; gap: 5px; margin: 5px; }
+.remotion-chat-escenas details input { width: auto; }
+.remotion-chat-mensajes { flex: 1 0 120px; overflow: auto; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.remotion-chat-mensajes p { background: #1b2330; border: 1px solid #303946; border-radius: 8px; padding: 10px; }
+.remotion-chat-mensajes .remotion-chat-actividad { color: #aab9d4; font-size: 11px; background: #10151d; }
+.remotion-chat-mensajes .remotion-chat-esperando { color: #b9c3ff; border-style: dashed; }
+.remotion-chat-entrada { display: flex; align-items: flex-end; gap: 8px; }
+.remotion-chat-entrada textarea { flex: 1; resize: vertical; }
+.remotion-chat-entrada button { flex: 0 0 40px; min-height: 40px; font-size: 18px; }
+.remotion-chat-acciones { display: flex; gap: 6px; margin: 8px 0; }
+.remotion-chat-acciones button { flex: 1; }
+.remotion-chat-reparto { border: 1px solid #303946; border-radius: 7px; padding: 10px; font-size: 12px; margin: 10px 0; }
+.remotion-chat-reparto output { display: block; text-align: center; margin: 10px; }
+.remotion-reparto-control { display: flex; align-items: center; gap: 8px; font-size: 10px; }
+.remotion-reparto-control input { accent-color: #8192ff; flex: 1; }
+.remotion-chat-resultados article { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0; font-size: 11px; }
+.remotion-chat-resultados article > img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #0d1117; }
+.remotion-chat-resultados article > b { width: 100%; }
+.remotion-chat.enviando .remotion-chat-entrada,
+.remotion-chat.enviando .remotion-chat-acciones,
+.remotion-chat.enviando .remotion-chat-escenas,
+.remotion-chat.enviando .remotion-chat-reparto,
+.remotion-chat.enviando .remotion-chat-resultados { pointer-events: none; opacity: .7; }
+.remotion-taller:has(.remotion-chat:not([hidden])) > .remotion-acciones { display: none; }
 .remotion-modos, .remotion-salida { margin: 0 12px 12px; border-top: 1px solid #303946; padding-top: 10px; }
 .remotion-modos h4, .remotion-salida h4 { margin: 0 0 10px; font-size: 12px; }
 .remotion-modo-opciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -2777,7 +2816,10 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .editor-global .escena-editor-tabs button:last-child { flex-grow: 0; flex-basis: 48%; }
 .remotion-taller { grid-column: 3; grid-row: 3 / 6; display: flex; flex-direction: column; min-width: 0; border: 1px solid #303946; border-radius: 9px; background: #12171f; overflow: hidden; color: #dfe3ee; }
 .remotion-taller[hidden], .remotion-player[hidden], .remotion-editor-codigo[hidden], .remotion-ajustes[hidden], .remotion-props[hidden] { display: none; }
-.remotion-taller h3 { font-size: 16px; margin: 0; padding: 15px; border-bottom: 1px solid #29313e; }
+.remotion-taller-cabecera { display: flex; align-items: center; border-bottom: 1px solid #29313e; }
+.remotion-taller h3 { flex: 1; min-width: 0; font-size: 16px; margin: 0; padding: 15px; }
+.remotion-cerrar-chat { flex: 0 0 30px; height: 30px; margin-right: 12px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #aab9d4; font-size: 22px; line-height: 1; }
+.remotion-cerrar-chat:hover, .remotion-cerrar-chat:focus-visible { border-color: #566179; background: #242c3d; color: #fff; }
 .remotion-plantilla-cab { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #29313e; padding: 9px 14px; font-size: 12px; }
 .remotion-plantilla-cab > span { color: #a7aebc; }
 .remotion-taller .remotion-nombre { border: 0; background: transparent; padding: 3px; min-width: 0; width: 100%; font-size: 12px; color: #e9edf6; }
@@ -2846,6 +2888,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-tarjeta > span { display: block; font-size: 10px; padding: 8px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .remotion-mini { position: relative; display: flex; justify-content: center; align-items: center; aspect-ratio: 1.35; overflow: hidden; background: linear-gradient(140deg, #2b3b46, #162024 65%, #343837); }
 .remotion-mini > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .23; }
+.remotion-mini-real > img { opacity: 1; object-fit: contain; }
 .remotion-mini > span { position: relative; padding: 7px; font: 10px/1.5 Georgia, serif; color: #ecf0f4; text-align: center; }
 .remotion-mini small { display: block; font: 5px/1.6 Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
 .remotion-mini-titulo > span { letter-spacing: 3px; font-size: 8px; text-transform: uppercase; }

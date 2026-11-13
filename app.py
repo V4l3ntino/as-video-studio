@@ -5225,6 +5225,104 @@ def plantillas_remotion():
     return dict(plantillas=remotion.catalogo(raiz_proyectos()), disponible=remotion.disponible())
 
 
+@app.get("/api/remotion/historial")
+def historial_animaciones_ia():
+    """Biblioteca permanente de animaciones de escenas de todos los proyectos."""
+    from pasos import animaciones_ia
+    return dict(plantillas=animaciones_ia.historial(raiz_proyectos()))
+
+
+@app.delete("/api/remotion/historial/{referencia}")
+def eliminar_animacion_historica(referencia: str):
+    """Retira una entrada histórica conservando las versiones aplicadas."""
+    from pasos import animaciones_ia
+    try:
+        animaciones_ia.eliminar(raiz_proyectos(), 'historial', referencia)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    return dict(eliminada=referencia)
+
+
+@app.post("/api/proyectos/{pid}/remotion/chat", status_code=202)
+def conversar_animaciones_ia(pid: str, datos: dict = Body(...)):
+    """Coordina escenas o crea/edita una plantilla en una conversación contextual."""
+    from pasos import animaciones_ia, remotion
+    ctx = contexto(pid)
+    if datos.get('generar') is True and not remotion.disponible():
+        raise ErrorApi(400, 'Instala el motor local: npm ci --prefix motores/remotion (Node >=22)')
+    plan = _plan_de_previsualizacion(ctx) if datos.get('modo') == 'escenas' else {}
+    if datos.get('modo') == 'escenas':
+        # Usa los medios efectivos que muestra el editor, incluidas sustituciones.
+        visibles = {e['id']: e for e in _leer_previsualizacion(pid)['escenas']}
+        plan = dict(plan, escenas=[dict(e, **{k: visibles.get(e['id'], {}).get(k) for k in ('imagen', 'imagen_tarjeta', 'clip')})
+                                   for e in plan.get('escenas', [])])
+    try:
+        pedido = animaciones_ia.validar_peticion(raiz_proyectos(), datos, pid, plan)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        tid = ctx.gestor.lanzar('remotion:ia', lambda avisar: animaciones_ia.conversar(
+            raiz_proyectos(), ctx.proyecto, pid, plan, pedido, avisar))
+        _registrar_trabajo(tid, pid)
+    return dict(trabajo_id=tid)
+
+
+@app.post("/api/proyectos/{pid}/remotion/chat/{sesion}/confirmar")
+def confirmar_animaciones_ia(pid: str, sesion: str):
+    """Confirma una revisión validada sin reemplazar las versiones anteriores."""
+    from pasos import animaciones_ia
+    ctx = contexto(pid)
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        try:
+            return dict(plantillas=animaciones_ia.confirmar(raiz_proyectos(), sesion, pid))
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
+
+
+@app.get("/api/proyectos/{pid}/remotion/chat/{sesion}")
+def leer_conversacion_animaciones_ia(pid: str, sesion: str):
+    """Recupera la conversación y su último borrador validado tras cerrar el editor."""
+    from pasos import animaciones_ia
+    contexto(pid)
+    try:
+        charla = leer_json(str(animaciones_ia.ruta(raiz_proyectos(), 'charlas', sesion)))
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    if not charla or charla['proyecto'] != pid:
+        raise ErrorApi(404, 'conversación no encontrada')
+    return charla
+
+
+@app.post("/api/proyectos/{pid}/remotion/chat/{sesion}/validar", status_code=202)
+def validar_borrador_animacion_ia(pid: str, sesion: str, datos: dict = Body(...)):
+    """Valida cambios manuales del código o props antes de confirmar su versión."""
+    from pasos import animaciones_ia, remotion
+    ctx = contexto(pid)
+    try:
+        animaciones_ia.ruta(raiz_proyectos(), 'charlas', sesion)
+        plantilla = remotion.validar_plantilla(datos)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    with _LOCK:
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        tid = ctx.gestor.lanzar('remotion:validar', lambda avisar: animaciones_ia.validar_borrador(
+            raiz_proyectos(), ctx.proyecto, pid, sesion, plantilla, avisar))
+        _registrar_trabajo(tid, pid)
+    return dict(trabajo_id=tid)
+
+
+@app.get("/api/proyectos/{pid}/remotion/chat/{sesion}/actividad")
+def actividad_animaciones_ia(pid: str, sesion: str):
+    """Actividad real y respuestas del chat durante un trabajo, sin código ni medios."""
+    charla = leer_conversacion_animaciones_ia(pid, sesion)
+    return dict(eventos=charla.get('eventos', []))
+
+
 @app.post("/api/remotion/plantillas", status_code=201)
 def guardar_plantilla_remotion(datos: dict = Body(...)):
     """Guarda una versión inmutable de una plantilla Remotion en la biblioteca."""
@@ -5284,7 +5382,7 @@ def recurso_remotion(pid: str, clave: str, fichero: str):
     ruta = ctx.proyecto.ruta('remotion', 'compilados', clave, fichero)
     if not os.path.isfile(ruta):
         raise ErrorApi(404, 'compila la plantilla antes de previsualizarla')
-    cabeceras = {'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src * data:; connect-src 'none'", 'Cache-Control': 'no-cache'}
+    cabeceras = {'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src * data: blob:; media-src * data: blob:; font-src * data:; connect-src 'none'", 'Cache-Control': 'no-cache'}
     if fichero == 'preview.html':
         # Un iframe sandbox tiene origen opaco: no depender de otra petición
         # autenticada para su JS (las cookies SameSite pueden excluirla).

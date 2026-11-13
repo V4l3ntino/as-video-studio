@@ -51,8 +51,8 @@ def validar_plantilla(datos):
         crudo = json.dumps(props, allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise ValueError('Props debe contener únicamente valores JSON finitos') from exc
-    if len(crudo) > 100_000:
-        raise ValueError('Props supera 100.000 caracteres')
+    if len(crudo) > 30_000_000:
+        raise ValueError('Props supera 30 MB (incluidos los recursos portables)')
     limpio['props'] = copy.deepcopy(props)
     if 'modo' in datos:
         if datos['modo'] not in ('superponer', 'sustituir'):
@@ -62,7 +62,7 @@ def validar_plantilla(datos):
 
 
 def props_recursos(proyecto, props):
-    """Referencias portables del proyecto; el navegador recibe imágenes autocontenidas."""
+    """Referencias portables del proyecto; el navegador recibe medios autocontenidos."""
     if isinstance(props, dict):
         return {k: props_recursos(proyecto, v) for k, v in props.items()}
     if isinstance(props, list):
@@ -70,10 +70,10 @@ def props_recursos(proyecto, props):
     if isinstance(props, str) and props.startswith('proyecto://'):
         raiz = Path(proyecto.raiz).resolve()
         ruta = (raiz / props[len('proyecto://'):].replace('\\', '/')).resolve()
-        if not ruta.is_relative_to(raiz) or ruta.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.gif') or not ruta.is_file():
-            raise ValueError('el recurso Remotion debe ser una imagen existente del proyecto')
+        if not ruta.is_relative_to(raiz) or ruta.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.webm') or not ruta.is_file():
+            raise ValueError('el recurso Remotion debe ser una imagen o vídeo MP4/WebM existente del proyecto')
         if ruta.stat().st_size > 20 * 1024 * 1024:
-            raise ValueError('la imagen Remotion supera 20 MiB')
+            raise ValueError('el recurso Remotion supera 20 MiB')
         return 'data:' + mimetypes.guess_type(ruta.name)[0] + ';base64,' + base64.b64encode(ruta.read_bytes()).decode()
     return props
 
@@ -150,7 +150,7 @@ def _correr(pedido, avisar=None):
         raise ValueError('Instala el motor local: npm ci --prefix motores/remotion (Node >=22)')
     carpeta = Path(pedido['carpeta'])
     carpeta.mkdir(parents=True, exist_ok=True)
-    if pedido['accion'] == 'render':
+    if pedido['accion'] in ('render', 'miniatura'):
         from pasos import medios
         pedido = dict(pedido, navegador=os.environ.get('ESTUDIO_REMOTION_BROWSER') or medios.edge())
     solicitud = carpeta / ('pedido-' + uuid.uuid4().hex + '.json')
@@ -168,6 +168,8 @@ def _correr(pedido, avisar=None):
     inicio = time.monotonic()
     progreso = 0
     try:
+        if avisar:
+            avisar(0, f'Ejecutando: node motor.mjs {solicitud.name} · acción: {pedido["accion"]}')
         while proceso.poll() is None or not mensajes.empty() or lector.is_alive():
             if time.monotonic() - inicio > 600:
                 raise ValueError('Remotion ha superado el tiempo máximo de 10 minutos')

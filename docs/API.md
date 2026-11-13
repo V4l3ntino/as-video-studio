@@ -66,6 +66,11 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/previsualizacion/parallax` | Prepara los clips DepthFlow seleccionados sin cambiar versiones ni firmas. |
 | `PUT` | `/api/proyectos/{pid}/redactor` | Guarda el prompt escrito de cada plano. Un prompt vacío lo quita. |
 | `POST` | `/api/proyectos/{pid}/redactor/proponer` | Escribe el prompt de cada plano, con TODOS los planos delante de una vez. |
+| `POST` | `/api/proyectos/{pid}/remotion/chat` | Coordina escenas o crea/edita una plantilla en una conversación contextual. |
+| `GET` | `/api/proyectos/{pid}/remotion/chat/{sesion}` | Recupera la conversación y su último borrador validado tras cerrar el editor. |
+| `GET` | `/api/proyectos/{pid}/remotion/chat/{sesion}/actividad` | Actividad real y respuestas del chat durante un trabajo, sin código ni medios. |
+| `POST` | `/api/proyectos/{pid}/remotion/chat/{sesion}/confirmar` | Confirma una revisión validada sin reemplazar las versiones anteriores. |
+| `POST` | `/api/proyectos/{pid}/remotion/chat/{sesion}/validar` | Valida cambios manuales del código o props antes de confirmar su versión. |
 | `GET` | `/api/proyectos/{pid}/remotion/compilados/{clave}/{fichero}` | Sirve el reproductor compilado aislado, nunca el código de la aplicación. |
 | `POST` | `/api/proyectos/{pid}/remotion/compilar` | Compila código React y prepara su Player sin modificar el montaje. |
 | `GET` | `/api/proyectos/{pid}/remotion/plantillas/{referencia}` | Recupera el código de la versión utilizada en un bloque de escena. |
@@ -311,6 +316,8 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `PUT` | `/api/imagenes/proveedores` | Guarda la prioridad de Codex y API sin modificar los proyectos. |
 | `POST` | `/api/personajes/imagenes/generar` | Genera un personaje de cuerpo entero con el motor principal y su respaldo. |
 | `GET` | `/api/personajes/imagenes/trabajos/{tid}` | Consulta el progreso y la imagen generada del personaje. |
+| `GET` | `/api/remotion/historial` | Biblioteca permanente de animaciones de escenas de todos los proyectos. |
+| `DELETE` | `/api/remotion/historial/{referencia}` | Retira una entrada histórica conservando las versiones aplicadas. |
 | `GET` | `/api/remotion/plantillas` | Biblioteca de componentes React reutilizables y estado del motor local. |
 | `POST` | `/api/remotion/plantillas` | Guarda una versión inmutable de una plantilla Remotion en la biblioteca. |
 | `DELETE` | `/api/remotion/plantillas/{referencia}` | Elimina una plantilla de la biblioteca sin modificar los bloques de los vídeos. |
@@ -320,4 +327,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**206 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**213 endpoints.** Escrito por `generar_api.py` desde `app.py`.

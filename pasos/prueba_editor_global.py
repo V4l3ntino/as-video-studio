@@ -99,7 +99,7 @@ class EditorGlobal(unittest.TestCase):
                     pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
                     pagina.wait_for_timeout(500)
                     self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes(), 'Abrir el editor no escribe params')
-                    activo = pagina.locator('.editor-global-escena:not([hidden])')
+                    activo = pagina.locator('.editor-global-escena[data-panel-activo="true"]')
                     self.assertEqual(activo.get_by_role('tab').count(), 7)
                     self.assertEqual(pagina.locator('dialog[open]').count(), 0)
                     if clip:

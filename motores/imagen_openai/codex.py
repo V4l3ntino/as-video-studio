@@ -250,7 +250,11 @@ class Conexion:
         except (OSError, ValueError) as fallo:
             raise ErrorCodex("Se ha cerrado la conexión con Codex.") from fallo
 
-    def recibir(self, plazo):
+    def recibir(self, plazo, avance=None):
+        if avance:
+            while not self.pendientes and self.cola.empty() and time.monotonic() < plazo:
+                avance()
+                time.sleep(.2)
         try:
             dato = self.pendientes.popleft() if self.pendientes else \
                 self.cola.get(timeout=max(0.01, plazo - time.monotonic()))
@@ -434,7 +438,7 @@ def _preparar_referencias(referencias, carpeta):
     return rutas, mapa
 
 
-def texto(instruccion):
+def texto(instruccion, referencias=(), avance=None, segundos=180):
     """Selector de stock con la sesión ChatGPT, sin herramientas ni API de pago."""
     with _prestar_conexion() as (conexion, _), tempfile.TemporaryDirectory(
             prefix="estudio_codex_texto_") as carpeta:
@@ -452,13 +456,14 @@ def texto(instruccion):
                            "features.image_generation": False},
                 "developerInstructions": "Responde solo con el JSON solicitado. No uses herramientas, "
                     "no generes imágenes ni accedas a archivos o a la red."})["thread"]["id"]
-            respuesta = conexion.pedir("turn/start", {"threadId": hilo,
-                "input": [{"type": "text", "text": instruccion}]})
+            entradas = [{"type": "text", "text": instruccion}]
+            entradas.extend({"type": "localImage", "path": os.path.realpath(r)} for r in referencias)
+            respuesta = conexion.pedir("turn/start", {"threadId": hilo, "input": entradas})
             turno_id = (respuesta.get("turn") or {}).get("id")
             mensajes = {}
-            plazo = time.monotonic() + 180
+            plazo = time.monotonic() + segundos
             while True:
-                evento = conexion.recibir(plazo)
+                evento = conexion.recibir(plazo, avance=avance) if avance else conexion.recibir(plazo)
                 params = evento.get("params") or {}
                 if params.get("threadId") and params["threadId"] != hilo:
                     continue

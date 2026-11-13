@@ -342,6 +342,44 @@ que nunca la fijaron, y regenerarlas se paga.
 
 ### Taller Remotion adicional (`pasos/remotion.py`, `motores/remotion/`)
 
+La entrada visible ahora es **Animaciones con IA**. El panel derecho muestra
+únicamente el chat a toda altura, sin pestañas técnicas ni cabecera de plantilla;
+las props de aplicación se configuran en su popup. `pasos/animaciones_ia.py`
+normaliza el prompt de sistema a una sola línea antes de llamar al CLI: los
+saltos en `--append-system-prompt` se rechazan localmente por compatibilidad con
+`claude.cmd`, y pueden marcar la salud de la cuenta como «Falla» sin haber
+contactado con Claude. No atribuyas ese error al login. La regresión construye
+la orden con el adaptador real, sin ejecutar el proveedor.
+`pasos/animaciones_ia.py`
+coordina tres contextos separados: escenas, creación reutilizable y edición por
+referencia/categoría. Los chats y el historial global se guardan bajo
+`remotion.biblioteca(...)/_ia`, fuera de cada proyecto; las imágenes en props se
+congelan como data URI antes de publicar. No quites esa congelación: borrar el
+proyecto original no debe romper el historial. Cada generación compila y ejecuta
+`renderStill` para comprobar el componente y generar su miniatura. Las ediciones
+publican otra versión al confirmar, sin sobrescribir ni retirar la anterior.
+Los cambios manuales de Código/Props se revalidan antes de confirmar.
+ChatGPT reutiliza `codex.texto` con adjuntos y cancelación cooperativa; Claude
+coordina conceptos incluso al asignar el 100% a ChatGPT. El slider permanece
+visible en los tres modos y se aplica también a crear y editar plantillas. El
+reparto se redondea al número de tareas (una al crear/editar una plantilla) y no
+implica respaldo automático de proveedor.
+El envío junto al campo de texto conversa sin generar; **Empezar a generar**
+inicia el trabajo. `necesita_aclaracion` detiene la generación si faltan decisiones.
+`eventos` conserva respuestas y actividad real, con ids para evitar duplicados al
+consultar `/remotion/chat/{sesion}/actividad`. Los comandos mostrados proceden
+del arranque real de Node en `remotion._correr`, sin volcar el pedido ni credenciales.
+El editor distingue la escena visual (`esActual`) de la del panel fijado
+(`esPanelActual`). Reproducir y desplazar el cabezal solo posicionan la vista
+previa: no llaman a `seleccionarPestaña` ni reconstruyen el catálogo o el chat.
+Los atributos `data-panel-activo` y `data-visual-activo` permiten mostrar partes
+de dos editores sin mover sus nodos ni duplicar sus controles. No bases la
+visibilidad del panel en `PREVIA.i`. Las tarjetas de ejemplo no usan la imagen
+de la escena como fondo. Insertar un bloque Remotion libre sigue usando el cursor
+global, aunque la escena del inspector permanezca fijada.
+Regresión aislada: `python pasos/prueba_animaciones_ia.py`; `--real` comprueba
+los tres modos en navegador, miniaturas y aplicación real sin llamadas a IA.
+
 El taller es opcional y no modifica `animaciones.CATALOGO` ni el grafo. React vive
 en un Player dentro de un iframe sandbox, con una CSP propia que admite sus estilos.
 El servicio Python coordina procesos Node >=22 por JSON, con progreso, timeout y

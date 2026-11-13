@@ -10440,10 +10440,150 @@ const CACHE_EDITOR = {
 };
 
 /* Taller opcional: React vive dentro del Player aislado, no en la aplicación. */
-function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar, proyecto, tallerAbierto, alternarTaller}) {
-  let plantillas = [], elegida, compilada, version = 0, cerrado = false, pestaña = 'codigo';
+function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar, proyecto, tallerAbierto, alternarTaller, abrirResultado}) {
+  let plantillas = [], elegida, compilada, version = 0, cerrado = false;
   let subiendoImagen = false, bibliotecaCargada = false, eliminandoPlantilla = false, menuAbierto;
   let popupProps, estadoPopup;
+  let categoria = 'reutilizables', historicas = [], modoChat = 'escenas', referenciaChat = null, categoriaChat = 'historial', sesionChat = null;
+  let enviandoChat = false, revisionChat = 0, firmaBorradorIA = null;
+  const seleccionEscenas = new Set([escena.id]);
+  const visibles = () => categoria === 'historial' ? historicas : plantillas;
+  const tituloChat = h('h4', {}, 'Animar escenas');
+  const mensajesChat = h('div', {clase: 'remotion-chat-mensajes', role: 'log', 'aria-live': 'polite'});
+  const eventosVistos = new Set();
+  function mensajeChatIA(autor, texto) {
+    const etiqueta = autor === 'usuario' ? 'Tú' : autor === 'claude' ? 'Claude' : 'Actividad';
+    mensajesChat.appendChild(h('p', {clase: autor === 'actividad' ? 'remotion-chat-actividad' : ''}, h('b', {}, `${etiqueta}: `), texto));
+    mensajesChat.scrollTop = mensajesChat.scrollHeight;
+  }
+  function mostrarEventosIA(eventos) {
+    for (const evento of eventos || []) {
+      if (eventosVistos.has(evento.id)) continue;
+      eventosVistos.add(evento.id); mensajeChatIA(evento.autor, evento.texto);
+    }
+  }
+  const resultadosChat = h('div', {clase: 'remotion-chat-resultados'});
+  const chips = h('div', {clase: 'remotion-escenas-chips'});
+  const opcionesEscenas = h('details', {}, h('summary', {}, '+ Añadir'));
+  function pintarEscenasIA() {
+    const escenas = PREVIA.ficha?.escenas || [escena];
+    chips.replaceChildren(...[...seleccionEscenas].map(id => h('button', {type: 'button', clase: 'mini',
+      'aria-label': `Quitar ${id}`, onclick: () => {if (!enviandoChat) {seleccionEscenas.delete(id); pintarEscenasIA();}}}, `${id} ×`)));
+    opcionesEscenas.replaceChildren(h('summary', {}, '+ Añadir'), ...escenas.map(e => h('label', {},
+      h('input', {type: 'checkbox', checked: seleccionEscenas.has(e.id), onchange: ev => {
+        if (ev.target.checked) seleccionEscenas.add(e.id); else seleccionEscenas.delete(e.id); pintarEscenasIA();
+      }}), e.id)));
+  }
+  const selectorEscenas = h('section', {clase: 'remotion-chat-escenas'}, h('b', {}, 'Escenas a animar'),
+    h('button', {clase: 'mini', onclick: () => {if (!enviandoChat) {(PREVIA.ficha?.escenas || [escena]).forEach(e => seleccionEscenas.add(e.id)); pintarEscenasIA();}}}, 'Seleccionar todas'), chips, opcionesEscenas);
+  const repartoTexto = h('output', {}, '50%');
+  const repartoDetalle = h('p', {clase: 'meta'}, 'Claude: 50% · ChatGPT: 50%');
+  const reparto = h('input', {type: 'range', min: 0, max: 100, step: 10, value: 50, 'aria-label': 'Porcentaje de trabajo de ChatGPT', oninput: ev => {
+    repartoTexto.textContent = `${ev.target.value}%`; repartoDetalle.textContent = `Claude: ${100 - ev.target.value}% · ChatGPT: ${ev.target.value}%`;
+  }});
+  const repartoCaja = h('section', {clase: 'remotion-chat-reparto'}, h('b', {}, 'Repartir carga de trabajo'), repartoTexto,
+    h('div', {clase: 'remotion-reparto-control'}, h('span', {}, 'Claude'), reparto, h('span', {}, 'ChatGPT')), repartoDetalle);
+  const instruccion = h('textarea', {rows: 3, placeholder: 'Cuéntale a Claude tu idea…', 'aria-label': 'Instrucción para Claude', onkeydown: ev => {
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {ev.preventDefault(); enviarChatIA(false);}
+  }});
+  const enviarMensajeIA = h('button', {type: 'button', clase: 'remotion-boton primario', 'aria-label': 'Enviar mensaje',
+    title: 'Enviar mensaje (Enter). Shift+Enter añade una línea.', onclick: () => enviarChatIA(false)}, '➤');
+  const confirmarIA = h('button', {clase: 'remotion-boton primario', hidden: true, onclick: async () => {
+    if (!sesionChat || ocupado() || enviandoChat) return;
+    confirmarIA.disabled = true;
+    try {
+      if (firmaBorradorIA !== JSON.stringify(datos())) {
+        await trabajo(`${API.proyecto(pid)}/remotion/chat/${sesionChat}/validar`, datos(), mensaje);
+        firmaBorradorIA = JSON.stringify(datos());
+      }
+      const guardadas = await pedir(`${API.proyecto(pid)}/remotion/chat/${sesionChat}/confirmar`, {method: 'POST'});
+      pintarResultadosIA(guardadas.plantillas);
+      if (guardadas.plantillas.length) {seleccionar(guardadas.plantillas[0]); firmaBorradorIA = JSON.stringify(datos());}
+      await recargarBibliotecas(); confirmarIA.hidden = true;
+      mensaje.textContent = 'Nueva versión guardada. Las animaciones aplicadas conservan su versión anterior.';
+    } catch (error) {mensaje.textContent = error.message;} finally {confirmarIA.disabled = false;}
+  }}, 'Confirmar y guardar versión');
+  const chat = h('section', {clase: 'remotion-chat'}, tituloChat,
+    h('p', {clase: 'meta'}, 'Habla con Claude para definir la idea. Cuando esté clara, pulsa «Empezar a generar».'),
+    selectorEscenas, mensajesChat, resultadosChat,
+    h('div', {clase: 'remotion-chat-entrada'}, instruccion, enviarMensajeIA),
+    h('div', {clase: 'remotion-chat-acciones'},
+      h('button', {clase: 'remotion-boton primario', onclick: () => enviarChatIA(true)}, 'Empezar a generar')),
+    repartoCaja, confirmarIA);
+  function pintarResultadosIA(resultados) {
+    resultadosChat.replaceChildren(...resultados.map(r => h('article', {},
+      r.miniatura ? h('img', {src: r.miniatura, alt: r.nombre}) : null,
+      h('b', {}, `${r.escena_origen ? r.escena_origen + ' · ' : ''}${r.nombre}`),
+      h('button', {clase: 'remotion-boton', onclick: () => {seleccionar(r); reproduccionPendiente = true; compilar().catch(e => {mensaje.textContent = e.message;});}}, 'Previsualizar'),
+      h('button', {clase: 'remotion-boton', onclick: () => abrirResultado(r)}, 'Configurar y aplicar'))));
+  }
+  function claveCharlaIA() {return `remotion-ia:${BASE}:${pid}:${modoChat}:${referenciaChat || escena.id}`;}
+  async function abrirChatIA(modo, plantilla = null) {
+    if (ocupado() || enviandoChat) return;
+    modoChat = modo; referenciaChat = modo === 'editar' ? plantilla.id : null;
+    categoriaChat = modo === 'escenas' ? 'historial' : modo === 'editar' ? categoria : 'reutilizables';
+    const revision = ++revisionChat;
+    tituloChat.textContent = modo === 'escenas' ? 'Animar escenas' : modo === 'crear' ? 'Crear plantilla de animación' : `Editar animación · ${plantilla.nombre}`;
+    selectorEscenas.hidden = modo !== 'escenas';
+    mensajesChat.replaceChildren(); eventosVistos.clear(); resultadosChat.replaceChildren(); confirmarIA.hidden = true;
+    sesionChat = null; firmaBorradorIA = null;
+    mensaje.textContent = modo === 'escenas' ? 'Selecciona las escenas y describe la animación que necesitas.' :
+      modo === 'crear' ? 'Describe una plantilla reutilizable y sus parámetros configurables.' : 'Describe los cambios sobre el código y props de esta animación.';
+    pintarEscenasIA();
+    if (modo === 'editar') seleccionar(plantilla);
+    if (!tallerAbierto()) alternarTaller();
+    try {
+      const id = localStorage.getItem(claveCharlaIA());
+      if (!id) return;
+      const charla = await pedir(`${API.proyecto(pid)}/remotion/chat/${id}`);
+      if (cerrado || revision !== revisionChat) return;
+      sesionChat = id;
+      mensajesChat.replaceChildren(); charla.mensajes.forEach(m => mensajeChatIA(m.autor, m.texto));
+      (charla.eventos || []).forEach(e => eventosVistos.add(e.id));
+      pintarResultadosIA(charla.resultados || []);
+      if (modo !== 'escenas' && charla.resultados?.length) {seleccionar(charla.resultados[0]); firmaBorradorIA = JSON.stringify(datos());}
+      confirmarIA.hidden = modo === 'escenas' || charla.confirmada || !charla.resultados?.length;
+    } catch (error) {mensaje.textContent = 'Conversación nueva. ' + error.message;}
+  }
+  async function enviarChatIA(generar) {
+    if (ocupado() || enviandoChat) return;
+    const texto = instruccion.value.trim() || (generar ? 'Genera las animaciones según lo acordado y prepara una previsualización.' : '');
+    if (!texto) {instruccion.focus(); return;}
+    if (modoChat === 'escenas' && !seleccionEscenas.size) {mensaje.textContent = 'Selecciona al menos una escena.'; return;}
+    enviandoChat = true; chat.classList.add('enviando'); chat.setAttribute('aria-busy', 'true');
+    mensajeChatIA('usuario', texto); instruccion.value = '';
+    const esperando = h('p', {clase: 'remotion-chat-esperando'}, generar ? 'Claude está preparando la generación…' : 'Claude está valorando tu mensaje…');
+    mensajesChat.appendChild(esperando);
+    try {
+      sesionChat ||= crypto.randomUUID().replaceAll('-', '');
+      try {localStorage.setItem(claveCharlaIA(), sesionChat);} catch (error) { /* El servidor conserva la charla. */ }
+      const resultado = await trabajo(`${API.proyecto(pid)}/remotion/chat`, {sesion: sesionChat, modo: modoChat, referencia: referenciaChat,
+        categoria: categoriaChat, escenas: [...seleccionEscenas], porcentaje: Number(reparto.value), mensaje: texto, generar}, mensaje, async t => {
+          esperando.textContent = t.mensaje || 'Claude está trabajando…';
+          try {
+            const actividad = await pedir(`${API.proyecto(pid)}/remotion/chat/${sesionChat}/actividad`);
+            if (!cerrado) mostrarEventosIA(actividad.eventos);
+          } catch (error) { /* La primera consulta puede preceder al guardado de la charla; se recupera en la siguiente. */ }
+        });
+      if (cerrado) return;
+      mostrarEventosIA(resultado.eventos);
+      if (!resultado.eventos?.length) mensajeChatIA('claude', resultado.mensaje);
+      pintarResultadosIA(resultado.resultados || []);
+      if (modoChat !== 'escenas' && resultado.resultados?.length) {seleccionar(resultado.resultados[0]); firmaBorradorIA = JSON.stringify(datos());}
+      confirmarIA.hidden = resultado.automatica || resultado.confirmada || !resultado.resultados?.length;
+      if (resultado.automatica) await recargarBibliotecas();
+      mensaje.textContent = resultado.errores?.length ? resultado.errores.map(e => `${e.escena || ''}: ${e.mensaje}`).join('\n') :
+        resultado.pendiente_aclaracion ? 'Responde a las preguntas de Claude para concretar la idea.' :
+        generar ? (resultado.automatica ? 'Animaciones guardadas en el historial. Puedes revisarlas y aplicarlas.' : 'Borrador validado. Previsualiza y confirma para guardarlo.') : 'Continúa la conversación o pulsa «Empezar a generar» cuando la idea esté clara.';
+      mensajesChat.scrollTop = mensajesChat.scrollHeight;
+    } catch (error) {mensaje.textContent = error.message; mensajeChatIA('actividad', error.message); if (modoChat === 'escenas') await recargarBibliotecas().catch(() => {});}
+    finally {esperando.remove(); enviandoChat = false; chat.classList.remove('enviando'); chat.setAttribute('aria-busy', 'false'); if (!generar) instruccion.focus();}
+  }
+  async function recargarBibliotecas() {
+    const [reutilizables, historial] = await Promise.all([pedir(`${BASE}/api/remotion/plantillas`), pedir(`${BASE}/api/remotion/historial`)]);
+    if (cerrado) return;
+    plantillas = reutilizables.plantillas; historicas = historial.plantillas; pintarCatalogo();
+  }
   const estadoTaller = h('p', { clase: 'remotion-estado', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
   const estadoBiblioteca = h('p', { clase: 'remotion-estado remotion-estado-biblioteca', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
   const mensaje = Object.defineProperty({}, 'textContent', {
@@ -10579,30 +10719,25 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         mensaje.textContent = 'MP4 listo y guardado en el proyecto. «Aplicar al timeline» incorpora la animación al vídeo.';
       }, 'primario'));
   }
-  const barra = h('div', { clase: 'remotion-subtabs', role: 'tablist', 'aria-label': 'Taller de Remotion' },
-    ...[['codigo', '‹/› Código'], ['props', '▱ Props'], ['previa', '◉ Previsualización']].map(([id, texto]) => h('button', {
-      role: 'tab', 'aria-selected': String(id === pestaña), onclick: () => {
-        pestaña = id; barra.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-selected', String(['codigo', 'props', 'previa'][i] === id)));
-        editor.hidden = id !== 'codigo'; ajustes.hidden = id !== 'previa'; propsCaja.hidden = id === 'previa';
-      } }, texto)));
   const taller = h('aside', { clase: 'remotion-taller', hidden: true },
-    h('h3', {}, '‹/›  Taller de Remotion'), h('div', { clase: 'remotion-plantilla-cab' }, h('span', {}, 'Plantilla:'), nombre),
-    barra, editor, modos, salida, propsCaja, ajustes,
-    h('div', { clase: 'remotion-acciones' }, accion('‹/›  Compilar', compilar),
-      accion('▶  Previsualizar', async () => { if (!compilada) await compilar(); reproduccionPendiente = true; iframe.hidden = false; if (listaParaMensajes) enviar({frame: 0, reproducir: true}); }),
-      accion('♧  Guardar plantilla', async () => {
-        const r = await pedir(`${BASE}/api/remotion/plantillas`, {method: 'POST', cuerpo: datos()});
-        plantillas = [...plantillas.filter(p => p.id !== r.id), r]; pintarCatalogo();
-        mensaje.textContent = 'Versión guardada en tu biblioteca de plantillas.';
-      }), accion('✓  Aplicar al timeline', insertar, 'primario')),
+    h('div', {clase: 'remotion-taller-cabecera'}, h('h3', {}, '✦  Animaciones con IA'),
+      h('button', {type: 'button', clase: 'remotion-cerrar-chat', 'aria-label': 'Cerrar chat', title: 'Cerrar chat', onclick: () => {
+        if (tallerAbierto()) alternarTaller();
+        desplegar.focus();
+      }}, '×')), chat,
     h('button', {clase: 'mini remotion-parar', onclick: cancelar}, 'Parar Remotion'), estadoTaller);
   const desplegar = h('button', {clase: 'remotion-boton remotion-desplegar', 'aria-expanded': 'false',
-    'aria-controls': `remotion-taller-${escena.id}`, onclick: alternarTaller}, '‹/› Taller de Remotion ▸');
+    'aria-controls': `remotion-taller-${escena.id}`, onclick: () => {
+      if (tallerAbierto() && modoChat === 'escenas') alternarTaller(); else abrirChatIA('escenas');
+    }}, '✦ Animar escenas');
   taller.id = `remotion-taller-${escena.id}`;
   const panel = h('section', { clase: 'remotion-biblioteca' },
-    h('div', { clase: 'remotion-biblioteca-cab' }, h('b', {}, 'Plantillas Remotion'), cuenta), desplegar, rejilla, detalle, estadoBiblioteca,
-    h('button', {clase: 'mini remotion-parar', onclick: cancelar}, 'Parar Remotion'),
-    accion('+  Nueva plantilla', nuevaPlantilla));
+    h('div', { clase: 'remotion-biblioteca-cab' }, h('b', {}, 'Animaciones con IA'), cuenta), desplegar,
+    h('select', {clase: 'remotion-selector-biblioteca', 'aria-label': 'Biblioteca de animaciones', onchange: ev => {
+      categoria = ev.target.value; pintarCatalogo();
+    }}, h('option', {value: 'reutilizables'}, 'Animaciones reutilizables'), h('option', {value: 'historial'}, 'Historial de animaciones')),
+    rejilla, detalle, estadoBiblioteca,
+    h('button', {clase: 'mini remotion-parar', onclick: cancelar}, 'Parar Remotion'));
   function nuevaPlantilla() {
     seleccionar({ancho: 1920, alto: 1080, fps: 30, duracion: 5, ...plantillas[0], id: 'nueva', nombre: 'Nueva plantilla',
       codigo: "import React from 'react';\nimport {AbsoluteFill, useCurrentFrame} from 'remotion';\n\nexport default function Plantilla({titulo = 'Mi animación'}) {\n  const frame = useCurrentFrame();\n  return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', color: 'white', fontSize: 80, opacity: Math.min(1, frame / 20)}}>{titulo}</AbsoluteFill>;\n}", props: {titulo: 'Mi animación'}});
@@ -10621,6 +10756,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
   };
   const bibliotecaActualizada = ev => {
     plantillas = plantillas.filter(p => p.id !== ev.detail.id);
+    historicas = historicas.filter(p => p.id !== ev.detail.id);
     pintarCatalogo();
   };
   document.addEventListener('pointerdown', cerrarMenuFuera);
@@ -10679,10 +10815,11 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
   }
   function pintarCatalogo() {
     cerrarMenuPlantilla();
-    cuenta.textContent = `${plantillas.length} de ${plantillas.length}`;
-    rejilla.replaceChildren(...plantillas.map(p => {
-      const mini = h('div', {clase: `remotion-mini remotion-mini-${p.tipo || 'titulo'}`},
-        escena.imagen ? h('img', {src: API.archivo(pid, escena.imagen), alt: '', loading: 'lazy'}) : null,
+    cuenta.textContent = `${visibles().length} de ${visibles().length}`;
+    rejilla.replaceChildren(...visibles().map(p => {
+      const mini = h('div', {clase: `remotion-mini remotion-mini-${p.tipo || 'titulo'} ${p.miniatura ? 'remotion-mini-real' : ''}`},
+        p.miniatura ? h('img', {src: p.miniatura, alt: '', loading: 'lazy'}) : null,
+        p.miniatura ? null :
         p.tipo === 'barras' ? h('span', {clase: 'remotion-mini-barras'}, ...[1, 2, 3, 4, 5].map(() => h('i'))) :
         p.tipo === 'circular' ? h('span', {clase: 'remotion-mini-circular'}, '72 %') :
         p.tipo === 'fechas' ? h('span', {clase: 'remotion-mini-fechas'}, '1990　2000　2010　2020', h('hr'), '●　　 ●　　 ●　　 ●') :
@@ -10690,10 +10827,11 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         p.tipo === 'galeria' ? h('span', {clase: 'remotion-mini-galeria'}, '▧ ▧') :
         h('span', {}, p.props.titulo, h('small', {}, p.props.subtitulo)));
       const menu = h('div', {clase: 'remotion-menu', role: 'menu', hidden: true},
+        h('button', {role: 'menuitem', onclick: () => {cerrarMenuPlantilla(); abrirChatIA('editar', p);}}, 'Editar'),
         ...[['superponer', 'Superponer Animación'], ['sustituir', 'Sustituir contenido']].map(([modo, texto]) =>
           h('button', {role: 'menuitemradio', 'aria-checked': String((p.modo || 'superponer') === modo), onclick: () => {
             if (ocupado() || subiendoImagen || eliminandoPlantilla) return;
-            if (elegida?.id !== p.id) seleccionar(p);
+            if (elegida?.id !== p.id) elegirTarjetaIA(p);
             cambiarModoRemotion(modo);
           }}, h('span', {clase: 'remotion-menu-marca', 'aria-hidden': 'true'}, (p.modo || 'superponer') === modo ? '✓' : ''), texto)),
         h('hr', {clase: 'remotion-menu-separador'}),
@@ -10702,7 +10840,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
           const boton = ev.currentTarget;
           eliminandoPlantilla = true; boton.disabled = true; boton.textContent = 'Eliminando…';
           try {
-            await pedir(`${BASE}/api/remotion/plantillas/${encodeURIComponent(p.id)}`, {method: 'DELETE'});
+            await pedir(`${BASE}/api/remotion/${categoria === 'historial' ? 'historial' : 'plantillas'}/${encodeURIComponent(p.id)}`, {method: 'DELETE'});
             window.dispatchEvent(new CustomEvent('remotion-plantilla-eliminada', {detail: {id: p.id}}));
             if (cerrado) return;
             mensaje.textContent = `Plantilla «${p.nombre}» eliminada de la biblioteca.`;
@@ -10716,17 +10854,33 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         }}, '⋯');
       const esquina = h('div', {clase: 'remotion-menu-esquina'}, puntos, menu);
       return h('div', {clase: 'remotion-tarjeta-contenedor'},
-        h('button', {clase: 'remotion-tarjeta', 'aria-label': p.nombre, 'aria-pressed': String(elegida?.id === p.id), onclick: () => seleccionar(p)}, mini, h('span', {}, p.nombre)), esquina);
+        h('button', {clase: 'remotion-tarjeta', 'aria-label': p.nombre, 'aria-pressed': String(elegida?.id === p.id), onclick: () => elegirTarjetaIA(p)}, mini, h('span', {}, p.nombre)), esquina);
     }));
+    if (categoria === 'reutilizables') rejilla.appendChild(h('div', {clase: 'remotion-tarjeta-contenedor'},
+      h('button', {clase: 'remotion-tarjeta remotion-crear', onclick: () => {nuevaPlantilla(); abrirChatIA('crear');}},
+        h('div', {clase: 'remotion-mini remotion-crear-signo'}, '+'), h('span', {}, 'Crear plantilla'))));
+    if (categoria === 'historial' && !historicas.length) rejilla.appendChild(h('p', {clase: 'meta'}, 'Las animaciones de escenas aparecerán aquí al terminar su generación.'));
+  }
+  function elegirTarjetaIA(p) {
+    if (ocupado() || enviandoChat) return;
+    if (sesionChat && elegida?.id !== p.id) {
+      revisionChat++;
+      sesionChat = referenciaChat = firmaBorradorIA = null; modoChat = 'escenas';
+      tituloChat.textContent = 'Animar escenas'; selectorEscenas.hidden = repartoCaja.hidden = false;
+      confirmarIA.hidden = true; mensajesChat.replaceChildren(); eventosVistos.clear(); resultadosChat.replaceChildren();
+    }
+    seleccionar(p);
   }
   function seleccionar(p) {
     if (ocupado()) return;
     alElegir(); elegida = structuredClone(p); compilada = null; version++; iframe.hidden = true;
     codigo.value = elegida.codigo; nombre.value = elegida.nombre; colorear(); pintarProps(); pintarModo(); pintarCatalogo();
-    detalle.replaceChildren(h('h4', {}, p.nombre), h('p', {clase: 'meta'}, p.descripcion), accion('◉  Insertar en la línea de tiempo', insertar));
+    detalle.replaceChildren(h('h4', {}, p.nombre), h('p', {clase: 'meta'}, p.descripcion),
+      ...(p.proyecto_origen ? [h('p', {clase: 'meta'}, `Origen: ${p.proyecto_origen} · ${p.escena_origen || ''}`)] : []),
+      accion('◉  Insertar en la línea de tiempo', insertar));
     mensaje.textContent = 'Edita el componente o sus props y pulsa «Compilar».';
   }
-  return {panel, taller, iframe, mensaje, configurar: () => insertar(true),
+  return {panel, taller, iframe, mensaje, configurar: () => insertar(true), cargarResultado: p => {seleccionar(p); insertar();},
     editar: async b => {
       const v = ++version;
       delete taller.dataset.plantillaEditada;
@@ -10740,12 +10894,12 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
       const abierto = tallerAbierto();
       taller.hidden = !activo || !abierto;
       desplegar.setAttribute('aria-expanded', String(abierto));
-      desplegar.textContent = `‹/› Taller de Remotion ${abierto ? '▾' : '▸'}`;
+      desplegar.textContent = '✦ Animar escenas';
       if (!activo || !abierto) {reproduccionPendiente = false; iframe.hidden = true; enviar({reproducir: false});}
       if (!activo) return;
       if (!bibliotecaCargada) {
         try { const r = await pedir(`${BASE}/api/remotion/plantillas`); if (cerrado) return;
-          plantillas = r.plantillas; bibliotecaCargada = true;
+          plantillas = r.plantillas; historicas = (await pedir(`${BASE}/api/remotion/historial`)).plantillas; bibliotecaCargada = true;
           if (plantillas.length) seleccionar(plantillas[0]); else nuevaPlantilla();
           if (!r.disponible) mensaje.textContent = 'Motor pendiente de instalación: npm ci --prefix motores/remotion';
         } catch (error) {mensaje.textContent = error.message;}
@@ -10775,6 +10929,7 @@ function editorGlobalImagenes(escenas) {
   EDITOR_GLOBAL?.cerrar();
   const controles = new Map(), contenedores = new Map(), cargas = new Map();
   let actual = escenas[PREVIA.i]?.id || escenas[0].id, reproduciendo = false, cerrado = false;
+  let seleccionada = actual;
   let ultimaEdicion = [], ondaPromesa, galeriaCompartida, aplicandoPosicion = false;
   let cargandoPistas = false;
   // Una sola toma y un solo reloj: cambiar de plano nunca busca ni pausa la voz.
@@ -10872,6 +11027,7 @@ function editorGlobalImagenes(escenas) {
     h('div', { clase: 'editor-global-lista-notas' }, notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()] : null));
   const estudio = {
     clave, nodo, duracion, tallerRemotionAbierto: false, esActual: id => actual === id,
+    esPanelActual: id => seleccionada === id,
     papelera: (ev, activo) => {
       const r = papelera.getBoundingClientRect();
       const encima = activo && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
@@ -10885,6 +11041,13 @@ function editorGlobalImagenes(escenas) {
           inicio: capa.inicio + e.t_in - destino.t_in, fin: capa.fin + e.t_in - destino.t_in}));
     }),
     refrescarRemotion: () => controles.get(actual)?.pintarRemotion(),
+    abrirResultadoIA: async plantilla => {
+      const destino = escenas.find(e => e.id === plantilla.escena_origen) || escenas.find(e => e.id === actual);
+      await cargarEscena(destino);
+      if (cerrado || !controles.get(destino.id)?.listo) return;
+      estudio.seleccionar(destino.id, 'remotion', 0);
+      controles.get(destino.id).cargarAnimacionIA(plantilla);
+    },
     audio: ruta => {
       const url = API.archivo(pid, ruta);
       if (narracion.getAttribute('src') !== url) narracion.src = url;
@@ -10928,18 +11091,20 @@ function editorGlobalImagenes(escenas) {
         deshacer.disabled = !ultimaEdicion.length;
       }
     },
-    buscar: (x, tab) => {
+    buscar: x => {
       const posicion = Math.max(0, Math.min(columnas.clientWidth, x - columnas.getBoundingClientRect().left));
       const segundo = posicion / columnas.clientWidth * duracion;
       const e = escenas.find(e => segundo < e.t_out) || escenas[escenas.length - 1];
-      estudio.seleccionar(e.id, tab, segundo - e.t_in);
+      estudio.seleccionar(e.id, undefined, segundo - e.t_in, undefined, false, true);
     },
     registrar: (e, c) => {
       const anterior = controles.get(e.id);
       if (anterior) { anterior.cerrar(); anterior.notas.remove(); }
       controles.set(e.id, c); configuraciones.appendChild(c.nodo);
-      notas.appendChild(c.notas); c.notas.hidden = e.id !== actual;
-      c.nodo.hidden = e.id !== actual;
+      notas.appendChild(c.notas); c.notas.hidden = e.id !== seleccionada;
+      c.nodo.hidden = e.id !== actual && e.id !== seleccionada;
+      c.nodo.dataset.panelActivo = String(e.id === seleccionada);
+      c.nodo.dataset.visualActivo = String(e.id === actual);
       contenedores.get(e.id).appendChild(c.timeline);
       estudio.ajustarPistas();
     },
@@ -10948,28 +11113,34 @@ function editorGlobalImagenes(escenas) {
       const galeria = galeriaImagenesPrevia(escenas, id => estudio.seleccionar(id, 'imagenes', 0));
       galeriaCompartida = galeria; return galeria;
     },
-    seleccionar: (id, tab, t = 0, indice, continuo = false) => {
+    seleccionar: (id, tab, t = 0, indice, continuo = false, soloCursor = continuo) => {
       if (cerrado || aplicandoPosicion) return;
       if (!controles.has(id)) {
         const e = escenas.find(e => e.id === id); if (!e) return;
         cargarEscena(e);
       }
       const c = controles.get(id); if (!c) return;
-      if (!continuo && id !== actual && controles.get(actual)?.ocupado()) return;
+      if (!soloCursor && id !== seleccionada && controles.get(seleccionada)?.ocupado()) return;
       controles.get(actual)?.pausar(!continuo);
       if (!continuo) reproduciendo = false;
       actual = id; PREVIA.i = escenas.findIndex(e => e.id === id);
+      if (!soloCursor) seleccionada = id;
       PREVIA.t = escenas[PREVIA.i].t_in + t;
       controles.forEach((otro, sid) => {
         if (sid !== actual) otro.liberarVisual?.();
-        otro.nodo.hidden = sid !== actual;
-        otro.notas.hidden = sid !== actual;
+        otro.nodo.hidden = sid !== actual && sid !== seleccionada;
+        otro.nodo.dataset.panelActivo = String(sid === seleccionada);
+        otro.nodo.dataset.visualActivo = String(sid === actual);
+        otro.notas.hidden = sid !== seleccionada;
         otro.timeline.classList.toggle('actual', sid === actual);
       });
       c.actualizarMedio(escenas[PREVIA.i]);
-      c.refrescarNotas();
-      c.seleccionar(tab, t, indice); c.prepararVisual?.();
-      nodo.querySelectorAll('[data-escena]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.escena === id)));
+      if (soloCursor) c.posicionar(t);
+      else {
+        c.refrescarNotas(); c.seleccionar(tab, t, indice);
+        nodo.querySelectorAll('[data-escena]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.escena === id)));
+      }
+      c.prepararVisual?.();
       prebufferPrevia();
       const x = contenedores.get(id).offsetLeft - columnas.offsetLeft + t / c.total * contenedores.get(id).clientWidth;
       if (x < scroll.scrollLeft || x > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = Math.max(0, x - scroll.clientWidth / 2);
@@ -10998,7 +11169,7 @@ function editorGlobalImagenes(escenas) {
     recordar: id => { ultimaEdicion.push(id); if (ultimaEdicion.length > 1000) ultimaEdicion.shift(); deshacer.disabled = false; },
     cancelarRecuerdo: id => { const i = ultimaEdicion.lastIndexOf(id); if (i >= 0) ultimaEdicion.splice(i, 1); },
     cargado: id => {
-      if (actual === id) estudio.seleccionar(id, undefined, Math.max(0, PREVIA.t - escenas[PREVIA.i].t_in));
+      if (actual === id) estudio.seleccionar(id, undefined, Math.max(0, PREVIA.t - escenas[PREVIA.i].t_in), undefined, reproduciendo, actual !== seleccionada);
       const listos = [...controles.values()].filter(c => c.listo).length;
       estado.textContent = listos === escenas.length ? 'Selecciona una imagen o un bloque del timeline para editarlo.' : `Cargando pistas: ${listos} de ${escenas.length} escenas…`;
       if (estudio.modificado()) estudio.cambio();
@@ -11036,13 +11207,13 @@ function editorGlobalImagenes(escenas) {
       });
       const firma = JSON.stringify(escenas.map(e => e.imagen));
       if (firma !== firmaGaleria) {
-        firmaGaleria = firma; galeriaCompartida = null; controles.get(actual)?.refrescarPanel();
+        firmaGaleria = firma; galeriaCompartida = null; controles.get(seleccionada)?.refrescarPanel();
       }
-      controles.get(actual)?.refrescarNotas();
+      controles.get(seleccionada)?.refrescarNotas();
       preparacion.replaceChildren(...[estadoParallaxPrevia(), estadoAvatarPrevia()].filter(Boolean));
       const listaNotas = nodo.querySelector('.editor-global-lista-notas');
       listaNotas.replaceChildren(...(notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()].filter(Boolean) : []));
-      if (!reproduciendo && escenas[PREVIA.i]?.id !== actual) estudio.seleccionar(escenas[PREVIA.i]?.id);
+      if (!reproduciendo && escenas[PREVIA.i]?.id !== actual) estudio.seleccionar(escenas[PREVIA.i]?.id, undefined, 0, undefined, false, true);
       nodo.querySelectorAll('.editor-global-configuraciones').forEach(n => n.classList.toggle('generacion-activa', !!trabajoVideoLight()));
       setTimeout(cargarPendientes, 0);
     },
@@ -11153,7 +11324,7 @@ async function abrirEditorEscena(escena, estudio) {
   const guardarBoton = h('button', { clase: 'primario', disabled: true, onclick: guardar }, 'Guardar');
   const deshacerBoton = h('button', { clase: 'mini anim-editor-deshacer', disabled: true, onclick: deshacer }, '↶ Deshacer');
   const nombres = [['imagenes', '▧', 'Imágenes'], ['animacion', '✦', 'Animación'], ['sonidos', '♫', 'Sonidos'], ['parallax', '◇', 'Efecto Parallax'],
-    ['transiciones', '◩', 'Transición'], ['avatar', '♙', 'Avatar'], ['remotion', '‹/›', 'Plantillas Remotion']];
+    ['transiciones', '◩', 'Transición'], ['avatar', '♙', 'Avatar'], ['remotion', '✦', 'Animaciones con IA']];
   const tabs = h('div', { clase: 'escena-editor-tabs', role: 'tablist', 'aria-label': 'Elementos de escena' },
     ...nombres.map(([id, icono, nombre]) => h('button', { role: 'tab',
       'aria-controls': `escena-configuracion-${escena.id}`, 'aria-selected': String(id === pestaña),
@@ -11186,6 +11357,7 @@ async function abrirEditorEscena(escena, estudio) {
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
     h('div', { clase: 'editor-global-visual' }, botonSustituirEscena(escena), muestra), medios);
   tallerRemotion = crearTallerRemotion({pid, escena, trabajo: trabajoRemotion, ocupado, alElegir: () => {indiceRemotion = -1;},
+    abrirResultado: plantilla => estudio.abrirResultadoIA(plantilla),
     tallerAbierto: () => estudio.tallerRemotionAbierto,
     alternarTaller: () => {estudio.tallerRemotionAbierto = !estudio.tallerRemotionAbierto; control.actualizarTaller();},
     proyecto: () => ({resolucion: ficha?.avatar.resolucion || PREVIA.ficha?.resolucion || [1920, 1080], fps: ficha?.remotion_fps || 30}),
@@ -11193,7 +11365,7 @@ async function abrirEditorEscena(escena, estudio) {
     aplicar: async (compilada, plantilla, mensaje, soloRender = false) => {
       if (ocupado() || ((borrador.remotion || []).length >= 16 && indiceRemotion < 0)) throw new Error('Espera al trabajo actual o elimina un bloque Remotion.');
       const reemplazar = indiceRemotion >= 0 && borrador.remotion?.[indiceRemotion];
-      const inicio = reemplazar ? reemplazar.inicio : Math.max(-escena.t_in, Math.min(tiempo, estudio.duracion - escena.t_in - .1));
+      const inicio = reemplazar ? reemplazar.inicio : Math.max(-escena.t_in, Math.min(PREVIA.t - escena.t_in, estudio.duracion - escena.t_in - .1));
       const bloque = {plantilla: compilada.plantilla, nombre: plantilla.nombre, props: structuredClone(plantilla.props),
         modo: plantilla.modo || 'superponer', origen: escena.t_in, inicio, fin: Math.min(estudio.duracion - escena.t_in, inicio + plantilla.duracion)};
       if (reemplazar?.posicion) bloque.posicion = structuredClone(reemplazar.posicion);
@@ -11219,11 +11391,12 @@ async function abrirEditorEscena(escena, estudio) {
     'aria-label': `Seleccionar escena ${escena.id}` }, `${escena.id} (${total.toFixed(2)} s)`);
   filas.bloques.appendChild(bloqueEscena);
   const control = { nodo: dialogo, notas: notasEscena, timeline, pistas, filas, total, cerrar, guardar,
+    cargarAnimacionIA: plantilla => tallerRemotion.cargarResultado(plantilla),
     capasRemotion: capasActualesRemotion,
     moverRemotion,
     pintarRemotion: pintarReloj,
     actualizarTaller: () => {
-      if (estudio.esActual(escena.id)) estudio.nodo.classList.toggle('con-remotion', pestaña === 'remotion' && estudio.tallerRemotionAbierto);
+      if (estudio.esPanelActual(escena.id)) estudio.nodo.classList.toggle('con-remotion', pestaña === 'remotion' && estudio.tallerRemotionAbierto);
       tallerRemotion.activar(pestaña === 'remotion');
     },
     liberarVisual: () => {
@@ -11263,9 +11436,12 @@ async function abrirEditorEscena(escena, estudio) {
         if (fallo) estado.textContent = `No se pudo actualizar la escena: ${fallo.message}`;
       }
     },
-    seleccionar: (tab, t = 0, indice) => {
+    posicionar: t => {
       if (!control.listo) control.tiempoPendiente = t;
-      tiempo = Math.max(0, Math.min(total, t));
+      tiempo = Math.max(0, Math.min(total, t)); pintarReloj();
+    },
+    seleccionar: (tab, t = 0, indice) => {
+      control.posicionar(t);
       seleccionarPestaña(tab || pestaña, indice); pintarReloj();
       if (control.animacionPendiente) prepararAnimacion();
     }, pausar, reproducir: () => alternar(),
@@ -11317,7 +11493,7 @@ async function abrirEditorEscena(escena, estudio) {
   estudio.registrar(escena, control);
 
   function ocupado() { return guardando || subiendo || generando || remotionOcupado || revalidando || !!trabajoVideoLight(); }
-  async function trabajoRemotion(ruta, datos, mensaje) {
+  async function trabajoRemotion(ruta, datos, mensaje, alProgresar) {
     if (ocupado()) throw new Error('Espera a que termine la operación actual.');
     remotionOcupado = true; pausar();
     dialogo.classList.add('remotion-trabajando');
@@ -11327,6 +11503,7 @@ async function abrirEditorEscena(escena, estudio) {
       if (!dialogo.isConnected) {await pedir(API.cancelar(tid), {method: 'POST'}); throw new Error('Editor cerrado.');}
       while (dialogo.isConnected) {
         const t = await pedir(API.trabajo(tid)); mensaje.textContent = `${t.mensaje || 'Preparando Remotion'} · ${Math.round(t.progreso * 100)} %`;
+        if (alProgresar) await alProgresar(t);
         if (t.estado === 'listo') return t.resultado;
         if (['error', 'cancelado'].includes(t.estado)) throw new Error(t.error || 'Trabajo detenido.');
         await new Promise(r => setTimeout(r, 400));
@@ -11479,7 +11656,7 @@ async function abrirEditorEscena(escena, estudio) {
       return;
     }
     if (pestaña === 'imagenes') {
-      if (estudio.esActual(escena.id)) panel.appendChild(estudio.galeria());
+      if (estudio.esPanelActual(escena.id)) panel.appendChild(estudio.galeria());
       panel.appendChild(h('p', { clase: 'meta' }, `${escena.id} · ${total.toFixed(2)} s. Selecciona una imagen o un bloque para editar su escena.`));
       return;
     }
@@ -11731,8 +11908,7 @@ async function abrirEditorEscena(escena, estudio) {
   }
   function buscar(ev) {
     if (!ficha || ev.button !== 0 || ev.target.closest('.anim-timeline-bloque, .editor-global-bloque-escena')) return;
-    const tab = ev.target.closest('.audio') ? 'imagenes' : pestaña;
-    pausar(); const mover = e => estudio.buscar(e.clientX, tab);
+    pausar(); const mover = e => estudio.buscar(e.clientX);
     mover(ev); capturar(ev, mover);
   }
   function pausar(detenerAudio = true) {

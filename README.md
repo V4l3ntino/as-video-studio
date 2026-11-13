@@ -444,12 +444,58 @@ En un vídeo ya generado, volver a activar una cartela recupera las escenas que
 tenían ese contenido planificado. Las animaciones del guion conservan su selección
 independiente dentro de la misma sección.
 
-### Taller de Remotion: plantillas React adicionales
+### Animaciones con IA: biblioteca, escenas y plantillas Remotion
 
-En **Imágenes → Plantillas Remotion**, el editor muestra tres columnas: la
-biblioteca de plantillas, el previsualizador con el timeline y el taller de código
-y propiedades. El taller empieza contraído: pulsa **Taller de Remotion** para
-desplegarlo o contraerlo. Seleccionar plantillas o bloques no lo abre automáticamente.
+En **Imágenes → Animaciones con IA**, el editor conserva la biblioteca, el
+previsualizador y el timeline. El selector permite ver **Animaciones reutilizables**
+o el **Historial de animaciones** de todos los proyectos. Seleccionar una tarjeta
+no abre el chat automáticamente.
+Al reproducir o arrastrar el cabezal del timeline, los paneles, el chat, el texto
+sin enviar y la biblioteca permanecen fijos. La vista previa y el reloj siguen
+el vídeo; la escena de edición solo cambia al seleccionar expresamente una
+escena o un bloque. Las tarjetas de ejemplo usan un fondo fijo, y las animaciones
+guardadas conservan su propia miniatura.
+
+- **Animar escenas** abre el chat de Claude: selecciona escenas con los chips,
+  «+ Añadir» o «Seleccionar todas». Describe la intención y utiliza el botón
+  **Enviar mensaje** junto al campo de texto (o Enter; Shift+Enter añade una línea).
+  Claude valora la petición, propone mejoras y pregunta si faltan decisiones.
+  Conversar no genera código ni cambia el montaje. Cuando la idea esté clara,
+  pulsa **Empezar a generar** para producir los componentes.
+- El card **+ Crear plantilla**, al final de la biblioteca reutilizable, abre
+  una conversación independiente, sin guion ni medios del vídeo.
+- **⋯ → Editar** carga el código completo, props y configuración de esa tarjeta.
+  **Confirmar y guardar versión** publica una nueva versión en su biblioteca;
+  la anterior y los bloques ya aplicados se conservan.
+
+**Repartir carga de trabajo** está siempre disponible: al animar escenas,
+crear plantillas y editarlas. El slider asigna a ChatGPT del 0 al 100% de las
+tareas de generación, en pasos de 10; se redondea al número entero más cercano
+de tareas. En una sola plantilla, menos del 50% asigna su generación a Claude
+y desde el 50% a ChatGPT. Claude coordina siempre los conceptos. ChatGPT usa
+la sesión existente de Codex, sin API de pago.
+
+Durante la generación, el chat muestra la respuesta de Claude, el proveedor
+asignado, la validación, los comandos reales del motor Remotion, el render de
+la miniatura y las correcciones que sean necesarias. Esta actividad se guarda
+con la conversación. Si faltan aclaraciones imprescindibles, Claude las pregunta
+antes de generar. Al terminar aparecen **Previsualizar** y **Configurar y aplicar**;
+el vídeo no cambia hasta que decidas aplicar el resultado.
+
+Cada generación compila el TSX y renderiza una miniatura real. Los errores de
+código admiten dos correcciones automáticas; un fallo conserva el último borrador
+válido. Las animaciones de escenas se guardan automáticamente en el historial,
+incluso antes de aplicarlas. Las plantillas y ediciones requieren confirmación.
+Los recursos del proyecto usados en props se guardan como imágenes autocontenidas,
+para poder reutilizar la animación sin el proyecto original. Puedes cambiarlos
+desde Props o pedir una adaptación en el chat. Los chats y borradores persisten
+en `plantillas_remotion/_ia/`, junto a la biblioteca (`ESTUDIO_REMOTION` permite
+elegir su ubicación). Las revisiones históricas muestran primero las más recientes.
+**Configurar y aplicar** abre las props en la escena de destino; **Guardar cambios**
+conserva después el montaje. El panel derecho está dedicado al chat y ocupa todo
+el recuadro, sin pestañas de código, props o previsualización ni cabecera de
+plantilla. Las instrucciones y revisiones se realizan desde la conversación;
+los resultados ofrecen previsualización y configuración antes de aplicarlos.
 Incluye doce ejemplos editables, como Título Cinematográfico,
 Lower Third, Línea de Tiempo y gráficos. Este taller es adicional al catálogo de
 Motion animation.
@@ -470,7 +516,7 @@ navegador local del estudio; `ESTUDIO_REMOTION_BROWSER` permite elegir otro.
 El render se ejecuta en la máquina del servicio Python: si abres un servidor
 desde otro ordenador, renderiza ese servidor.
 
-1. Selecciona un ejemplo o pulsa **Nueva plantilla**.
+1. Selecciona un ejemplo o crea una plantilla con el card **+ Crear plantilla**.
 2. Introduce un componente JSX/TSX con **`export default`**. Están disponibles
    `react` y `remotion`; los imports de ficheros propios y de otros paquetes
    requieren ampliar el motor. Usa `useCurrentFrame`, `interpolate` o `spring`
