@@ -10443,11 +10443,12 @@ const CACHE_EDITOR = {
 function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar, proyecto, tallerAbierto, alternarTaller}) {
   let plantillas = [], elegida, compilada, version = 0, cerrado = false, pestaña = 'codigo';
   let subiendoImagen = false, bibliotecaCargada = false, eliminandoPlantilla = false, menuAbierto;
+  let popupProps, estadoPopup;
   const estadoTaller = h('p', { clase: 'remotion-estado', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
   const estadoBiblioteca = h('p', { clase: 'remotion-estado remotion-estado-biblioteca', role: 'status', 'aria-live': 'polite' }, 'Cargando plantillas…');
   const mensaje = Object.defineProperty({}, 'textContent', {
     get: () => estadoTaller.textContent,
-    set: texto => {estadoTaller.textContent = estadoBiblioteca.textContent = texto;}
+    set: texto => {estadoTaller.textContent = estadoBiblioteca.textContent = texto; if (estadoPopup) estadoPopup.textContent = texto;}
   });
   const rejilla = h('div', { clase: 'remotion-catalogo' });
   const cuenta = h('span', { clase: 'meta' });
@@ -10499,14 +10500,46 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
     mensaje.textContent = 'Compilación lista. Puedes previsualizar o aplicar a la escena.';
     return r;
   }
-  async function insertar() {
-    if (!elegida || ocupado() || subiendoImagen) return;
+  function insertar() {
+    if (!elegida || ocupado() || subiendoImagen || popupProps) return;
+    const anterior = structuredClone(elegida), foco = document.activeElement;
+    let guardando = false, confirmado = false;
+    estadoPopup = h('p', {clase: 'remotion-estado', role: 'status', 'aria-live': 'polite'});
+    const cerrar = () => { if (!guardando && !subiendoImagen) popupProps.close(); };
+    const guardar = h('button', {type: 'submit', clase: 'remotion-boton primario'}, 'Guardar');
+    const cancelarProps = h('button', {type: 'button', clase: 'remotion-boton', onclick: cerrar}, 'Cancelar');
+    const parar = h('button', {type: 'button', clase: 'remotion-boton', hidden: true, onclick: cancelar}, 'Parar Remotion');
+    const formulario = h('form', {onsubmit: async ev => {
+      ev.preventDefault();
+      if (guardando || ocupado() || subiendoImagen) return;
+      guardando = true; guardar.disabled = cancelarProps.disabled = true; props.inert = true; parar.hidden = false;
+      try {
+        confirmado = await incorporar();
+        if (confirmado) popupProps.close();
+      } finally {
+        guardando = false; guardar.disabled = cancelarProps.disabled = false; props.inert = false; parar.hidden = true;
+      }
+    }}, h('h3', {}, `Configurar animación · ${elegida.nombre}`),
+      h('p', {clase: 'meta'}, 'Ajusta las props de esta animación. Guardar la incorpora a la línea de tiempo.'),
+      props, estadoPopup, h('div', {clase: 'remotion-popup-acciones'}, parar, cancelarProps, guardar));
+    popupProps = h('dialog', {clase: 'remotion-popup-props', 'aria-label': `Props de ${elegida.nombre}`,
+      oncancel: ev => {if (guardando || subiendoImagen) ev.preventDefault();},
+      onclose: () => {
+        if (!confirmado) {elegida = anterior; compilada = null; version++;}
+        propsCaja.appendChild(props); pintarProps(); pintarModo();
+        popupProps.remove(); popupProps = estadoPopup = null; foco?.focus();
+      }}, formulario);
+    (document.fullscreenElement || document.body).appendChild(popupProps);
+    popupProps.showModal();
+  }
+  async function incorporar() {
     try {
       const r = compilada || await compilar();
       enviar({reproducir: false}); iframe.hidden = true;
       await aplicar(r, datos(), mensaje);
       mensaje.textContent = 'Animación incorporada. Pulsa «Guardar cambios» para conservarla en el vídeo.';
-    } catch (error) { mensaje.textContent = error.message; }
+      return true;
+    } catch (error) { mensaje.textContent = error.message; return false; }
   }
   function accion(texto, ejecutar, clase = '') {
     return h('button', { clase: `remotion-boton ${clase}`, onclick: async () => {
@@ -10624,7 +10657,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
             onchange: ev => {if (!ocupado() && !subiendoImagen) asignar(ev.target.value);}},
             h('option', {value: ''}, 'Seleccionar imagen…'), ...Array.from(disponibles, ([ruta, texto]) => h('option', {value: ruta, selected: ruta === v}, texto)))),
           url ? h('img', {clase: 'remotion-foto-mini', src: url, alt: etiqueta}) : null,
-          h('button', {clase: 'remotion-boton', onclick: () => {if (!ocupado() && !subiendoImagen) archivo.click();}}, 'Subir foto'), archivo);
+          h('button', {type: 'button', clase: 'remotion-boton', onclick: () => {if (!ocupado() && !subiendoImagen) archivo.click();}}, 'Subir foto'), archivo);
       }
       const complejo = typeof v === 'object', booleano = typeof v === 'boolean';
       return h('label', { clase: 'remotion-prop' }, h('span', {}, k), h('input', {
@@ -10632,14 +10665,14 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         ...(booleano ? {checked: v} : {value: complejo ? JSON.stringify(v) : v}),
         onchange: ev => {
           try { elegida.props[k] = booleano ? ev.target.checked : complejo ? JSON.parse(ev.target.value) : typeof v === 'number' ? Number(ev.target.value) : ev.target.value;
-            compilada = null; version++; iframe.hidden = true; }
-          catch (error) { mensaje.textContent = `Prop ${k}: introduce JSON válido.`; }
+            ev.target.setCustomValidity(''); compilada = null; version++; iframe.hidden = true; }
+          catch (error) { ev.target.setCustomValidity(`Prop ${k}: introduce JSON válido.`); mensaje.textContent = ev.target.validationMessage; }
         } }));
     }), h('label', { clase: 'remotion-prop' }, h('span', {}, 'duración (s)'), h('input', {type: 'number', min: .1, max: 120, step: .1, value: elegida.duracion,
       onchange: ev => { elegida.duracion = Number(ev.target.value); compilada = null; version++; pintarModo(); } })),
       h('details', {}, h('summary', {}, 'Editar Props como JSON'), h('textarea', {rows: 7, 'aria-label': 'Props JSON', value: JSON.stringify(elegida.props, null, 2),
-        onchange: ev => { try { const p = JSON.parse(ev.target.value); if (!p || Array.isArray(p) || typeof p !== 'object') throw new Error(); elegida.props = p; compilada = null; version++; iframe.hidden = true; pintarProps(); }
-          catch (e) { mensaje.textContent = 'Props debe ser un objeto JSON válido.'; } } })));
+        onchange: ev => { try { const p = JSON.parse(ev.target.value); if (!p || Array.isArray(p) || typeof p !== 'object') throw new Error(); ev.target.setCustomValidity(''); elegida.props = p; compilada = null; version++; iframe.hidden = true; pintarProps(); }
+          catch (e) { ev.target.setCustomValidity('Props debe ser un objeto JSON válido.'); mensaje.textContent = ev.target.validationMessage; } } })));
     ajustes.replaceChildren(h('p', {clase: 'meta'}, 'Componente React local, sin audio propio. En Props puedes usar imágenes del proyecto con proyecto://ruta/imagen.png y mostrarlas con <Img src={prop} />.'),
       ...[['ancho', 'Ancho'], ['alto', 'Alto'], ['fps', 'FPS']].map(([k, n]) => h('label', {clase: 'remotion-prop'}, n,
         h('input', {type: 'number', value: elegida[k], onchange: ev => {elegida[k] = Number(ev.target.value); compilada = null; version++; pintarModo();}}))));
@@ -10719,6 +10752,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
       }
     }, ocultarPlayer: () => {reproduccionPendiente = false; iframe.hidden = true; enviar({reproducir: false});},
     cerrar: () => {
+      popupProps?.remove(); popupProps = estadoPopup = null;
       cerrado = true; window.removeEventListener('message', recibir); iframe.removeAttribute('src');
       document.removeEventListener('pointerdown', cerrarMenuFuera);
       document.removeEventListener('keydown', cerrarMenuTeclado, true);

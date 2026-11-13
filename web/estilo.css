@@ -2796,6 +2796,14 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-props { border: 1px solid #303946; border-radius: 7px; margin: 0 12px 12px; overflow: hidden; }
 .remotion-props h4 { padding: 11px 13px; margin: 0; border-bottom: 1px solid #303946; background: #191f2a; font-size: 12px; }
 .remotion-props-campos { padding: 9px 13px; max-height: 260px; overflow: auto; }
+.remotion-popup-props { width: min(620px, calc(100vw - 40px)); max-height: 85vh; box-sizing: border-box; padding: 22px; border: 1px solid #566179; border-radius: 12px; background: #12171f; color: #dfe3ee; }
+.remotion-popup-props::backdrop { background: #000a; }
+.remotion-popup-props h3 { margin: 0 0 12px; font-size: 18px; }
+.remotion-popup-props .remotion-props-campos { max-height: 52vh; padding: 12px 0; }
+.remotion-popup-props input, .remotion-popup-props textarea { box-sizing: border-box; min-width: 0; width: 100%; padding: 8px; border: 1px solid #354052; border-radius: 5px; background: #131923; color: #ecedf4; }
+.remotion-popup-props input[type="checkbox"] { width: auto; justify-self: start; }
+.remotion-popup-props details textarea { margin-top: 8px; font-family: monospace; }
+.remotion-popup-acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .remotion-props-campos:has(> .remotion-imagen-prop) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 360px; }
 .remotion-props-campos:has(> .remotion-imagen-prop) > .remotion-prop, .remotion-props-campos:has(> .remotion-imagen-prop) > details { grid-column: 1 / -1; }
 .remotion-imagen-prop { border: 1px solid #303946; border-radius: 5px; padding: 7px; min-width: 0; }
