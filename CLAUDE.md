@@ -17,6 +17,26 @@ el audio. Los personajes generados tienen un recibo junto al PNG inmutable;
 conservarlo al copiar, duplicar o exportar. Stickman no admite fotos ni POV.
 Prueba aislada y render real sin cuota: `python pasos/prueba_stickman.py --real`.
 
+El contrato `stickman-2` añade utilería reconocible y anclas a mano/cabeza/pecho.
+En los objetos `w,h` son dimensiones, nunca tamaño de fuente; `fuente` y `grosor`
+son independientes. En los actores `x,y` sitúan los pies (rig de ~240 unidades
+por escala). No vuelvas a dar al modelo solo primitivas sin estas convenciones:
+producía calendarios irreconocibles, vínculos como barras y textos gigantes que
+tapaban la acción. Las primeras claves tardías deben interpolar desde el valor
+base, no anticipar la posición final. La puesta en escena de entregas nuevas
+se valida antes de renderizar; no se aplica esa validación retroactivamente al
+abrir proyectos. Contrato detallado en `motores/stickman/README.md`.
+
+`stickman-3` permite crear utilería vectorial arbitraria y reutilizarla entre
+vídeos. El catálogo de `pasos/utileria_stickman.py` va fuera del árbol del
+programa (`ESTUDIO_UTILERIA_STICKMAN`, datos externos banco/proyectos o datos
+del usuario). En despliegue, HOME está protegido: conserva la detección de los
+datos externos, no lo fuerces a `~/.local/share`. Las definiciones son datos
+numéricos, nunca JS ni SVG ejecutable. Se guardan por huella, se incluyen en
+el plan de escena y en `pasos/assets/<versión>/utileria_stickman/`; no reemplaces
+una referencia por huella por otra del mismo concepto. El catálogo completo
+no entra en firmas: añadir un avión no debe invalidar escenas terminadas.
+
 Lee primero [README.md](README.md): qué es, cómo se arranca y cómo está montado.
 Y si vienes a retomar sin contexto, `docs/RETOMAR.md`: el estado al cerrar, qué
 está desplegado y **los fallos que se encontraron con su causa** — el sitio

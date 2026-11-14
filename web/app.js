@@ -5442,7 +5442,6 @@ function navLight() {
   const dentro = APP.light.vista === 'elegido' && !!v.pid;
   const sub = dentro ? v.vista : '';
   const hayGuion = dentro && !!v.guion;
-  const hayPlanos = dentro && !!versionDe(v.fichas.assets || {});
   const hayVideo = dentro && (!!v.audio || hayMp4Light());
 
   const paradas = [
@@ -5467,10 +5466,12 @@ function navLight() {
       porque: dentro ? (hayGuion ? 'el texto y la voz' : 'todavía no hay guion')
         : 'abre un vídeo primero',
       ir: () => { pararPrevia(); v.vista = 'guion'; pintarLight(); } },
-    { id: 'diapositivas', texto: 'Imágenes', puede: hayPlanos,
+    // La previa también muestra tandas parciales: no necesita una versión
+    // completa de assets para poder salir y volver mientras se generan escenas.
+    { id: 'diapositivas', texto: 'Imágenes', puede: dentro,
       activa: sub === 'previa',
-      porque: hayPlanos ? 'la imagen de cada plano, sola'
-        : 'todavía no hay imágenes que mirar',
+      porque: dentro ? 'el previsualizador y las escenas disponibles'
+        : 'abre un vídeo primero',
       ir: async () => {
         const pid = v.pid;
         // El color de acento se guarda con espera; leer la previa antes de ese

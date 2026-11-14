@@ -11,23 +11,64 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 TEMP = tempfile.TemporaryDirectory(prefix='prueba_stickman_')
-for clave in ('ESTUDIO_ESTADISTICAS', 'ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_PRESETS', 'ESTUDIO_BANCO_PRESETS'):
+for clave in ('ESTUDIO_ESTADISTICAS', 'ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_PRESETS', 'ESTUDIO_BANCO_PRESETS', 'ESTUDIO_UTILERIA_STICKMAN'):
     os.environ[clave] = str(Path(TEMP.name) / clave)
 os.environ['ESTUDIO_SIMULAR'] = '1'
 
 from nucleo.proyecto import Proyecto
 from nucleo.estado import Estado
-from pasos import stickman, medios, personajes, presets_canal, presets_light, sonido, editor_escena
+from pasos import stickman, medios, personajes, presets_canal, presets_light, sonido, editor_escena, utileria_stickman
 
 REAL = '--real' in sys.argv
 if REAL:
     sys.argv.remove('--real')
 
 
+def escena_mensajes(base):
+    """Regresión del relato: atención, planes y retirada al llegar la intimidad."""
+    return stickman.validar_puesta_en_escena(dict(ambiente='interiorCool', decorado='vacio', atmosfera='ninguna',
+        personajes=[dict(id='lucia', x=.25, y=.88, escala=2.6, expresion='smile', claves=[
+            dict(t=0, pose='phone'), dict(t=4.5, pose='phone', expresion='worried')]),
+            dict(id='daniel', x=.73, y=.88, escala=2.6, mirar=-1, claves=[dict(t=0, pose='phone', expresion='smile'),
+                dict(t=2, pose='point'), dict(t=4.5, pose='crossArms', expresion='worried'), dict(t=6, x=.79)])],
+        objetos=[dict(tipo='movil', ancla=dict(personaje='lucia', punto='mano'), y=-.025, w=55, h=92, color='#b9e9ff'),
+            dict(tipo='linea', x=.35, y=.63, w=570, h=0, color='#ff9d3e', capa='fondo', claves=[
+                dict(t=0, progreso=0), dict(t=1, progreso=1), dict(t=4, opacidad=1), dict(t=5, opacidad=.15)]),
+            *[dict(tipo='mensaje', x=.42, y=.30+i*.11, w=210, h=90, inicio=.4+i*.65, color='#d2f4e5') for i in range(3)],
+            dict(tipo='calendario', x=.55, y=.28, w=250, h=220, inicio=1.8, color='#ed9b54',
+                claves=[dict(t=1.8, progreso=0), dict(t=3.6, progreso=1)]),
+            dict(tipo='corazon', x=.43, y=.63, w=70, h=65, inicio=3.8, fin=4.6, color='#f2798b'),
+            dict(tipo='nube', ancla=dict(personaje='daniel', punto='cabeza'), y=-.12,
+                w=160, h=100, inicio=4.5, color='#a8b1bc')]), 6,
+        {'lucia': dict(base, color='#f2798b', accesorio='ponytail'), 'daniel': base}, [1920, 1080])
+
+
+def avion_vectorial():
+    """Dibujo de prueba, no un objeto incorporado al catálogo del programa."""
+    return dict(concepto='avion', nombre='Avión ligero', descripcion='Avión de hélice de perfil, con alas, cola y ventanas.',
+        etiquetas=['avión', 'airplane', 'vuelo', 'transporte', 'viajes'], ancho=1000, alto=500, partes=[
+        dict(id='cola', formas=[dict(tipo='trazo', comandos=[['M', 100, 260], ['L', 70, 65], ['L', 140, 65],
+            ['L', 265, 260], ['Z']], relleno='$principal', trazo='$oscuro', grosor=9)]),
+        dict(id='fuselaje', formas=[dict(tipo='trazo', comandos=[['M', 95, 240], ['C', 330, 240, 630, 110, 760, 185],
+            ['Q', 880, 210, 895, 270], ['Q', 840, 340, 580, 315], ['L', 140, 300], ['Z']],
+            relleno='$claro', trazo='$oscuro', grosor=10),
+            *[dict(tipo='elipse', x=x, y=218, w=50, h=46, relleno='$secundario', trazo='$oscuro', grosor=5) for x in (450, 540, 630)],
+            dict(tipo='trazo', comandos=[['M', 740, 195], ['Q', 805, 200, 845, 240], ['L', 735, 240], ['Z']],
+                relleno='$secundario', trazo='$oscuro', grosor=7)]),
+        dict(id='ala', pivote=[450, 275], formas=[dict(tipo='trazo', comandos=[['M', 365, 270], ['L', 590, 410],
+            ['L', 700, 410], ['L', 585, 265], ['Z']], relleno='$principal', trazo='$oscuro', grosor=9)]),
+        dict(id='helice', pivote=[900, 265], formas=[dict(tipo='elipse', x=885, y=160, w=28, h=210,
+            relleno='$oscuro'), dict(tipo='elipse', x=876, y=242, w=46, h=46, relleno='$principal')],
+            animacion=dict(duracion=.8, claves=[dict(t=0, rot=0), dict(t=.8, rot=6.283185)]))])
+
+
 class Stickman(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=TEMP.name)
         self.addCleanup(self.temp.cleanup)
+        self.entorno = patch.dict(os.environ, ESTUDIO_UTILERIA_STICKMAN=str(Path(self.temp.name) / 'catalogo'))
+        self.entorno.start()
+        self.addCleanup(self.entorno.stop)
         self.base = stickman.familias()[0]
         self.config = dict(seleccionada=0, variantes=stickman.familias())
 
@@ -61,6 +102,29 @@ class Stickman(unittest.TestCase):
             with self.subTest(total=total, porcentaje_claude=porcentaje_claude):
                 self.assertEqual(stickman.reparto_escenas(total, porcentaje_claude), esperado)
 
+    def test_utileria_anclada_y_secuencia_del_relato(self):
+        contenido = escena_mensajes(self.base)
+        self.assertEqual(contenido['objetos'][0]['ancla'], dict(personaje='lucia', punto='mano'))
+        self.assertEqual(contenido['objetos'][1]['h'], 0)
+        self.assertEqual(contenido['objetos'][1]['claves'][-1]['opacidad'], .15)
+        self.assertEqual(contenido['objetos'][-1]['inicio'], 4.5)
+        with self.assertRaises(ValueError):
+            stickman.escena(dict(objetos=[dict(tipo='movil', ancla=dict(personaje='ausente'))]), 6, {'lucia': self.base})
+
+    def test_puesta_en_escena_corrige_personajes_ilegibles_y_no_acepta_estaticos(self):
+        validar = lambda d: stickman.validar_puesta_en_escena(d, 6, {'ana': self.base}, [1920, 1080])
+        for actor in (dict(escala=.4), dict(x=.99), dict(y=.4, escala=3)):
+            with self.subTest(actor=actor), self.assertRaisesRegex(ValueError, 'encuadre'):
+                validar(dict(personajes=[dict(id='ana', **actor)]))
+        with self.assertRaisesRegex(ValueError, 'estática'):
+            validar(dict(personajes=[dict(id='ana', claves=[dict(t=0, pose='stand'), dict(t=2, pose='stand')])]))
+        self.assertEqual(validar(dict(personajes=[dict(id='ana', movimiento='caminar')]))['personajes'][0]['movimiento'], 'caminar')
+        with patch.object(stickman, '_consultar', side_effect=[dict(personajes=[dict(id='ana', escala=.4)]),
+                dict(personajes=[dict(id='ana', claves=[dict(t=0, pose='stand'), dict(t=2, pose='phone')])])]) as consulta:
+            resultado = stickman.consultar('escena', validar=validar)
+        self.assertEqual(consulta.call_count, 2)
+        self.assertEqual(resultado['personajes'][0]['claves'][-1]['pose'], 'phone')
+
     def test_corrige_contrato_sin_reintentar_cancelaciones_o_cuota(self):
         validar = lambda d: stickman.escena(d, 2, {'real': self.base})
         with patch.object(stickman, '_consultar', side_effect=[dict(personajes=[dict(id='inexistente')]),
@@ -72,6 +136,96 @@ class Stickman(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'cancelado'):
                 stickman.consultar('encargo', validar=validar)
             self.assertEqual(consulta.call_count, 1)
+
+    def test_crea_utileria_y_la_reutiliza_en_otro_video_y_otro_estilo(self):
+        primero = Proyecto.crear(self.temp.name, 'Viajes')
+        segundo = Proyecto.crear(self.temp.name, 'Historia de la aviación')
+        e = dict(id='S001', narracion='El avión despega.', t_in=0, t_out=3)
+        objeto = dict(tipo='vector', recurso='avión', x=.5, y=.4, w=650, h=325,
+            claves=[dict(t=0, x=.3), dict(t=3, x=.7)])
+        entrega = dict(utileria=dict(avion=avion_vectorial()), objetos=[objeto])
+        with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), patch.object(stickman, '_consultar', side_effect=[dict(objetos=[objeto]), entrega, dict(objetos=[objeto])]) as consulta:
+            nueva = stickman.generar_escena(e, self.base, {'ana': self.base}, primero, lambda *a: None)
+            otro_estilo = dict(self.base, color='#fa6b32')
+            reutilizada = stickman.generar_escena(e, otro_estilo, {'ana': otro_estilo}, segundo, lambda *a: None, 'ChatGPT')
+        ident = nueva['objetos'][0]['recurso']
+        self.assertEqual(reutilizada['objetos'][0]['recurso'], ident)
+        self.assertEqual(nueva['utileria'], reutilizada['utileria'])
+        self.assertEqual(len(list(utileria_stickman.carpeta_catalogo().glob('*.json'))), 1)
+        self.assertEqual(consulta.call_count, 3)
+        self.assertIn('falta utilería', consulta.call_args_list[1].args[0])
+        self.assertIn(ident, consulta.call_args_list[2].args[0])
+        self.assertIn('catalogo_utileria', consulta.call_args_list[2].args[0])
+
+    def test_catalogo_persistente_fuera_del_programa_tambien_en_servicio(self):
+        datos = Path(self.temp.name) / 'datos'
+        with patch.dict(os.environ, ESTUDIO_UTILERIA_STICKMAN='', ESTUDIO_BANCO=str(datos / 'banco')):
+            self.assertEqual(utileria_stickman.carpeta_catalogo(), datos / 'utileria_stickman')
+        with patch.dict(os.environ, ESTUDIO_UTILERIA_STICKMAN='', ESTUDIO_BANCO='', ESTUDIO_PROYECTOS=str(datos / 'proyectos')):
+            self.assertEqual(utileria_stickman.carpeta_catalogo(), datos / 'utileria_stickman')
+
+    def test_definiciones_fijadas_no_cambian_y_no_se_guardan_elementos_sin_usar(self):
+        original = utileria_stickman.definicion(avion_vectorial())
+        variante = utileria_stickman.definicion(dict(avion_vectorial(), descripcion='Otra versión de avión.'))
+        datos = dict(utileria={original['id']: original}, objetos=[dict(tipo='vector', recurso=original['id'])])
+        fija = stickman.escena(datos, 2, {}, {variante['id']: variante})
+        self.assertEqual(fija['utileria'], {original['id']: original})
+        # Una nueva entrega que redibuja el mismo concepto reutiliza el existente.
+        redibujada = stickman.escena(dict(utileria=dict(avion=avion_vectorial()),
+            objetos=[dict(tipo='vector', recurso='avion')]), 2, {}, {variante['id']: variante})
+        self.assertEqual(redibujada['objetos'][0]['recurso'], variante['id'])
+        sin_usar = stickman.escena(dict(utileria=dict(avion=avion_vectorial())), 2, {})
+        self.assertEqual(sin_usar['utileria'], {})
+        with self.assertRaisesRegex(ValueError, 'falta utilería'):
+            stickman.escena(dict(objetos=[dict(tipo='vector', recurso='tren')]), 2, {})
+
+    def test_utileria_rechaza_geometria_invalida_sin_publicarla(self):
+        invalidos = []
+        for cambio in (dict(comandos=[['M', 0, 0], ['C', 'alert(1)', 2, 3, 4, 5, 6]]),
+                dict(comandos=[['M', 0, 0], ['L', 1001, 0]]), dict(relleno='url(https://ejemplo.com/a.svg)')):
+            d = avion_vectorial()
+            d['partes'][0]['formas'][0].update(cambio)
+            invalidos.append(d)
+        d = avion_vectorial()
+        d['partes'][0]['animacion'] = dict(duracion=1, claves=[dict(t=2, rot=1)])
+        invalidos.append(d)
+        for d in invalidos:
+            with self.subTest(datos=d), self.assertRaises(ValueError):
+                utileria_stickman.definicion(d)
+        entrega = dict(utileria=dict(avion=invalidos[0]), objetos=[dict(tipo='vector', recurso='avion')])
+        with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), patch.object(stickman, '_consultar', return_value=entrega):
+            with self.assertRaises(ValueError):
+                stickman.generar_escena(dict(t_in=0, t_out=3), self.base, {'ana': self.base}, None, lambda *a: None)
+        self.assertEqual(utileria_stickman.catalogo(), {})
+
+    def test_publicacion_concurrente_es_inmutable_y_el_catalogo_no_mueve_firmas(self):
+        from concurrent.futures import ThreadPoolExecutor
+        d = utileria_stickman.definicion(avion_vectorial())
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda _: utileria_stickman.guardar({d['id']: d}), range(8)))
+        self.assertEqual(utileria_stickman.catalogo(), {d['id']: d})
+        self.assertEqual(len(list(utileria_stickman.carpeta_catalogo().glob('*.json'))), 1)
+        escena = stickman.escena(dict(objetos=[dict(tipo='vector', recurso=d['id'])]), 2, {}, utileria_stickman.catalogo())
+        firma = stickman.huella(escena)
+        otra = utileria_stickman.definicion(dict(avion_vectorial(), concepto='avioneta', nombre='Avioneta'))
+        utileria_stickman.guardar({otra['id']: otra})
+        self.assertEqual(stickman.huella(stickman.escena(escena, 2, {})), firma)
+
+    def test_animacion_de_partes_y_busqueda_en_catalogo_grande(self):
+        d = utileria_stickman.definicion(avion_vectorial())
+        catalogo = {d['id']: d}
+        for i in range(110):
+            otra = utileria_stickman.definicion(dict(avion_vectorial(), concepto=f'objeto-{i}', nombre=f'Objeto {i}', etiquetas=[]))
+            catalogo[otra['id']] = otra
+        indice = utileria_stickman.indice(catalogo, 'El avión despega al empezar el viaje.', maximo=10)
+        self.assertEqual(indice[0]['concepto'], 'avion')
+        self.assertEqual(len(indice), 10)
+        objeto = dict(tipo='vector', recurso='avion', partes=[dict(id='ala', claves=[dict(t=0, rot=0), dict(t=2, rot=.3)])])
+        escena = stickman.validar_puesta_en_escena(dict(objetos=[objeto]), 2, {}, [1920, 1080], catalogo)
+        self.assertEqual(escena['objetos'][0]['partes'][0]['id'], 'ala')
+        objeto['partes'][0]['id'] = 'inexistente'
+        with self.assertRaises(ValueError):
+            stickman.escena(dict(objetos=[objeto]), 2, {}, catalogo)
 
     def test_personajes_no_admiten_pov_ni_foto_con_diseno_inventado(self):
         p = Proyecto.crear(self.temp.name, 'Personaje')
@@ -180,6 +334,7 @@ class Stickman(unittest.TestCase):
             conservacion=dict(retirados=[]), resolucion=[320, 180], generacion=[320, 180],
             duracion_total=2, idioma='es', semilla=7, fps=30, formato='horizontal')
         contenido = stickman.escena(dict(personajes=[dict(id='protagonista')],
+            utileria=dict(avion=avion_vectorial()), objetos=[dict(tipo='vector', recurso='avion', x=.65, y=.18, w=300, h=150)],
             sfx=[dict(name='pop', at=.3, dur=.4, gain=-12)]), 1, {'protagonista': self.base})
         with patch.object(p6_assets, 'planificar', side_effect=lambda *a, **k: copy.deepcopy(plan)), \
              patch.object(stickman, 'generar_escena', side_effect=[contenido, RuntimeError('interrupción')]):
@@ -214,6 +369,75 @@ class Stickman(unittest.TestCase):
         for e in recuperado['escenas']:
             self.assertTrue(Path(e['stickman']['clip']).is_relative_to(Path(importado.raiz)))
             self.assertTrue(Path(e['sonidos_stickman'][0]['archivo']).is_file())
+        ident = contenido['objetos'][0]['recurso']
+        # Otro servidor, sin acceso al catálogo original: las instantáneas de
+        # la versión permiten retomar y volver a compartir el objeto.
+        with patch.dict(os.environ, ESTUDIO_UTILERIA_STICKMAN=str(Path(self.temp.name) / 'otro_catalogo')):
+            self.assertEqual(utileria_stickman.catalogo(), {})
+            self.assertIn(ident, utileria_stickman.catalogo(importado))
+            fuente = medios.leer_json(str(Path(importado.ruta_paso('assets')) / 'escenas/S001.animacion.json'))
+            self.assertEqual(fuente['contenido']['utileria'][ident], contenido['utileria'][ident])
+            utileria_stickman.guardar(fuente['contenido']['utileria'])
+            self.assertIn(ident, utileria_stickman.catalogo())
+        copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia con avión')
+        self.assertTrue((Path(copia.ruta_paso('assets')) / 'utileria_stickman' / (ident + '.json')).is_file())
+
+    @unittest.skipUnless(REAL, 'usa --real para Chromium y ffmpeg')
+    def test_render_vectorial_con_curvas_paleta_y_partes_animadas(self):
+        from pasos import p8_render
+        from PIL import Image
+        contenido = stickman.escena(dict(decorado='vacio', ambiente='day', utileria=dict(avion=avion_vectorial()),
+            objetos=[dict(tipo='vector', recurso='avion', x=.5, y=.5, w=1450, h=725,
+                partes=[dict(id='ala', claves=[dict(t=0, rot=0), dict(t=2, rot=.3)])])]), 3, {})
+        original = p8_render.Navegador.capturar
+        fotogramas = []
+        def capturar(navegador, destino=None):
+            for t in (0, .2, 2):
+                navegador.pintar(t)
+                fotogramas.append(original(navegador))
+            navegador.pintar(1.35)
+            return original(navegador, destino)
+        png = Path(self.temp.name) / 'avion.png'
+        with patch.object(p8_render.Navegador, 'capturar', capturar):
+            stickman.renderizar(self.base, contenido, 3, str(png), salida=(640, 360))
+        self.assertEqual(len(set(fotogramas)), 3)
+        with Image.open(png) as img:
+            colores = {c for _, c in img.convert('RGB').getcolors(img.width * img.height)}
+        self.assertIn((66, 213, 120), colores)  # $principal del estilo, no fijado en el dibujo.
+        otro = Path(self.temp.name) / 'avion-otro-estilo.png'
+        stickman.renderizar(dict(self.base, color='#ff8030'), contenido, 3, str(otro), salida=(640, 360))
+        with Image.open(otro) as img:
+            self.assertIn((255, 128, 48), {c for _, c in img.convert('RGB').getcolors(img.width * img.height)})
+
+    @unittest.skipUnless(REAL, 'usa --real para Chromium y ffmpeg')
+    def test_render_relato_y_limites_del_texto_e_interpolacion(self):
+        from pasos import p8_render
+        contenido = escena_mensajes(self.base)
+        contenido['objetos'].append(dict(tipo='texto', texto='Semanas', color='#ffffff', x=.5, y=.1,
+            w=900, h=80, escala=1, inicio=0, fin=6, capa='frente', claves=[]))
+        contenido = stickman.escena(contenido, 6, {'lucia': self.base, 'daniel': self.base})
+        original = p8_render.Navegador.capturar
+        def comprobar(navegador, destino=None):
+            # Instrumentar Canvas real: comprueba el tamaño final de letra y que
+            # la posición tardía de Daniel no se aplique desde el frame cero.
+            resultado = navegador.evaluar('''(() => {
+                const ctx = document.querySelector('canvas').getContext('2d');
+                const translate = ctx.translate, fillText = ctx.fillText;
+                let xs = [], fuentes = [];
+                ctx.translate = function(x,y) { xs.push(x); return translate.call(this,x,y); };
+                ctx.fillText = function(...args) { fuentes.push(this.font); return fillText.apply(this,args); };
+                try {
+                    window.pintar(0); const inicio = xs.includes(.73*1920); xs=[];
+                    window.pintar(6); const fin = xs.includes(.79*1920);
+                    return {inicio, fin, fuentes};
+                } finally {ctx.translate=translate; ctx.fillText=fillText; window.pintar(2.7);}
+            })()''')
+            self.assertTrue(resultado['inicio'])
+            self.assertTrue(resultado['fin'])
+            self.assertTrue(all(float(f.split('px')[0].split()[-1]) <= 96 for f in resultado['fuentes']))
+            return original(navegador, destino)
+        with patch.object(p8_render.Navegador, 'capturar', comprobar):
+            stickman.renderizar(self.base, contenido, 6, str(Path(self.temp.name) / 'relato.png'), salida=(640, 360))
 
     @unittest.skipUnless(REAL, 'usa --real para Chromium y ffmpeg')
     def test_render_real_familias_y_mp4_con_efectos_del_plugin(self):

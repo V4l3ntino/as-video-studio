@@ -81,6 +81,21 @@ las voces y la música, sin duplicarlos dentro del clip visual. Puedes moverlos,
 recortarlos o eliminarlos como los demás sonidos. Los clips, definiciones y
 efectos viajan al duplicar o exportar el vídeo.
 
+La utilería no se limita a una lista fija. Si una escena necesita un elemento
+que falta —por ejemplo, un avión—, Claude o ChatGPT puede diseñarlo con formas
+vectoriales y piezas animables. La definición utilizada se valida y se guarda
+automáticamente en un **catálogo compartido**: otras escenas y vídeos, aunque
+sean de otra temática, pueden reutilizarla sin volver a diseñarla. Los colores
+de paleta se adaptan al estilo del vídeo. El catálogo guarda el objeto, no los
+tiempos ni las acciones particulares de la escena.
+
+Cada vídeo conserva una copia de la utilería utilizada para poder duplicarlo,
+exportarlo o retomar su generación sin depender del catálogo del ordenador
+original. El catálogo compartido se guarda fuera de la carpeta del programa,
+en los datos externos del servicio o en los datos del usuario. Puedes fijar
+su ubicación con `ESTUDIO_UTILERIA_STICKMAN`; inclúyela en tus copias de seguridad
+si quieres conservar también los elementos de vídeos que hayas eliminado.
+
 El motor utiliza los archivos originales de
 `GrowKaz_Stickman/skills/make-2d-video/kit/`: esa carpeta debe acompañar al
 programa. Reutiliza el navegador y ffmpeg del Estudio y `esbuild` del motor
