@@ -205,6 +205,7 @@ class Contratos(unittest.TestCase):
         import time
         import urllib.request
         import wave
+        from PIL import Image, ImageChops
         from playwright.sync_api import sync_playwright
         from pasos._proyecto_animaciones import construir
         from pasos import medios
@@ -215,13 +216,15 @@ class Contratos(unittest.TestCase):
         estado.completar('voz', {'pista': 'narracion.wav'})
         fuente = dict(self.fuente, nombre='Prueba IA', duracion=.3, ancho=640, alto=360,
             codigo="import React from 'react'; import {AbsoluteFill,useCurrentFrame} from 'remotion'; export default function T({titulo}) {const f=useCurrentFrame(); return <AbsoluteFill style={{color:'white',fontSize:40,opacity:Math.min(1,f/5)}}>{titulo}</AbsoluteFill>;}")
+        editada = dict(fuente, nombre='Prueba IA editada', props=dict(titulo='Título editado'),
+                       codigo=fuente['codigo'].replace("color:'white'", "color:'lime'"))
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0)); puerto = sock.getsockname()[1]
         entorno = dict(os.environ, ESTUDIO_PROYECTOS=self.raiz, ESTUDIO_REMOTION_BROWSER=medios.edge())
         programa = ("import uvicorn, app; from pasos import animaciones_ia as ia; "
             "ia._claude=lambda p,*a: {'mensaje':'¿Qué estilo buscas?' if 'Este es solo un mensaje' in p and 'dorado' not in p else 'Concepto cinematográfico preparado',"
             "'necesita_aclaracion':'Este es solo un mensaje' in p and 'dorado' not in p,'conceptos':{}}; "
-            f"ia._generar=lambda *a: {{'plantilla':{fuente!r}}}; "
+            f"ia._generar=lambda proveedor,p,*a: {{'plantilla':{editada!r} if p.startswith('Edita exactamente') else {fuente!r}}}; "
             f"uvicorn.run(app.app,host='127.0.0.1',port={puerto},log_level='error')")
         proceso = subprocess.Popen([sys.executable, '-c', programa], env=entorno, cwd=Path(__file__).resolve().parents[1])
         try:
@@ -341,6 +344,32 @@ class Contratos(unittest.TestCase):
                 self.assertEqual(peticiones[-1]['categoria'], 'historial')
                 self.assertEqual(peticiones[-1]['porcentaje'], 100)
                 self.assertEqual(activo.locator('.remotion-taller [role="tab"]').count(), 0)
+                # Cambiar el modo desde la tarjeta original conserva el borrador
+                # sin id, tanto su código como sus props, antes de publicarlo.
+                self.assertEqual(tarjeta.locator('.remotion-tarjeta').get_attribute('aria-pressed'), 'true')
+                for modo, texto in [('sustituir', 'Sustituir contenido'), ('superponer', 'Superponer Animación')]:
+                    tarjeta.get_by_role('button', name='Más opciones', exact=False).click()
+                    tarjeta.get_by_role('menuitemradio', name=texto, exact=True).click()
+                    tarjeta.get_by_role('button', name='Más opciones', exact=False).click()
+                    self.assertEqual(tarjeta.get_by_role('menuitemradio', name=texto, exact=True).get_attribute('aria-checked'), 'true')
+                    pagina.keyboard.press('Escape')
+                    activo.get_by_role('button', name='Insertar en la línea de tiempo', exact=False).click()
+                    popup = pagina.get_by_role('dialog')
+                    self.assertEqual(popup.get_by_label('titulo', exact=True).input_value(), 'Título editado')
+                    popup.get_by_role('button', name='Guardar', exact=True).click()
+                    pagina.wait_for_function('document.querySelectorAll(".remotion .anim-timeline-bloque").length === 1', timeout=180000)
+                    pagina.wait_for_function('!document.querySelector(".remotion-popup-props")')
+                    capas = pagina.evaluate('EDITOR_GLOBAL.capasRemotion(PREVIA.ficha.escenas[0])')
+                    self.assertEqual(capas[0]['opaca'], modo == 'sustituir')
+                    with Image.open(proyecto.ruta(capas[0]['fotogramas'][-1])) as imagen:
+                        self.assertGreater(ImageChops.subtract(imagen.getchannel('G'), imagen.getchannel('R')).getextrema()[1], 200)
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "remotion", .2)')
+                    pagina.wait_for_function('document.querySelector(".editor-global-escena[data-visual-activo=true] .remotion-capas img")?.complete')
+                    pagina.screenshot(path=f'/tmp/opencode/animacion-editada-{modo}.png', full_page=True)
+                    pagina.locator('.editor-global > .light-cab').get_by_role('button', name='Deshacer', exact=False).click()
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "remotion", 0)')
+                    self.assertEqual(pagina.locator('.remotion .anim-timeline-bloque').count(), 0)
+                    self.assertTrue(confirmar.is_visible())
                 confirmar.click()
                 pagina.wait_for_function('document.querySelectorAll(".editor-global-escena:not([hidden]) .remotion-tarjeta").length === 2')
                 historicas = ia.historial(self.raiz)

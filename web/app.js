@@ -10441,7 +10441,7 @@ const CACHE_EDITOR = {
 
 /* Taller opcional: React vive dentro del Player aislado, no en la aplicación. */
 function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar, proyecto, tallerAbierto, alternarTaller, abrirResultado}) {
-  let plantillas = [], elegida, compilada, version = 0, cerrado = false;
+  let plantillas = [], elegida, referenciaElegida, compilada, version = 0, cerrado = false;
   let subiendoImagen = false, bibliotecaCargada = false, eliminandoPlantilla = false, menuAbierto;
   let popupProps, estadoPopup;
   let categoria = 'reutilizables', historicas = [], modoChat = 'escenas', referenciaChat = null, categoriaChat = 'historial', sesionChat = null;
@@ -10697,7 +10697,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
       const p = proyecto(); [elegida.ancho, elegida.alto] = p.resolucion;
       elegida.fps = p.fps;
     }
-    const tarjeta = plantillas.find(p => p.id === elegida.id);
+    const tarjeta = visibles().find(p => p.id === referenciaElegida);
     if (tarjeta) tarjeta.modo = modo;
     pintarModo(); pintarProps(); pintarCatalogo();
   }
@@ -10831,7 +10831,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         ...[['superponer', 'Superponer Animación'], ['sustituir', 'Sustituir contenido']].map(([modo, texto]) =>
           h('button', {role: 'menuitemradio', 'aria-checked': String((p.modo || 'superponer') === modo), onclick: () => {
             if (ocupado() || subiendoImagen || eliminandoPlantilla) return;
-            if (elegida?.id !== p.id) elegirTarjetaIA(p);
+            if (referenciaElegida !== p.id) elegirTarjetaIA(p);
             cambiarModoRemotion(modo);
           }}, h('span', {clase: 'remotion-menu-marca', 'aria-hidden': 'true'}, (p.modo || 'superponer') === modo ? '✓' : ''), texto)),
         h('hr', {clase: 'remotion-menu-separador'}),
@@ -10854,7 +10854,7 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
         }}, '⋯');
       const esquina = h('div', {clase: 'remotion-menu-esquina'}, puntos, menu);
       return h('div', {clase: 'remotion-tarjeta-contenedor'},
-        h('button', {clase: 'remotion-tarjeta', 'aria-label': p.nombre, 'aria-pressed': String(elegida?.id === p.id), onclick: () => elegirTarjetaIA(p)}, mini, h('span', {}, p.nombre)), esquina);
+        h('button', {clase: 'remotion-tarjeta', 'aria-label': p.nombre, 'aria-pressed': String(referenciaElegida === p.id), onclick: () => elegirTarjetaIA(p)}, mini, h('span', {}, p.nombre)), esquina);
     }));
     if (categoria === 'reutilizables') rejilla.appendChild(h('div', {clase: 'remotion-tarjeta-contenedor'},
       h('button', {clase: 'remotion-tarjeta remotion-crear', onclick: () => {nuevaPlantilla(); abrirChatIA('crear');}},
@@ -10874,6 +10874,9 @@ function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, 
   function seleccionar(p) {
     if (ocupado()) return;
     alElegir(); elegida = structuredClone(p); compilada = null; version++; iframe.hidden = true;
+    // El borrador de IA no tiene id: su menú sigue siendo el de la tarjeta
+    // editada, pero cambiar de modo debe conservar el código y props nuevos.
+    referenciaElegida = p.id || (modoChat === 'editar' ? referenciaChat : null);
     codigo.value = elegida.codigo; nombre.value = elegida.nombre; colorear(); pintarProps(); pintarModo(); pintarCatalogo();
     detalle.replaceChildren(h('h4', {}, p.nombre), h('p', {clase: 'meta'}, p.descripcion),
       ...(p.proyecto_origen ? [h('p', {clase: 'meta'}, `Origen: ${p.proyecto_origen} · ${p.escena_origen || ''}`)] : []),
