@@ -7398,7 +7398,7 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
     h('p', { clase: 'pista' }, 'Define qué IA realizará las búsquedas y seleccionará los recursos de bibliotecas.'), valorCarga,
     h('div', { clase: 'bibliotecas-carga-control' }, h('span', {}, 'Claude'), carga,
       h('span', {}, 'ChatGPT')), resumenCarga);
-  const configuracion = h('div', { clase: 'recursos-configuracion' }, tituloConfiguracion,
+  const configuracion = h('fieldset', { clase: 'recursos-configuracion', 'aria-label': 'Configuración de recursos visuales' }, tituloConfiguracion,
     descripcionConfiguracion, tituloBibliotecas, proveedores, tipos, frecuencia);
   const explicacion = h('p', { clase: 'recursos-explicacion pista', 'aria-live': 'polite' });
   const actualizar = () => {
@@ -7431,6 +7431,7 @@ function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
     radios.porcentaje.checked = !cada; radios.cada.checked = cada;
     numero.value = (ia ? opciones.bibliotecas_cada : opciones.ia_cada) ?? 5;
     numero.disabled = !cada;
+    configuracion.disabled = ia && !cada && porcentaje === 0;
     const usaBibliotecas = opciones.proveedores.length > 0 && (!ia || cada || porcentaje > 0);
     reparto.disabled = !usaBibliotecas;
     explicacion.textContent = bloqueado ? '100 % imágenes IA · 0 % bibliotecas. No se buscarán imágenes ni vídeos de stock.' : !opciones.proveedores.length
