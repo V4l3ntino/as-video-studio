@@ -208,6 +208,37 @@ def _texto_completo(instrucciones, datos):
     return "\n\n".join(lineas)
 
 
+INSTRUCCION_STICKMAN = """\
+MODALIDAD STICKMAN 2D — aplica estas pautas al redactar la guia de tono:
+- Cada idea debe poder representarse visualmente, sin exigir una accion fisica
+  de un personaje en cada frase. Admite objetos, graficos, numeros animados,
+  flechas, comparaciones visuales, diagramas, transformaciones y cambios de
+  escenario, asi como elementos que aparecen y desaparecen.
+- Separa la NARRACION, que contiene solo lo que se locuta, de la REPRESENTACION
+  VISUAL, que describe como ilustrar cada escena. Usa los campos existentes del
+  guion (texto y descripcion_visual); no pidas encabezados dentro del texto
+  locutado ni un formato de salida nuevo. La descripcion visual debe dar
+  indicaciones concretas que Claude o ChatGPT puedan traducir al motor 2D.
+  Ejemplo ilustrativo, no contenido fijo del canal: narracion «El empresario
+  abrio la caja. Estaba vacia. Debia tres millones de euros»; representacion
+  visual: un stickman abre una caja fuerte, aparecen dos moscas dentro y despues
+  un contador rojo aumenta hasta tres millones. Las moscas son un gag visual,
+  no un hecho historico: las metaforas y gags no anaden hechos a la narracion.
+- Un bloque narrativo no exige un corte visual. Favorece movimientos continuos,
+  transformaciones de objetos y transiciones dentro del mismo escenario para
+  reutilizar elementos; cambia de escenario cuando lo necesite la explicacion.
+  No fijes duraciones ni tamanos: los gobiernan los ajustes de ritmo.
+- Organiza las instrucciones en apartados breves sin repetir reglas entre
+  sonido, estructura, bloques y fuentes ni anadir una recapitulacion final.
+  Conserva rigor factual y distingue hechos, opiniones y recursos ilustrativos.
+  No exijas acciones corporales, verbos fisicos ni comparaciones dibujables en
+  todas las frases; tampoco prohibas mapas o diagramas dibujados por confundirlos
+  con material de archivo. No hay fotografias, archivo real ni camara subjetiva.
+Los campos de resumen del JSON describen la misma guia para la ficha: toda regla
+necesaria debe estar ya en instrucciones, que se usara sola como guia completa.
+"""
+
+
 # --------------------------------------------- el tono SIN videos de referencia
 #
 # El gemelo de `estilo.guia_de_descripcion`, y por el mismo motivo: en modo light
@@ -372,7 +403,8 @@ def _ficha_de_tono(datos, instrucciones, ajuste, segundos, fuentes=(), avisos=()
 
 
 def desde_descripcion(proyecto, descripcion, modelo=None, esfuerzo=None,
-                      avisar=None, proyecto_id=None, peticion="", idioma="es"):
+                      avisar=None, proyecto_id=None, peticion="", idioma="es",
+                      stickman=False):
     """Escribe las instrucciones de guion a partir de una descripcion escrita.
 
     Mismo contrato que `deducir` y `fuentes` vacio, que es la verdad: este tono
@@ -397,6 +429,8 @@ def desde_descripcion(proyecto, descripcion, modelo=None, esfuerzo=None,
     os.makedirs(trabajo, exist_ok=True)
     instruccion = INSTRUCCION_DESCRITO.format(
         descripcion=descripcion, idioma=nombre_de_idioma(idioma))
+    if stickman:
+        instruccion += "\n" + INSTRUCCION_STICKMAN
     instruccion += comun.bloque_correccion(peticion,
                                            "las instrucciones de guion")
 
@@ -436,5 +470,8 @@ def desde_descripcion(proyecto, descripcion, modelo=None, esfuerzo=None,
                                  "tokens_salida":
                                      comun.tokens_de_cli(sobre).get("salida")})
     ficha = _ficha_de_tono(datos, instrucciones, ajuste, segundos)
+    if stickman:
+        ficha["texto_completo"] = instrucciones
+        ficha["palabras"] = len(instrucciones.split())
     ficha["descripcion"] = descripcion
     return ficha

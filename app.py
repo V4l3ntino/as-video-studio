@@ -9798,8 +9798,9 @@ def _correr_light_tono(avisar, ctx, encargo):
     peticion = (encargo.get("feedback") or {}).get("tono") or ""
     idioma = encargo.get("idioma") or "es"
     ficha = tono.desde_descripcion(ctx.proyecto, encargo["tono_prompt"],
-                                   avisar=avisar, proyecto_id=ctx.id,
-                                   peticion=peticion, idioma=idioma)
+                                    avisar=avisar, proyecto_id=ctx.id,
+                                    peticion=peticion, idioma=idioma,
+                                    stickman=bool(encargo.get('stickman')))
     # Al BRIEF, que es donde viven las instrucciones del guion. Lo que se pega es
     # el texto COMPLETO (el parrafo mas los cinco rasgos): el nivel tecnico y el
     # publico son justo lo que hay que decirle al redactor.
