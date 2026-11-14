@@ -2442,6 +2442,63 @@ def _correr_reescribir(avisar, ctx, ids, peticion, ajuste):
             "resumen": f"{len(cambiados)} de {len(ids)} bloque(s) cambiados"}
 
 
+@app.get("/api/proyectos/{pid}/guion/descripciones")
+def leer_descripciones_guion(pid: str):
+    """Descripciones visuales editables de cada frase del guion actual."""
+    from pasos import descripciones_escenas
+    return {"escenas": descripciones_escenas.listar(contexto(pid).proyecto)}
+
+
+@app.put("/api/proyectos/{pid}/guion/descripciones")
+def guardar_descripciones_guion(pid: str, cuerpo: dict = Body(...)):
+    """Guarda descripciones por escena sin modificar narración ni audio."""
+    from pasos import descripciones_escenas
+    ctx = contexto(pid)
+    if ctx.gestor.listar(activos=True):
+        raise ErrorApi(409, 'espera a que termine el trabajo del vídeo antes de editar las descripciones')
+    try:
+        resultado = descripciones_escenas.guardar(ctx.proyecto, cuerpo.get('escenas'))
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    ctx.bitacora.anotar('descripciones_editadas', 'assets', {'escenas': resultado['cambiadas']})
+    return resultado
+
+
+def _correr_descripciones_guion(avisar, ctx, escenas, peticion):
+    from pasos import descripciones_escenas
+    resultado = dict(escenas=escenas, cambiadas=0)
+
+    def publicar(nuevas):
+        guardadas = descripciones_escenas.guardar(ctx.proyecto, nuevas, anteriores=resultado['escenas'])
+        resultado['escenas'] = guardadas['escenas']
+        resultado['cambiadas'] += guardadas['cambiadas']
+        ctx.bitacora.anotar('descripciones_guardadas', 'assets', {'escenas': len(nuevas)})
+
+    def progreso(valor, mensaje=''):
+        avisar(valor, mensaje, mensaje)
+
+    descripciones_escenas.regenerar(ctx.proyecto, escenas, peticion, progreso, publicar=publicar)
+    ctx.bitacora.anotar('descripciones_regeneradas', 'assets', {'escenas': resultado['cambiadas']})
+    avisar(1, 'Descripciones de las escenas listas')
+    return resultado
+
+
+@app.post("/api/proyectos/{pid}/guion/descripciones/regenerar", status_code=202)
+def regenerar_descripciones_guion(pid: str, cuerpo: dict = Body(default=None)):
+    """Regenera con Claude solo la dirección visual de las escenas del guion."""
+    from pasos import descripciones_escenas
+    ctx = contexto(pid)
+    if ctx.gestor.listar(activos=True):
+        raise ErrorApi(409, 'espera a que termine el trabajo del vídeo antes de regenerar las descripciones')
+    escenas = descripciones_escenas.listar(ctx.proyecto)
+    if not escenas:
+        raise ErrorApi(400, 'genera el guion antes de regenerar las descripciones')
+    peticion = str(_cuerpo(cuerpo).get('peticion') or '').strip()
+    tid = ctx.gestor.lanzar('descripciones_escenas', _correr_descripciones_guion, ctx, escenas, peticion, paso=None)
+    _registrar_trabajo(tid, ctx.id)
+    return {'trabajo_id': tid, 'trabajo': ctx.gestor.estado(tid), 'eventos': f'/api/trabajos/{tid}/eventos'}
+
+
 @app.post("/api/proyectos/{pid}/guion/bloques/reescribir", status_code=202)
 def reescribir_bloques_guion(pid: str, cuerpo: dict = Body(default=None)):
     """Reescribe unos bloques del guion con una frase. Sin tocar el audio."""

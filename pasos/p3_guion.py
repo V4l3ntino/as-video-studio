@@ -930,6 +930,12 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
                 "bloques": [{"id": "B001", "texto": "El bosque ocultaba un camino hacia el pueblo.",
                     "personaje_id": narrador, "personajes_visibles": [],
                     "descripcion_visual": "Un camino serpentea entre los árboles."}]}, ensure_ascii=False)
+    if (opciones.get("sistema_personajes") or {}).get("stickman") and seccion_personajes:
+        ejemplo_stickman = json.loads(ejemplo)
+        for b in ejemplo_stickman["bloques"]:
+            b["escenas_visuales"] = [dict(texto=b["texto"],
+                descripcion_visual=b["descripcion_visual"], personajes_visibles=b["personajes_visibles"])]
+        ejemplo = json.dumps(ejemplo_stickman, ensure_ascii=False)
     # LA CUENTA, OTRA VEZ Y AL FINAL. No es repetir la regla 3 por insistir: la
     # ULTIMA parte de un prompt es la que mas pesa --esta medido en este repo
     # con el feedback de un plano-- y la longitud es lo unico

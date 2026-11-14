@@ -19,7 +19,7 @@ except ImportError:
     import imagenes_animacion
 
 CAMPOS_INTERVENCION = ("personaje_id", "personaje_nombre", "categoria", "voz_id",
-                       "personajes_visibles", "descripcion_visual")
+                       "personajes_visibles", "descripcion_visual", "escenas_visuales")
 
 
 def normalizar(crudo, proyecto=None, pendientes=False):
@@ -193,7 +193,32 @@ def instruccion(opciones):
          if not solo_personajes(opciones) else "La aplicación resolverá la voz desde el ID personalizado. Usa solo hablantes con voz propia asignada; nunca uses la voz general ni inventes voces."),
         "Este contrato de hablantes prevalece sobre las instrucciones genéricas de narración en off; si el usuario aporta un guion propio, respeta sus palabras y etiqueta sus intervenciones sin reescribirlo.",
         instruccion_pov(personaje_pov(opciones)),
+        instruccion_visual_stickman() if modo.get("stickman") else "",
     ])
+
+
+def instruccion_visual_stickman():
+    return """== DIRECCIÓN VISUAL STICKMAN 2D ==
+La narración explica la idea; la imagen muestra una acción concreta que la hace comprensible.
+El motor dispone de figuras articuladas, poses, expresiones, desplazamientos y utilería vectorial por piezas.
+Escribe escenas sencillas: situación inicial, UNA acción principal y resultado visible. Prioriza interacciones corporales
+y objetos reconocibles sobre diagramas de iconos. Un gesto de señalar no sustituye a abrazar, rechazar o alejarse.
+No inventes móviles, relojes ni decoración para llenar huecos. No muestres cortes anatómicos, objetos dentro del pecho,
+metáforas anidadas (escudo con gota, espejo vacío dentro de una figura) ni miniaturas de personajes dentro de tarjetas.
+Para comparar comportamientos, muestra a los personajes actuando por turnos en el mismo encuadre, con poses y distancias
+que expresen la diferencia. No conviertas automáticamente una explicación en tarjetas, flechas y símbolos ambiguos.
+Por ejemplo, distancia y actitud defensiva: una figura retrocede ante otra y cruza los brazos; no tres iconos sin acción.
+Consuelo infantil: el cuidador se acerca, se arrodilla junto al niño y extiende los brazos; la ausencia de respuesta
+se representa en otra frase con el cuidador alejado, mirando al lado opuesto. No pidas duplicar al mismo actor en pantalla.
+Si necesitas una pizarra, describe marco, bandeja de tiza y contenido dispuesto DENTRO de ella; no un rectángulo verde
+con rótulos flotantes. Todo elemento importante debe ser grande, reconocible y estar ligado a la acción.
+OBLIGATORIO: además del resumen descripcion_visual del bloque, añade escenas_visuales, una entrada por CADA frase
+completa de texto, en el mismo orden: [{"texto":"Frase literal completa.","descripcion_visual":"Acción concreta de ESTA frase.",
+"personajes_visibles":["ID"]}]. Copia la frase literal, sin anotaciones de voz. No resumas varias frases en una entrada.
+Las escenas consecutivas deben avanzar: conserva identidades y contexto, pero no reinicies la misma animación
+ni repitas la descripción con distinta velocidad. Cada entrada se anima solo durante su propia frase.
+Estas reglas de representabilidad prevalecen sobre sugerencias visuales genéricas del tono; conserva el sentido del relato.
+"""
 
 
 def preparar_intervenciones(datos, bloques, opciones):
@@ -247,6 +272,26 @@ def preparar_intervenciones(datos, bloques, opciones):
         b.update(personaje_id=ident, personaje_nombre=f.get("nombre") or "Narración",
                  categoria=f.get("categoria") or "narrador", personajes_visibles=list(dict.fromkeys(visibles)),
                  voz_id=(f.get("voz_id") if f.get("categoria") == "personaje" else "") or modo.get("voz_id") or "")
+        if modo.get("stickman") and "escenas_visuales" not in b:
+            raise ValueError(f'{b["id"]}: Stickman necesita escenas_visuales, una descripción por frase')
+        if "escenas_visuales" in b:
+            from pasos import marcas_tts
+            frases = medios.motor("guion/segmentar.py").frases_del_texto(marcas_tts.limpiar(b["texto"]))
+            visuales = b["escenas_visuales"]
+            if not isinstance(visuales, list) or len(visuales) != len(frases):
+                raise ValueError(f'{b["id"]}: escenas_visuales necesita una entrada por frase completa')
+            descripciones = set()
+            for frase, visual in zip(frases, visuales):
+                if (not isinstance(visual, dict) or visual.get("texto") != frase
+                        or not isinstance(visual.get("descripcion_visual"), str) or not visual["descripcion_visual"].strip()):
+                    raise ValueError(f'{b["id"]}: cada escena visual necesita su frase literal y una descripción no vacía')
+                ids = visual.get("personajes_visibles")
+                if not isinstance(ids, list) or any(not isinstance(p, str) or p not in reparto for p in ids):
+                    raise ValueError(f'{b["id"]}: personajes desconocidos en escenas_visuales')
+                descripcion = medios.normalizar_texto(visual["descripcion_visual"])
+                if descripcion in descripciones:
+                    raise ValueError(f'{b["id"]}: las frases deben avanzar visualmente, sin repetir la misma descripción')
+                descripciones.add(descripcion)
     return automaticos
 
 
@@ -294,6 +339,7 @@ def integrar_catalogo(catalogo, documento, opciones):
 def aplicar_a_escenas(escenas, documento, opciones=None):
     bloques = {b["id"]: b for b in documento.get("guion") or []}
     observador = personaje_pov(opciones or {})
+    ocurrencias = {}
     for e in escenas:
         if observador:
             # Conserva la clave de los planes ya guardados: ahora admite ambas categorías.
@@ -301,11 +347,29 @@ def aplicar_a_escenas(escenas, documento, opciones=None):
         b = bloques.get((e.get("origen") or {}).get("bloque")) or {}
         if "personaje_id" not in b:
             continue
+        direccion_catalogo = e.get("prompt") or ""
+        actores_catalogo = list(e.get("personajes") or [])
         e.update(metadatos(b))
-        e["intervencion"] = dict(metadatos(b), texto=e.get("narracion") or "", escena_id=e["id"], bloque_id=b["id"])
-        e["personajes"] = list(b.get("personajes_visibles") or [])
-        if b.get("descripcion_visual"):
-            e["prompt"] = b["descripcion_visual"]
+        # El bloque puede contener varias frases: nunca repartir su secuencia
+        # visual completa en cada una, reiniciándola a distinta velocidad.
+        visuales = b.get("escenas_visuales") or []
+        if visuales:
+            clave = medios.normalizar_texto(e.get("narracion") or "")
+            candidatos = [v for v in visuales if medios.normalizar_texto(v["texto"]) == clave]
+            repeticion = ocurrencias.get((b["id"], clave), 0)
+            ocurrencias[b["id"], clave] = repeticion + 1
+            if repeticion < len(candidatos):
+                e.update(descripcion_visual=candidatos[repeticion]["descripcion_visual"],
+                         personajes_visibles=list(candidatos[repeticion]["personajes_visibles"]))
+            else:
+                # Una edición posterior de la voz puede dejar el ancla antigua.
+                # Conserva la dirección del catálogo, no otra frase del bloque.
+                e.update(descripcion_visual=direccion_catalogo, personajes_visibles=actores_catalogo)
+            e.pop("escenas_visuales", None)
+        e["intervencion"] = dict(metadatos(e), texto=e.get("narracion") or "", escena_id=e["id"], bloque_id=b["id"])
+        e["personajes"] = list(e.get("personajes_visibles") or [])
+        if e.get("descripcion_visual"):
+            e["prompt"] = e["descripcion_visual"]
 
 
 def exigir_visuales_ia(proyecto, plan, carpeta):

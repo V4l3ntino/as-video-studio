@@ -3166,3 +3166,14 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .stickman-reparto input { flex: 1; min-width: 60px; accent-color: var(--stickman-borde); }
 @media (max-width: 850px) { .stickman-seleccion { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .stickman-elegido { grid-template-columns: 1fr; } .stickman-selector button { font-size: 12px; } .stickman-cabecera { flex-wrap: wrap; } }
+/* Dirección visual por frase en la revisión del guion. */
+.descripcion-escena-guion { margin-block: 12px; }
+.descripcion-escena-guion textarea { width: 100%; min-height: 90px; resize: vertical; }
+.descripcion-escena-guion .meta { margin-bottom: 6px; }
+.descripcion-actualizada textarea {
+  border-color: var(--acento);
+}
+.descripcion-actualizada > .meta::after {
+  content: ' · Descripción actualizada';
+  color: var(--acento);
+}

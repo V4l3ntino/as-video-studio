@@ -23,12 +23,13 @@ function estado(c, t) {
   const pose = ['caminar', 'correr'].includes(c.movimiento) ? walkPose(fase, {run: c.movimiento === 'correr'})
     : breathe(posesAt(t, keys.filter(k => k.pose).map(k => [k.t, k.pose])), t);
   const exp = keys.filter(k => k.t <= t && k.expresion).at(-1)?.expresion || c.expresion;
-  return {x, y, s, rot, pose, exp};
+  const mirar = keys.filter(k => k.t <= t && k.mirar !== undefined).at(-1)?.mirar ?? c.mirar;
+  return {x, y, s, rot, pose, exp, mirar};
 }
 function figura(c, t) {
-  const v = c.diseno, {x, y, s, rot, pose, exp} = estado(c, t);
+  const v = c.diseno, {x, y, s, rot, pose, exp, mirar} = estado(c, t);
   const habla = c.habla.some(a => t >= a[0] && t < a[1]) ? .35 + .6 * Math.abs(Math.sin(t * 14)) : 0;
-  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s * v.altura * c.mirar, s * v.altura);
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s * v.altura * mirar, s * v.altura);
   g.globalAlpha *= valor(c.claves, t, 'opacidad', 1);
   // El Classic conserva ropa, accesorios y utilería del rig original.
   if (v.familia === 'classic' && v.cabeza === 1 && v.cuerpo === 1 && v.ancho === 1 && v.ojos === 'dot' && v.boca === 'smallSmile') {
@@ -128,9 +129,11 @@ function objeto(o, t) {
   if (o.ancla) {
     const c = D.escena.personajes.find(c => c.id === o.ancla.personaje);
     const a = estado(c, t), v = c.diseno;
-    const p = a.pose[{mano: 'hF', cabeza: 'head', pecho: 'sh'}[o.ancla.punto]];
+    const p = o.ancla.punto === 'pecho'
+      ? [(a.pose.sh[0]+a.pose.hip[0])/2, (a.pose.sh[1]+a.pose.hip[1])/2]
+      : a.pose[{mano: 'hF', cabeza: 'head'}[o.ancla.punto]];
     const custom = !(v.familia === 'classic' && v.cabeza === 1 && v.cuerpo === 1 && v.ancho === 1 && v.ojos === 'dot' && v.boca === 'smallSmile');
-    const dx = p[0] * a.s * v.altura * c.mirar * (custom ? v.ancho : 1);
+    const dx = p[0] * a.s * v.altura * a.mirar * (custom ? v.ancho : 1);
     const dy = p[1] * a.s * v.altura * (custom ? v.cuerpo : 1);
     x += a.x + dx * Math.cos(a.rot) - dy * Math.sin(a.rot);
     y += a.y + dx * Math.sin(a.rot) + dy * Math.cos(a.rot);
@@ -153,6 +156,22 @@ function objeto(o, t) {
     size *= Math.min(1, w / Math.max(1, g.measureText(o.texto).width));
     g.font = `800 ${size}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(o.texto, 0, 0);
+  }
+  else if (o.tipo === 'pizarra') {
+    const marco = Math.min(14, w*.04, h*.07);
+    g.fillStyle = '#79533b'; caja(-w/2, -h/2, w, h, 12);
+    g.fillStyle = o.color; caja(-w/2+marco, -h/2+marco, w-2*marco, h-2*marco, 3);
+    g.strokeStyle = '#ffffff26'; g.lineWidth = 3;
+    trazo(-w*.44, -h*.39, -w*.15, -h*.39);
+    g.fillStyle = '#ba916b'; caja(-w*.52, h/2-10, w*1.04, 20, 4);
+    g.fillStyle = '#fff8ee'; caja(w*.26, h/2-19, Math.min(65,w*.12), 9, 3);
+    g.fillStyle = '#263d36'; caja(-w*.3, h/2-29, Math.min(90,w*.16), 19, 4);
+  }
+  else if (o.tipo === 'tarjeta') {
+    g.fillStyle = '#0003'; caja(-w/2+7, -h/2+9, w, h, 10);
+    g.fillStyle = o.color; caja(-w/2, -h/2, w, h, 10);
+    g.strokeStyle = '#263d36'; g.lineWidth = 3;
+    g.stroke();
   }
   else if (o.tipo === 'movil') {
     g.fillStyle = '#162532'; caja(-w/2, -h/2, w, h, w*.15);

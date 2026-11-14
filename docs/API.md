@@ -140,6 +140,9 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | | Ruta | Qué hace |
 |---|---|---|
 | `POST` | `/api/proyectos/{pid}/guion/bloques/reescribir` | Reescribe unos bloques del guion con una frase. Sin tocar el audio. |
+| `GET` | `/api/proyectos/{pid}/guion/descripciones` | Descripciones visuales editables de cada frase del guion actual. |
+| `PUT` | `/api/proyectos/{pid}/guion/descripciones` | Guarda descripciones por escena sin modificar narración ni audio. |
+| `POST` | `/api/proyectos/{pid}/guion/descripciones/regenerar` | Regenera con Claude solo la dirección visual de las escenas del guion. |
 
 ## Voz
 
@@ -331,4 +334,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**217 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**220 endpoints.** Escrito por `generar_api.py` desde `app.py`.

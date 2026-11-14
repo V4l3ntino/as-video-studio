@@ -18,9 +18,9 @@ from pasos import medios, utileria_stickman
 
 RAIZ = Path(__file__).resolve().parents[1]
 KIT = RAIZ / 'GrowKaz_Stickman/skills/make-2d-video/kit'
-VERSION = 'stickman-3'
+VERSION = 'stickman-4'
 OBJETOS = ('circulo', 'rectangulo', 'redondeado', 'linea', 'texto',
-           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'vector')
+           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector')
 FAMILIAS = {'classic': 'Classic Stick', 'bean': 'Bean Body', 'rubber': 'Rubber Hose', 'geometric': 'Geometric'}
 ACABADOS = ('emerald', 'ember', 'arctic', 'sakura', 'retro')
 POSES = ('stand', 'relaxed', 'talk', 'explain', 'point', 'pointUp', 'wave', 'cheer', 'handsOnHead',
@@ -199,6 +199,10 @@ def claves(datos, duracion):
             f['pose'] = elegir(k['pose'], POSES)
         if 'expresion' in k:
             f['expresion'] = elegir(k['expresion'], EXPRESIONES)
+        if 'mirar' in k:
+            f['mirar'] = numero(k['mirar'], -1, 1)
+            if f['mirar'] not in (-1, 1):
+                raise ValueError('mirar debe ser -1 o 1')
         salida.append(f)
     return sorted(salida, key=lambda k: k['t'])
 
@@ -397,7 +401,7 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
     if duracion >= 2:
         cambios = any(c['movimiento'] in ('caminar', 'correr') for c in resultado['personajes'])
         for c in resultado['personajes']:
-            anterior = dict(x=c['x'], y=c['y'], escala=c['escala'], expresion=c['expresion'], pose='stand', rot=0, opacidad=1)
+            anterior = dict(x=c['x'], y=c['y'], escala=c['escala'], expresion=c['expresion'], pose='stand', rot=0, opacidad=1, mirar=c['mirar'])
             for k in c['claves']:
                 cambios |= k['t'] > 0 and any(v != anterior.get(campo) for campo, v in k.items() if campo != 't')
                 anterior.update(k)
@@ -422,12 +426,20 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         datos = consultar('Dirige una escena narrativa Stickman cuya acción se entienda SIN escuchar la voz. Devuelve SOLO un objeto JSON de esta forma: '
             + json.dumps(ejemplo) + '\nNo repitas una escena genérica: representa literalmente la acción y el contexto del guion. '
             'Prioriza la descripción visual (prompt) y la narración sobre la decoración. Divide mentalmente el tiempo en presentación, acción y reacción final: '
+            'La narración de ESTA frase determina qué acción corresponde ahora. Si el prompt heredado describe un bloque entero, '
+            'representa solo la parte pertinente a esta frase, no reinicies toda la secuencia. contexto_frase informa del corte y sus vecinos. '
             'cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
+            'No sustituyas conductas por iconos pequeños: muestra distancia con desplazamiento y defensa con postura. '
+            'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta la puesta en escena a acciones corporales '
+            'que expresen esa misma idea, sin inventar objetos ajenos a ella. No añadas relojes ni móviles salvo que intervengan en el relato. '
+            'Comparaciones: acción de uno seguida de la del otro, sin duplicar actores ni mezclar dos escenas en un único cuadro. '
+            'Acercarse, consolar o rechazar requiere posiciones, orientación y poses coordinadas, no un gesto genérico de explicación. '
             'Mantén identidades y escenarios. Sin cambiar palabras, voz o tiempos. Posiciones x,y normalizadas; escala .1–6. '
             'Lienzo lógico ancho 1920, alto=1920*resolucion[1]/resolucion[0]. En personajes x,y son los PIES, no el centro; '
             'su altura es aproximadamente 240*escala*diseno.altura. Deben ocupar 28–78% de la altura del plano sin cortar la cabeza; '
             'pies y=.80–.90, x=.15–.85; en horizontal escala suele ser 2.4–3. No los hagas diminutos. '
-            'Cada personaje usa un ID del reparto, sin redefinir apariencia. Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?}. '
+            'Cada personaje usa un ID del reparto, sin redefinir apariencia. Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1}. '
+            'mirar cambia de orientación en ese instante; usa -1 hacia la izquierda y 1 hacia la derecha, también para dar la espalda a una petición. '
             'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
             'movimiento: gesto,caminar,correr. decorado: interior,ciudad,naturaleza,vacio. atmosfera: polvo,lluvia,nieve,ninguna. '
             'ambiente: day,golden,dusk,night,storm,interiorWarm,interiorCool,void. '
@@ -438,6 +450,10 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Utilería nativa: movil (pantalla y carcasa, w~54 h~90), mensaje (burbuja con cola y líneas legibles, w~200 h~95), '
             'calendario (cabecera, cuadrícula y fechas marcadas, w~260 h~230; progreso 0–1 revela las marcas), '
             'nube (silueta con lóbulos, w~150 h~90), corazon (w~70 h~65). Usa estos tipos en lugar de rectángulos que pretendan representarlos. '
+            'pizarra (marco de madera, superficie de tiza y bandeja, w~1200 h~550), tarjeta (papel con borde, w~360 h~240). '
+            'El contenido de una pizarra/tarjeta se compone con objetos adicionales DENTRO de sus límites; no basta con el soporte vacío. '
+            'Para utilería no nativa, usa vector con contorno y detalles distintivos; una forma genérica no es un objeto reconocible. '
+            'No dibujes iconos con caracteres Unicode o emoji: su apariencia depende de fuentes y pueden desaparecer. Usa utilería vectorial. '
             'Para sujetar utilería o seguir a un personaje añade ancla:{personaje:ID,punto:mano|cabeza|pecho}; '
             'con ancla, x,y son DESPLAZAMIENTOS normalizados desde ese punto (0,0 = justo en él), y w,h siguen siendo unidades de lienzo. '
             'Ejemplo móvil: ancla mano,x:0,y:-.02; nube: ancla cabeza,x:0,y:-.12. '
@@ -508,8 +524,13 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
         n_claude, _ = reparto_escenas(len(escenas), carga)
         for i, e in enumerate(escenas):
             uid = 'escena:' + e['id']
+            hermanas = [s for s in escenas if (s.get('origen') or {}).get('bloque') == (e.get('origen') or {}).get('bloque')]
+            posicion = next(j for j, s in enumerate(hermanas) if s['id'] == e['id'])
+            contexto_frase = dict(numero=posicion + 1, total=len(hermanas),
+                anterior=hermanas[posicion - 1].get('narracion', '') if posicion else '',
+                siguiente=hermanas[posicion + 1].get('narracion', '') if posicion + 1 < len(hermanas) else '')
             firma = huella([VERSION, base, reparto, e.get('narracion'), e.get('prompt'), e.get('personajes'),
-                e['t_out'] - e['t_in'], plan['resolucion'], (params.get('unidades') or {}).get(uid)])
+                e['t_out'] - e['t_in'], plan['resolucion'], (params.get('unidades') or {}).get(uid), contexto_frase])
             ruta = Path(trabajo) / 'escenas' / (e['id'] + '.json')
             anterior = medios.leer_json(str(ruta), {}) or {}
             solicitada = unidades is None or uid in unidades
@@ -526,7 +547,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
             contenido = guardada.get('contenido') if guardada.get('firma') == firma and not rehacer else None
             if not contenido:
                 contexto = dict(e, indicaciones_usuario=(params.get('unidades') or {}).get(uid) or {},
-                    resolucion=plan['resolucion'])
+                    resolucion=plan['resolucion'], contexto_frase=contexto_frase)
                 contenido = generar_escena(contexto, base, reparto, proyecto, avisar, 'Claude' if i < n_claude else 'ChatGPT')
                 fuente.parent.mkdir(parents=True, exist_ok=True)
                 medios.escribir_json(str(fuente), dict(firma=firma, contenido=contenido))

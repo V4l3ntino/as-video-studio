@@ -1342,6 +1342,8 @@ def planificar(proyecto, params, inventario=None, replantear=False,
                     escena["set"] = None
         else:
             escena.pop("redactado", None)
+    from pasos import descripciones_escenas
+    descripciones_escenas.aplicar(escenas, p)
     # LOS QUE SE QUEDAN SIN DIRIGIR EN UN VIDEO DIRIGIDO, dichos. Se arman con
     # la accion del tramo, que es la misma para sus vecinos y va en el idioma
     # del guion: en un video largo (28-09-2026) diez planos salieron asi sin

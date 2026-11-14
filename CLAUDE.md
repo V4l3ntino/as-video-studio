@@ -2,6 +2,32 @@
 
 ## Stickman 2D
 
+Desde `stickman-4`, el guion incluye `escenas_visuales` por frase literal, con
+descripción y reparto propios. Conserva ese campo al normalizar y guardar los
+bloques. Copiar `descripcion_visual` del bloque a cada frase reiniciaba la misma
+secuencia a velocidades distintas. Los guiones históricos sin lista se leen como
+antes; las entregas nuevas la validan antes de TTS. `personajes.aplicar_a_escenas`
+elige por texto, para no anclar una descripción antigua a una voz editada.
+
+Las descripciones editadas o regeneradas desde Guion viven en
+`assets.params.unidades["escena:<sid>"].descripcion_escena`, con bloque, índice y
+texto de ancla. `pasos/descripciones_escenas.py` las aplica al plan por frase;
+no las guardes en params de guion ni reescribas su versión: eso invalidaría la
+voz sin haber cambiado ninguna palabra. La regeneración es un trabajo aparte,
+con validación de cobertura y comprobación de cambios antes de publicar cada tanda.
+Regresión offline y navegador: `python pasos/prueba_descripciones_escenas.py --real`.
+
+La regeneración visual puede incluir cientos de frases (209 en un caso real).
+Genera y guarda tandas de hasta seis escenas con `cli_claude.escribiendo`;
+esperar a la lista completa ocultaba todo el trabajo y perdía las terminadas
+al cancelar. El callback de publicación compara contra la última foto guardada,
+no contra la foto inicial. Valida también duplicados entre tandas de un bloque.
+Envía solo bloque, índice y texto por escena; las descripciones anteriores de
+guiones históricos repiten el bloque entero y engordan el encargo sin aportar.
+La barra cuenta escenas publicadas; el latido de espera no aumenta el porcentaje.
+El seguimiento web relee las descripciones al avanzar y también al terminar con
+error o cancelación, actualizando los campos sin reconstruir el guion ni su audio.
+
 `assets.params.estilo.stickman` selecciona el motor de `pasos/stickman.py` sin
 cambiar los ocho ids del grafo. Sus variantes y personajes son datos animables,
 no imágenes de IA ni código arbitrario del modelo. El adaptador Canvas vive en

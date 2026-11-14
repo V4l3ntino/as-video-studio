@@ -104,6 +104,23 @@ efectos mediante `requirements.txt`. No necesita instalar Whisper ni Three.js
 para este modo 2D. Verificación sin consumir cuota:
 `python pasos/prueba_stickman.py --real`.
 
+## Editar las descripciones visuales del guion
+
+En **Guion**, despliega **Descripción visual de la escena** debajo de cada
+bloque. Cada frase tiene su propio campo editable, acompañado del texto narrado
+al que corresponde. Los cambios se guardan automáticamente y se utilizan al
+generar las imágenes o animaciones de esa escena.
+
+Junto a **Regenerar el guion y el audio**, **Regenerar las descripciones de las
+escenas** pide a Claude una nueva dirección visual para todo el guion. Puedes
+usar el campo de indicaciones para orientar esa regeneración o dejarlo vacío.
+Conserva la narración, las voces y los tiempos del audio. Las imágenes o
+animaciones se actualizan después, al generar sus escenas.
+Las descripciones se guardan y aparecen en la web por tandas de hasta seis
+escenas: los bloques actualizados se despliegan y destacan sus cambios. La barra
+cuenta escenas guardadas, no tiempo estimado. Si paras o falla una tanda, las
+descripciones de las tandas anteriores se conservan, también al recargar.
+
 ## Sincronizar los sonidos de una escena
 
 En la fase **Imágenes**, **Reproducir** usa la toma completa de narración sin

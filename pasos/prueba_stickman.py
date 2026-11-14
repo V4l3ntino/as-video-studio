@@ -62,6 +62,15 @@ def avion_vectorial():
             animacion=dict(duracion=.8, claves=[dict(t=0, rot=0), dict(t=.8, rot=6.283185)]))])
 
 
+def escena_pizarra(base):
+    return stickman.validar_puesta_en_escena(dict(decorado='vacio', ambiente='interiorCool',
+        personajes=[dict(id='lucia', x=.5, y=.90, escala=2.6, claves=[dict(t=0, pose='think'), dict(t=1, pose='point')])],
+        objetos=[dict(tipo='pizarra', x=.5, y=.28, w=1450, h=480, color='#285247', capa='fondo'),
+            *[dict(tipo='tarjeta', x=x, y=.26, w=500, h=220, color='#fff8ee', capa='fondo') for x in (.28, .72)],
+            *[dict(tipo='texto', texto=t, x=x, y=.26, w=450, h=70, fuente=42, color='#162532', capa='fondo')
+              for x, t in ((.28, 'APEGO EVITATIVO'), (.72, 'NARCISISMO'))]]), 3, {'lucia': base}, [1920, 1080])
+
+
 class Stickman(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=TEMP.name)
@@ -110,6 +119,38 @@ class Stickman(unittest.TestCase):
         self.assertEqual(contenido['objetos'][-1]['inicio'], 4.5)
         with self.assertRaises(ValueError):
             stickman.escena(dict(objetos=[dict(tipo='movil', ancla=dict(personaje='ausente'))]), 6, {'lucia': self.base})
+
+    def test_direccion_por_frase_viaja_del_guion_al_plan_sin_reiniciar_el_bloque(self):
+        from pasos import p3_guion
+        opciones = dict(sistema_personajes=dict(stickman=True, generar_personajes=True))
+        visuales = [dict(texto='El niño pide consuelo.', descripcion_visual='El niño levanta los brazos.', personajes_visibles=['auto_nino']),
+            dict(texto='El cuidador responde.', descripcion_visual='El cuidador se arrodilla junto al niño y extiende los brazos.',
+                 personajes_visibles=['auto_nino', 'auto_cuidador'])]
+        bloque = dict(id='B001', texto='El niño pide consuelo. El cuidador responde.', personaje_id='',
+            personajes_visibles=['auto_nino', 'auto_cuidador'], descripcion_visual='Secuencia completa de consuelo.', escenas_visuales=visuales)
+        datos = dict(bloques=[bloque], personajes_automaticos=[dict(id='auto_nino', nombre='Niño', descripcion='Niño pequeño'),
+            dict(id='auto_cuidador', nombre='Cuidador', descripcion='Adulto que cuida al niño')])
+        bloques = p3_guion._normalizar_bloques(datos)
+        personajes.preparar_intervenciones(datos, bloques, opciones)
+        escenas = [dict(id=f'S00{i+1}', narracion=v['texto'], origen=dict(bloque='B001')) for i, v in enumerate(visuales)]
+        personajes.aplicar_a_escenas(escenas, dict(guion=bloques), opciones)
+        self.assertEqual([e['prompt'] for e in escenas], [v['descripcion_visual'] for v in visuales])
+        self.assertEqual(escenas[0]['personajes'], ['auto_nino'])
+        self.assertEqual(escenas[1]['intervencion']['descripcion_visual'], visuales[1]['descripcion_visual'])
+        # Regrabar/editar la frase no debe aplicar una dirección de texto anterior.
+        editada = dict(id='S003', narracion='El cuidador se aleja.', origen=dict(bloque='B001'), prompt='El adulto retrocede.')
+        personajes.aplicar_a_escenas([editada], dict(guion=bloques), opciones)
+        self.assertEqual(editada['prompt'], 'El adulto retrocede.')
+        for cambio in (dict(escenas_visuales=visuales[:1]),
+                dict(escenas_visuales=[visuales[0], dict(visuales[1], texto='Otra frase.')]),
+                dict(escenas_visuales=[visuales[0], dict(visuales[1], descripcion_visual=visuales[0]['descripcion_visual'])])):
+            with self.subTest(cambio=cambio), self.assertRaises(ValueError):
+                personajes.preparar_intervenciones(datos, [dict(bloque, **cambio)], opciones)
+
+    def test_pizarra_y_tarjetas_tienen_tipo_propio_sin_romper_primitivas_antiguas(self):
+        contenido = stickman.escena(dict(objetos=[dict(tipo='pizarra', w=1200, h=550),
+            dict(tipo='tarjeta', w=360, h=240), dict(tipo='rectangulo')]), 3, {})
+        self.assertEqual([o['tipo'] for o in contenido['objetos']], ['pizarra', 'tarjeta', 'rectangulo'])
 
     def test_puesta_en_escena_corrige_personajes_ilegibles_y_no_acepta_estaticos(self):
         validar = lambda d: stickman.validar_puesta_en_escena(d, 6, {'ana': self.base}, [1920, 1080])
@@ -381,6 +422,47 @@ class Stickman(unittest.TestCase):
             self.assertIn(ident, utileria_stickman.catalogo())
         copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia con avión')
         self.assertTrue((Path(copia.ruta_paso('assets')) / 'utileria_stickman' / (ident + '.json')).is_file())
+
+    @unittest.skipUnless(REAL, 'usa --real para Chromium y ffmpeg')
+    def test_giro_del_actor_y_ancla_pecho_por_debajo_del_cuello(self):
+        from pasos import p8_render
+        contenido = stickman.escena(dict(personajes=[dict(id='ana', y=.9, escala=2.6,
+            claves=[dict(t=0, pose='stand'), dict(t=1, mirar=-1)])],
+            objetos=[dict(tipo='circulo', color='#ed1234', w=40, h=40, ancla=dict(personaje='ana', punto='pecho'))]),
+            2, {'ana': self.base})
+        original = p8_render.Navegador.capturar
+        def comprobar(navegador, destino=None):
+            resultado = navegador.evaluar('''(() => {
+                const ctx = document.querySelector('canvas').getContext('2d');
+                const scale = ctx.scale, ellipse = ctx.ellipse;
+                let escalas = [], pecho = [];
+                ctx.scale = function(x,y) { escalas.push([x,y]); return scale.call(this,x,y); };
+                ctx.ellipse = function(...args) {
+                    if (this.fillStyle === '#ed1234') pecho.push(this.getTransform().f);
+                    return ellipse.apply(this,args);
+                };
+                try {
+                    window.pintar(0); const inicio=escalas; escalas=[];
+                    window.pintar(1.5); return {inicio, fin:escalas, pecho};
+                } finally {ctx.scale=scale; ctx.ellipse=ellipse;}
+            })()''')
+            self.assertIn([2.6, 2.6], resultado['inicio'])
+            self.assertIn([-2.6, 2.6], resultado['fin'])
+            self.assertTrue(all(280 < y < 325 for y in resultado['pecho']))
+            self.assertEqual(len(resultado['pecho']), 2)
+            return original(navegador, destino)
+        with patch.object(p8_render.Navegador, 'capturar', comprobar):
+            stickman.renderizar(self.base, contenido, 2, str(Path(self.temp.name) / 'pecho.png'), salida=(960, 540))
+
+    @unittest.skipUnless(REAL, 'usa --real para Chromium y ffmpeg')
+    def test_render_pizarra_con_marco_bandeja_y_tarjetas_legibles(self):
+        from PIL import Image
+        png = Path(self.temp.name) / 'pizarra.png'
+        stickman.renderizar(self.base, escena_pizarra(self.base), 3, str(png), salida=(960, 540))
+        with Image.open(png) as img:
+            colores = {c for _, c in img.convert('RGB').getcolors(img.width * img.height)}
+        for color in ((121, 83, 59), (186, 145, 107), (40, 82, 71), (255, 248, 238)):
+            self.assertIn(color, colores)
 
     @unittest.skipUnless(REAL, 'usa --real para Chromium y ffmpeg')
     def test_render_vectorial_con_curvas_paleta_y_partes_animadas(self):

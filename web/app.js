@@ -6416,6 +6416,8 @@ function urlDeVideoLight(paso, nombre) {
    guion o no, hay audio o no, hay MP4 o no. */
 async function cargarVideoLight(pid) {
   const v = APP.light.video;
+  try { await persistirDescripcionesLight(v); }
+  catch (err) { return; }
   // lo del vídeo anterior se aparca, y la cola que se ve es la de ESTE
   aparcarTrabajoLight(pid);
   COLA_IMG = colaDe(pid);
@@ -6552,6 +6554,11 @@ async function reengancharTandaLight(pid) {
       seguirSustitucionEscena(pid, sustitucion.id, sustitucion.unidad);
       return;
     }
+    const descripciones = vivos.find(t => t.nombre === 'descripciones_escenas');
+    if (descripciones) {
+      seguirDescripcionesLight(pid, descripciones.id);
+      return;
+    }
     /* Y SI NO HAY TANDA, EL MONTAJE LANZADO APARTE: el MP4 pedido como paso
        suelto, o «Aplicar el repaso». Sus trabajos no se llaman «generar:…» y
        esta pantalla los dejaba sin barra —«todavía no hay vídeo» con el montaje
@@ -6640,11 +6647,13 @@ async function leerGuionLight() {
   const bloques = (documento.guion || documento.bloques || [])
     .map(b => ({ ...b, id: b.id, texto: b.texto || '' }));
   if (!bloques.length) return null;
+  const visuales = await pedir(`${API.proyecto(APP.light.video.pid)}/guion/descripciones`);
   return {
     titulo: documento.titulo || '',
     palabras: documento.palabras || 0,
     avisos: documento.avisos || [],
     bloques,
+    escenasVisuales: visuales.escenas || [],
   };
 }
 
@@ -8379,6 +8388,7 @@ async function lanzarTandaLight(tanda, modo) {
   }
   limpiarError(CLAVE_VIDEO_LIGHT);
   try {
+    await persistirDescripcionesLight(v);
     if (v.pedido) await volcarEncargoLight(v.pedido);
     const datos = await pedir(`${API.proyecto(v.pid)}/generar`, {
       method: 'POST',
@@ -8918,9 +8928,14 @@ function promptGeneralLight() {
         clase: 'mini', disabled: !!trabajoVideoLight(),
         onclick: () => reescribirGuionLight(),
       }, v.audio ? 'Regenerar el guion y el audio' : 'Regenerar el guion'),
+      h('button', {
+        clase: 'mini', disabled: !!trabajoVideoLight() || !!v.solicitandoDescripciones,
+        onclick: regenerarDescripcionesLight,
+      }, 'Regenerar las descripciones de las escenas'),
       h('span', { clase: 'meta' }, v.audio
         ? 'vuelve a redactar y a grabar la toma entera'
-        : 'vuelve a redactar con esa instrucción delante')));
+        : 'vuelve a redactar con esa instrucción delante'),
+      h('span', { clase: 'meta' }, 'Las descripciones usan también esta indicación y conservan el texto y el audio.')));
 }
 
 async function reescribirGuionLight() {
@@ -9020,12 +9035,151 @@ function bloquesLight() {
       ficha.appendChild(area);
     }
 
-    if (bloque.descripcion_visual) ficha.appendChild(h('details', { clase: 'pista' },
-      h('summary', {}, 'Descripción visual de la escena'), h('p', {}, bloque.descripcion_visual)));
+    const visuales = descripcionesDeBloqueLight(bloque);
+    if (visuales) ficha.appendChild(visuales);
     if (v.abierto === bloque.id) ficha.appendChild(mandosBloqueLight(bloque, seccionDe));
     lista.appendChild(ficha);
   }
   return lista;
+}
+
+function descripcionesDeBloqueLight(bloque) {
+  const v = APP.light.video;
+  const escenas = (v.guion.escenasVisuales || []).filter(e => e.bloque === bloque.id);
+  if (!escenas.length) return null;
+  const detalles = h('details', { clase: 'pista descripciones-guion',
+    open: !!(v.descripcionesAbiertas || {})[bloque.id],
+    ontoggle: ev => {
+      v.descripcionesAbiertas = v.descripcionesAbiertas || {};
+      v.descripcionesAbiertas[bloque.id] = ev.target.open;
+    },
+  }, h('summary', {}, 'Descripción visual de la escena'));
+  escenas.forEach(escena => {
+    const clave = `${escena.bloque}:${escena.indice}`;
+    const pendiente = (v.descripcionesPendientes || {})[clave];
+    const area = h('textarea', {
+      rows: 3, maxlength: 8000, disabled: !!trabajoVideoLight() || !!v.solicitandoDescripciones,
+      datos: { descripcion: clave },
+      'aria-label': `Descripción visual de ${bloque.id}, escena ${escena.indice + 1}`,
+      oninput: ev => {
+        v.descripcionesPendientes = v.descripcionesPendientes || {};
+        v.pidDescripciones = v.pid;
+        v.descripcionesPendientes[clave] = { ...escena, descripcion_visual: ev.target.value };
+        clearTimeout(v.temporizadorDescripciones);
+        v.temporizadorDescripciones = setTimeout(() => persistirDescripcionesLight(v).catch(() => {}), 700);
+      },
+    });
+    area.value = pendiente ? pendiente.descripcion_visual : escena.descripcion_visual;
+    detalles.appendChild(h('div', { clase: 'descripcion-escena-guion' },
+      h('p', { clase: 'meta' }, `Escena ${escena.indice + 1} · ${escena.texto}`), area));
+  });
+  detalles.appendChild(h('p', { clase: 'meta' }, 'Se guarda automáticamente. Se usará al generar las imágenes o animaciones de la escena.'));
+  return detalles;
+}
+
+async function persistirDescripcionesLight(v) {
+  clearTimeout(v.temporizadorDescripciones);
+  if (v.guardandoDescripciones) {
+    await v.guardandoDescripciones;
+    return persistirDescripcionesLight(v);
+  }
+  const cambios = Object.values(v.descripcionesPendientes || {});
+  if (!cambios.length) return;
+  const pid = v.pidDescripciones || v.pid;
+  const guardar = async () => {
+    try {
+      const resultado = await pedir(`${API.proyecto(pid)}/guion/descripciones`, {
+        method: 'PUT', cuerpo: { escenas: cambios },
+      });
+      cambios.forEach(e => {
+        const clave = `${e.bloque}:${e.indice}`;
+        if (v.descripcionesPendientes[clave]?.descripcion_visual === e.descripcion_visual) {
+          delete v.descripcionesPendientes[clave];
+        }
+      });
+      if (v.guion) v.guion.escenasVisuales = resultado.escenas;
+      v.fichas.assets = await pedir(API.paso(pid, 'assets'));
+    } catch (err) {
+      toast(`No se ha podido guardar la descripción: ${err.message}`, true);
+      throw err;
+    }
+  };
+  v.guardandoDescripciones = guardar();
+  try { await v.guardandoDescripciones; }
+  finally { v.guardandoDescripciones = null; }
+}
+
+async function refrescarDescripcionesLight(pid) {
+  const v = APP.light.video;
+  if (v.pid !== pid || !v.guion) return;
+  const anterior = v.refrescandoDescripciones;
+  const refrescar = async () => {
+    const resultado = await pedir(`${API.proyecto(pid)}/guion/descripciones`);
+    if (APP.light.video !== v || v.pid !== pid || !v.guion) return;
+    const antes = new Map(v.guion.escenasVisuales.map(e => [`${e.bloque}:${e.indice}`, e.descripcion_visual]));
+    v.guion.escenasVisuales = resultado.escenas;
+    const cambiadas = new Map(resultado.escenas.filter(e =>
+      antes.get(`${e.bloque}:${e.indice}`) !== e.descripcion_visual
+    ).map(e => [`${e.bloque}:${e.indice}`, e]));
+    // Actualiza solo los campos: conserva scroll, audio y nodos del guion.
+    document.querySelectorAll('textarea[data-descripcion]').forEach(area => {
+      const escena = cambiadas.get(area.dataset.descripcion);
+      if (!escena || v.descripcionesPendientes?.[area.dataset.descripcion]) return;
+      area.value = escena.descripcion_visual;
+      area.closest('.descripcion-escena-guion')?.classList.add('descripcion-actualizada');
+      const detalles = area.closest('details');
+      if (detalles) detalles.open = true;
+      v.descripcionesAbiertas = v.descripcionesAbiertas || {};
+      v.descripcionesAbiertas[escena.bloque] = true;
+    });
+  };
+  const peticion = (async () => {
+    if (anterior) await anterior.catch(() => {});
+    await refrescar();
+  })();
+  v.refrescandoDescripciones = peticion;
+  try { await peticion; }
+  finally { if (v.refrescandoDescripciones === peticion) v.refrescandoDescripciones = null; }
+}
+
+function seguirDescripcionesLight(pid, tid) {
+  let ultimoProgreso = -1;
+  seguirTrabajo(CLAVE_VIDEO_LIGHT, tid, async trabajo => {
+    if (APP.light.video.pid === pid) {
+      await refrescarDescripcionesLight(pid);
+      await refrescarFichasLight();
+      if (trabajo.estado === 'listo') toast('Descripciones de las escenas regeneradas.');
+      else toast('Se conservan las descripciones ya guardadas.');
+    }
+    pintarLight();
+  }, trabajo => {
+    if (trabajo.progreso === ultimoProgreso) return;
+    ultimoProgreso = trabajo.progreso;
+    refrescarDescripcionesLight(pid).catch(err => console.error(err));
+  });
+}
+
+async function regenerarDescripcionesLight() {
+  const v = APP.light.video;
+  if (v.solicitandoDescripciones || trabajoVideoLight()) return;
+  v.solicitandoDescripciones = true;
+  limpiarError(CLAVE_VIDEO_LIGHT);
+  try {
+    // La IA recibe lo último escrito, incluso si aún no venció el autoguardado.
+    if (_guardadoBloqueLight) {
+      clearTimeout(_guardadoBloqueLight);
+      _guardadoBloqueLight = null;
+      await pedir(API.params(v.pid, 'guion'), {
+        method: 'PUT', cuerpo: { params: { bloques: v.fichas.guion.params.bloques } },
+      });
+    }
+    await persistirDescripcionesLight(v);
+    const respuesta = await pedir(`${API.proyecto(v.pid)}/guion/descripciones/regenerar`, {
+      method: 'POST', cuerpo: { peticion: String(v.promptGeneral || '').trim() },
+    });
+    seguirDescripcionesLight(v.pid, respuesta.trabajo_id);
+  } catch (err) { mostrarError(CLAVE_VIDEO_LIGHT, err); }
+  finally { v.solicitandoDescripciones = false; pintarLight(); }
 }
 
 /* Lo que se LEE de un bloque: su texto sin las anotaciones del TTS.

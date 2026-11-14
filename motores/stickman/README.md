@@ -27,7 +27,9 @@ pide presentación, acción y reacción, priorizando la descripción visual y
 evitando títulos sustitutivos de la acción y decoración sin función narrativa.
 
 Además de las primitivas, hay tipos reconocibles `movil`, `mensaje`,
-`calendario`, `nube` y `corazon`. Los objetos usan `w,h` como dimensiones, también
+`calendario`, `nube`, `corazon`, `pizarra` (marco, bandeja y tiza) y `tarjeta`
+(papel con borde). Su contenido se compone dentro de su caja, con otros objetos.
+Los objetos usan `w,h` como dimensiones, también
 el círculo (elipse); `texto` ajusta su letra a esa caja con `fuente` independiente
 (16–96). `linea` usa `w,h` como vector desde su origen, admite cero y valores
 negativos, y tiene `grosor` independiente. Las claves admiten `opacidad` y
@@ -41,9 +43,23 @@ Una primera clave tardía interpola desde el valor base, sin anticipar el destin
 La cámara queda fija salvo claves explícitas; sus desplazamientos también son
 normalizados. La atmósfera predeterminada no añade partículas.
 
-La versión `stickman-3` evita reutilizar planes antiguos al solicitar una nueva
+La versión `stickman-4` evita reutilizar planes antiguos al solicitar una nueva
 generación. Los clips ya publicados siguen siendo reproducibles; para aplicar
 la corrección a ellos hay que regenerar las animaciones.
+
+El guion Stickman entrega `escenas_visuales` por bloque, una entrada por frase
+literal (sin SSML), con `texto`, `descripcion_visual` y `personajes_visibles`.
+Se comprueban cobertura, orden, reparto y descripciones repetidas antes de TTS.
+El montaje selecciona la dirección por la frase narrada, no copia la secuencia
+completa del bloque en cada corte. Una frase editada sin actualizar su dirección
+utiliza la del catálogo, sin asociarle otra entrada antigua. Los guiones anteriores
+sin esta lista conservan su lectura; al regenerar animaciones, el director recibe
+la frase anterior y siguiente y debe adaptar la descripción global al corte actual.
+Las descripciones nuevas priorizan acciones corporales sencillas y utilería
+reconocible frente a metáforas anidadas y cadenas de iconos. El ancla `pecho`
+está entre hombros y cadera; no sobre el cuello.
+Las claves de actor admiten `mirar: -1|1`: el giro se aplica en ese instante,
+sin interpolar un reflejo a través de cero, y las anclas siguen su orientación.
 
 ## Catálogo extensible de utilería
 
