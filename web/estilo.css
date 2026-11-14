@@ -3160,6 +3160,9 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .stickman-cabecera b, .stickman-cabecera .meta { display: block; }
 .stickman-cabecera .stickman-insignia { margin: 0 0 0 12px; }
 .stickman-reparto { display: flex; gap: 16px; align-items: center; }
+.stickman-reparto-control { display: grid; gap: 12px; }
+.stickman-reparto-control p { margin: 0; }
+.stickman-reparto-porcentaje { text-align: center; color: var(--texto); }
 .stickman-reparto input { flex: 1; min-width: 60px; accent-color: var(--stickman-borde); }
 @media (max-width: 850px) { .stickman-seleccion { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .stickman-elegido { grid-template-columns: 1fr; } .stickman-selector button { font-size: 12px; } .stickman-cabecera { flex-wrap: wrap; } }

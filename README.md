@@ -60,7 +60,11 @@ al reparto antes de generar el guion: su identidad se incorpora al guion y se
 mantiene en sus apariciones animadas.
 
 **Repartir carga de trabajo** distribuye la generación de escenas entre Claude
-y ChatGPT/Codex. Los diseños de personajes y variantes los genera Claude. El
+y ChatGPT/Codex y sustituye a **Obtener recursos visuales** en los encargos
+Stickman. El slider indica el porcentaje de escenas para ChatGPT; Claude recibe
+el resto, incluidas las escenas sobrantes al repartir cantidades no enteras
+(7 escenas al 50 %: 3 para ChatGPT y 4 para Claude).
+Los diseños de personajes y variantes los genera Claude. El
 motor dibuja localmente, sin solicitar imágenes ni vídeos a proveedores de IA;
 las llamadas a los CLI utilizan sus sesiones y cuotas. La locución conserva
 su proveedor y coste habituales.

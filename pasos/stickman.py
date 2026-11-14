@@ -376,6 +376,13 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     return resultado
 
 
+def reparto_escenas(total, carga_claude=50):
+    """ChatGPT recibe escenas enteras; cualquier resto corresponde a Claude."""
+    numero(carga_claude, 0, 100)
+    n_chatgpt = total * (100 - carga_claude) // 100
+    return total - int(n_chatgpt), int(n_chatgpt)
+
+
 def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer=False, previo=None, **opciones):
     from pasos import p6_assets, personajes
     trabajo = medios.sembrar_trabajo(proyecto, 'assets')
@@ -411,7 +418,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
     if not solo_assets:
         escenas = plan['escenas']
         carga = (params.get('bibliotecas') or {}).get('carga_claude', 50)
-        n_claude = math.floor(len(escenas) * carga / 100 + .5)
+        n_claude, _ = reparto_escenas(len(escenas), carga)
         for i, e in enumerate(escenas):
             uid = 'escena:' + e['id']
             firma = huella([VERSION, base, reparto, e.get('narracion'), e.get('prompt'), e.get('personajes'),

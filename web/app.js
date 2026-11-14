@@ -6225,6 +6225,9 @@ function elegirEstiloLight(ficha) {
   localStorage.setItem('estudio.light.estilo', ficha.id);
   const encargo = encargoVideoLight();
   Object.assign(encargo, montajeDelEstiloLight(ficha), {
+    // El encargo se reutiliza al cambiar de tarjeta: la modalidad debe ser la
+    // de ESTA selección, también al volver a un estilo convencional.
+    stickman: ficha.datos?.estilo?.stickman || null,
     personajes: leerBorradorPersonajesLight(ficha.id) || { activo: false, items: [], incorporar_dialogos: false },
   });
   PERSONALIZACION_PERSONAJES.delete(encargo);
@@ -14106,14 +14109,20 @@ function cabeceraStickmanLight(configuracion) {
 function repartoStickmanLight(e, alCambiar) {
   const inicial = Number(e.bibliotecas?.carga_claude ?? 50);
   const etiqueta = h('span', { clase: 'meta' }, `Claude ${inicial}% · ChatGPT ${100 - inicial}%`);
+  const porcentaje = h('output', { clase: 'stickman-reparto-porcentaje', 'aria-live': 'polite' }, `${100 - inicial}%`);
   const slider = h('input', { type: 'range', min: 0, max: 100, step: 10, value: 100 - inicial,
-    'aria-label': 'Repartir animaciones entre Claude y ChatGPT', oninput: ev => {
+    'aria-label': 'Porcentaje de escenas para ChatGPT',
+    'aria-valuetext': `Claude ${inicial}%, ChatGPT ${100 - inicial}%`, oninput: ev => {
       e.bibliotecas = { ...(e.bibliotecas || {}), carga_claude: 100 - Number(ev.target.value) };
       etiqueta.textContent = `Claude ${e.bibliotecas.carga_claude}% · ChatGPT ${100 - e.bibliotecas.carga_claude}%`;
+      porcentaje.value = `${ev.target.value}%`;
+      ev.target.setAttribute('aria-valuetext', etiqueta.textContent);
       if (alCambiar) alCambiar();
     } });
-  return bloqueLight('Repartir carga de trabajo', 'Generación de las escenas animadas',
-    h('div', { clase: 'stickman-reparto' }, h('span', {}, 'Claude'), slider, h('span', {}, 'ChatGPT')), etiqueta);
+  return bloqueLight('Repartir carga de trabajo', 'Todas las escenas serán animaciones Stickman',
+    h('div', { clase: 'stickman-reparto-control' }, porcentaje,
+      h('div', { clase: 'stickman-reparto' }, h('span', {}, 'Claude'), slider, h('span', {}, 'ChatGPT')),
+      etiqueta, h('p', { clase: 'meta' }, 'El porcentaje indica cuántas escenas creará cada modelo. Las escenas sobrantes se asignan a Claude.')));
 }
 
 function panelEstiloStickmanLight(e, alCambiar) {

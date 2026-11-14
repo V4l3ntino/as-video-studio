@@ -55,6 +55,12 @@ class Stickman(unittest.TestCase):
         with self.assertRaises(ValueError):
             stickman.escena(dict(sfx=[dict(name='pop', at=4)]), 2, {'real': self.base})
 
+    def test_reparto_asigna_los_restos_a_claude_y_respeta_extremos(self):
+        for total, porcentaje_claude, esperado in ((7, 50, (4, 3)), (3, 10, (1, 2)),
+                (10, 30, (3, 7)), (7, 0, (0, 7)), (7, 100, (7, 0)), (1, 50, (1, 0)), (0, 50, (0, 0))):
+            with self.subTest(total=total, porcentaje_claude=porcentaje_claude):
+                self.assertEqual(stickman.reparto_escenas(total, porcentaje_claude), esperado)
+
     def test_corrige_contrato_sin_reintentar_cancelaciones_o_cuota(self):
         validar = lambda d: stickman.escena(d, 2, {'real': self.base})
         with patch.object(stickman, '_consultar', side_effect=[dict(personajes=[dict(id='inexistente')]),
