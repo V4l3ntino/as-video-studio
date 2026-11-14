@@ -245,7 +245,7 @@ export function soccerBall(g, x, y, r, rot = 0, light = '#f2efe8') {
   pent(0, 0, r * 0.32); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * Math.PI * 2 / 5 + Math.PI / 5; g.save(); g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.clip(); pent(Math.cos(a) * r * 0.85, Math.sin(a) * r * 0.85, r * 0.28); g.restore(); }
   g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.arc(r * 0.15, r * 0.15, r, 0, Math.PI * 2); g.arc(0, 0, r, 0, Math.PI * 2, true); g.fill(); g.restore();
 }
-function drawProp(g, prop, p, ink) {
+export function drawProp(g, prop, p, ink) {
   const t = typeof prop === 'string' ? { type: prop } : prop; const h = t.hand === 'B' ? p.hB : p.hF;
   switch (t.type) {
     case 'phone': rr(g, h[0] - 2, h[1] - 22, 14, 24, 3); g.fillStyle = ink; g.fill(); g.fillStyle = t.glow || '#9fd8ff'; g.fillRect(h[0], h[1] - 20, 10, 18); break;

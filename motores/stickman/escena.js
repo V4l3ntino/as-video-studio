@@ -1,33 +1,49 @@
 // Adaptador declarativo sobre el rig GrowKaz. No ejecuta código del modelo.
-import { E, setStyle, mood, layer, ease, key, glow } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
-import { posesAt, breathe, walkPose, face, drawFigure } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/rig2d.js';
+import { E, S, mood, layer, ease, key, glow, clamp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
+import { posesAt, breathe, walkPose, face, drawFigure, bigFace, soccerBall, drawProp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/rig2d.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
+import { cargarFuentes } from './fuentes.js';
+import { pintarEditorial } from './editorial.js';
+import { aplicarEstilo } from './estilo.js';
 
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
 canvas.width = D.ancho; canvas.height = D.alto;
 Object.assign(E, { W: 1920, H: 1920 * D.alto / D.ancho, PX: D.ancho / 1920,
-  vertical: D.alto > D.ancho, fps: D.fps, cfg: {}, words: [] });
-setStyle(D.variante.acabado);
+  vertical: D.alto > D.ancho, fps: D.fps, cfg: {}, words: D.escena.palabras || [] });
+aplicarEstilo(D.variante.acabado);
+window.STICKMAN_READY = D.escena.realizacion ? cargarFuentes() : Promise.resolve(1);
 function valor(keys, t, campo, defecto, interpolacion = ease.inOut) {
-  const lista = keys.filter(k => k[campo] !== undefined).map(k => [k.t, k[campo]]);
+  const lista = keys.filter(k => k[campo] !== undefined).map(k => [k.t, k[campo], ease[k.curva]]);
   // Una primera clave tardía es un destino, no el valor desde el primer frame.
   if (lista.length && lista[0][0] > 0) lista.unshift([0, defecto]);
-  return lista.length ? key(t, lista, interpolacion) : defecto;
+  const v=lista.length ? key(t, lista, interpolacion) : defecto;
+  return ['opacidad','progreso'].includes(campo)?clamp(v):v;
 }
 function estado(c, t) {
   const v = c.diseno, keys = c.claves;
   const x = valor(keys, t, 'x', c.x) * E.W, y = valor(keys, t, 'y', c.y) * E.H;
   const s = valor(keys, t, 'escala', c.escala) * (D.escena.muestra ? E.H / 1920 : 1), rot = valor(keys, t, 'rot', 0);
   const fase = t * Math.PI * (c.movimiento === 'correr' ? 3.2 : 1.8);
+  const act=c.actuacion||{};
   const pose = ['caminar', 'correr'].includes(c.movimiento) ? walkPose(fase, {run: c.movimiento === 'correr'})
-    : breathe(posesAt(t, keys.filter(k => k.pose).map(k => [k.t, k.pose])), t);
+    : breathe(posesAt(t, keys.filter(k => k.pose).map(k => [k.t, k.pose]),act.mezcla_pose??.35), t,act.respiracion??1);
   const exp = keys.filter(k => k.t <= t && k.expresion).at(-1)?.expresion || c.expresion;
   const mirar = keys.filter(k => k.t <= t && k.mirar !== undefined).at(-1)?.mirar ?? c.mirar;
   return {x, y, s, rot, pose, exp, mirar};
 }
-function figura(c, t) {
+function cabeza(c,t){
+  const a=estado(c,t),v=c.diseno;
+  const custom=!(v.familia==='classic'&&v.cabeza===1&&v.cuerpo===1&&v.ancho===1&&v.ojos==='dot'&&v.boca==='smallSmile');
+  const dx=a.pose.head[0]*a.s*v.altura*a.mirar*(custom?v.ancho:1),dy=a.pose.head[1]*a.s*v.altura*(custom?v.cuerpo:1);
+  return {x:a.x+dx*Math.cos(a.rot)-dy*Math.sin(a.rot),y:a.y+dx*Math.sin(a.rot)+dy*Math.cos(a.rot),r:29*a.s*v.altura*v.cabeza};
+}
+function figura(c, t, estela=false) {
   const v = c.diseno, {x, y, s, rot, pose, exp, mirar} = estado(c, t);
+  if(!estela&&c.actuacion?.rastro){
+    const count=Math.floor(c.actuacion.rastro);
+    for(let i=count;i>=1;i--){g.save();g.globalAlpha*=.2*(1-i/(count+1));g.translate(-i*25*s,0);figura(c,t,true);g.restore();}
+  }
   const habla = c.habla.some(a => t >= a[0] && t < a[1]) ? .35 + .6 * Math.abs(Math.sin(t * 14)) : 0;
   g.save(); g.translate(x, y); g.rotate(rot); g.scale(s * v.altura * mirar, s * v.altura);
   g.globalAlpha *= valor(c.claves, t, 'opacidad', 1);
@@ -35,7 +51,11 @@ function figura(c, t) {
   if (v.familia === 'classic' && v.cabeza === 1 && v.cuerpo === 1 && v.ancho === 1 && v.ojos === 'dot' && v.boca === 'smallSmile') {
     drawFigure(g, {x: 0, y: 0, s: 1, facing: 1, pose, expr: exp, talk: habla,
       outfit: {top: v.ropa, color: v.color, color2: v.secundario, head: v.accesorio, headColor: v.secundario},
-      rim: {color: v.contorno, dir: [-1, -.5], w: v.trazo}, blink: (t % 3.3) > 3.15});
+      rim: {color: v.contorno, dir: [-1, -.5], w: v.trazo}, blink: (t % 3.3) > 3.15,
+      look:c.actuacion?.mirada,
+      prop:c.actuacion?.atrezzo?{type:c.actuacion.atrezzo,hand:c.actuacion.mano||'F'}:undefined,
+      ...(c.actuacion?{outfit:{top:v.ropa,color:v.color,color2:v.secundario,head:v.accesorio,headColor:v.secundario,
+        face:c.actuacion.gafas,gloves:c.actuacion.guantes,legs:c.actuacion.pantalon}}:{})});
     g.restore(); return;
   }
   g.fillStyle = '#0008'; g.beginPath(); g.ellipse(0, 3, 52 * v.ancho, 9, 0, 0, Math.PI * 2); g.fill();
@@ -46,10 +66,11 @@ function figura(c, t) {
     g.strokeStyle = color; g.lineWidth = width; g.beginPath();
     points.forEach((p, i) => i ? g.lineTo(...p) : g.moveTo(...p)); g.stroke();
   }
-  for (const pts of [[pose.hip, pose.kB, pose.fB], [pose.sh, pose.eB, pose.hB],
-    [pose.hip, pose.kF, pose.fF], [pose.sh, pose.eF, pose.hF]]) {
-    linea(pts, v.contorno, v.trazo + 13); linea(pts, ink, 13);
+  for (const [i,pts] of [[pose.hip, pose.kB, pose.fB], [pose.sh, pose.eB, pose.hB],
+    [pose.hip, pose.kF, pose.fF], [pose.sh, pose.eF, pose.hF]].entries()) {
+    linea(pts, v.contorno, v.trazo + 13); linea(pts, i%2===0?(c.actuacion?.pantalon||ink):ink, 13);
   }
+  if(c.actuacion?.guantes)for(const h of [pose.hF,pose.hB]){g.fillStyle=c.actuacion.guantes;g.beginPath();g.arc(...h,9,0,Math.PI*2);g.fill();}
   if (v.familia === 'bean') {
     g.fillStyle = v.color; g.beginPath(); g.roundRect(-37, -248, 78, 230, 39); g.fill();
   } else {
@@ -72,6 +93,7 @@ function figura(c, t) {
   }
   face(g, 0, 0, 26, {expr: exp, talk: habla, front: true,
     override: exp === 'neutral' ? {eyes: v.ojos, mouth: v.boca} : {},
+    look:c.actuacion?.mirada,
     color: ['rubber', 'bean'].includes(v.familia) ? '#11251c' : '#fff', blink: (t % 3.3) > 3.15});
   g.fillStyle = v.secundario;
   if (['cap', 'capBack', 'beanie', 'fedora', 'hood'].includes(v.accesorio)) {
@@ -81,7 +103,23 @@ function figura(c, t) {
   else if (['ponytail', 'bun', 'curly', 'spiky'].includes(v.accesorio)) {
     g.beginPath(); g.ellipse(-28, -20, 15, v.accesorio === 'ponytail' ? 38 : 15, -.3, 0, Math.PI * 2); g.fill();
   }
-  g.restore(); g.restore();
+  if(c.actuacion?.gafas&&c.actuacion.gafas!=='none'){
+    g.strokeStyle='#fff5e6';g.lineWidth=2;
+    for(const xx of [-9,9]){g.beginPath();g.arc(xx,-4,8,0,Math.PI*2);if(c.actuacion.gafas==='sunglasses'){g.fillStyle='#080810';g.fill();}g.stroke();}
+  }
+  g.restore();
+  if(c.actuacion?.atrezzo)drawProp(g,{type:c.actuacion.atrezzo,hand:c.actuacion.mano||'F'},pose,ink);
+  g.restore();
+}
+function rostro(c,t) {
+  const a=estado(c,t),v=c.diseno;
+  const {x:hx,y:hy,r}=cabeza(c,t);
+  // El busto continúa fuera de cuadro; no deja una cabeza flotante sobre el fondo.
+  g.save();g.fillStyle=v.ropa==='none'?S().ink:v.ropa==='labcoat'?'#ebe7f0':v.color;g.fillRect(hx-r*1.25,hy+r*1.65-1,r*2.5,E.H*4);g.restore();
+  bigFace(g,hx,hy,r,{outfit:{top:v.ropa,color:v.color,head:v.accesorio,headColor:v.secundario,face:c.actuacion?.gafas},
+      expr:a.exp,talk:c.habla.some(([a,b])=>t>=a&&t<b)? .4+.5*Math.abs(Math.sin(t*14)):0,
+      blink:t%3.3>3.15,look:c.actuacion?.mirada,rimColor:v.contorno,
+      face:a.exp==='neutral'?{eyes:v.ojos,mouth:v.boca}:undefined});
 }
 function vector(o, t) {
   const d = D.escena.utileria[o.recurso];
@@ -148,6 +186,7 @@ function objeto(o, t) {
   const caja = (x, y, w, h, r=8) => {g.beginPath(); g.roundRect(x, y, w, h, Math.min(r, w/2, h/2)); g.fill();};
   const trazo = (x, y, xx, yy) => {g.beginPath(); g.moveTo(x, y); g.lineTo(xx, yy); g.stroke();};
   if (o.tipo === 'vector') vector(o, t);
+  else if(o.tipo === 'balon')soccerBall(g,0,0,Math.min(w,h)/2,0,o.color);
   else if (o.tipo === 'circulo') {g.beginPath(); g.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI * 2); g.fill();}
   else if (o.tipo === 'linea') {trazo(0, 0, w * progreso, h * progreso);}
   else if (o.tipo === 'texto') {
@@ -214,6 +253,10 @@ function objeto(o, t) {
   g.restore();
 }
 window.pintar = t => {
+  if (D.escena.realizacion) return pintarEditorial(g,t,D,{
+    valor, estado, cabeza, figura:(_g,c,time)=>figura(c,time), rostro:(_g,c,time)=>rostro(c,time), objeto:(_g,o,time)=>objeto(o,time),
+    reparto:Object.fromEntries(D.escena.personajes.map(c=>[c.id,c.diseno])),
+  });
   const S = D.escena, M = mood(S.ambiente);
   g.setTransform(E.PX, 0, 0, E.PX, 0, 0);
   const bg = g.createLinearGradient(0, 0, 0, E.H); bg.addColorStop(0, M.sky[0]); bg.addColorStop(1, M.wall);

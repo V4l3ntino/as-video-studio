@@ -14,15 +14,15 @@ import re
 import subprocess
 import tempfile
 
-from pasos import medios, utileria_stickman
+from pasos import medios, utileria_stickman, realizacion_stickman
 
 RAIZ = Path(__file__).resolve().parents[1]
 KIT = RAIZ / 'GrowKaz_Stickman/skills/make-2d-video/kit'
-VERSION = 'stickman-4'
+VERSION = 'stickman-5-editorial-1'
 OBJETOS = ('circulo', 'rectangulo', 'redondeado', 'linea', 'texto',
-           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector')
+           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector', 'balon')
 FAMILIAS = {'classic': 'Classic Stick', 'bean': 'Bean Body', 'rubber': 'Rubber Hose', 'geometric': 'Geometric'}
-ACABADOS = ('emerald', 'ember', 'arctic', 'sakura', 'retro')
+ACABADOS = ('editorial', 'emerald', 'ember', 'arctic', 'sakura', 'retro')
 POSES = ('stand', 'relaxed', 'talk', 'explain', 'point', 'pointUp', 'wave', 'cheer', 'handsOnHead',
          'crossArms', 'think', 'shrug', 'holdFront', 'phone', 'reach', 'sad', 'facepalm', 'ready',
          'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall')
@@ -108,7 +108,7 @@ def seleccion(datos):
 
 def familias():
     return [variante(dict(familia=k, nombre=n, descripcion='Personaje animable ' + n,
-        cabeza=1.01 if k != 'classic' else 1)) for k, n in FAMILIAS.items()]
+        acabado='editorial', contorno='#ffc68a', cabeza=1.01 if k != 'classic' else 1)) for k, n in FAMILIAS.items()]
 
 
 def _consultar(prompt, proyecto=None, referencias=(), avisar=None, proveedor='Claude'):
@@ -203,6 +203,8 @@ def claves(datos, duracion):
             f['mirar'] = numero(k['mirar'], -1, 1)
             if f['mirar'] not in (-1, 1):
                 raise ValueError('mirar debe ser -1 o 1')
+        if 'curva' in k:
+            f['curva'] = elegir(k['curva'], ('linear', 'in', 'out', 'inOut', 'sine', 'outBack', 'outElastic'))
         salida.append(f)
     return sorted(salida, key=lambda k: k['t'])
 
@@ -234,6 +236,18 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             expresion=elegir(c.get('expresion', 'neutral'), EXPRESIONES),
             movimiento=elegir(c.get('movimiento', 'gesto'), ('gesto', 'caminar', 'correr')),
             claves=ks, habla=[]))
+        if 'rol' in c:
+            resultado['personajes'][-1]['rol'] = elegir(c['rol'], ('principal', 'figurante'))
+        if 'panel' in c:
+            resultado['personajes'][-1]['panel'] = elegir(c['panel'], ('izquierda', 'derecha'))
+        if 'actuacion' in c:
+            resultado['personajes'][-1]['actuacion'] = realizacion_stickman.validar(c['actuacion'],
+                realizacion_stickman.opciones(mirada=('lista', ('numero', -1, 1), 2, 2),
+                    mezcla_pose=('numero', .05, 1), respiracion=('numero', 0, 2),
+                    atrezzo=('elegir', 'phone', 'ball', 'paper', 'cup', 'paddle', 'pointer', 'tablet', 'flashlight'),
+                    mano=('elegir', 'F', 'B'), gafas=('elegir', 'none', 'glasses', 'sunglasses'),
+                    guantes=realizacion_stickman.COLOR, pantalon=realizacion_stickman.COLOR,
+                    rastro=('numero', 0, 5)), 'personaje.actuacion')
     ids = [c['id'] for c in resultado['personajes']]
     if len(set(ids)) != len(ids):
         raise ValueError('cada personaje solo puede aparecer una vez en la escena')
@@ -284,6 +298,21 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             dur=numero(s.get('dur', min(.6, duracion - at)), .001, duracion - at),
             gain=numero(s.get('gain', -12), -40, 0), seed=numero(s.get('seed', 1), 0, 100000),
             pitch=numero(s.get('pitch', 1), .5, 2)))
+    resultado.update(realizacion_stickman.normalizar(datos, duracion, reparto))
+    sujeto = (resultado.get('realizacion') or {}).get('sujeto')
+    if sujeto and sujeto not in ids:
+        raise ValueError('el sujeto del encuadre debe estar presente en personajes')
+    for grafico in resultado.get('graficos', []):
+        if any(ident not in ids for ident in grafico['opciones'].get('personajes', [])):
+            raise ValueError('endScreen: su reparto debe estar presente en personajes')
+    for objeto in (resultado.get('espacio3d') or {}).get('objetos', []):
+        if objeto['tipo'] == 'figure3D' and objeto['opciones']['personaje'] not in ids:
+            raise ValueError('figure3D: su actor debe estar presente en personajes')
+    if 'palabras' in datos:
+        resultado['palabras'] = realizacion_stickman.validar(datos['palabras'], ('lista',
+            realizacion_stickman.opciones(word=('texto', 120), start=('numero', 0, duracion), end=('numero', 0, duracion)), 0, 1000), 'palabras')
+        if any(set(p) != {'word', 'start', 'end'} or p['end'] < p['start'] for p in resultado['palabras']):
+            raise ValueError('palabras necesita word/start/end e intervalos ordenados')
     return resultado
 
 
@@ -306,7 +335,7 @@ def renderizar(diseno, contenido, duracion, png, clip=None, salida=(960, 540), f
         proceso = subprocess.run(['node', str(RAIZ / 'motores/stickman/compilar.mjs'), str(bundle)],
             capture_output=True, text=True, timeout=60, **medios.SIN_VENTANA)
         if proceso.returncode:
-            raise RuntimeError('No se pudo preparar Stickman. Instala npm ci --prefix motores/remotion. ' + proceso.stderr[-500:])
+            raise RuntimeError('No se pudo preparar Stickman. Instala npm ci --prefix motores/remotion y npm ci --prefix motores/stickman. ' + proceso.stderr[-500:])
         datos = dict(variante=variante(diseno), escena=contenido, duracion=duracion, ancho=salida[0], alto=salida[1], fps=fps)
         pagina = temporal / 'escena.html'
         medios.escribir_texto(str(pagina), '<!doctype html><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden}canvas{display:block}</style><canvas></canvas><script>window.STICKMAN='
@@ -316,6 +345,7 @@ def renderizar(diseno, contenido, duracion, png, clip=None, salida=(960, 540), f
         navegador = p8_render.Navegador(*salida)
         try:
             navegador.abrir(str(pagina))
+            navegador.evaluar('window.STICKMAN_READY || Promise.resolve(1)', esperar=True)
             navegador.pintar(min(duracion * .45, duracion - .001))
             navegador.capturar(png)
             if clip:
@@ -387,6 +417,8 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
     """Control de legibilidad de entregas nuevas; no modifica escenas históricas."""
     resultado = escena(datos, duracion, reparto, catalogo_utileria)
     alto = 1920 * resolucion[1] / resolucion[0]
+    realizacion = resultado.get('realizacion') or {}
+    encuadre = realizacion.get('encuadre', 'general')
     for c in resultado['personajes']:
         # El rig mide unos 240 puntos desde los pies hasta la coronilla.
         estados = []
@@ -396,8 +428,17 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
             estados.append(actual)
         for k in estados:
             altura = 240 * k['escala'] * c['diseno']['altura']
-            if not .12 <= k['x'] <= .88 or not .4 <= k['y'] <= .94 or not .28 * alto <= altura <= .78 * alto or k['y'] * alto - altura < .04 * alto:
-                raise ValueError(f'{c["id"]}: personaje pequeño o fuera de encuadre; pies x=.12–.88, y<=.94 y altura visible 28–78% del lienzo de alto {alto:g}')
+            minimo = .1 if c.get('rol') == 'figurante' or encuadre == 'cierre' else .28
+            if not .06 <= k['x'] <= .94 or not .4 <= k['y'] <= .94 or not minimo * alto <= altura <= .78 * alto or k['y'] * alto - altura < .04 * alto:
+                raise ValueError(f'{c["id"]}: personaje pequeño o fuera de encuadre; pies x=.06–.94, y<=.94 y altura visible {minimo:.0%}–78% del lienzo de alto {alto:g}')
+    if encuadre == 'dividido':
+        principales = [c for c in resultado['personajes'] if c.get('rol') != 'figurante']
+        if len(principales) != 2 or {c.get('panel') for c in principales} != {'izquierda', 'derecha'}:
+            raise ValueError('encuadre dividido necesita dos actores con panel izquierda/derecha')
+    if encuadre == 'detalle' and not realizacion.get('foco'):
+        raise ValueError('detalle necesita foco:[x,y] normalizado')
+    if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d'):
+        raise ValueError('escena sin contenido explicativo: añade actuación, objeto o gráfico')
     if duracion >= 2:
         cambios = any(c['movimiento'] in ('caminar', 'correr') for c in resultado['personajes'])
         for c in resultado['personajes']:
@@ -408,6 +449,10 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
         cambios |= any(o['inicio'] > 0 or o['fin'] < duracion or o['claves'] for o in resultado['objetos'])
         cambios |= any(p['claves'] for o in resultado['objetos'] for p in o.get('partes', []))
         cambios |= any(p.get('animacion', {}).get('claves') for d in resultado['utileria'].values() for p in d['partes'])
+        cambios |= any(g['tipo'] not in ('blueprint', 'badge', 'readout', 'lineFigure')
+            for g in resultado.get('graficos', []))
+        cambios |= bool(resultado.get('espacio3d'))
+        cambios |= encuadre == 'cierre'
         if not cambios:
             raise ValueError('escena estática: representa el desarrollo y la reacción con claves y/o aparición de utilería')
     return resultado
@@ -418,6 +463,9 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     dur = float(e['t_out']) - float(e['t_in'])
     catalogo_utileria = utileria_stickman.catalogo(proyecto)
     ejemplo = dict(ambiente='interiorWarm', decorado='vacio', atmosfera='ninguna', camara=[],
+        realizacion=dict(encuadre='general', objetivo='Acción principal y resultado visible',
+            escenario=dict(id='interior_principal', tipo='salon', semilla=7), acabado=True, desenfoque=0),
+        graficos=[], efectos_visuales=[],
         personajes=[dict(id=next(iter(reparto)), x=.45, y=.79, escala=2.4, mirar=1,
             movimiento='gesto', expresion='neutral', claves=[dict(t=0, pose='stand'), dict(t=min(.7, dur), pose='explain')])],
         objetos=[], utileria={}, sfx=[dict(name='pop', at=0, dur=min(.3, dur), gain=-16)])
@@ -441,9 +489,9 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Reutiliza las geometrías y recursos exactos recibidos, adaptando inicio/fin y claves a la duración local actual. '
             'Cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
             'No sustituyas conductas por iconos pequeños: muestra distancia con desplazamiento y defensa con postura. '
-            'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta la puesta en escena a acciones corporales '
-            'que expresen esa misma idea, sin inventar objetos ajenos a ella. No añadas relojes ni móviles salvo que intervengan en el relato. '
-            'Comparaciones: acción de uno seguida de la del otro, sin duplicar actores ni mezclar dos escenas en un único cuadro. '
+            'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta a una acción corporal o a UNA metáfora simple '
+            'con transformación legible. No añadas relojes ni móviles salvo que intervengan en el relato. '
+            'Comparaciones: elige pantalla dividida para contraste simultáneo, un gráfico para magnitudes o acciones por turnos para una interacción. No dupliques IDs. '
             'Acercarse, consolar o rechazar requiere posiciones, orientación y poses coordinadas, no un gesto genérico de explicación. '
             'Mantén identidades y escenarios. Sin cambiar palabras, voz o tiempos. Posiciones x,y normalizadas; escala .1–6. '
             'Lienzo lógico ancho 1920, alto=1920*resolucion[1]/resolucion[0]. En personajes x,y son los PIES, no el centro; '
@@ -471,17 +519,26 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Claves de objeto admiten también opacidad y progreso 0–1; empieza con progreso:0 y llévalo a 1 para marcar calendario o dibujar línea. '
             'Apila mensajes en posiciones distintas y con inicios escalonados. Haz coincidir gestos de señalar con la posición del objeto. '
             'Un vínculo es linea fina, nunca una barra gruesa. Al enfriarse una relación muestra una reacción corporal y reduce la opacidad del vínculo; una nube sola es ambigua. '
-            'No tapes caras con objetos ni textos. Usa decorado vacio y atmosfera ninguna salvo necesidad narrativa; cámara vacía mantiene el plano fijo. '
+            'No tapes caras con objetos ni textos. Elige un escenario reconocible si hay actuación contextual. '
+            'Usa decorado vacio para grafismos y atmosfera ninguna salvo necesidad narrativa; cámara vacía mantiene el plano fijo. '
             'Los textos deben coincidir con la narración, en su idioma. sfx: [{name,at,dur,gain:-12,seed:1,pitch:1}], '
             'incluye ambientes como rain,city,roomtone con dur de la escena y gain -26 si corresponde. Sonidos disponibles: '
             + ','.join(EFECTOS) + '. Evita efectos que no correspondan a acciones. '
             + personajes.instruccion_tiempo_visual()
+            + realizacion_stickman.instruccion()
             + utileria_stickman.CONTRATO
             + json.dumps(dict(escena=e, duracion=dur, estilo=diseno, reparto=reparto,
                 catalogo_utileria=utileria_stickman.indice(catalogo_utileria, e)), ensure_ascii=False),
             proyecto, avisar=avisar, proveedor=proveedor,
             validar=lambda d: validar_puesta_en_escena(d, dur, reparto, e.get('resolucion', [1920, 1080]), catalogo_utileria))
+    datos.setdefault('realizacion', dict(encuadre='general', acabado=True))
     resultado = escena(datos, dur, reparto)
+    # El kit recibe las marcas reales, nunca un reloj de subtítulos independiente.
+    palabras = (e.get('narracion') or '').split()
+    marcas = e.get('marcas') or []
+    if len(palabras) == len(marcas):
+        resultado['palabras'] = [dict(word=p, start=max(0, a-e['t_in']), end=min(dur, b-e['t_in']))
+            for p, (a, b) in zip(palabras, marcas) if b > e['t_in'] and a < e['t_out']]
     utileria_stickman.guardar(resultado['utileria'])
     # Las bocas solo se mueven en el personaje que realmente habla; no en off.
     for c in resultado['personajes']:
@@ -512,6 +569,7 @@ def memoria_visual(e, contenido):
     # No anidar el contexto recibido: el tamaño queda acotado a dos planes.
     visual = copy.deepcopy(contenido)
     visual.pop('sfx', None)
+    visual.pop('palabras', None)
     for actor in visual.get('personajes', []):
         actor.pop('diseno', None)
         actor.pop('habla', None)
@@ -563,9 +621,17 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                 anterior=hermanas[posicion - 1].get('narracion', '') if posicion else '',
                 siguiente=hermanas[posicion + 1].get('narracion', '') if posicion + 1 < len(hermanas) else '')
             continuidad = contexto_de_bloque(hermanas, posicion, animaciones)
+            escenarios_video = {}
+            for memoria in animaciones.values():
+                lugar = (memoria['contenido'].get('realizacion') or {}).get('escenario')
+                if lugar:
+                    escenarios_video[lugar['id']] = lugar
+            # Catálogo acotado por localizaciones, no contextos anidados ni sesiones de IA.
+            escenarios_video = list(escenarios_video.values())[-16:]
             firma = huella([VERSION, base, reparto, e.get('narracion'), e.get('prompt'), e.get('personajes'),
                 e['t_out'] - e['t_in'], plan['resolucion'], (params.get('unidades') or {}).get(uid), contexto_frase]
-                + ([continuidad] if continuidad else []))
+                + ([continuidad] if continuidad else []) + [escenarios_video,
+                    e.get('marcas'), e.get('personaje_id'), e.get('categoria'), plan.get('fps', 30)])
             ruta = Path(trabajo) / 'escenas' / (e['id'] + '.json')
             anterior = medios.leer_json(str(ruta), {}) or {}
             fuente = ruta.with_suffix('.animacion.json')
@@ -587,7 +653,8 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
             contenido = guardada.get('contenido') if guardada.get('firma') == firma and not rehacer else None
             if not contenido:
                 contexto = dict(e, indicaciones_usuario=(params.get('unidades') or {}).get(uid) or {},
-                    resolucion=plan['resolucion'], contexto_frase=contexto_frase, continuidad_bloque=continuidad)
+                    resolucion=plan['resolucion'], contexto_frase=contexto_frase, continuidad_bloque=continuidad,
+                    escenarios_video=escenarios_video)
                 contenido = generar_escena(contexto, base, reparto, proyecto, avisar, 'Claude' if i < n_claude else 'ChatGPT')
                 fuente.parent.mkdir(parents=True, exist_ok=True)
                 medios.escribir_json(str(fuente), dict(firma=firma, contenido=contenido))
@@ -601,6 +668,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
             parcial = ruta.with_suffix('.parcial.mp4')
             poster_parcial = ruta.with_suffix('.parcial.png')
             renderizar(base, contenido, e['t_out'] - e['t_in'], str(poster_parcial), str(parcial), plan['resolucion'],
+                fps=plan.get('fps', 30),
                 avisar=lambda f, msg: avisar((i + (f or 0)) / len(escenas), f'{e["id"]}: {msg}'))
             sonidos = _sonidos(contenido, trabajo, e['id'], avisar)
             os.replace(parcial, clip)

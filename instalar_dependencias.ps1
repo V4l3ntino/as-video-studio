@@ -254,10 +254,14 @@ if ($mayorNode -ge 22 -and $npm) {
   if ($LASTEXITCODE -ne 0) {
     Fallar "No se han podido instalar las dependencias de Remotion. Revisa el error de npm de arriba y vuelve a lanzar."
   }
-  Escribir-Bien "Remotion instalado"
+  & $npm.Source ci --prefix (Join-Path $Raiz "motores\stickman") --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) {
+    Fallar "No se han podido instalar las dependencias del kit Stickman. Revisa el error de npm de arriba y vuelve a lanzar."
+  }
+  Escribir-Bien "Remotion y Stickman instalados"
 } else {
   Escribir-Aviso "Remotion necesita Node 22 o superior y npm. Instala Node LTS y vuelve a ejecutar este archivo."
-  Escribir-Nota "Tambien puedes ejecutar despues: npm ci --prefix motores/remotion"
+  Escribir-Nota "Tambien puedes ejecutar despues: npm ci --prefix motores/remotion y npm ci --prefix motores/stickman"
 }
 
 $claude = Get-Command claude -ErrorAction SilentlyContinue

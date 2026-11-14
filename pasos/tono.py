@@ -228,6 +228,11 @@ MODALIDAD STICKMAN 2D — aplica estas pautas al redactar la guia de tono:
   transformaciones de objetos y transiciones dentro del mismo escenario para
   reutilizar elementos; cambia de escenario cuando lo necesite la explicacion.
   No fijes duraciones ni tamanos: los gobiernan los ajustes de ritmo.
+- Direccion editorial: alterna ejemplos cotidianos, caras, detalles, documentos,
+  comparaciones y esquemas segun el significado. Reutiliza localizaciones y colores.
+  En una secuencia, establece la situacion, revela el cambio y permite leer el resultado.
+  El acabado integra luz, profundidad, tipografia y contornos; no impongas particulas
+  o movimiento constante. Una metafora clara vale mas que varios simbolos anidados.
 - Organiza las instrucciones en apartados breves sin repetir reglas entre
   sonido, estructura, bloques y fuentes ni anadir una recapitulacion final.
   Conserva rigor factual y distingue hechos, opiniones y recursos ilustrativos.

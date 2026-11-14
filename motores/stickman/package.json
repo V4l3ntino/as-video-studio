@@ -1,0 +1,12 @@
+{
+  "name": "as-video-studio-stickman",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22"},
+  "dependencies": {
+    "@fontsource/fredoka": "5.1.0",
+    "@fontsource/nunito": "5.1.0",
+    "@fontsource/playfair-display": "5.1.0",
+    "three": "0.169.0"
+  }
+}

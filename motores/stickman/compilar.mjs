@@ -2,4 +2,6 @@
 import { build } from '../remotion/node_modules/esbuild/lib/main.js';
 import { fileURLToPath } from 'node:url';
 await build({ entryPoints: [fileURLToPath(new URL('./escena.js', import.meta.url))],
+  nodePaths: [fileURLToPath(new URL('./node_modules', import.meta.url))],
+  loader: {'.woff2': 'dataurl'},
   outfile: process.argv[2], bundle: true, format: 'iife', platform: 'browser', target: 'chrome110' });

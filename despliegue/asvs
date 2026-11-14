@@ -120,6 +120,8 @@ actualizar() {
   if node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' 2>/dev/null; then
     npm ci --prefix "$RAIZ/app/motores/remotion" --no-audit --no-fund \
       || echo "Remotion pendiente: ejecuta npm ci --prefix $RAIZ/app/motores/remotion"
+    npm ci --prefix "$RAIZ/app/motores/stickman" --no-audit --no-fund \
+      || echo "Stickman pendiente: ejecuta npm ci --prefix $RAIZ/app/motores/stickman"
   fi
   if ! codex --version >/dev/null 2>&1; then
     npm install -g @openai/codex@0.165.0 >/dev/null 2>&1

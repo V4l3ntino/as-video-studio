@@ -2,6 +2,39 @@
 
 ## Stickman 2D
 
+Desde `stickman-5-editorial-1`, las entregas nuevas incorporan `realizacion` y
+pueden incluir `graficos`, `efectos_visuales` y `espacio3d`. El contrato por lista
+blanca vive en `pasos/realizacion_stickman.py`; el renderer se divide en
+`motores/stickman/{editorial,kit,decorados,acabado,espacio3d,fuentes,estilo}.js`.
+No evalúes datos del modelo como código. Los planes sin estos campos mantienen
+el camino histórico; no añadas realización ni params al abrir proyectos.
+
+El adaptador expone ui2d, fx2d, rig2d y three-kit. `player.js` no se ejecuta:
+el Estudio conserva montaje, reloj, voz y transiciones; su acabado se adapta en
+`acabado.js`. `drawProp` se exporta del rig sin cambiar su dibujo, para reutilizarlo
+también en familias personalizadas. Las fuentes originales viajan como data URI
+en el bundle. Espera `STICKMAN_READY` antes de capturar. Dependencias fijadas:
+`npm ci --prefix motores/stickman`, además de Remotion/esbuild. Los instaladores
+y el actualizador deben preparar ambas carpetas.
+
+`realizacion.escenario` tiene id/tipo/semilla estables; `escenarios_video` recupera
+localizaciones de planes publicados también entre bloques, sin anidar contextos.
+Los componentes tienen segundos locales y `desfase`/`duracion_total` opcionales
+para continuar sus entradas y ciclos entre frases. `capa:fondo|frente|pantalla`
+debe respetarse: los gráficos de pantalla no reciben cámara y se pintan tras la
+gradación para conservar contraste. No pintes un blueprint de fondo después de
+los actores. El desenfoque requiere respaldo opaco o aclara los bordes con el
+blanco de la página. `primer_plano` usa el rostro grande del kit en Classic y
+continúa el busto fuera de cuadro; `medio` y `detalle` reencuadran el sujeto/foco.
+
+El validador distingue protagonistas, figurantes, comparación dividida y cierre.
+No relajes todos los mínimos de tamaño por añadir figurantes. Las marcas de voz,
+intervención y FPS participan en la firma: ahora alimentan también el reloj del
+kit. Pruebas: `python pasos/prueba_stickman.py --real` y
+`python pasos/prueba_stickman_editorial.py --real` (sin proveedores). La segunda
+renderiza todas las familias gráficas/FX y el módulo 3D; inspeccionar sus PNG
+además de comprobar los contratos.
+
 La continuidad de animaciones se transmite explícitamente en `continuidad_bloque`:
 direcciones visuales de todas sus frases y planes reales de la raíz y la anterior
 (con sus claves finales y geometrías). Las frases vecinas narradas no bastan para

@@ -99,10 +99,49 @@ si quieres conservar también los elementos de vídeos que hayas eliminado.
 El motor utiliza los archivos originales de
 `GrowKaz_Stickman/skills/make-2d-video/kit/`: esa carpeta debe acompañar al
 programa. Reutiliza el navegador y ffmpeg del Estudio y `esbuild` del motor
-Remotion (`npm ci --prefix motores/remotion`); Python instala la síntesis de
-efectos mediante `requirements.txt`. No necesita instalar Whisper ni Three.js
-para este modo 2D. Verificación sin consumir cuota:
+Remotion. Instala sus dependencias locales con:
+
+```bash
+npm ci --prefix motores/remotion
+npm ci --prefix motores/stickman
+```
+
+El segundo comando instala las fuentes originales y Three.js, con versiones
+fijadas. Los instaladores también preparan ambos motores. Python instala la
+síntesis de efectos mediante `requirements.txt`; no hace falta Whisper.
+Verificación sin consumir cuota:
 `python pasos/prueba_stickman.py --real`.
+
+### Realización editorial de los vídeos Stickman
+
+Las nuevas generaciones combinan **actuación, primeros planos, detalles,
+pantalla dividida y motion graphics explicativos** según la idea del guion.
+El director puede utilizar listas progresivas, documentos con resaltado,
+barras, matrices de población, cronologías, diales e interruptores, además de
+los títulos, llamadas, medidores y pantallas finales del kit original.
+
+Los escenarios —fiesta, salón, oficina, laboratorio, barrio, parque, cocina,
+teatro y aula— tienen identidad estable para volver a ellos en distintas partes
+del vídeo. La cámara separa el sujeto del fondo; los primeros planos pueden
+suavizar el decorado. Luces, sombras de apoyo, atmósfera, gradación, viñeta y
+grano forman parte del render. Los estilos nuevos parten del acabado
+**Editorial Cinema**, con color neutro y contorno cálido; las variantes elegidas
+conservan su paleta. Los cinco acabados anteriores siguen disponibles.
+
+Para planos que necesitan espacio, el director también dispone del módulo
+**Three.js del kit**: figuras, edificios, vegetación, público, materiales,
+sombras, bloom y cámara orbital o de recorrido. Se selecciona cuando aporta
+información espacial, sin obligar a usar 3D en las explicaciones gráficas.
+
+La dirección se aplica al generar nuevas descripciones y animaciones. Los clips
+publicados se siguen reproduciendo; para renovar una escena existente, regenera
+su descripción visual si lo necesita y después su animación. Guion, voz y tiempos
+no se cambian por añadir el acabado. Los componentes pueden continuar entre
+frases con el mismo reloj y los escenarios publicados se recuperan al retomar.
+
+Contrato y mapa del kit: [docs/STICKMAN_EDITORIAL.md](docs/STICKMAN_EDITORIAL.md).
+Prueba del catálogo completo, fuentes y 3D, sin proveedores:
+`python pasos/prueba_stickman_editorial.py --real`.
 
 ## Editar las descripciones visuales del guion
 

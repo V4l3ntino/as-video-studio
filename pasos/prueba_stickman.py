@@ -163,6 +163,7 @@ class Stickman(unittest.TestCase):
         plan = dict(escenas=escenas, assets={}, dependencias={}, resolucion=[1920, 1080],
             conservacion=dict(retirados=[]), duracion_total=12)
         raiz = stickman.escena(dict(ambiente='interiorWarm', decorado='vacio',
+            realizacion=dict(encuadre='general',escenario=dict(id='telon_rojo',tipo='teatro',semilla=9)),
             personajes=[dict(id='protagonista', claves=[dict(t=0, pose='think'), dict(t=3, x=.6, pose='point')])],
             objetos=[dict(tipo='rectangulo', color='#882222', capa='fondo', w=1920, h=700),
                 *[dict(tipo='circulo', color='#ffe0aa', x=x, y=.85, w=400, h=90) for x in (.25, .75)]]),
@@ -194,6 +195,8 @@ class Stickman(unittest.TestCase):
             nuevo = generar.call_args_list[2].args[0]['continuidad_bloque']
             self.assertIsNone(nuevo['raiz'])
             self.assertIsNone(nuevo['anterior'])
+            self.assertEqual(generar.call_args_list[2].args[0]['escenarios_video'],
+                [dict(id='telon_rojo',tipo='teatro',semilla=9)])
             # Regenerar solo la tercera también recupera raíz y anterior.
             with patch.object(stickman, 'generar_escena', return_value=segunda) as generar:
                 stickman.ejecutar(p, params, lambda *a: None, unidades=['escena:S003'], rehacer=True)
@@ -432,6 +435,8 @@ class Stickman(unittest.TestCase):
             conservacion=dict(retirados=[]), resolucion=[320, 180], generacion=[320, 180],
             duracion_total=2, idioma='es', semilla=7, fps=30, formato='horizontal')
         contenido = stickman.escena(dict(personajes=[dict(id='protagonista')],
+            realizacion=dict(encuadre='general',escenario=dict(id='laboratorio_prueba',tipo='laboratorio'),acabado=True),
+            graficos=[dict(tipo='callout',opciones=dict(str='El avión',at=[1200,200],to=[1400,300]))],
             utileria=dict(avion=avion_vectorial()), objetos=[dict(tipo='vector', recurso='avion', x=.65, y=.18, w=300, h=150)],
             sfx=[dict(name='pop', at=.3, dur=.4, gain=-12)]), 1, {'protagonista': self.base})
         with patch.object(p6_assets, 'planificar', side_effect=lambda *a, **k: copy.deepcopy(plan)), \

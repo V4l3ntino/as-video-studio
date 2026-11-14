@@ -12,6 +12,21 @@ El contrato de entrada es `window.STICKMAN`:
 - `escena`: ambiente/decorado, atmósfera, cámara, actores y objetos con claves temporales.
 - `duracion`, `ancho`, `alto`, `fps`: salida y reloj del plano.
 
+Desde `stickman-5-editorial-1`, la escena admite `realizacion`, `graficos`,
+`efectos_visuales` y `espacio3d`. El adaptador conecta todas las familias de
+`ui2d.js` y `fx2d.js`, el rostro grande y atrezzo de `rig2d.js`, y el stage,
+constructores, materiales y cámaras de `three-kit.js`. Los escenarios estables,
+encuadres y componentes editoriales se componen en los módulos de esta carpeta.
+El acabado del player original se adapta al reloj del Estudio; no se arranca
+un segundo montaje ni se duplica el sonido.
+
+Instalar `npm ci --prefix motores/stickman` además de Remotion: fija Three.js y
+las fuentes originales. El bundle contiene las fuentes sin depender de la red.
+Python espera `window.STICKMAN_READY` antes de capturar. Los planes históricos
+sin realización conservan el dibujo anterior.
+
+Contrato y mapa completo: [STICKMAN_EDITORIAL.md](../../docs/STICKMAN_EDITORIAL.md).
+
 `window.pintar(t)` dibuja el instante local en Canvas. Poses, respiración,
 caminata, expresiones y efectos son deterministas. Claude/Codex producen JSON
 validado en `pasos/stickman.py`, nunca programas que se ejecuten desde el modelo.
@@ -145,3 +160,5 @@ subidas o POV como sustitución de un rig.
 Pruebas: `python pasos/prueba_stickman.py` (contratos y síntesis) o
 `python pasos/prueba_stickman.py --real` (Chromium, ffmpeg, estilos, interrupción,
 reanudación, montaje audible y traslado del proyecto). No llaman a proveedores.
+`python pasos/prueba_stickman_editorial.py --real` comprueba además el catálogo
+gráfico/FX completo, fuentes, continuidad de componentes, capas, determinismo y 3D.

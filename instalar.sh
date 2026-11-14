@@ -480,6 +480,9 @@ el_login() {
   npm ci --prefix "$RAIZ/app/motores/remotion" --no-audit --no-fund \
     || aviso "Remotion pendiente de instalación; el resto del estudio está disponible."
   chown -R "$USUARIO:$USUARIO" "$RAIZ/app/motores/remotion"
+  npm ci --prefix "$RAIZ/app/motores/stickman" --no-audit --no-fund \
+    || aviso "Kit Stickman pendiente de instalación; ejecuta npm ci --prefix $RAIZ/app/motores/stickman."
+  chown -R "$USUARIO:$USUARIO" "$RAIZ/app/motores/stickman"
   paso "El acceso (para que no entre cualquiera)"
 
   # EL ESTUDIO NO SABE LO QUE ES UN USUARIO, a proposito: se sirve a quien

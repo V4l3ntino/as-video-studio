@@ -218,13 +218,25 @@ Mantén escenario y continuidad; no repitas la presentación ni adelantes accion
 def instruccion_visual_stickman():
     return """== DIRECCIÓN VISUAL STICKMAN 2D ==
 La narración explica la idea; la imagen muestra una acción concreta que la hace comprensible.
-El motor dispone de figuras articuladas, poses, expresiones, desplazamientos y utilería vectorial por piezas.
-Escribe escenas sencillas: situación inicial, UNA acción principal y resultado visible. Prioriza interacciones corporales
-y objetos reconocibles sobre diagramas de iconos. Un gesto de señalar no sustituye a abrazar, rechazar o alejarse.
-No inventes móviles, relojes ni decoración para llenar huecos. No muestres cortes anatómicos, objetos dentro del pecho,
-metáforas anidadas (escudo con gota, espejo vacío dentro de una figura) ni miniaturas de personajes dentro de tarjetas.
-Para comparar comportamientos, muestra a los personajes actuando por turnos en el mismo encuadre, con poses y distancias
-que expresen la diferencia. No conviertas automáticamente una explicación en tarjetas, flechas y símbolos ambiguos.
+El motor dispone del kit completo: figuras articuladas, expresiones, utilería por piezas, escenarios reutilizables,
+primeros planos con fondo desenfocado, pantallas divididas, tipografía editorial, documentos, listas progresivas,
+gráficos de barras, diales, matrices de población, cronologías, luces y atmósfera. También planos espaciales 3D.
+Realiza un ensayo visual: alterna escena cotidiana, detalle, emoción, evidencia y síntesis cuando aporte significado.
+Selecciona el recurso según la idea: conducta = interacción; emoción = primer plano; magnitud = gráfico;
+distinción = comparación; patrón = cronología; definición = documento; mecanismo = metáfora simple.
+No fuerces actores en todos los gráficos, ni gráficos en toda frase. Una relación dominante por momento.
+Escribe escenas sencillas: situación inicial, UNA acción principal o revelado y resultado legible.
+En una interacción, un gesto de señalar no sustituye a abrazar, rechazar o alejarse.
+No inventes móviles, relojes ni decoración para llenar huecos. Evita objetos dentro del pecho y metáforas anidadas
+(escudo con gota, espejo dentro de una figura). Sí admite UNA metáfora clara: máscara que se aparta,
+interruptor que se apaga, termómetro que sube, recipiente que se repara; debe tener una transformación visible.
+Para comparar, elige pantalla dividida con dos condiciones equivalentes, dos magnitudes comparables o acciones
+por turnos si es una interacción. No dupliques el mismo actor. Texto breve y selectivo, no toda la locución.
+Reutiliza los mismos lugares (nombre estable), ropa, paleta y utilería cuando regresen varios bloques después.
+Cada secuencia puede abarcar varias frases: conservar el mundo y avanzar estado o encuadre, no reiniciar.
+Una escena contextual tiene lugar reconocible, luz y suelo; un esquema tiene espacio y jerarquía de lectura.
+Alterna planos generales, medios, caras y detalles según el foco; no presentes siempre cuerpos enteros.
+Las cantidades y afirmaciones en gráficos proceden del material, no inventes medidas o evidencia.
 Por ejemplo, distancia y actitud defensiva: una figura retrocede ante otra y cruza los brazos; no tres iconos sin acción.
 Consuelo infantil: el cuidador se acerca, se arrodilla junto al niño y extiende los brazos; la ausencia de respuesta
 se representa en otra frase con el cuidador alejado, mirando al lado opuesto. No pidas duplicar al mismo actor en pantalla.
