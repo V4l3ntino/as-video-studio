@@ -1643,6 +1643,12 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, "generar_personajes debe ser un booleano")
         if "incorporar_voz" in nuevos and not isinstance(nuevos["incorporar_voz"], bool):
             raise ErrorApi(400, "incorporar_voz debe ser un booleano")
+        if 'pronunciaciones' in nuevos:
+            from pasos import pronunciaciones
+            try:
+                pronunciaciones.normalizar(nuevos['pronunciaciones'])
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if "transiciones_personalizadas" in nuevos and not isinstance(
                 nuevos["transiciones_personalizadas"], bool):
             raise ErrorApi(400, "transiciones_personalizadas debe ser un booleano")
@@ -10860,12 +10866,14 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
 
     if voz_pedida:
         limpios = {c: voz_pedida[c] for c in presets.TIPOS["voz"]["claves"]
-                   if c in voz_pedida and voz_pedida[c] not in (None, "")}
+                   if c in voz_pedida and voz_pedida[c] is not None
+                   and (voz_pedida[c] != "" or c == 'pronunciaciones')}
         sobran = [c for c in voz_pedida if c not in presets.TIPOS["voz"]["claves"]]
         if sobran:
             raise ErrorApi(400, "un preset de voz no guarda "
                                 + ", ".join(sorted(sobran)))
         if limpios:
+            _validar_params('voz', limpios)
             contenido["voz"] = dict(contenido.get("voz") or {}, **limpios)
             # y el origen recuerda la voz elegida a mano: rehacer «la voz» con
             # una frase pone los mandos a ESTA, no vuelve a elegir otra
@@ -12027,7 +12035,7 @@ def _sembrar_video_light(ctx, datos):
     if assets:
         _validar_params("assets", assets, ctx)
         ctx.estado.actualizar_params("assets", assets)
-    voz = {k: datos[k] for k in ("incorporar_voz", "voz_id") if k in datos}
+    voz = {k: datos[k] for k in ("incorporar_voz", "voz_id", "pronunciaciones") if k in datos}
     if voz:
         _validar_params("voz", voz, ctx)
         ctx.estado.actualizar_params("voz", voz)

@@ -143,6 +143,39 @@ Contrato y mapa del kit: [docs/STICKMAN_EDITORIAL.md](docs/STICKMAN_EDITORIAL.md
 Prueba del catálogo completo, fuentes y 3D, sin proveedores:
 `python pasos/prueba_stickman_editorial.py --real`.
 
+## Corregir la pronunciación de nombres ingleses
+
+En **Voz → Pronunciaciones**, dentro del encargo del vídeo, escribe una entrada
+por línea con el formato `Nombre = cómo debe sonar`. También puedes guardarlas
+en los controles avanzados de voz de un estilo para que las hereden sus vídeos
+nuevos. Por ejemplo:
+
+```text
+Shakespeare = shéikspir
+William = <<ˈ|w|ɪ|l|j|ə|m>>
+```
+
+La escritura aproximada ayuda a orientar la lectura; para los sonidos ingleses
+precisos, Sonic 3 y Sonic 3.5 admiten fonemas IPA entre `<< >>`, separados por `|`,
+como en el segundo ejemplo. Referencia de sonidos:
+[fonemas de Cartesia](https://docs.cartesia.ai/build-with-cartesia/capability-guides/phonemes).
+El resultado depende también de la voz elegida: compruébalo con **Escuchar
+pronunciaciones**, que lee los nombres del diccionario hasta doce segundos.
+Las muestras consumen síntesis de voz y se reutilizan si no cambias sus ajustes.
+
+Las correcciones se aplican solo al texto enviado al locutor: el guion y los
+subtítulos conservan los nombres originales. Se buscan nombres completos sin
+distinguir mayúsculas, dando prioridad a la entrada más larga; las etiquetas de
+voz y los deletreos explícitos se respetan. Si una lectura ocupa varias palabras,
+sus marcas se adaptan al nombre original para conservar los cortes de escena.
+No se cambia el idioma español del resto de la narración.
+
+En un vídeo existente, vuelve a generar el audio después de cambiar el diccionario
+y actualiza después la sincronización y el montaje. Vaciar el campo elimina las
+correcciones. Abrir un vídeo antiguo no le añade pronunciaciones automáticamente.
+Verificación sin proveedores: `python pasos/prueba_pronunciaciones.py`; con
+`--real` también comprueba el campo y el autoguardado en Chromium.
+
 ## Editar las descripciones visuales del guion
 
 En **Guion**, despliega **Descripción visual de la escena** debajo de cada

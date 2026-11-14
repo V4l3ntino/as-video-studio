@@ -52,6 +52,7 @@ Params del paso
     emociones       ["curiosity:high", "sadness:low", ...]
     idioma          es | en | ...
     hueco_minimo    segundos de silencio minimo entre bloques
+    pronunciaciones texto «Nombre = lectura», una entrada por línea; solo TTS
     bloques         guion inline; si falta, se lee del paso guion
 
 Salidas
@@ -75,7 +76,7 @@ import time
 import requests
 
 try:
-    from . import cadencia, cli_claude, comun, estadisticas, marcas_tts, medios, presets_voz
+    from . import cadencia, cli_claude, comun, estadisticas, marcas_tts, medios, presets_voz, pronunciaciones
 except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import cli_claude
     import comun
@@ -84,6 +85,7 @@ except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import marcas_tts
     import medios
     import presets_voz
+    import pronunciaciones
 
 PASO = "voz"
 RAIZ_ESTUDIO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -334,6 +336,10 @@ def resolver_params(params):
     if modelo not in MODELOS:
         raise ValueError(f"modelo de voz desconocido: {modelo!r}. "
                          f"Validos: {', '.join(MODELOS)}")
+    diccionario = crudos.get('pronunciaciones', '')
+    entradas = pronunciaciones.normalizar(diccionario)
+    if entradas and modelo not in MODELOS_NUEVOS:
+        raise ValueError('Las pronunciaciones requieren Sonic 3 o Sonic 3.5.')
     idioma = str(elegir("idioma", IDIOMA_POR_DEFECTO)).strip().lower()
 
     emociones_crudas = crudos.get("emociones")
@@ -359,6 +365,7 @@ def resolver_params(params):
         raise ValueError("hueco_minimo no puede ser negativo")
 
     return {
+        **({'pronunciaciones': diccionario} if entradas else {}),
         "preset": nombre_preset or None,
         "modelo": modelo,
         "voz_id": voz_id,
@@ -764,6 +771,8 @@ def _toma_por_contexto(trozos, cfg, progreso):
     """
     import websocket  # websocket-client; solo hace falta por este camino
 
+    originales = trozos
+    trozos = [pronunciaciones.aplicar(t, cfg.get('pronunciaciones')) for t in trozos]
     api_key = comun.llamar_motor(motor.cargar_api_key)
     url = (f"wss://api.cartesia.ai/tts/websocket?api_key={api_key}"
            f"&cartesia_version={motor.API_VERSION}")
@@ -799,7 +808,8 @@ def _toma_por_contexto(trozos, cfg, progreso):
             for palabra, ini, fin in zip(marcas.get("words") or [],
                                          marcas.get("start") or [],
                                          marcas.get("end") or []):
-                hablada = marcas_tts.texto_de_marca(palabra)
+                hablada = (palabra if '<<' in palabra and cfg.get('pronunciaciones')
+                           else marcas_tts.texto_de_marca(palabra))
                 if hablada is None:
                     continue
                 palabras.append({"w": hablada, "s": round(ini, 3),
@@ -822,6 +832,8 @@ def _toma_por_contexto(trozos, cfg, progreso):
     if not palabras:
         raise RuntimeError("Cartesia devolvio audio sin marcas de palabra: "
                            "sin marcas no se puede sincronizar el montaje")
+    if trozos != originales:
+        palabras = pronunciaciones.restaurar(marcas_tts.limpiar(' '.join(originales)), palabras)
     return motor.wav_desde_pcm(crudo), len(crudo) / (SR * 2), palabras
 
 
@@ -829,6 +841,8 @@ def _toma_real(texto, cfg, progreso):
     """Llamada SSE a Cartesia con __experimental_controls."""
     # cargar_api_key aborta con SystemExit, que dentro de un hilo del gestor de
     # trabajos no lo recoge nadie
+    original = texto
+    texto = pronunciaciones.aplicar(texto, cfg.get('pronunciaciones'))
     api_key = comun.llamar_motor(motor.cargar_api_key)
     cabeceras = {
         "X-API-Key": api_key,
@@ -886,7 +900,8 @@ def _toma_real(texto, cfg, progreso):
                     # la palabra, porque el reparto la espera (limpiar() ya la
                     # dejo como 'ABC'). Tirarla correria una palabra todos los
                     # cortes de plano del resto del video.
-                    hablada = marcas_tts.texto_de_marca(palabra)
+                    hablada = (palabra if '<<' in palabra and cfg.get('pronunciaciones')
+                               else marcas_tts.texto_de_marca(palabra))
                     if hablada is None:
                         continue
                     palabras.append({"w": hablada, "s": round(ini, 3),
@@ -906,6 +921,8 @@ def _toma_real(texto, cfg, progreso):
     if not palabras:
         raise RuntimeError("Cartesia devolvio audio sin marcas de palabra: "
                            "sin marcas no se puede sincronizar el montaje")
+    if texto != original:
+        palabras = pronunciaciones.restaurar(marcas_tts.limpiar(original), palabras)
     return motor.wav_desde_pcm(pcm), len(pcm) / (SR * 2), palabras
 
 
@@ -1285,15 +1302,20 @@ def previsualizar(proyecto, params, segundos=20):
     El resultado se cachea por configuracion: volver a pulsar 'escuchar' con los
     mismos mandos no vuelve a pagar la sintesis.
     """
-    bloques = cargar_guion(proyecto, params)
     cfg = resolver_params(params_con_idioma(proyecto, params))
-    texto = recortar_texto(bloques, segundos, cfg.get("velocidad"))
+    entradas = pronunciaciones.normalizar(cfg.get('pronunciaciones'))
+    if entradas:
+        texto = recortar_texto([{'texto': '. '.join(n for n, _ in entradas) + '.'}],
+                              segundos, cfg.get('velocidad'))
+    else:
+        bloques = cargar_guion(proyecto, params)
+        texto = recortar_texto(bloques, segundos, cfg.get('velocidad'))
     if not texto:
         raise RuntimeError("el guion no tiene texto que previsualizar")
 
     firma = hashlib.sha256(json.dumps(
         [texto, cfg["modelo"], cfg["voz_id"], cfg["idioma"],
-         cfg["experimental_controls"], simulado()],
+         cfg["experimental_controls"], cfg.get('pronunciaciones', ''), simulado()],
         sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
     carpeta = proyecto.ruta("previsualizaciones")
     os.makedirs(carpeta, exist_ok=True)

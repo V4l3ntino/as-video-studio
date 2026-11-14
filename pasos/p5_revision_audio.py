@@ -404,7 +404,7 @@ def _config_voz(proyecto, params):
         base = estado.params("voz") or {}
     base = {k: v for k, v in base.items() if k != "unidades"}
     for clave in ("preset", "modelo", "voz_id", "idioma", "velocidad",
-                  "emociones", "hueco_minimo", "incorporar_voz"):
+                  "emociones", "hueco_minimo", "incorporar_voz", "pronunciaciones"):
         if params.get(clave) is not None:
             base[clave] = params[clave]
     if isinstance(params.get("voz"), dict):
@@ -448,6 +448,8 @@ def _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa, sin_voz=False):
     # Se comparan los controles RESUELTOS de las dos partes: cfg ya viene de
     # resolver_params, y 'controles' es el cfg con el que se grabo.
     if {k: controles.get(k) for k in cfg} != dict(cfg):
+        return None
+    if controles.get('pronunciaciones', '') != cfg.get('pronunciaciones', ''):
         return None
 
     grabados = [(b.get("id"), (b.get("texto") or "").strip())

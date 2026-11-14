@@ -6249,6 +6249,8 @@ function montajeDelEstiloLight(ficha) {
     parallax: parallaxPorDefectoLight(montaje.parallax),
     generar_personajes: montaje.generar_personajes !== false,
     incorporar_voz: montaje.incorporar_voz !== false,
+    ...((ficha || {}).datos?.voz?.pronunciaciones !== undefined
+      ? { pronunciaciones: ficha.datos.voz.pronunciaciones } : {}),
     transiciones: [...(montaje.transiciones || [])],
     transiciones_personalizadas: !!montaje.transiciones_personalizadas,
     animaciones: [...(montaje.animaciones || [])],
@@ -7623,6 +7625,18 @@ function personajesDelEncargo(e, alCambiar, esEstilo = false) {
 function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
   const contenidos = h('fieldset', { clase: 'campos-voz-opcional',
     disabled: e.incorporar_voz === false }, ...campos);
+  if (!esEstilo) {
+    const pid = APP.light.video?.pid;
+    const ficha = pid && APP.light.video.vista === 'encargo_video' ? {
+      id: `pronunciaciones-${pid}`, proyecto_id: pid,
+      datos: { get voz() { return { ...(APP.light.video.fichas.voz?.params || {}),
+        voz_id: e.voz_id || APP.light.video.fichas.voz?.params?.voz_id || '',
+        pronunciaciones: e.pronunciaciones || '' }; } },
+    } : null;
+    contenidos.appendChild(campoPronunciaciones(e.pronunciaciones, valor => {
+      e.pronunciaciones = valor;
+    }, ficha));
+  }
   return bloqueLight('🎙️ Voz', 'locución del vídeo',
     h('label', { clase: 'efecto-encargo' },
       h('input', { type: 'checkbox', checked: e.incorporar_voz !== false,
@@ -7639,6 +7653,23 @@ function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
           : 'Sin voz general y con Incorporar diálogos, solo se escuchan los personajes con sus voces propias. Con ambas opciones desactivadas, el vídeo queda sin locución. Cambiarla en un vídeo ya '
             + 'generado deja pendientes la sincronización y el montaje.'))),
     contenidos);
+}
+
+function campoPronunciaciones(valor, cambiar, ficha) {
+  const caja = h('div', { clase: 'campo pronunciaciones-voz' },
+    h('label', {}, 'Pronunciaciones'),
+    campoArea('', valor || '', cambiar,
+      'Shakespeare = shéikspir\nWilliam = <<ˈ|w|ɪ|l|j|ə|m>>', 'voz-pronunciaciones'),
+    h('p', { clase: 'pista' }, 'Una entrada por línea: Nombre = cómo suena. '
+      + 'Para sonidos ingleses precisos puedes usar fonemas entre << >>, separados por |. '
+      + 'El guion y los subtítulos conservan el nombre original. Requiere Sonic 3 o 3.5. '
+      + 'Después de cambiarlo, regenera el audio para aplicarlo.'));
+  if (ficha) caja.append(
+    botonEscuchaVoz(ficha, { etiqueta: 'Escuchar pronunciaciones' }),
+    h('p', { clase: 'pista' }, 'La muestra lee primero los nombres del diccionario, '
+      + 'hasta doce segundos. Generar una muestra consume voz; repetirla sin cambios reutiliza el audio.'));
+  caja.querySelector('textarea').setAttribute('aria-label', 'Pronunciaciones');
+  return caja;
 }
 
 function vozParaVideoLight(e, estilo) {
@@ -8014,6 +8045,7 @@ async function crearYGenerarLight(estilo) {
         generar_personajes: e.generar_personajes !== false,
         ...(e.personajes ? { personajes: e.personajes } : {}),
         incorporar_voz: e.incorporar_voz !== false,
+        ...(e.pronunciaciones !== undefined ? { pronunciaciones: e.pronunciaciones } : {}),
         ...(e.voz_id ? { voz_id: e.voz_id } : {}),
         bibliotecas: e.bibliotecas,
         ...(e.avatar ? { avatar: e.avatar } : {}),
@@ -8092,6 +8124,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'personajes', paso: 'guion', param: 'personajes' },
   { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
   { clave: 'voz_id', paso: 'voz', param: 'voz_id' },
+  { clave: 'pronunciaciones', paso: 'voz', param: 'pronunciaciones' },
 ];
 
 /* Las tres ranuras completas a partir de lo guardado, que puede faltar entero
@@ -8142,6 +8175,7 @@ function pedidoDelVideoLight() {
     stickman: params('assets').estilo?.stickman || null,
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
+    pronunciaciones: params('voz').pronunciaciones || '',
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
   v.pedido = {
@@ -15043,6 +15077,8 @@ function mandosDeVozLight(ficha, voz) {
     valor => guardar({ hueco_minimo: valor }),
     { tipo: 'number', paso: 0.1, min: 0.3, max: 1.6, ancho: '110px',
       ayuda: 'Lo pone el ritmo; aquí se afina.' }));
+  dentro.appendChild(campoPronunciaciones(voz.pronunciaciones,
+    valor => guardar({ pronunciaciones: valor }), ficha));
   return caja;
 }
 
@@ -15381,7 +15417,7 @@ let abandonarEscucha = null;
 function claveEscucha(ficha, vozId) {
   const v = (ficha.datos || {}).voz || {};
   return JSON.stringify([ficha.id, vozId || v.voz_id || '', v.velocidad || '',
-    (v.emociones || []).join(','), v.hueco_minimo,
+    (v.emociones || []).join(','), v.hueco_minimo, v.pronunciaciones || '',
     v.idioma || ficha.idioma || '']);
 }
 

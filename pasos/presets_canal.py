@@ -159,7 +159,7 @@ TIPOS = {
         "que_fija": ("modelo, voz, idioma de locucion, velocidad, emociones y "
                      "aire entre bloques"),
         "claves": ("modelo", "voz_id", "voz_nombre", "idioma", "velocidad",
-                   "emociones", "hueco_minimo"),
+                   "emociones", "hueco_minimo", "pronunciaciones"),
         "pasos": ("voz",),
     },
     "montaje": {
@@ -238,6 +238,12 @@ def _limpiar_datos(tipo, datos):
             f"Lo que guarda es: {', '.join(permitidas)}")
     limpios = {c: copy.deepcopy(v) for c, v in datos.items()
                 if v is not None and v != ""}
+    if tipo == 'voz' and 'pronunciaciones' in limpios:
+        try:
+            from pasos import pronunciaciones
+            pronunciaciones.normalizar(limpios['pronunciaciones'])
+        except ValueError as fallo:
+            raise ErrorPreset(str(fallo)) from fallo
     if tipo == "estilo" and "stickman" in limpios:
         from pasos import stickman
         try:

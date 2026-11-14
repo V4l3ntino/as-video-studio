@@ -1,5 +1,21 @@
 # AS Video Studio — lo que hay que saber antes de tocarlo
 
+## Pronunciaciones de voz
+
+`voz.params.pronunciaciones` es texto editable «Nombre = lectura», una entrada
+por línea, heredado desde el estilo solo al crear vídeos. `pasos/pronunciaciones.py`
+aplica el diccionario DESPUÉS de sanear SSML y solo en las peticiones TTS (SSE y
+contextos WS): el guion guardado nunca lleva la grafía fonética. Sonic 3/3.5
+aceptan fonemas `<<ˈ|w|ɪ|l|j|ə|m>>`; no los pases otra vez por `marcas_tts.sanear`,
+ni descartes sus marcas por contener ángulos. Antes de repartir escenas, se
+restauran las palabras originales conservando las anclas temporales. Las lecturas
+con distinto número de palabras reparten solo el tramo sustituido.
+La muestra de voz lee los nombres del diccionario cuando lo hay; su caché también
+depende de las pronunciaciones. En revisión, quitar el diccionario debe impedir
+sellar una toma que todavía lo usaba: comparar solo las claves del cfg nuevo
+ignora esa eliminación. Regresión aislada y navegador:
+`python pasos/prueba_pronunciaciones.py --real` (sin proveedores).
+
 ## Stickman 2D
 
 Desde `stickman-5-editorial-1`, las entregas nuevas incorporan `realizacion` y
