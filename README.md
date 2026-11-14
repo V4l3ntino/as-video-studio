@@ -116,6 +116,13 @@ escenas** pide a Claude una nueva dirección visual para todo el guion. Puedes
 usar el campo de indicaciones para orientar esa regeneración o dejarlo vacío.
 Conserva la narración, las voces y los tiempos del audio. Las imágenes o
 animaciones se actualizan después, al generar sus escenas.
+La nueva descripción utiliza la duración de pantalla de cada frase para ajustar
+su acción: un plano de dos segundos parte de la situación ya establecida y muestra
+un gesto o reacción breve; uno más largo permite desarrollar la acción y su
+resultado. Se usan los tiempos de la voz actual; si aún no hay audio, se estiman
+con el idioma y la velocidad de locución. El guion inicial Stickman también
+incluye esta pauta temporal, y el director de animación adapta la acción al
+tiempo real sin acelerar una secuencia demasiado larga para hacerla caber.
 Las descripciones se guardan y aparecen en la web por tandas de hasta seis
 escenas: los bloques actualizados se despliegan y destacan sus cambios. La barra
 cuenta escenas guardadas, no tiempo estimado. Si paras o falla una tanda, las

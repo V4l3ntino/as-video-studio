@@ -55,6 +55,13 @@ completa del bloque en cada corte. Una frase editada sin actualizar su direcció
 utiliza la del catálogo, sin asociarle otra entrada antigua. Los guiones anteriores
 sin esta lista conservan su lectura; al regenerar animaciones, el director recibe
 la frase anterior y siguiente y debe adaptar la descripción global al corte actual.
+Además recibe `continuidad_bloque`: las descripciones visuales de todas las frases
+y los planes de animación publicados de la raíz y la escena anterior. Conserva
+escenario, geometrías, focos y actores que esperan su turno, partiendo de las
+últimas claves de la anterior y adaptando los tiempos al nuevo corte. El contexto
+se recupera del disco al continuar una tanda o regenerar una escena suelta, cruza
+el reparto Claude/ChatGPT y se reinicia al cambiar de bloque. Las referencias
+participan en la firma del encargo; no se modifican clips publicados al leerlos.
 Las descripciones nuevas priorizan acciones corporales sencillas y utilería
 reconocible frente a metáforas anidadas y cadenas de iconos. El ancla `pecho`
 está entre hombros y cadera; no sobre el cuello.

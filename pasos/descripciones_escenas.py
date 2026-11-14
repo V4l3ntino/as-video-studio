@@ -8,7 +8,7 @@ import json
 import os
 
 from nucleo.estado import Estado
-from pasos import comun, medios, personajes, p4_voz
+from pasos import cadencia, comun, medios, personajes, p4_voz
 
 
 def _clave(bloque, texto, indice):
@@ -20,11 +20,19 @@ def listar(proyecto):
     documento = comun.leer_salida(proyecto, 'guion', 'guion.json', obligatorio=False) or {}
     bloques = p4_voz.ediciones_a_mano(proyecto, copy.deepcopy(documento.get('guion') or []))
     plan = p6_assets.plan_actual(proyecto, 'assets') or {}
+    params = personajes.params_de(proyecto, 'assets')
+    # La voz puede haberse regrabado desde el último plan publicado. Planificar
+    # es lectura pura y usa exactamente los cortes/silencios del montaje.
+    meta = params.get('audio_meta') or medios.salida_de(
+        proyecto, 'voz', claves=('meta', 'audio_meta', 'marcas'),
+        patrones=(r'audio_meta\.json', r'.*_meta\.json'))
+    if meta and os.path.isfile(meta):
+        plan = p6_assets.planificar(proyecto, dict(params, audio_meta=meta), previo=plan)
     anteriores = {}
     for e in plan.get('escenas', []):
         clave = ((e.get('origen') or {}).get('bloque'), medios.normalizar_texto(e.get('narracion') or ''))
         anteriores.setdefault(clave, []).append(e)
-    params = personajes.params_de(proyecto, 'assets')
+    voz = p4_voz.params_con_idioma(proyecto, personajes.params_de(proyecto, 'voz'))
     guardadas = [u['descripcion_escena'] for u in (params.get('unidades') or {}).values()
                  if isinstance(u, dict) and isinstance(u.get('descripcion_escena'), dict)]
     por_ancla = {_clave(v['bloque'], v['texto'], v['indice']): v for v in guardadas}
@@ -52,8 +60,14 @@ def listar(proyecto):
             guardada = por_ancla.get(_clave(b['id'], frase, indice))
             if guardada:
                 descripcion = guardada['descripcion_visual']
+            duracion = float(anterior.get('t_out', 0)) - float(anterior.get('t_in', 0))
+            estimada = duracion <= 0
+            if estimada:
+                duracion = cadencia.estimar([frase], idioma=voz.get('idioma'),
+                    velocidad=voz.get('velocidad'), voz=voz.get('voz_id'))['segundos']
             resultado.append(dict(id=sid, bloque=b['id'], indice=indice, texto=frase,
-                                  descripcion_visual=descripcion))
+                                  descripcion_visual=descripcion, duracion_s=round(duracion, 3),
+                                  duracion_estimada=estimada))
     return resultado
 
 
@@ -130,7 +144,7 @@ def regenerar(proyecto, escenas, peticion='', avisar=None, publicar=None):
     """Valida y publica tandas pequeñas; lo ya publicado sobrevive a Parar."""
     avisar = avisar or (lambda *a: None)
     terminadas = []
-    contexto = [{k: e[k] for k in ('bloque', 'indice', 'texto')} for e in escenas]
+    contexto = [_entrada_temporal(e) for e in escenas]
     for inicio in range(0, len(escenas), ESCENAS_POR_TANDA):
         tanda = escenas[inicio:inicio + ESCENAS_POR_TANDA]
 
@@ -153,6 +167,10 @@ def regenerar(proyecto, escenas, peticion='', avisar=None, publicar=None):
     return terminadas
 
 
+def _entrada_temporal(escena):
+    return {k: escena[k] for k in ('bloque', 'indice', 'texto', 'duracion_s', 'duracion_estimada') if k in escena}
+
+
 def _regenerar_tanda(proyecto, escenas, peticion='', avisar=None, contexto=None, anteriores=None):
     from pasos import cli_claude, p3_guion, estadisticas
     avisar = avisar or (lambda *a: None)
@@ -171,9 +189,11 @@ def _regenerar_tanda(proyecto, escenas, peticion='', avisar=None, contexto=None,
         'escenas_anteriores contiene la dirección ya elegida; continúa desde ella sin repetir sus acciones.\n')
     if (opciones.get('sistema_personajes') or {}).get('stickman'):
         instruccion += personajes.instruccion_visual_stickman() + '\nEl formato de entrega de esta petición prevalece: SOLO escenas.\n'
+    else:
+        instruccion += personajes.instruccion_tiempo_visual()
     # Al regenerar no hacen falta las descripciones anteriores (los guiones
     # históricos repiten la del bloque en cada frase y multiplican el encargo).
-    entradas = [{k: e[k] for k in ('bloque', 'indice', 'texto')} for e in escenas]
+    entradas = [_entrada_temporal(e) for e in escenas]
     original = instruccion + json.dumps(dict(escenas=entradas, guion_contexto=contexto or [],
         escenas_anteriores=anteriores or [], reparto=reparto,
         estilo=personajes.params_de(proyecto, 'assets').get('estilo') or {}, indicaciones=peticion), ensure_ascii=False)

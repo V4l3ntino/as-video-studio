@@ -414,6 +414,7 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
 
 
 def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
+    from pasos import personajes
     dur = float(e['t_out']) - float(e['t_in'])
     catalogo_utileria = utileria_stickman.catalogo(proyecto)
     ejemplo = dict(ambiente='interiorWarm', decorado='vacio', atmosfera='ninguna', camara=[],
@@ -425,10 +426,20 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     else:
         datos = consultar('Dirige una escena narrativa Stickman cuya acción se entienda SIN escuchar la voz. Devuelve SOLO un objeto JSON de esta forma: '
             + json.dumps(ejemplo) + '\nNo repitas una escena genérica: representa literalmente la acción y el contexto del guion. '
-            'Prioriza la descripción visual (prompt) y la narración sobre la decoración. Divide mentalmente el tiempo en presentación, acción y reacción final: '
+            'Prioriza la descripción visual (prompt) y la narración sobre la decoración. '
+            'duracion es el tiempo REAL de pantalla: adapta a él cualquier descripción demasiado extensa o escueta. '
+            'En este encargo duracion equivale a duracion_s y no es estimada. '
+            'La situación inicial puede estar establecida desde el primer fotograma. '
             'La narración de ESTA frase determina qué acción corresponde ahora. Si el prompt heredado describe un bloque entero, '
             'representa solo la parte pertinente a esta frase, no reinicies toda la secuencia. contexto_frase informa del corte y sus vecinos. '
-            'cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
+            'continuidad_bloque contiene la dirección visual de TODAS las frases del bloque y, cuando existen, los planes '
+            'reales de la escena raíz y la anterior. Son la referencia de continuidad, también si las generó otro proveedor. '
+            'Continúa la misma puesta en escena: conserva telón, suelo, focos, utilería, paleta, cámara y reparto presente '
+            'aunque esta frase no vuelva a nombrarlos. No cambies el escenario ni elimines al personaje que espera su turno. '
+            'Parte del estado final de la anterior (sus últimas claves, no sus posiciones iniciales); '
+            'no repitas sus entradas, acciones ni sonidos. Solo cambia el lugar o retira elementos si la dirección lo pide explícitamente. '
+            'Reutiliza las geometrías y recursos exactos recibidos, adaptando inicio/fin y claves a la duración local actual. '
+            'Cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
             'No sustituyas conductas por iconos pequeños: muestra distancia con desplazamiento y defensa con postura. '
             'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta la puesta en escena a acciones corporales '
             'que expresen esa misma idea, sin inventar objetos ajenos a ella. No añadas relojes ni móviles salvo que intervengan en el relato. '
@@ -464,6 +475,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Los textos deben coincidir con la narración, en su idioma. sfx: [{name,at,dur,gain:-12,seed:1,pitch:1}], '
             'incluye ambientes como rain,city,roomtone con dur de la escena y gain -26 si corresponde. Sonidos disponibles: '
             + ','.join(EFECTOS) + '. Evita efectos que no correspondan a acciones. '
+            + personajes.instruccion_tiempo_visual()
             + utileria_stickman.CONTRATO
             + json.dumps(dict(escena=e, duracion=dur, estilo=diseno, reparto=reparto,
                 catalogo_utileria=utileria_stickman.indice(catalogo_utileria, e)), ensure_ascii=False),
@@ -484,6 +496,26 @@ def reparto_escenas(total, carga_claude=50):
     numero(carga_claude, 0, 100)
     n_chatgpt = total * (100 - carga_claude) // 100
     return total - int(n_chatgpt), int(n_chatgpt)
+
+
+def contexto_de_bloque(hermanas, posicion, animaciones):
+    """Datos explícitos, sin depender de la memoria de una sesión de Claude/Codex."""
+    if not (hermanas[posicion].get('origen') or {}).get('bloque'):
+        return None
+    return dict(escenas=[dict(id=s['id'], narracion=s.get('narracion', ''),
+        descripcion_visual=s.get('prompt', '')) for s in hermanas],
+        raiz=animaciones.get(hermanas[0]['id']) if posicion else None,
+        anterior=animaciones.get(hermanas[posicion - 1]['id']) if posicion else None)
+
+
+def memoria_visual(e, contenido):
+    # No anidar el contexto recibido: el tamaño queda acotado a dos planes.
+    visual = copy.deepcopy(contenido)
+    visual.pop('sfx', None)
+    for actor in visual.get('personajes', []):
+        actor.pop('diseno', None)
+        actor.pop('habla', None)
+    return dict(id=e['id'], duracion=e['t_out'] - e['t_in'], contenido=visual)
 
 
 def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer=False, previo=None, **opciones):
@@ -522,6 +554,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
         escenas = plan['escenas']
         carga = (params.get('bibliotecas') or {}).get('carga_claude', 50)
         n_claude, _ = reparto_escenas(len(escenas), carga)
+        animaciones = {}
         for i, e in enumerate(escenas):
             uid = 'escena:' + e['id']
             hermanas = [s for s in escenas if (s.get('origen') or {}).get('bloque') == (e.get('origen') or {}).get('bloque')]
@@ -529,25 +562,32 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
             contexto_frase = dict(numero=posicion + 1, total=len(hermanas),
                 anterior=hermanas[posicion - 1].get('narracion', '') if posicion else '',
                 siguiente=hermanas[posicion + 1].get('narracion', '') if posicion + 1 < len(hermanas) else '')
+            continuidad = contexto_de_bloque(hermanas, posicion, animaciones)
             firma = huella([VERSION, base, reparto, e.get('narracion'), e.get('prompt'), e.get('personajes'),
-                e['t_out'] - e['t_in'], plan['resolucion'], (params.get('unidades') or {}).get(uid), contexto_frase])
+                e['t_out'] - e['t_in'], plan['resolucion'], (params.get('unidades') or {}).get(uid), contexto_frase]
+                + ([continuidad] if continuidad else []))
             ruta = Path(trabajo) / 'escenas' / (e['id'] + '.json')
             anterior = medios.leer_json(str(ruta), {}) or {}
+            fuente = ruta.with_suffix('.animacion.json')
+            guardada = medios.leer_json(str(fuente), {}) or {}
             solicitada = unidades is None or uid in unidades
             valida = anterior.get('firma_stickman') == firma and all((Path(trabajo) / anterior.get(k, '_ausente')).is_file() for k in ('clip', 'png'))
             if not solicitada or (valida and not rehacer):
+                # Una regeneración parcial continúa lo que se ve, incluso si el
+                # recibo usa una firma histórica. No usar planes sin publicar.
+                if (anterior.get('origen') == 'stickman' and anterior.get('narracion') == e.get('narracion')
+                        and guardada.get('firma') == anterior.get('firma_stickman') and guardada.get('contenido')):
+                    animaciones[e['id']] = memoria_visual(e, guardada['contenido'])
                 if valida:
                     resultados[uid] = anterior
                     if solicitada:
                         rehechas[uid] = anterior
                 continue
             avisar(i / max(1, len(escenas)), f'Animando {e["id"]} · {i + 1} de {len(escenas)}')
-            fuente = ruta.with_suffix('.animacion.json')
-            guardada = medios.leer_json(str(fuente), {}) or {}
             contenido = guardada.get('contenido') if guardada.get('firma') == firma and not rehacer else None
             if not contenido:
                 contexto = dict(e, indicaciones_usuario=(params.get('unidades') or {}).get(uid) or {},
-                    resolucion=plan['resolucion'], contexto_frase=contexto_frase)
+                    resolucion=plan['resolucion'], contexto_frase=contexto_frase, continuidad_bloque=continuidad)
                 contenido = generar_escena(contexto, base, reparto, proyecto, avisar, 'Claude' if i < n_claude else 'ChatGPT')
                 fuente.parent.mkdir(parents=True, exist_ok=True)
                 medios.escribir_json(str(fuente), dict(firma=firma, contenido=contenido))
@@ -569,6 +609,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                 huella_animacion=huella_animacion,
                 png=f'escenas/{png.name}', clip=f'escenas/{clip.name}', sonidos_stickman=sonidos, coste=0)
             medios.escribir_json(str(ruta), salida)
+            animaciones[e['id']] = memoria_visual(e, contenido)
             resultados[uid] = salida
             rehechas[uid] = salida
             avisar((i + 1) / len(escenas), f'Animación {e["id"]} lista')

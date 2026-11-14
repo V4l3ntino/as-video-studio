@@ -2,6 +2,15 @@
 
 ## Stickman 2D
 
+La continuidad de animaciones se transmite explícitamente en `continuidad_bloque`:
+direcciones visuales de todas sus frases y planes reales de la raíz y la anterior
+(con sus claves finales y geometrías). Las frases vecinas narradas no bastan para
+conservar telón, focos o actores no mencionados de nuevo. Recupera esos planes de
+`<sid>.animacion.json` también al retomar o regenerar una escena suelta, comprobando
+que su firma coincide con el recibo publicado. No encadenes sesiones de proveedor:
+la continuidad debe cruzar Claude/Codex y no saltar a otro bloque. Los planes de
+referencia entran en la firma del nuevo encargo, sin anidar contextos anteriores.
+
 Desde `stickman-4`, el guion incluye `escenas_visuales` por frase literal, con
 descripción y reparto propios. Conserva ese campo al normalizar y guardar los
 bloques. Copiar `descripcion_visual` del bloque a cada frase reiniciaba la misma
@@ -17,12 +26,23 @@ voz sin haber cambiado ninguna palabra. La regeneración es un trabajo aparte,
 con validación de cobertura y comprobación de cambios antes de publicar cada tanda.
 Regresión offline y navegador: `python pasos/prueba_descripciones_escenas.py --real`.
 
+La dirección visual necesita el tiempo de CADA frase: `descripciones_escenas.listar`
+incluye `duracion_s` y `duracion_estimada`. Con audio, recalcula los cortes con
+`p6_assets.planificar` y las marcas de la voz actual (lectura pura), no toma los
+tiempos de un plan de assets anterior a una regrabación. Sin tiempos disponibles,
+estima con `cadencia` y la velocidad/idioma de voz. Estos campos viajan en cada
+tanda y en su contexto, no se persisten en `descripcion_escena`. El contrato
+temporal compartido de `personajes.instruccion_tiempo_visual` limita acciones en
+planos cortos y reparte el desarrollo en los largos; lo reciben guion Stickman,
+regeneración visual y director de animación. No intentes medir complejidad por
+número de caracteres ni aceleres una secuencia larga para encajarla en 2 s.
+
 La regeneración visual puede incluir cientos de frases (209 en un caso real).
 Genera y guarda tandas de hasta seis escenas con `cli_claude.escribiendo`;
 esperar a la lista completa ocultaba todo el trabajo y perdía las terminadas
 al cancelar. El callback de publicación compara contra la última foto guardada,
 no contra la foto inicial. Valida también duplicados entre tandas de un bloque.
-Envía solo bloque, índice y texto por escena; las descripciones anteriores de
+Envía bloque, índice, texto y presupuesto temporal por escena; las descripciones anteriores de
 guiones históricos repiten el bloque entero y engordan el encargo sin aportar.
 La barra cuenta escenas publicadas; el latido de espera no aumenta el porcentaje.
 El seguimiento web relee las descripciones al avanzar y también al terminar con

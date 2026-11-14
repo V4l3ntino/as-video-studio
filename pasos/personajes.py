@@ -197,6 +197,24 @@ def instruccion(opciones):
     ])
 
 
+def instruccion_tiempo_visual():
+    return """== TIEMPO DISPONIBLE PARA LA ACCIÓN VISUAL ==
+La duración de pantalla de CADA frase es el presupuesto de su animación, no la del bloque ni el tiempo ficticio del relato.
+Si hay duracion_s, úsala; duracion_estimada indica si es provisional. Antes de tener audio, estima el tiempo de lectura
+de cada frase según el idioma y la velocidad de voz indicados; una frase breve no permite una secuencia larga.
+En hasta 3 segundos: situación ya establecida en el primer fotograma y UNA acción o reacción breve, legible y completa.
+De 3 a 6 segundos: una acción principal y una reacción sencilla, sin encadenar entradas, trayectos y acciones secundarias.
+En planos más largos: desarrolla preparación, acción y resultado de forma proporcionada, con movimiento natural durante
+el tiempo disponible; no termines todo al principio para dejar el resto inmóvil ni añadas acciones ajenas para rellenar.
+Describe tiempos locales aproximados cuando conozcas duracion_s y reserva tiempo para percibir el resultado.
+Reduce la cantidad de acciones, nunca aceleres artificialmente gestos, caminatas o lecturas para meterlo todo.
+Las horas o días mencionados por la voz no son segundos de animación: sugiérelos con una sola señal visual clara.
+Por ejemplo, «Las respuestas tardan horas» en 2 s: personaje ya sentado con el móvil sin respuesta; lo mira y baja
+los hombros. No dejar/coger el móvil repetidas veces ni encadenar mediodía, tarde y noche en esos dos segundos.
+Mantén escenario y continuidad; no repitas la presentación ni adelantes acciones que pertenecen a la frase siguiente.
+"""
+
+
 def instruccion_visual_stickman():
     return """== DIRECCIÓN VISUAL STICKMAN 2D ==
 La narración explica la idea; la imagen muestra una acción concreta que la hace comprensible.
@@ -218,7 +236,7 @@ completa de texto, en el mismo orden: [{"texto":"Frase literal completa.","descr
 Las escenas consecutivas deben avanzar: conserva identidades y contexto, pero no reinicies la misma animación
 ni repitas la descripción con distinta velocidad. Cada entrada se anima solo durante su propia frase.
 Estas reglas de representabilidad prevalecen sobre sugerencias visuales genéricas del tono; conserva el sentido del relato.
-"""
+""" + instruccion_tiempo_visual()
 
 
 def preparar_intervenciones(datos, bloques, opciones):

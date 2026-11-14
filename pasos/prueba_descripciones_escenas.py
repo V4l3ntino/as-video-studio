@@ -117,6 +117,60 @@ class Descripciones(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'durante la generación'):
             visuales.guardar(self.p, nuevas, anteriores=escenas)
 
+    def test_duracion_es_la_del_montaje_actual_no_la_del_plan_antiguo(self):
+        plan = p6_assets.planificar(self.p, self.estado.params('assets'))
+        antiguo = copy.deepcopy(plan)
+        antiguo['escenas'][0]['t_out'] = 99
+        with patch.object(p6_assets, 'plan_actual', return_value=antiguo):
+            actuales = visuales.listar(self.p)
+        self.assertEqual([e['duracion_s'] for e in actuales],
+            [round(e['t_out'] - e['t_in'], 3) for e in plan['escenas']])
+        self.assertTrue(all(not e['duracion_estimada'] for e in actuales))
+        # Cambiar tiempos de voz durante una tanda también invalida su foto.
+        nuevas = [dict(e, descripcion_visual='Una acción nueva.') for e in actuales]
+        otros = copy.deepcopy(actuales)
+        otros[0]['duracion_s'] += 1
+        with patch.object(visuales, 'listar', return_value=otros):
+            with self.assertRaisesRegex(ValueError, 'durante la generación'):
+                visuales.guardar(self.p, nuevas, anteriores=actuales)
+
+    def test_sin_audio_estima_por_frase_y_respeta_la_velocidad_de_voz(self):
+        from pasos import personajes
+        params_original = personajes.params_de
+        def params(proyecto, paso):
+            return dict(params_original(proyecto, paso), velocidad='slowest') if paso == 'voz' else params_original(proyecto, paso)
+        with patch.object(p6_assets, 'plan_actual', return_value={}), \
+                patch.object(medios, 'salida_de', return_value=None):
+            normales = visuales.listar(self.p)
+            with patch.object(personajes, 'params_de', side_effect=params):
+                lentas = visuales.listar(self.p)
+        self.assertEqual(len(normales), 3)
+        self.assertTrue(all(e['duracion_estimada'] and e['duracion_s'] > 0 for e in normales))
+        self.assertTrue(all(l['duracion_s'] > n['duracion_s'] for n, l in zip(normales, lentas)))
+
+    def test_regeneracion_envia_presupuesto_por_escena_en_todas_las_tandas(self):
+        from pasos import cli_claude, personajes
+        escenas = visuales.listar(self.p)
+        escenas[0].update(duracion_s=2, duracion_estimada=False)
+        escenas[1].update(duracion_s=8, duracion_estimada=False)
+        def responder(prompt, **opciones):
+            pedido = json.loads(prompt[prompt.index('{"escenas": [{'):])
+            recibidas.append(pedido)
+            self.assertIn('UNA acción o reacción breve', prompt)
+            self.assertIn('no termines todo al principio', prompt)
+            return dict(escenas=[dict(e, descripcion_visual=f'Acción de {e["bloque"]}, {e["indice"]}.')
+                                for e in pedido['escenas']])
+        recibidas = []
+        with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), \
+                patch.object(visuales, 'ESCENAS_POR_TANDA', 1), \
+                patch.object(cli_claude, 'escribiendo', side_effect=responder):
+            salida = visuales.regenerar(self.p, escenas)
+        self.assertEqual(recibidas[0]['escenas'][0]['duracion_s'], 2)
+        self.assertEqual(recibidas[1]['escenas'][0]['duracion_s'], 8)
+        self.assertEqual(recibidas[2]['guion_contexto'][0]['duracion_s'], 2)
+        self.assertEqual([e['duracion_s'] for e in salida], [e['duracion_s'] for e in escenas])
+        self.assertIn('Antes de tener audio', personajes.instruccion_visual_stickman())
+
     def test_api_guarda_y_regenera_sin_lanzar_voz(self):
         import app
         ctx = app.Contexto(self.p.raiz)

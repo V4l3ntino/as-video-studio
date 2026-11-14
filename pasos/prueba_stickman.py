@@ -152,6 +152,63 @@ class Stickman(unittest.TestCase):
             dict(tipo='tarjeta', w=360, h=240), dict(tipo='rectangulo')]), 3, {})
         self.assertEqual([o['tipo'] for o in contenido['objetos']], ['pizarra', 'tarjeta', 'rectangulo'])
 
+    def test_continuidad_del_decorado_retoma_y_cruza_proveedores_sin_cruzar_bloques(self):
+        from pasos import p6_assets
+        p = Proyecto.crear(self.temp.name, 'Continuidad B004')
+        params = dict(estilo=dict(stickman=self.config), bibliotecas=dict(carga_claude=50))
+        escenas = [dict(id=f'S00{i+1}', narracion=f'Frase {i+1}.', prompt=descripcion,
+            origen=dict(bloque='B004' if i < 3 else 'B005'), t_in=i*3, t_out=(i+1)*3)
+            for i, descripcion in enumerate(['Escenario rojo con dos focos.', 'Se intensifica el foco izquierdo.',
+                'Ahora se ilumina el derecho.', 'Otro lugar.'])]
+        plan = dict(escenas=escenas, assets={}, dependencias={}, resolucion=[1920, 1080],
+            conservacion=dict(retirados=[]), duracion_total=12)
+        raiz = stickman.escena(dict(ambiente='interiorWarm', decorado='vacio',
+            personajes=[dict(id='protagonista', claves=[dict(t=0, pose='think'), dict(t=3, x=.6, pose='point')])],
+            objetos=[dict(tipo='rectangulo', color='#882222', capa='fondo', w=1920, h=700),
+                *[dict(tipo='circulo', color='#ffe0aa', x=x, y=.85, w=400, h=90) for x in (.25, .75)]]),
+            3, {'protagonista': self.base})
+        segunda = copy.deepcopy(raiz)
+        segunda['objetos'][1]['opacidad'] = .9
+        segunda['personajes'][0]['claves'][-1]['x'] = .7
+        def render(diseno, contenido, duracion, png, clip, *a, **kw):
+            Path(png).write_bytes(b'poster')
+            Path(clip).write_bytes(b'clip')
+        with patch.object(p6_assets, 'planificar', side_effect=lambda *a, **kw: copy.deepcopy(plan)), \
+                patch.object(p6_assets, '_catalogo_de', return_value={}), \
+                patch.object(stickman, 'renderizar', side_effect=render), \
+                patch.object(stickman, '_sonidos', return_value=[]):
+            with patch.object(stickman, 'generar_escena', side_effect=[raiz, RuntimeError('interrupción')]):
+                with self.assertRaisesRegex(RuntimeError, 'interrupción'):
+                    stickman.ejecutar(p, params, lambda *a: None)
+            with patch.object(stickman, 'generar_escena', side_effect=[segunda, segunda, raiz]) as generar:
+                stickman.ejecutar(p, params, lambda *a: None)
+            self.assertEqual(generar.call_count, 3)  # La raíz publicada se recupera del disco.
+            contexto2 = generar.call_args_list[0].args[0]['continuidad_bloque']
+            contexto3 = generar.call_args_list[1].args[0]['continuidad_bloque']
+            self.assertEqual(contexto2['raiz'], stickman.memoria_visual(escenas[0], raiz))
+            self.assertEqual(contexto2['anterior'], contexto2['raiz'])
+            self.assertEqual(contexto3['raiz'], contexto2['raiz'])
+            self.assertEqual(contexto3['anterior'], stickman.memoria_visual(escenas[1], segunda))
+            self.assertEqual(contexto3['escenas'][0]['descripcion_visual'], escenas[0]['prompt'])
+            self.assertEqual([c.args[-1] for c in generar.call_args_list], ['Claude', 'ChatGPT', 'ChatGPT'])
+            nuevo = generar.call_args_list[2].args[0]['continuidad_bloque']
+            self.assertIsNone(nuevo['raiz'])
+            self.assertIsNone(nuevo['anterior'])
+            # Regenerar solo la tercera también recupera raíz y anterior.
+            with patch.object(stickman, 'generar_escena', return_value=segunda) as generar:
+                stickman.ejecutar(p, params, lambda *a: None, unidades=['escena:S003'], rehacer=True)
+            self.assertEqual(generar.call_count, 1)
+            self.assertEqual(generar.call_args.args[0]['continuidad_bloque'], contexto3)
+        # El contexto llega al prompt del adaptador común a ambos proveedores.
+        e = dict(escenas[2], continuidad_bloque=contexto3)
+        with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), \
+                patch.object(stickman, '_consultar', return_value=segunda) as consultar:
+            stickman.generar_escena(e, self.base, {'protagonista': self.base}, p, lambda *a: None, 'ChatGPT')
+        prompt = consultar.call_args.args[0]
+        self.assertIn('Escenario rojo con dos focos.', prompt)
+        self.assertIn('#882222', prompt)
+        self.assertIn('estado final', prompt)
+
     def test_puesta_en_escena_corrige_personajes_ilegibles_y_no_acepta_estaticos(self):
         validar = lambda d: stickman.validar_puesta_en_escena(d, 6, {'ana': self.base}, [1920, 1080])
         for actor in (dict(escala=.4), dict(x=.99), dict(y=.4, escala=3)):
