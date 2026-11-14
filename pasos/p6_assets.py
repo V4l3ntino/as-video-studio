@@ -4946,6 +4946,12 @@ def unidades_pendientes(proyecto, params):
     lo mismo que ejecutar entero, y decirlo con None evita un caso especial.
     """
     p = _con_defectos(params)
+    if (p.get('estilo') or {}).get('stickman'):
+        from pasos import stickman
+        plan = stickman.aplicar_recursos(proyecto, planificar(proyecto, p))
+        # Las definiciones de rig son baratas, y tras una interrupción todavía
+        # no tienen manifiesto aunque sus escenas ya se estén previsualizando.
+        return list(plan.get('assets') or {}) + [f"escena:{e['id']}" for e in plan['escenas'] if not e.get('stickman')]
     trabajo = proyecto.ruta_trabajo("assets", crear=False)
     if not os.path.isdir(trabajo):
         return None
@@ -5098,6 +5104,10 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
     """
     arranque_paso = time.time()
     p = _con_defectos(params)
+    if (p.get('estilo') or {}).get('stickman'):
+        from pasos import stickman
+        return stickman.ejecutar(proyecto, p, avisar or (lambda *args: None), unidades=unidades,
+            solo_assets=solo_assets or bool(tipos), rehacer=rehacer, previo=previo)
     if bibliotecas.activa(p):
         p["bibliotecas"] = bibliotecas.normalizar(p["bibliotecas"])
     avisar = estadisticas.avisador(avisar)

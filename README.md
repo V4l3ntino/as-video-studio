@@ -41,6 +41,50 @@ el estilo obligaba a acordarse de cambiarlas en cada encargo.
 
 ---
 
+## Crear vídeos Stickman 2D
+
+En **Tus estilos → Un estilo nuevo**, elige **Stickman Animation**. Selecciona
+una familia —**Classic Stick**, **Bean Body**, **Rubber Hose** o **Geometric**—
+y, si quieres, pulsa **Generar estilos** para pedirle a Claude variantes de sus
+proporciones, cara, ropa, colores y acabado. Puedes escribir indicaciones o
+adjuntar imágenes de referencia del estilo. Las miniaturas se dibujan con el
+mismo motor que anima las escenas. El tono, ritmo, idioma y voz se configuran
+en esa misma pantalla. Al editar el estilo puedes seleccionar otra variante o
+generar más; los vídeos existentes conservan su copia.
+
+En el encargo del vídeo, **Personalizar personajes** conserva el funcionamiento
+habitual: nombre, descripción, categoría, voz y diálogos. En Stickman, el botón
+**Generar personaje** pide a Claude una definición animable siguiendo el estilo
+elegido. No hay subida de fotografías ni primera persona. Agrega el personaje
+al reparto antes de generar el guion: su identidad se incorpora al guion y se
+mantiene en sus apariciones animadas.
+
+**Repartir carga de trabajo** distribuye la generación de escenas entre Claude
+y ChatGPT/Codex. Los diseños de personajes y variantes los genera Claude. El
+motor dibuja localmente, sin solicitar imágenes ni vídeos a proveedores de IA;
+las llamadas a los CLI utilizan sus sesiones y cuotas. La locución conserva
+su proveedor y coste habituales.
+
+Desde Guion, pulsa **Generar animaciones**. Se abre el previsualizador en espera
+y cada escena aparece cuando su clip y sonidos están preparados. Puedes
+reproducir las escenas disponibles mientras continúa la tanda; **Parar** conserva
+las terminadas y **Continuar animaciones** retoma las pendientes. El botón de
+montaje utiliza los clips generados, las voces, los subtítulos y las transiciones.
+
+Los efectos y ambientes procedurales del plugin GrowKaz aparecen en la pista
+**Sonidos**. Se escuchan en la previsualización y se mezclan en el MP4 final con
+las voces y la música, sin duplicarlos dentro del clip visual. Puedes moverlos,
+recortarlos o eliminarlos como los demás sonidos. Los clips, definiciones y
+efectos viajan al duplicar o exportar el vídeo.
+
+El motor utiliza los archivos originales de
+`GrowKaz_Stickman/skills/make-2d-video/kit/`: esa carpeta debe acompañar al
+programa. Reutiliza el navegador y ffmpeg del Estudio y `esbuild` del motor
+Remotion (`npm ci --prefix motores/remotion`); Python instala la síntesis de
+efectos mediante `requirements.txt`. No necesita instalar Whisper ni Three.js
+para este modo 2D. Verificación sin consumir cuota:
+`python pasos/prueba_stickman.py --real`.
+
 ## Sincronizar los sonidos de una escena
 
 En la fase **Imágenes**, **Reproducir** usa la toma completa de narración sin

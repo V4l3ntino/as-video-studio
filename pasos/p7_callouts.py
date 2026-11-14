@@ -1466,6 +1466,9 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
         entrada = movimiento.calcular({"escenas": [escena]}, dir_escenas,
                                       dirs["hyper"], os.path.join(dir_assets, "sets"),
                                       int(p["escala_hyper"]))[0]
+        if (plan.get('estilo') or {}).get('stickman'):
+            # El desplazamiento ya está en la animación: el montaje no añade otro.
+            entrada.update(ventana_ini=[0., 0., 1., 1.], ventana_fin=[0., 0., 1., 1.])
         evitar = _zonas_de_unidad(p, uid)
         apagada = _sin_callout(p, uid)
         if cartelas.sobre_imagen(escena):

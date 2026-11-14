@@ -232,6 +232,8 @@ def imagenes_de_parte(parte, encargo=None):
     precio antes de pulsar es la regla de esta casa; para eso tiene que salir de
     donde esta el precio.
     """
+    if parte == 'estilo' and (encargo or {}).get('stickman'):
+        return 0
     ficha = PARTES.get(parte) or {}
     return sum(int((TAREAS_POR_ID.get(t) or {}).get("imagenes") or 0)
                for t in ficha.get("tareas", ()))
@@ -521,12 +523,20 @@ def validar_encargo(crudo):
     # de tumbar el encargo -- un preset guardado antes de que esto existiera no
     # trae ninguno, y tiene que poder rehacerse igual.
     limpio["ritmo"] = ritmo_de(datos.get("ritmo"))["id"]
+    if datos.get('stickman'):
+        from pasos import stickman
+        try:
+            limpio['stickman'] = stickman.estilo(datos['stickman'])
+        except ValueError as fallo:
+            raise ErrorEncargo(str(fallo)) from fallo
     if "montaje" in datos:
         from pasos import presets_canal
         try:
             limpio["montaje"] = presets_canal._limpiar_datos("montaje", datos["montaje"])
         except presets_canal.ErrorPreset as fallo:
             raise ErrorEncargo(str(fallo)) from fallo
+    if limpio.get('stickman'):
+        limpio.setdefault('montaje', {})['generar_personajes'] = True
 
     # EL ESTILO GRAFICO: UN VIDEO O UNAS IMAGENES, y el texto acompana a
     # cualquiera de los dos.
@@ -541,7 +551,7 @@ def validar_encargo(crudo):
     imagenes = [str(x).strip() for x in (datos.get("estilo_imagenes") or [])
                 if str(x).strip()]
     prompt = " ".join(str(datos.get("estilo_prompt") or "").split())
-    if not imagenes:
+    if not imagenes and not limpio.get('stickman'):
         raise ErrorEncargo(
             "falta el estilo gráfico: adjunta al menos una imagen que ya tenga "
             "el aspecto que quieres. Lo escrito acompaña, pero de un párrafo "
@@ -637,6 +647,9 @@ def tareas_de(encargo, solo=None):
     imagenes = len((encargo or {}).get("estilo_imagenes") or [])
     tareas = [{**t, "tamano": imagenes} if t["id"] == "guia" and imagenes else t
                for t in TAREAS]
+    if (encargo or {}).get('stickman'):
+        tareas = [dict(t, imagenes=0, cuesta=False, segundos=10, paso='')
+                  if t['id'] in ('guia', 'referencias', 'muestra') else t for t in tareas]
     if (encargo or {}).get("montaje", {}).get("incorporar_voz") is False:
         tareas = [t for t in tareas if t["id"] != "voz"]
     if solo is not None:

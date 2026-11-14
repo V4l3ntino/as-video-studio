@@ -23,7 +23,7 @@ def validar(datos, escena, resolucion):
         if not isinstance(bloques, list) or len(bloques) > 32:
             raise ValueError('utiliza como máximo 32 bloques de sonido')
         for b in bloques:
-            if not isinstance(b, dict) or set(b) != {'id', 'inicio', 'fin'} or not isinstance(b['id'], str) or (b['id'] not in ('tecla', 'retorno', 'escena', 'transicion_suave', 'transicion_acento') and not re.fullmatch(r'freesound:[1-9][0-9]{0,11}', b['id'])):
+            if not isinstance(b, dict) or set(b) != {'id', 'inicio', 'fin'} or not isinstance(b['id'], str) or (b['id'] not in ('tecla', 'retorno', 'escena', 'transicion_suave', 'transicion_acento') and not re.fullmatch(r'freesound:[1-9][0-9]{0,11}|stickman:[0-9]{1,2}', b['id'])):
                 raise ValueError('bloque de sonido no válido')
             if any(isinstance(b[k], bool) or not isinstance(b[k], (int, float)) or not math.isfinite(b[k]) for k in ('inicio', 'fin')):
                 raise ValueError('los tiempos deben ser números finitos')

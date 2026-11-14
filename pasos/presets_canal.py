@@ -137,7 +137,7 @@ TIPOS = {
         # derivado, y dejar que viajara desde el navegador seria dejar que el
         # preset dijera que tiene referencias dibujadas que nadie ha mirado.
         "claves": ("referencias", "guia", "url", "moodboard",
-                   "calidad", "min_s", "max_s", "min_s_rotulos"),
+                    "calidad", "min_s", "max_s", "min_s_rotulos", "stickman"),
         "pasos": ("assets",),
     },
     # El id se queda en 'rotulos' aunque ya no haya rotulos: es la clave con la
@@ -194,7 +194,7 @@ TIPOS = {
 #: imagenes que se adjuntaron, asi que rehacer la guia no las vuelve a pedir.
 CLAVES_ORIGEN = ("estilo_prompt", "estilo_imagenes", "tono_prompt",
                   "voz_prompt", "voz_id", "idioma", "ritmo", "taller", "feedback",
-                  "montaje",
+                  "montaje", "stickman",
                  # Descripciones cortas de lo que salio, para poder ENSENAR el
                  # estilo sin abrirlo entero. No son params: no se aplican a
                  # ningun paso, solo se leen.
@@ -237,7 +237,13 @@ def _limpiar_datos(tipo, datos):
             f"un preset de {tipo} no sabe guardar {', '.join(sorted(sobran))}. "
             f"Lo que guarda es: {', '.join(permitidas)}")
     limpios = {c: copy.deepcopy(v) for c, v in datos.items()
-               if v is not None and v != ""}
+                if v is not None and v != ""}
+    if tipo == "estilo" and "stickman" in limpios:
+        from pasos import stickman
+        try:
+            limpios['stickman'] = stickman.estilo(limpios['stickman'])
+        except ValueError as fallo:
+            raise ErrorPreset(str(fallo)) from fallo
     if tipo == "montaje":
         from pasos.transiciones import CATALOGO
         if "parallax" in limpios:
@@ -795,7 +801,7 @@ def _sembrar_ficheros(tipo, pid, datos, miniatura, anterior):
         return datos, ""
 
     rutas = [str(r) for r in (datos.get("referencias") or []) if str(r).strip()]
-    if len(rutas) < 3:
+    if len(rutas) < (1 if datos.get('stickman') else 3):
         raise ErrorPreset(
             f"un preset de estilo necesita al menos 3 fotogramas y han llegado "
             f"{len(rutas)}: con menos se describe una escena, no un estilo")
@@ -1084,6 +1090,10 @@ def cambios_para(ficha, params_actuales=None):
                 + ", ".join(os.path.basename(r) for r in faltan[:5])
                 + ". Vuelve a guardarlo desde un proyecto que los tenga.")
         estilo = dict((actuales.get("assets") or {}).get("estilo") or {})
+        if datos.get('stickman'):
+            estilo['stickman'] = copy.deepcopy(datos['stickman'])
+        else:
+            estilo.pop('stickman', None)
         if rutas:
             estilo["referencias"] = rutas
         if datos.get("guia"):
@@ -1188,7 +1198,7 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
 
     if "estilo" in incluir:
         bloque = {}
-        for clave in ("referencias", "guia", "url"):
+        for clave in ("referencias", "guia", "url", "stickman"):
             if estilo.get(clave):
                 bloque[clave] = copy.deepcopy(estilo[clave])
         for clave in ("calidad", "min_s", "max_s", "min_s_rotulos"):

@@ -342,7 +342,7 @@ PUBLICO = {
 PUBLICO_GENERICO = "Trabajando"
 
 
-def publico_de(tid, fraccion=None, unidades=None):
+def publico_de(tid, fraccion=None, unidades=None, stickman=False):
     """Como se cuenta una tarea en publico, con su fase si se sabe por donde va.
 
     `fraccion` es lo avanzado DENTRO de la tarea (0..1). Sin ella -- o con una
@@ -357,6 +357,9 @@ def publico_de(tid, fraccion=None, unidades=None):
     de ser lo unico de la linea que esta medido.
     """
     ficha = PUBLICO.get(str(tid)) or {}
+    if stickman and tid == 'assets':
+        ficha = dict(nombre='Generando las animaciones', unidad='escenas',
+                     fases=['preparando acciones y personajes', 'animando las escenas', 'terminando los clips y sus sonidos'])
     titulo = ficha.get("nombre") or PUBLICO_GENERICO
     cuenta = _cuenta_legible(ficha, unidades)
     if cuenta:

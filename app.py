@@ -1605,10 +1605,19 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if paso_id == 'assets' and (nuevos.get('estilo') or {}).get('stickman'):
+            from pasos import stickman
+            try:
+                nuevos['estilo']['stickman'] = stickman.estilo(nuevos['estilo']['stickman'])
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if "personajes" in nuevos:
             from pasos import personajes
             try:
                 nuevos["personajes"] = personajes.normalizar(nuevos["personajes"], ctx.proyecto if ctx else None)
+                if ctx and ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
+                    if any(not p.get('stickman') or p.get('primera_persona') for p in nuevos['personajes']['items']):
+                        raise ValueError('genera los personajes Stickman con Claude, sin fotos ni primera persona')
             except ValueError as fallo:
                 raise ErrorApi(400, str(fallo)) from fallo
         if "avatar" in nuevos:
@@ -2553,7 +2562,7 @@ def estimar_video(cuerpo: dict = Body(default=None)):
     calidad = str(datos.get("calidad") or "low").lower()
     usd_imagen = light.usd_por_imagen(calidad)
 
-    imagenes = max(1, planos)
+    imagenes = 0 if datos.get('stickman') is True else max(1, planos)
 
     caracteres = int(round(horquilla["presupuesto_palabras"] * 6.1))
     tarifas = COSTE.tarifas()
@@ -2583,6 +2592,7 @@ def estimar_video(cuerpo: dict = Body(default=None)):
                    "ritmo": ficha_ritmo["id"],
                    "con_imagen": imagenes},
         "coste": {"imagenes": imagenes, "calidad": calidad,
+                  **({'facturacion_animaciones': 'suscripcion_cli'} if datos.get('stickman') is True else {}),
                   "facturacion_imagenes": AJUSTES.coste_por_imagen(calidad)["facturacion"],
                   "usd_por_imagen": usd_imagen,
                   "usd_imagenes": usd_imagenes, "usd_tts": usd_tts,
@@ -5049,7 +5059,8 @@ def _plan_de_previsualizacion(ctx):
         if os.path.isfile(ruta_meta):
             params = dict(ctx.estado.params("assets") or {}, audio_meta=ruta_meta)
             plan = PASOS_MODULOS.p6_assets.planificar(ctx.proyecto, params, previo=plan) or plan
-    return plan
+    from pasos import stickman
+    return stickman.aplicar_recursos(ctx.proyecto, plan)
 
 
 def _fuente_sonido_editor(ctx, fuente, desfase=0):
@@ -6071,7 +6082,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         efecto_parallax = None
         clip_parallax = None
         avatar_escena = (previa_avatar or {}).get("clips", {}).get(sid)
-        if sid in seleccion_parallax:
+        if sid in seleccion_parallax and not (plan.get('estilo') or {}).get('stickman'):
             pedido = clips_parallax.preparar(ctx.proyecto, escena, imagen,
                 seleccion_parallax[sid], render.get("fps") or 30)
             clip_parallax = clips_parallax.disponible(ctx.proyecto, pedido)
@@ -6095,7 +6106,8 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             "imagen_tarjeta": imagen_tarjeta,
             "remotion_clip": clip_remotion,
             "clip": (_ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
-                    if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, clip_parallax)),
+                    if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, (escena.get('stickman') or {}).get('clip') or clip_parallax)),
+            'stickman': bool((plan.get('estilo') or {}).get('stickman')),
             "parallax": efecto_parallax,
             "avatar": {"clip": avatar_escena, "estado": "listo" if avatar_escena else "pendiente",
                        "ancla": avatar.ancla_de(escena),
@@ -7550,6 +7562,8 @@ def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False):
     volver a dibujar los 98 planos en un navegador y volver a mezclar el audio
     sobre los clips que ya hay. Ver `repaso.solo_mezcla`.
     """
+    if tarea_id in ('guia_estilo', 'plan_cartelas', 'direccion', 'piezas') and ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
+        return _tarea_sin_clave, ('La dirección, los personajes y los gráficos se generan con las animaciones Stickman.',)
     if tarea_id == "ingesta":
         return _un_paso(ctx, "ingesta", modo)
     if tarea_id == "brief":
@@ -7613,6 +7627,8 @@ def _esta_al_dia(ctx, tarea):
     hace la pantalla para pintar su pastilla.
     """
     tid = tarea["id"]
+    if tid in ('guia_estilo', 'plan_cartelas', 'direccion', 'piezas') and ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
+        return True
     if tid in PASOS_POR_ID:
         # `al_dia` y no `estado_de`: el trabajo de la tanda se registra EN UN
         # PASO, asi que preguntar por el estado devuelve "ejecutando" -- el
@@ -7779,7 +7795,8 @@ def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
         # LA FRASE PUBLICA SE RECUERDA. Hay pasos que avisan sin fraccion
         # (`avisar(None, "AVISO: ...")`) y ahi lo correcto es no moverla:
         # recalcularla con un cero la mandaria al principio de la tarea.
-        ultimo = {"frase": recetas.publico_de(tarea["id"], 0.0), "valor": 0.0}
+        es_stickman = tarea['id'] == 'assets' and bool(((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'))
+        ultimo = {"frase": recetas.publico_de(tarea["id"], 0.0, stickman=es_stickman), "valor": 0.0}
 
         # EL CONTADOR DE VERDAD LLEGA HASTA AQUI. Los pasos que trabajan pieza a
         # pieza avisan con (hechas, total) --ver `comun.avisador`-- y esa cuenta
@@ -7790,7 +7807,7 @@ def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
                 ultimo["valor"] = min(1.0, max(0.0, float(valor)))
             if valor is not None or unidades:
                 ultimo["frase"] = recetas.publico_de(tarea["id"], valor,
-                                                     unidades)
+                                                     unidades, stickman=es_stickman)
             # La incidencia no puede desaparecer cuando otra cadena de imagenes
             # resuelve un plano y manda fraccion/recuento junto a la espera.
             if (mensaje or "").startswith("Esperando al servicio de imágenes:"):
@@ -9120,15 +9137,109 @@ def _generar_imagen_personaje(avisar, descripcion, referencias, tiene_personaje)
     return {"nombre": nombre}
 
 
+_STICKMAN_TRABAJOS = GestorTrabajos()
+
+
+def _variantes_stickman(avisar, prompt, base, referencias):
+    from pasos import stickman
+    variantes = stickman.generar_variantes(prompt, base, referencias, avisar)
+    salida = []
+    for i, v in enumerate(variantes):
+        avisar(i / len(variantes), 'Preparando muestra ' + v['nombre'])
+        nombre = uuid.uuid4().hex + '.png'
+        stickman.renderizar(v, stickman.muestra(v), 2, os.path.join(_carpeta_aportadas(), nombre), salida=(480, 480))
+        import base64
+        with open(os.path.join(_carpeta_aportadas(), nombre), 'rb') as fuente:
+            v['miniatura'] = 'data:image/png;base64,' + base64.b64encode(fuente.read()).decode()
+        salida.append(dict(variante=v, imagen=nombre))
+    return {'variantes': salida}
+
+
+@app.post("/api/stickman/variantes", status_code=202)
+def generar_variantes_stickman(cuerpo: dict = Body(...)):
+    """Crea variantes animables de una familia y sus muestras reales con Claude."""
+    from pasos import stickman
+    try:
+        prompt = stickman.texto(cuerpo.get('prompt', ''), 2000)
+        base = stickman.variante(cuerpo.get('base'))
+        nombres = cuerpo.get('referencias') or []
+        if not isinstance(nombres, list) or len(nombres) > 5:
+            raise ValueError('adjunta como máximo cinco referencias de estilo')
+        referencias = _rutas_aportadas(nombres)
+        if len(referencias) != len(nombres):
+            raise ValueError('falta una referencia de estilo; vuelve a adjuntarla')
+        if not prompt and not referencias:
+            raise ValueError('describe la variante o adjunta una referencia')
+    except (ValueError, TypeError) as fallo:
+        raise ErrorApi(400, str(fallo)) from fallo
+    with _LOCK:
+        if _STICKMAN_TRABAJOS.listar(activos=True):
+            raise ErrorApi(409, 'ya se están generando variantes Stickman')
+        tid = _STICKMAN_TRABAJOS.lanzar('stickman_variantes', _variantes_stickman, prompt, base, referencias)
+    return {'trabajo_id': tid}
+
+
+@app.get("/api/stickman/trabajos/{tid}")
+def trabajo_stickman(tid: str):
+    """Consulta la creación de variantes animables y sus miniaturas."""
+    try:
+        return _STICKMAN_TRABAJOS.estado(tid)
+    except KeyError:
+        raise ErrorApi(404, 'no se encuentra el trabajo Stickman') from None
+
+
+@app.get("/api/stickman/familias")
+def familias_stickman():
+    """Familias base y contrato de apariencia del motor Stickman."""
+    from pasos import stickman
+    return {'familias': stickman.familias()}
+
+
+@app.get("/api/stickman/familias/{familia}/muestra")
+def muestra_familia_stickman(familia: str, peticion: Request):
+    """Muestra real del rig de una familia, renderizada localmente sin IA."""
+    from pasos import stickman
+    v = next((v for v in stickman.familias() if v['familia'] == familia), None)
+    if not v:
+        raise ErrorApi(404, 'familia Stickman desconocida')
+    nombre = 'stickman_' + stickman.huella([stickman.VERSION, v])[:24] + '.png'
+    destino = os.path.join(_carpeta_aportadas(), nombre)
+    with _LOCK:
+        if not os.path.isfile(destino):
+            stickman.renderizar(v, stickman.muestra(v), 2, destino, salida=(480, 480))
+    return servir_fichero(peticion, destino)
+
+
+def _personaje_stickman(avisar, descripcion, configuracion, ctx):
+    from pasos import stickman
+    diseno = stickman.generar_personaje(descripcion, stickman.seleccion(configuracion), ctx.proyecto if ctx else None, avisar)
+    nombre = uuid.uuid4().hex + '.png'
+    stickman.renderizar(diseno, stickman.muestra(diseno), 2, os.path.join(_carpeta_aportadas(), nombre), salida=(480, 640))
+    # La definición entregada a la UI se contrasta con este recibo al guardar.
+    PASOS_MODULOS.medios.escribir_json(os.path.join(_carpeta_aportadas(), nombre + '.json'), {'stickman': diseno})
+    return {'nombre': nombre, 'stickman': diseno}
+
+
 @app.post("/api/personajes/imagenes/generar", status_code=202)
 def generar_imagen_personaje(cuerpo: dict = Body(...)):
-    """Genera un personaje de cuerpo entero con el motor principal y su respaldo."""
+    """Genera un personaje de cuerpo entero; Stickman utiliza Claude y el rig local."""
     descripcion = cuerpo.get("descripcion")
     if not isinstance(descripcion, str) or not 1 <= len(descripcion.strip()) <= 4000:
         raise ErrorApi(400, "describe el personaje con entre 1 y 4000 caracteres")
     referencias = []
     if cuerpo.get("pid") and any(t["nombre"] != "voz:previsualizar" for t in contexto(str(cuerpo["pid"])).gestor.listar(activos=True)):
         raise ErrorApi(409, "espera a que termine el trabajo del vídeo para generar personajes")
+    ctx_stickman = contexto(str(cuerpo['pid'])) if cuerpo.get('pid') else None
+    estilo_stickman = ((ctx_stickman.estado.params('assets') or {}).get('estilo') or {}) if ctx_stickman else (((_presets().leer(str(cuerpo['estilo_id'])) or {}).get('datos') or {}).get('estilo') or {}) if cuerpo.get('estilo_id') else {}
+    if estilo_stickman.get('stickman'):
+        if cuerpo.get('subida') or cuerpo.get('imagen'):
+            raise ErrorApi(400, 'los personajes Stickman se generan con Claude; no admiten fotos')
+        with _LOCK:
+            if _IMAGENES_PERSONAJES.listar(activos=True):
+                raise ErrorApi(409, 'ya se está generando un personaje')
+            tid = _IMAGENES_PERSONAJES.lanzar('personaje_stickman', _personaje_stickman,
+                descripcion.strip(), estilo_stickman['stickman'], ctx_stickman)
+        return {'trabajo_id': tid}
     if cuerpo.get("imagen"):
         from pasos import imagenes_animacion
         try:
@@ -9171,6 +9282,10 @@ def consultar_imagen_personaje(tid: str):
 def incorporar_imagen_personaje(pid: str, cuerpo: dict = Body(...)):
     """Conserva una imagen inmutable para crear o editar un personaje del vídeo."""
     ctx = contexto(pid)
+    if ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
+        nombre = str(cuerpo.get('nombre') or '')
+        if not re.fullmatch(r'[a-f0-9]{32}\.png', nombre) or not os.path.isfile(os.path.join(_carpeta_aportadas(), nombre + '.json')):
+            raise ErrorApi(400, 'genera el personaje Stickman con Claude')
     return {"ruta": _copiar_imagen_avatar(ctx, str(cuerpo.get("nombre") or ""))}
 
 
@@ -9225,7 +9340,11 @@ def _copiar_imagen_avatar(ctx, nombre):
         raise ErrorApi(400, "vuelve a subir la imagen del avatar")
     try:
         with open(rutas[0], "rb") as fh:
-            return imagenes_animacion.guardar(ctx.proyecto, fh.read(MAX_BYTES_APORTADA + 1), nombre)
+            ruta = imagenes_animacion.guardar(ctx.proyecto, fh.read(MAX_BYTES_APORTADA + 1), nombre)
+        recibo = rutas[0] + '.json'
+        if os.path.isfile(recibo):
+            shutil.copyfile(recibo, ctx.proyecto.ruta(ruta) + '.json')
+        return ruta
     except ValueError as fallo:
         raise ErrorApi(400, str(fallo)) from fallo
 
@@ -9425,6 +9544,9 @@ def _sembrar_taller(ctx, encargo):
     de canal. El ritmo no toca el segmentador ni las cabeceras: rellena.
     """
     light = _light()
+    if encargo.get('stickman'):
+        bloque = dict((ctx.estado.params('assets') or {}).get('estilo') or {}, stickman=encargo['stickman'])
+        ctx.estado.actualizar_params('assets', {'estilo': bloque, 'generar_personajes': True})
     idioma = encargo["idioma"]
     ctx.estado.actualizar_params("brief", {"idioma_salida": idioma})
     ctx.estado.actualizar_params("voz", {"idioma": idioma})
@@ -9446,6 +9568,15 @@ def _sembrar_taller(ctx, encargo):
 # ------------------------------------------------------------ las ocho tareas
 
 def _correr_light_guia(avisar, ctx, encargo):
+    if encargo.get('stickman'):
+        from pasos import stickman
+        v = stickman.seleccion(encargo['stickman'])
+        guia = {'texto': 'Animación 2D Stickman. ' + json.dumps(v, ensure_ascii=False), 'palabras': 40,
+                'tecnica': 'dibujo', 'fotogramas': []}
+        bloque = dict((ctx.estado.params('assets') or {}).get('estilo') or {}, guia=guia, stickman=encargo['stickman'])
+        ctx.estado.actualizar_params('assets', {'estilo': bloque})
+        avisar(1, 'Estilo de personajes preparado')
+        return guia
     estilo = _estilo()
     peticion = (encargo.get("feedback") or {}).get("estilo") or ""
     # LAS IMAGENES SON LA FUENTE y lo escrito acompana: la guia se escribe
@@ -9497,6 +9628,14 @@ def _correr_light_referencias(avisar, ctx, encargo):
     se escribio para cuando derivan unos ejes y otros salen clavados. Lo que
     faltaba era que alguien se lo pidiera.
     """
+    if encargo.get('stickman'):
+        from pasos import stickman
+        v = stickman.seleccion(encargo['stickman'])
+        destino = os.path.join(ctx.proyecto.raiz, 'estilo', 'dibujadas', 'stickman_' + stickman.huella(v)[:16] + '.png')
+        stickman.renderizar(v, stickman.muestra(v), 2, destino)
+        bloque = dict((ctx.estado.params('assets') or {}).get('estilo') or {}, referencias=[destino])
+        ctx.estado.actualizar_params('assets', {'estilo': bloque})
+        return {'rutas': [destino], 'ejes': ['personajes'], 'coste_usd': 0}
     mod = _moodboard()
     calidad = str((ctx.estado.params("assets") or {}).get("calidad") or "medium")
     bloque = dict((ctx.estado.params("assets") or {}).get("estilo") or {})
@@ -9797,6 +9936,24 @@ def _correr_light_muestra(avisar, ctx, encargo):
     idioma es gratis por construccion: no hay ningun caso en el que haya que
     volver a pagar por cambiar el texto de encima.
     """
+    if encargo.get('stickman'):
+        from pasos import stickman
+        from PIL import Image
+        carpeta = os.path.join(ctx.proyecto.raiz, 'muestras')
+        os.makedirs(carpeta, exist_ok=True)
+        v = stickman.seleccion(encargo['stickman'])
+        miniaturas = []
+        for nombre in _light().nombres_de_muestra():
+            destino = os.path.join(carpeta, nombre)
+            if miniaturas:
+                shutil.copyfile(miniaturas[0], destino)
+            else:
+                stickman.renderizar(v, stickman.muestra(v), 2, destino)
+            miniaturas.append(destino)
+        with Image.open(miniaturas[0]) as img:
+            img.save(os.path.join(carpeta, 'miniatura.png'))
+        avisar(1, 'Muestras Stickman listas')
+        return {'coste_usd': 0}
     light = _light()
     assets = ctx.estado.params("assets") or {}
     estilo = dict(assets.get("estilo") or {})
@@ -10163,7 +10320,7 @@ def _partes_cambiadas(antes, encargo, imagenes_nuevas):
     if not antes:
         return set()
     cambiadas = set()
-    if imagenes_nuevas or (antes.get("estilo_prompt") or "") != (
+    if antes.get('stickman') != encargo.get('stickman') or imagenes_nuevas or (antes.get("estilo_prompt") or "") != (
             encargo.get("estilo_prompt") or ""):
         cambiadas.add("estilo")
     if (antes.get("tono_prompt") or "") != (encargo.get("tono_prompt") or ""):
@@ -10584,6 +10741,23 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
 
     contenido = copy.deepcopy(ficha.get("datos") or {})
 
+    if 'stickman' in datos:
+        from pasos import stickman
+        try:
+            configuracion = stickman.estilo(datos['stickman'])
+        except ValueError as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
+        taller = _taller_de(ficha)
+        if taller.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine la generación del estilo')
+        encargo = dict(contenido.get('origen') or {}, stickman=configuracion)
+        _correr_light_guia(lambda *a: None, taller, encargo)
+        _correr_light_referencias(lambda *a: None, taller, encargo)
+        _correr_light_muestra(lambda *a: None, taller, encargo)
+        contenido['estilo'] = presets.datos_de_params({'assets': taller.estado.params('assets')})['estilo']
+        contenido.setdefault('origen', {})['stickman'] = configuracion
+        ficha['miniatura'] = taller.proyecto.ruta('muestras', 'miniatura.png')
+
     if "montaje" in datos:
         montaje = _preset_o_400(lambda p: p._limpiar_datos("montaje", datos["montaje"]))
         contenido["montaje"] = dict(contenido.get("montaje") or {}, **montaje)
@@ -10712,7 +10886,7 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
     # imagenes; ver `presets_light.TAREAS_DE_IDIOMA`), y como despues viajan
     # como referencia dentro de cada plano con componentes, callarlo seria
     # dejar que ensenen a rotular en el idioma viejo sin que nadie lo sepa.
-    aviso = light.aviso_de_idioma(idioma_anterior, idioma) if idioma else ""
+    aviso = light.aviso_de_idioma(idioma_anterior, idioma) if idioma and not (contenido.get('estilo') or {}).get('stickman') else ""
     if aviso:
         salida["aviso_laminas"] = aviso
     if not adaptar:
@@ -11084,7 +11258,8 @@ def _coste_previsto(ctx, pestanas):
     tarifas = COSTE.tarifas()
     usd_caracter = float(((tarifas.get("tts") or {}).get("usd_por_caracter")) or 0.0)
 
-    imagenes = planos["con_imagen"] if "video" in pestanas else 0
+    es_stickman = bool((assets.get('estilo') or {}).get('stickman'))
+    imagenes = planos["con_imagen"] if "video" in pestanas and not es_stickman else 0
     caracteres = 0
     if "voz" in pestanas:
         brief = PASOS_MODULOS.comun.leer_salida(
@@ -11110,6 +11285,7 @@ def _coste_previsto(ctx, pestanas):
     hechas = min(hechas, imagenes)
     por_generar = max(0, imagenes - hechas)
     return {"imagenes": imagenes, "calidad": calidad,
+            **({'facturacion_animaciones': 'suscripcion_cli'} if es_stickman else {}),
             "facturacion_imagenes": AJUSTES.coste_por_imagen(calidad)["facturacion"],
             "usd_por_imagen": usd_imagen, "usd_imagenes": usd_imagenes,
             "imagenes_hechas": hechas, "imagenes_por_generar": por_generar,
@@ -11649,6 +11825,18 @@ def crear_video_light(preset_id: str, cuerpo: dict = Body(default=None)):
     montaje = (ficha_preset.get("datos") or {}).get("montaje") or {}
     try:
         config_personajes = personajes.normalizar(datos["personajes"], pendientes=True) if "personajes" in datos else {}
+        configuracion_stickman = ((ficha_preset.get('datos') or {}).get('estilo') or {}).get('stickman')
+        if configuracion_stickman:
+            from pasos import stickman
+            base = stickman.seleccion(configuracion_stickman)
+            for p in config_personajes.get('items') or []:
+                if not p.get('stickman') or p.get('primera_persona') or p['stickman']['familia'] != base['familia']:
+                    raise ValueError('genera los personajes con Claude siguiendo el estilo Stickman seleccionado')
+                if p.get('subida'):
+                    rutas = _rutas_aportadas([p['subida']])
+                    recibo = PASOS_MODULOS.medios.leer_json(rutas[0] + '.json', {}) if rutas else {}
+                    if (recibo or {}).get('stickman') != p['stickman']:
+                        raise ValueError('los personajes Stickman no admiten fotografías subidas')
         personajes.validar_voces({"personajes": config_personajes,
             "sistema_personajes": personajes.contexto(
                 {"generar_personajes": datos.get("generar_personajes", montaje.get("generar_personajes", True))},

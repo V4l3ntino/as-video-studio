@@ -1,5 +1,22 @@
 # AS Video Studio — lo que hay que saber antes de tocarlo
 
+## Stickman 2D
+
+`assets.params.estilo.stickman` selecciona el motor de `pasos/stickman.py` sin
+cambiar los ocho ids del grafo. Sus variantes y personajes son datos animables,
+no imágenes de IA ni código arbitrario del modelo. El adaptador Canvas vive en
+`motores/stickman/` y reutiliza el kit original `GrowKaz_Stickman/`; conservar esa
+carpeta al distribuir. Claude diseña variantes/personajes; Claude y Codex se
+reparten escenas según `bibliotecas.carga_claude`.
+
+La ficha de escena se publica tras terminar MP4, póster y WAV de efectos. Sus
+rutas son relativas a la versión; `aplicar_recursos` las resuelve en lectura.
+No guardar esas rutas absolutas transitorias en el plan. Los sonidos se mezclan
+por la pista Sonidos (`stickman:<índice>`), no dentro del clip, para no duplicar
+el audio. Los personajes generados tienen un recibo junto al PNG inmutable;
+conservarlo al copiar, duplicar o exportar. Stickman no admite fotos ni POV.
+Prueba aislada y render real sin cuota: `python pasos/prueba_stickman.py --real`.
+
 Lee primero [README.md](README.md): qué es, cómo se arranca y cómo está montado.
 Y si vienes a retomar sin contexto, `docs/RETOMAR.md`: el estado al cerrar, qué
 está desplegado y **los fallos que se encontraron con su causa** — el sitio

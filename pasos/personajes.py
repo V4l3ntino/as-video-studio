@@ -33,9 +33,14 @@ def normalizar(crudo, proyecto=None, pendientes=False):
     narradores = 0
     perspectivas = 0
     for ficha in crudo.get("items", []):
-        if not isinstance(ficha, dict) or set(ficha) - {"id", "nombre", "descripcion", "categoria", "imagen", "subida", "voz_id", "voz_nombre", "primera_persona"}:
+        if not isinstance(ficha, dict) or set(ficha) - {"id", "nombre", "descripcion", "categoria", "imagen", "subida", "voz_id", "voz_nombre", "primera_persona", "stickman"}:
             raise ValueError("la ficha del personaje tiene campos desconocidos")
         f = copy.deepcopy(ficha)
+        if 'stickman' in f:
+            from pasos import stickman
+            f['stickman'] = stickman.variante(f['stickman'])
+            if f.get('primera_persona'):
+                raise ValueError('la primera persona no se aplica a personajes Stickman')
         if not isinstance(f.get("id"), str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", f["id"]):
             raise ValueError("el personaje necesita un identificador estable")
         for clave, maximo in (("nombre", 120), ("descripcion", 4000)):
@@ -69,6 +74,10 @@ def normalizar(crudo, proyecto=None, pendientes=False):
             raise ValueError("genera o sube la imagen antes de agregar el personaje")
         if imagen and proyecto:
             imagenes_animacion.ruta_de(proyecto, imagen)
+            if f.get('stickman'):
+                recibo = medios.leer_json(proyecto.ruta(imagen) + '.json', {}) or {}
+                if recibo.get('stickman') != f['stickman']:
+                    raise ValueError('genera el personaje Stickman con Claude antes de guardarlo')
         if f["categoria"] == "narrador":
             # Nunca almacenar una copia de la voz general: cambiarla debe ser
             # inmediato y no puede dejar una voz independiente en el narrador.
@@ -89,7 +98,8 @@ def params_de(proyecto, paso):
 
 
 def contexto(assets, voz):
-    return {"generar_personajes": assets.get("generar_personajes") is not False,
+    return {**({'stickman': True} if (assets.get('estilo') or {}).get('stickman') else {}),
+            "generar_personajes": assets.get("generar_personajes") is not False,
             "incorporar_voz": voz.get("incorporar_voz") is not False,
             "voz_id": voz.get("voz_id") or ""}
 
@@ -134,6 +144,8 @@ def opciones_del_proyecto(proyecto, voz=None):
 
 
 def personaje_pov(opciones):
+    if (opciones.get('sistema_personajes') or {}).get('stickman'):
+        return None
     seleccionados = [p for p in activos(opciones) if p.get("primera_persona") is True]
     if len(seleccionados) > 1:
         raise ValueError("solo un personaje o narrador puede tener activada la primera persona por vídeo")

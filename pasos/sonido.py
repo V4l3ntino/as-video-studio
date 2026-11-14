@@ -1290,6 +1290,10 @@ def _eventos_automaticos(escenas, cortes, params, semilla=0):
     for escena in escenas or []:
         sid = escena.get("id")
         inicio = float(escena.get("t_in") or 0.0) - origen
+        for s in escena.get('sonidos_stickman') or []:
+            fuera.append(dict(escena=sid, t=inicio + s['inicio'], papel=s['id'],
+                ficha=dict(archivo=s['archivo'], duracion=s['duracion'], titulo=s['nombre']),
+                duracion=s['duracion'], ganancia=s['ganancia']))
         ambiente = escena.get("audio_biblioteca") or {}
         if ambiente and clave_de(ambiente) not in prohibidos:
             fuera.append({"escena": sid, "t": max(0.0, inicio), "papel": "escena",
@@ -1389,7 +1393,7 @@ def bloques_de_escena(escenas, cortes, params, sid, semilla=0, _eventos=None, pr
     for papel, eventos_ in grupos.items():
         a = max(0., min(duracion - .1, min(e['t'] for e in eventos_) - inicio))
         b = min(duracion, max(e['t'] + float(e.get('duracion') or e['ficha'].get('duracion') or .1) for e in eventos_) - inicio)
-        bloques.append(dict(id=papel, inicio=a, fin=max(a + .1, b), nombre=nombres[papel],
+        bloques.append(dict(id=papel, inicio=a, fin=max(a + .1, b), nombre=nombres.get(papel, eventos_[0]['ficha'].get('titulo') or 'Efecto Stickman'),
                             eventos=eventos_))
     ajuste = (((params.get('unidades') or {}).get('escena:' + sid) or {}).get('sonidos') or {})
     actual = ajuste.get('bloques') if ajuste.get('ancla') == animaciones.ancla_de(escena) else None

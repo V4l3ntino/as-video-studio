@@ -314,7 +314,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/imagenes/codex/login` | Pide un código de acceso de ChatGPT mediante el CLI oficial de Codex. |
 | `GET` | `/api/imagenes/proveedores` | Métodos de imagen en orden: principal y respaldo automático. |
 | `PUT` | `/api/imagenes/proveedores` | Guarda la prioridad de Codex y API sin modificar los proyectos. |
-| `POST` | `/api/personajes/imagenes/generar` | Genera un personaje de cuerpo entero con el motor principal y su respaldo. |
+| `POST` | `/api/personajes/imagenes/generar` | Genera un personaje de cuerpo entero; Stickman utiliza Claude y el rig local. |
 | `GET` | `/api/personajes/imagenes/trabajos/{tid}` | Consulta el progreso y la imagen generada del personaje. |
 | `GET` | `/api/remotion/historial` | Biblioteca permanente de animaciones de escenas de todos los proyectos. |
 | `DELETE` | `/api/remotion/historial/{referencia}` | Retira una entrada histórica conservando las versiones aplicadas. |
@@ -323,8 +323,12 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `DELETE` | `/api/remotion/plantillas/{referencia}` | Elimina una plantilla de la biblioteca sin modificar los bloques de los vídeos. |
 | `GET` | `/api/sonidos/buscar` | Busca efectos en todo el catálogo de Freesound, con resultados paginados. |
 | `GET` | `/api/sonidos/{identificador}/muestra` | Escucha la muestra de un efecto de Freesound desde el banco local. |
+| `GET` | `/api/stickman/familias` | Familias base y contrato de apariencia del motor Stickman. |
+| `GET` | `/api/stickman/familias/{familia}/muestra` | Muestra real del rig de una familia, renderizada localmente sin IA. |
+| `GET` | `/api/stickman/trabajos/{tid}` | Consulta la creación de variantes animables y sus miniaturas. |
+| `POST` | `/api/stickman/variantes` | Crea variantes animables de una familia y sus muestras reales con Claude. |
 | `GET` | `/{fichero}` | Sirve un fichero suelto de web/ (app.js, estilo.css...). |
 
 ---
 
-**213 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**217 endpoints.** Escrito por `generar_api.py` desde `app.py`.

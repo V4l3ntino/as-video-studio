@@ -5217,6 +5217,7 @@ function encargoParaServidor() {
     voz_id: e.voz_id || '',
     ritmo: e.ritmo || ritmoPorDefecto(),
     montaje: e.montaje,
+    ...(e.modo_visual === 'stickman' && e.stickman ? { stickman: e.stickman } : {}),
   };
 }
 
@@ -5816,6 +5817,8 @@ function retomarTallerLight(taller) {
     }
   });
   actual.montaje = JSON.parse(JSON.stringify(actual.montaje));
+  actual.modo_visual = guardado.stickman ? 'stickman' : 'convencional';
+  actual.stickman = guardado.stickman ? JSON.parse(JSON.stringify(guardado.stickman)) : null;
   actual.montaje.bibliotecas = bibliotecasPorDefectoLight(actual.montaje.bibliotecas);
   actual.estilo_imagenes = [];
   irALight('crear', { taller: taller.id,
@@ -6353,6 +6356,7 @@ function encargoVideoLight() {
       // solo pedir un comentario.
       cta: ctaPorDefecto(),
       ...montajeDelEstiloLight(fichaLight(APP.light.abierto) || estiloElegido()),
+      stickman: (fichaLight(APP.light.abierto) || estiloElegido())?.datos?.estilo?.stickman || null,
       personajes: leerBorradorPersonajesLight((fichaLight(APP.light.abierto) || estiloElegido())?.id)
         || { activo: false, items: [], incorporar_dialogos: false },
     };
@@ -6610,7 +6614,10 @@ async function reengancharTandaLight(pid) {
     seguirTrabajo(CLAVE_VIDEO_LIGHT, vivo.id, async trabajo => {
       if (nombre.includes('youtube')) await cargarYoutubeLight(pid);
       if (trabajo.estado === 'listo') {
-        await cargarVideoLight(pid);
+        if (tanda === 'video' && APP.light.video.fichas.assets?.params?.estilo?.stickman) {
+          await refrescarFichasLight();
+          await refrescarLoDibujado();
+        } else await cargarVideoLight(pid);
         // lo que hace `aplicarRepaso` al acabar: las notas aplicadas y las
         // diapositivas con lo que se acaba de redibujar
         if (nombre === 'repaso') { await cargarRepaso(true); PREVIA.ficha = null; }
@@ -6808,13 +6815,14 @@ function vistaElegidoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  if (e.stickman) caja.appendChild(cabeceraStickmanLight(e.stickman));
   caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(incorporarVozDelEncargo(e, () => pintarLight(), false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, ficha)] : [])));
   if (e.generar_personajes !== false) caja.appendChild(personalizarPersonajesDelEncargo(e, ficha));
-  caja.appendChild(avatarDelEncargo(e));
+  if (!e.stickman) caja.appendChild(avatarDelEncargo(e));
   caja.appendChild(subtitulosDelEncargo(e));
-  caja.appendChild(parallaxDelEncargo(e));
+  if (!e.stickman) caja.appendChild(parallaxDelEncargo(e));
   caja.appendChild(efectosDelEncargo(e));
   caja.appendChild(animacionesDelEncargo(e));
 
@@ -7059,6 +7067,7 @@ function abrirVocesPersonaje(ficha, actual, confirmar) {
 }
 
 function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
+  const esStickman = !!(e.stickman || estilo?.datos?.estilo?.stickman);
   const nuevo = () => ({ id: `p_${crypto.randomUUID().replaceAll('-', '')}`, nombre: '',
     descripcion: '', categoria: 'personaje', imagen: '', subida: '', voz_id: '', voz_nombre: '' });
   if (!PERSONALIZACION_PERSONAJES.has(e)) PERSONALIZACION_PERSONAJES.set(e, {
@@ -7103,10 +7112,15 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     try {
       const d = estado.borrador;
       const inicio = await pedir(`${BASE}/api/personajes/imagenes/generar`, { method: 'POST',
-        cuerpo: { descripcion: d.descripcion, pid, estilo_id: estilo?.id, imagen: d.imagen, subida: d.subida } });
+        cuerpo: { descripcion: d.descripcion, pid, estilo_id: estilo?.id,
+          ...(!esStickman ? { imagen: d.imagen, subida: d.subida } : {}) } });
       for (;;) {
         const t = await pedir(`${BASE}/api/personajes/imagenes/trabajos/${encodeURIComponent(inicio.trabajo_id)}`);
-        if (t.estado === 'listo') { await seleccionarImagen(t.resultado.nombre); break; }
+        if (t.estado === 'listo') {
+          await seleccionarImagen(t.resultado.nombre);
+          if (esStickman) { d.stickman = t.resultado.stickman; delete d.primera_persona; }
+          break;
+        }
         if (['error', 'cancelado'].includes(t.estado)) throw new Error(t.error || 'La generación se ha detenido.');
         await new Promise(resolve => setTimeout(resolve, 1200));
       }
@@ -7205,13 +7219,13 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
       h('label', { clase: 'campo' }, 'Categoría', categoria),
       h('div', { clase: 'personaje-editor-campos' }, preview, h('div', {},
         h('label', { clase: 'campo' }, 'Nombre', nombre), h('label', { clase: 'campo' }, 'Descripción del personaje', descripcion),
-        h('label', { clase: 'efecto-encargo' },
+        !esStickman ? h('label', { clase: 'efecto-encargo' },
           h('input', { type: 'checkbox', checked: d.primera_persona === true, disabled: estado.ocupado || !!otroPov,
             'aria-label': 'Activar primera persona', onchange: ev => { d.primera_persona = ev.target.checked; actualizar(); } }),
-          'Activar primera persona'),
-        otroPov ? h('p', { clase: 'pista' }, `Primera persona ya está activada en «${otroPov.nombre}». Desactívala en su tarjeta para elegir otro personaje.`) : null, voces)),
-      archivo, h('button', { type: 'button', clase: 'mini fantasma', disabled: estado.ocupado,
-        onclick: () => archivo.click() }, 'Subir imagen'),
+          'Activar primera persona') : null,
+        !esStickman && otroPov ? h('p', { clase: 'pista' }, `Primera persona ya está activada en «${otroPov.nombre}». Desactívala en su tarjeta para elegir otro personaje.`) : null, voces)),
+      !esStickman ? archivo : null, !esStickman ? h('button', { type: 'button', clase: 'mini fantasma', disabled: estado.ocupado,
+        onclick: () => archivo.click() }, 'Subir imagen') : h('p', { clase: 'meta' }, 'Claude generará el personaje siguiendo el estilo Stickman seleccionado.'),
       h('div', { clase: 'fila cierre' }, generarBoton, guardarBoton,
         h('button', { type: 'button', clase: 'mini', disabled: estado.ocupado,
           onclick: () => { limpiar(); estado.elegirVoz = false; pintar(); } }, 'Cancelar')));
@@ -7226,7 +7240,7 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
           h('img', { src: urlImagen(p), alt: p.nombre, loading: 'lazy' }),
           h('div', { clase: 'personaje-card-datos' }, h('b', {}, p.nombre),
             h('span', { clase: 'personaje-etiqueta' }, p.categoria === 'narrador' ? 'Narrador' : 'Personaje'),
-            p.primera_persona === true ? h('span', { clase: 'personaje-insignia-pov' }, '◉ Primera persona') : null,
+            !esStickman && p.primera_persona === true ? h('span', { clase: 'personaje-insignia-pov' }, '◉ Primera persona') : null,
             h('p', {}, p.descripcion),
             voz ? h('div', { clase: 'personaje-card-voz' }, h('span', { clase: 'meta' }, nombreVoz(p)),
               botonEscuchaVoz(fichaVoz(), { voz: () => vozDe(p), titulo: `Escuchar voz de ${p.nombre}` }))
@@ -7274,6 +7288,7 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
 }
 
 function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
+  if (e.stickman) return repartoStickmanLight(e, alCambiar);
   const bloqueado = e.generar_personajes !== false;
   // La preferencia guardada queda intacta: al quitar Generar personajes se
   // recupera exactamente el reparto anterior, incluso en proyectos antiguos.
@@ -7827,6 +7842,7 @@ async function refrescarEstimacionLight(e, nodo, estiloDado) {
       min_s: (datos.estilo || {}).min_s,
       max_s: (datos.estilo || {}).max_s,
       calidad: (datos.estilo || {}).calidad,
+      stickman: !!datos.estilo?.stickman,
     });
     APP.light.video.estimacion = ficha;
     vaciar(nodo).append(textoDeEstimacion(ficha));
@@ -7863,6 +7879,7 @@ async function pintarCosteDelEncargoLight(e, nodo) {
       min_s: (datos.estilo || {}).min_s,
       max_s: (datos.estilo || {}).max_s,
       calidad: (datos.estilo || {}).calidad,
+      stickman: !!datos.estilo?.stickman,
     });
     if (turno !== COSTE_DEL_ENCARGO_PEDIDO) return;
     vaciar(nodo).append(`El vídeo entero: ${textoDeCoste(ficha)}. `
@@ -7879,6 +7896,8 @@ async function pintarCosteDelEncargoLight(e, nodo) {
 function textoDeCoste(ficha) {
   const c = ficha.coste || {};
   const pl = ficha.planos || {};
+  if (c.facturacion_animaciones === 'suscripcion_cli') return `${pl.total} escenas animadas · cuota de Claude/ChatGPT`
+    + (c.usd_tts ? ` · ≈ ${Number(c.usd_tts).toFixed(2)} $ de voz` : '');
   if (c.facturacion_imagenes === 'suscripcion_chatgpt') {
     const imagenes = c.imagenes_hechas
       ? `${c.imagenes_por_generar} imágenes pendientes (${c.imagenes_hechas} ya hechas)`
@@ -8107,6 +8126,7 @@ function pedidoDelVideoLight() {
     // los nuevos heredan y guardan explícitamente la decisión del estilo.
     generar_personajes: params('assets').generar_personajes === true,
     personajes: JSON.parse(JSON.stringify(params('guion').personajes || { activo: false, items: [] })),
+    stickman: params('assets').estilo?.stickman || null,
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
@@ -8167,14 +8187,15 @@ function vistaEncargoVideoLight() {
     'de dónde salen los hechos que se van a contar',
     materialLight(e)));
 
+  if (e.stickman) caja.appendChild(cabeceraStickmanLight(e.stickman));
   caja.appendChild(bibliotecasDelEncargo(e));
   caja.appendChild(incorporarVozDelEncargo(e,
     () => { programarGuardadoEncargo(); pintarLight(); }, false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
   if (e.generar_personajes !== false) caja.appendChild(personalizarPersonajesDelEncargo(e, estilo, programarGuardadoEncargo, v.pid));
-  caja.appendChild(avatarDelEncargo(e, programarGuardadoEncargo, v.pid));
+  if (!e.stickman) caja.appendChild(avatarDelEncargo(e, programarGuardadoEncargo, v.pid));
   caja.appendChild(subtitulosDelEncargo(e));
-  caja.appendChild(parallaxDelEncargo(e, programarGuardadoEncargo));
+  if (!e.stickman) caja.appendChild(parallaxDelEncargo(e, programarGuardadoEncargo));
   caja.appendChild(efectosDelEncargo(e));
   caja.appendChild(animacionesDelEncargo(e, programarGuardadoEncargo));
 
@@ -8375,11 +8396,15 @@ async function lanzarTandaLight(tanda, modo) {
     }
     seguirTrabajo(CLAVE_VIDEO_LIGHT, tid, async trabajo => {
       if (trabajo.estado === 'listo') {
-        await cargarVideoLight(v.pid);
+        const conservarPrevia = tanda === 'video' && !!v.fichas.assets?.params?.estilo?.stickman;
+        if (conservarPrevia) {
+          await refrescarFichasLight();
+          await refrescarLoDibujado();
+        } else await cargarVideoLight(v.pid);
         // LA TANDA DE VIDEO YA NO ACABA EN EL MP4, acaba en el
         // previsualizador: es la parada nueva y es lo que hay que mirar antes
         // de gastar el render (ver TANDAS_LIGHT en app.py).
-        if (tanda === 'video') { PREVIA.ficha = null; v.vista = 'previa'; }
+        if (tanda === 'video') { if (!conservarPrevia) PREVIA.ficha = null; v.vista = 'previa'; }
         else if (tanda === 'render') v.vista = 'video';
         // regenerado desde el encargo, lo que toca mirar es el guion nuevo;
         // desde cualquier otra pantalla no se mueve a nadie
@@ -8439,6 +8464,7 @@ async function refrescarPlanosLight() {
       // La última imagen resuelta también se ve en grande mientras se genera.
       // No se interrumpe una escucha ni se mueve el foco de una nota en edición.
       if (v.vista === 'previa' && !PREVIA.sonando
+          && (!pedidoDelVideoLight().copia.stickman || !escenaPrevia()?.clip)
           && !document.activeElement?.matches('textarea, input, [contenteditable="true"]')) {
         const ultima = nuevos[nuevos.length - 1];
         const i = ((PREVIA.ficha || {}).escenas || [])
@@ -9299,6 +9325,7 @@ function pieLight() {
   const hayGuion = !!v.guion;
   const hayAudio = !!v.audio;
   const encargo = pedidoDelVideoLight().copia;
+  const animarStickman = !!encargo.stickman;
   const sinVoz = encargo.incorporar_voz === false
     && (encargo.generar_personajes !== true || encargo.personajes?.incorporar_dialogos === false);
   const hayVideo = hayMp4Light();
@@ -9317,7 +9344,7 @@ function pieLight() {
   const quedaVideo = quedaTandaLight('video');
   return h('div', { clase: 'pie-guion' },
     conAyuda(sinVoz
-      ? 'La voz está desactivada en el encargo. Generar imágenes preparará los tiempos sin narración.'
+      ? `La voz está desactivada en el encargo. Generar ${animarStickman ? 'animaciones' : 'imágenes'} preparará los tiempos sin narración.`
       : unirAyuda(ayudaAudio(hayAudio, quedaVoz), textoDelPlan('voz')),
       h('button', {
         clase: 'primario',
@@ -9351,7 +9378,7 @@ function pieLight() {
         clase: 'mini peligro', onclick: () => cancelar(CLAVE_VIDEO_LIGHT),
       }, 'Parar')) : null,
     corriendo ? null : conAyuda(sinVoz
-      ? unirAyuda('Prepara los tiempos del guion sin narración y genera las imágenes.',
+      ? unirAyuda(`Prepara los tiempos del guion sin narración y genera las ${animarStickman ? 'animaciones' : 'imágenes'}.`,
                   textoDelPlan('video'))
       : !hayAudio
       ? 'Primero hace falta el audio: los subtitulos se colocan con sus '
@@ -9363,8 +9390,8 @@ function pieLight() {
         disabled: corriendo || !hayGuion || (!sinVoz && !hayAudio) || (hayVideo && !obsoleto)
                   || quedaVideo === false,
         onclick: () => lanzarTandaLight('video'),
-      }, (hayVideo && obsoleto) ? 'Poner al día las imágenes'
-         : 'Generar imágenes')),
+      }, (hayVideo && obsoleto) ? `Poner al día las ${animarStickman ? 'animaciones' : 'imágenes'}`
+         : `Generar ${animarStickman ? 'animaciones' : 'imágenes'}`)),
     /* LA PASTILLA SOLO SI ESTE BOTON TIENE ALGO QUE HACER.
        Miraba el estado de los pasos y el boton mira el PLAN, y no son lo
        mismo: regenerar las capas deja el MP4 viejo --y eso es verdad-- pero la
@@ -11279,7 +11306,7 @@ async function abrirEditorEscena(escena, estudio) {
   let remotionOcupado = false, capasRemotion = [], firmaRemotion = '', tallerRemotion, indiceRemotion = -1;
   const identidadLocal = () => JSON.stringify([escena.id, escena.narracion, escena.t_in, escena.t_out, ficha?.avatar.resolucion]);
   const historial = [], ondas = [];
-  const buffersSonido = new Map(), reproduccionesSonido = [];
+  const buffersSonido = new Map(), buffersEventosSonido = new WeakMap(), reproduccionesSonido = [];
   let contextoSonido;
   const estado = h('p', { clase: 'meta', role: 'status', 'aria-live': 'polite' }, 'Cargando escena…');
   const panel = h('div', { clase: 'escena-editor-panel', role: 'tabpanel', id: `escena-configuracion-${escena.id}` });
@@ -11932,7 +11959,9 @@ async function abrirEditorEscena(escena, estudio) {
         if (!r.ok) throw new Error('Efecto no disponible');
         return r.arrayBuffer();
       }).then(b => contextoSonido.decodeAudioData(b)).catch(() => null));
-      e.buffer = await buffersSonido.get(url);
+      // AudioBuffer no es clonable: la ficha se persiste en IndexedDB y debe
+      // contener solo datos. El audio decodificado pertenece al reproductor.
+      buffersEventosSonido.set(e, await buffersSonido.get(url));
     }));
   }
   function reproducirSonidos() {
@@ -11941,12 +11970,13 @@ async function abrirEditorEscena(escena, estudio) {
       if (!fuente) continue;
       const escala = (b.fin - b.inicio) / (fuente.fin - fuente.inicio);
       for (const e of fuente.eventos) {
-        if (!e.buffer) continue;
+        const buffer = buffersEventosSonido.get(e);
+        if (!buffer) continue;
         const inicio = Math.max(b.inicio, b.inicio + (e.t - fuente.inicio) * escala);
-        const fin = Math.min(b.fin, inicio + Math.min(e.buffer.duration, e.duracion));
+        const fin = Math.min(b.fin, inicio + Math.min(buffer.duration, e.duracion));
         if (fin <= tiempo) continue;
         const s = contextoSonido.createBufferSource(), g = contextoSonido.createGain();
-        s.buffer = e.buffer;
+        s.buffer = buffer;
         g.gain.value = e.ganancia; s.connect(g); g.connect(contextoSonido.destination);
         s.start(contextoSonido.currentTime + Math.max(0, inicio - tiempo), Math.max(0, tiempo - inicio));
         s.stop(contextoSonido.currentTime + fin - tiempo); reproduccionesSonido.push(s);
@@ -12369,7 +12399,7 @@ function galeriaImagenesPrevia(escenas, alSeleccionar) {
   const pid = videoAbierto().pid;
   const generadas = escenas.filter(e => e.imagen);
   const rejilla = h('div', { clase: 'previa-galeria',
-    role: 'region', 'aria-label': 'Imágenes generadas', tabindex: '0' });
+    role: 'region', 'aria-label': pedidoDelVideoLight().copia.stickman ? 'Animaciones generadas' : 'Imágenes generadas', tabindex: '0' });
   escenas.forEach((escena, i) => {
     if (!escena.imagen) return;
     rejilla.appendChild(h('button', {
@@ -12389,9 +12419,9 @@ function galeriaImagenesPrevia(escenas, alSeleccionar) {
       alt: '', loading: 'lazy' }), h('span', {}, escena.id)));
   });
   if (!generadas.length) rejilla.appendChild(h('p', { clase: 'meta' },
-    'Las imágenes aparecerán aquí cuando estén generadas.'));
+    pedidoDelVideoLight().copia.stickman ? 'Las animaciones aparecerán aquí cuando estén listas.' : 'Las imágenes aparecerán aquí cuando estén generadas.'));
   return h('aside', { clase: 'previa-lateral', 'aria-label': 'Galería de escenas' },
-    h('div', { clase: 'previa-galeria-cab' }, h('h3', {}, 'Imágenes generadas'),
+    h('div', { clase: 'previa-galeria-cab' }, h('h3', {}, pedidoDelVideoLight().copia.stickman ? 'Animaciones generadas' : 'Imágenes generadas'),
       h('span', { clase: 'meta' }, `${generadas.length} de ${escenas.length}`)), rejilla);
 }
 
@@ -12402,7 +12432,7 @@ function vistaPreviaLight() {
   const e = escenaPrevia();
 
   caja.appendChild(h('div', { clase: 'light-cab' },
-    h('h2', {}, 'Las imágenes, una a una'),
+    h('h2', {}, pedidoDelVideoLight().copia.stickman ? 'Las animaciones, una a una' : 'Las imágenes, una a una'),
     h('span', { clase: 'meta' },
       escenas.length ? `escena ${PREVIA.i + 1} de ${escenas.length}` : ''),
     obsoletasEnLaCabecera(escenas),
@@ -12411,11 +12441,14 @@ function vistaPreviaLight() {
     costeLight()));
 
   if (PREVIA.error) { caja.appendChild(cajaError(PREVIA.error)); return caja; }
-  if (!e && trabajoVideoLight()) {
+  const esperandoStickman = pedidoDelVideoLight().copia.stickman && !escenas.some(escena => escena.clip);
+  if ((!e || esperandoStickman) && trabajoVideoLight()) {
     if (!PREVIA.ficha && !PREVIA.cargando) setTimeout(cargarPreviaLight, 0);
     const marco = h('div', { clase: `previa-marco ${formatoDelVideo()}` },
       h('div', { clase: 'previa-sin-imagen', role: 'status' },
-        'Preparando las escenas… Las imágenes aparecerán aquí conforme se generen.'));
+        pedidoDelVideoLight().copia.stickman
+          ? 'Preparando las escenas… Las animaciones aparecerán aquí conforme estén listas para reproducirse.'
+          : 'Preparando las escenas… Las imágenes aparecerán aquí conforme se generen.'));
     caja.appendChild(marco);
     BARRA_INFERIOR.nodo = h('div', { clase: 'previa-mandos' },
       botonRenderizarLight());
@@ -12643,11 +12676,12 @@ function botonRenderizarLight() {
     return h('div', { clase: 'fila crece' }, barraTandaLight('video'),
       h('button', { clase: 'mini peligro', onclick: () => cancelar(CLAVE_VIDEO_LIGHT) }, 'Parar'));
   }
-  const pendientes = ((PREVIA.ficha || {}).escenas || []).filter(e => !e.imagen).length;
+  const esStickman = !!pedidoDelVideoLight().copia.stickman;
+  const pendientes = ((PREVIA.ficha || {}).escenas || []).filter(e => esStickman ? !e.clip : !e.imagen).length;
   if (pendientes) {
     refrescarPlanLight('video');
     return conAyuda(unirAyuda(
-      'Continúa la tanda interrumpida. Conserva las imágenes ya generadas y '
+      `Continúa la tanda interrumpida. Conserva las ${esStickman ? 'animaciones' : 'imágenes'} ya generadas y `
         + 'genera las pendientes antes de montar el vídeo.', textoDelPlan('video')),
     h('button', {
       clase: 'primario', disabled: !!trabajoVideoLight(),
@@ -12657,7 +12691,7 @@ function botonRenderizarLight() {
         repintarVideo();
         lanzarTandaLight('video', 'pendientes');
       },
-    }, `Continuar imágenes (${pendientes} pendientes)`));
+    }, `Continuar ${esStickman ? 'animaciones' : 'imágenes'} (${pendientes} pendientes)`));
   }
   if (hayMp4Light() && !videoObsoletoLight()) return null;
   const corriendo = (APP.trabajos[CLAVE_VIDEO_LIGHT] || {}).estado === 'ejecutando';
@@ -13568,6 +13602,8 @@ async function refrescarLoDibujado() {
           const suya = suyas[e.id];
           e.imagen = suya.imagen;
           e.clip = suya.clip;
+          e.stickman = suya.stickman;
+          e.editor_revision = suya.editor_revision;
           e.parallax = suya.parallax;
           e.avatar = suya.avatar;
           e.admite_avatar = suya.admite_avatar;
@@ -14053,6 +14089,107 @@ async function aplicarRepaso() {
  * Y el botón NO va pegado al scroll. Una barra que persigue tapa justo lo que
  * estás rellenando; abajo del todo, después de la última caja, es donde se
  * espera encontrarlo cuando has terminado. */
+const ESTADOS_ESTILO_STICKMAN = new WeakMap();
+
+function miniaturaStickmanLight(v) {
+  return v.miniatura || `${BASE}/api/stickman/familias/${encodeURIComponent(v.familia)}/muestra`;
+}
+
+function cabeceraStickmanLight(configuracion) {
+  const v = configuracion.variantes[configuracion.seleccionada];
+  return h('div', { clase: 'stickman-cabecera' },
+    h('img', { src: miniaturaStickmanLight(v), alt: v.nombre }),
+    h('div', {}, h('span', { clase: 'meta' }, 'Estilo seleccionado'), h('b', {}, v.nombre)),
+    h('span', { clase: 'stickman-insignia' }, 'Stickman Animation'));
+}
+
+function repartoStickmanLight(e, alCambiar) {
+  const inicial = Number(e.bibliotecas?.carga_claude ?? 50);
+  const etiqueta = h('span', { clase: 'meta' }, `Claude ${inicial}% · ChatGPT ${100 - inicial}%`);
+  const slider = h('input', { type: 'range', min: 0, max: 100, step: 10, value: 100 - inicial,
+    'aria-label': 'Repartir animaciones entre Claude y ChatGPT', oninput: ev => {
+      e.bibliotecas = { ...(e.bibliotecas || {}), carga_claude: 100 - Number(ev.target.value) };
+      etiqueta.textContent = `Claude ${e.bibliotecas.carga_claude}% · ChatGPT ${100 - e.bibliotecas.carga_claude}%`;
+      if (alCambiar) alCambiar();
+    } });
+  return bloqueLight('Repartir carga de trabajo', 'Generación de las escenas animadas',
+    h('div', { clase: 'stickman-reparto' }, h('span', {}, 'Claude'), slider, h('span', {}, 'ChatGPT')), etiqueta);
+}
+
+function panelEstiloStickmanLight(e, alCambiar) {
+  let estado = ESTADOS_ESTILO_STICKMAN.get(e);
+  if (!estado) {
+    estado = { prompt: '', referencias: [], ocupado: false, error: '' };
+    ESTADOS_ESTILO_STICKMAN.set(e, estado);
+  }
+  const caja = h('section', { clase: 'stickman-estilos', 'aria-label': 'Estilo de personajes Stickman' });
+  const pintar = () => {
+    vaciar(caja);
+    const config = e.stickman;
+    if (!config) { caja.appendChild(h('p', { role: 'status' }, estado.error || 'Preparando familias de personajes…')); return; }
+    const v = config.variantes[config.seleccionada];
+    const galeria = h('div', { clase: 'stickman-galeria', 'aria-label': 'Estilos generados' });
+    config.variantes.forEach((opcion, i) => galeria.appendChild(h('button', { type: 'button',
+      clase: `stickman-tarjeta${i === config.seleccionada ? ' seleccionada' : ''}`, disabled: estado.ocupado,
+      'aria-label': opcion.nombre,
+      'aria-pressed': i === config.seleccionada ? 'true' : 'false', onclick: () => {
+        config.seleccionada = i; alCambiar(); pintar();
+      } }, h('img', { src: miniaturaStickmanLight(opcion), alt: opcion.nombre, loading: 'lazy' }),
+      h('span', {}, opcion.nombre), i === config.seleccionada ? h('b', { clase: 'stickman-marca' }, '✓') : null)));
+    caja.appendChild(h('h3', {}, 'Estilo de personajes'));
+    caja.appendChild(h('p', { clase: 'meta' }, 'Define el aspecto de los personajes que se usarán en tus animaciones.'));
+    caja.appendChild(h('div', { clase: 'stickman-seleccion' },
+      h('div', { clase: 'stickman-elegido' }, h('img', { src: miniaturaStickmanLight(v), alt: v.nombre }),
+        h('div', {}, h('span', { clase: 'stickman-insignia' }, '✓ Estilo seleccionado'),
+          h('h3', {}, v.nombre), h('p', {}, v.descripcion || 'Personaje animable con identidad consistente entre escenas.'))),
+      h('div', { clase: 'stickman-opciones' }, h('div', { clase: 'fila' }, h('h4', {}, 'Estilos generados'),
+        h('span', { clase: 'pastilla' }, `${config.variantes.length} estilos`)), galeria)));
+    const entrada = h('textarea', { rows: 3, maxlength: 2000, value: estado.prompt, disabled: estado.ocupado,
+      'aria-label': 'Describe las variantes Stickman',
+      placeholder: 'Describe proporciones, cara, ropa y acabado. Se conservará la familia seleccionada.',
+      oninput: ev => { estado.prompt = ev.target.value; contador.textContent = `${estado.prompt.length} / 2000`; } });
+    const contador = h('span', { clase: 'meta' }, `${estado.prompt.length} / 2000`);
+    const referencias = { estilo_imagenes: estado.referencias };
+    caja.appendChild(h('h3', {}, 'Generar estilos con IA'));
+    caja.appendChild(h('p', { clase: 'meta' }, 'Claude creará variantes animables de la familia seleccionada. Puedes adjuntar una referencia de estilo.'));
+    caja.appendChild(entrada);
+    caja.appendChild(imagenesDeApoyoLight(referencias, () => { estado.referencias = referencias.estilo_imagenes; },
+      'referencias-stickman', { tope: 5 }));
+    caja.appendChild(h('div', { clase: 'fila cierre' }, contador,
+      h('button', { type: 'button', clase: 'primario stickman-generar', disabled: estado.ocupado,
+        onclick: async () => {
+          if (!estado.prompt.trim() && !estado.referencias.length) { estado.error = 'Describe la variante o adjunta una referencia.'; pintar(); return; }
+          if (config.variantes.length > 36) { estado.error = 'El estilo admite un máximo de 40 variantes.'; pintar(); return; }
+          estado.ocupado = true; estado.error = ''; pintar();
+          try {
+            const inicio = await pedir(`${BASE}/api/stickman/variantes`, { method: 'POST', cuerpo: {
+              prompt: estado.prompt, base: v, referencias: estado.referencias.map(r => r.nombre) } });
+            for (;;) {
+              const t = await pedir(`${BASE}/api/stickman/trabajos/${encodeURIComponent(inicio.trabajo_id)}`);
+              if (t.estado === 'listo') {
+                const nuevas = (t.resultado.variantes || []).map(f => f.variante);
+                config.seleccionada = config.variantes.length;
+                config.variantes.push(...nuevas); alCambiar(); break;
+              }
+              if (['error', 'cancelado'].includes(t.estado)) throw new Error(t.error || 'Generación detenida');
+              await new Promise(r => setTimeout(r, 1200));
+            }
+          } catch (err) { estado.error = err.message; }
+          finally { estado.ocupado = false; pintar(); }
+        } }, estado.ocupado ? 'Generando estilos…' : '✦ Generar estilos')));
+    if (estado.ocupado) caja.appendChild(h('p', { role: 'status', clase: 'meta' }, 'Preparando las variantes y renderizando sus muestras reales…'));
+    if (estado.error) caja.appendChild(h('p', { role: 'alert', clase: 'caja-error' }, estado.error));
+  };
+  pintar();
+  if (!e.stickman && !estado.ocupado) {
+    estado.ocupado = true;
+    pedir(`${BASE}/api/stickman/familias`).then(datos => {
+      e.stickman = { seleccionada: 0, variantes: datos.familias }; alCambiar();
+    }).catch(err => { estado.error = err.message; }).finally(() => { estado.ocupado = false; pintar(); });
+  }
+  return caja;
+}
+
 function vistaCrearLight() {
   const e = encargoLight();
   const caja = h('div', { clase: 'light-form' });
@@ -14068,8 +14205,14 @@ function vistaCrearLight() {
     { pista: 'Cartoon' }));
 
   const cajas = h('div', {});
-
-  cajas.appendChild(bloqueLight('🎨 Estilo gráfico',
+  const stickman = e.modo_visual === 'stickman';
+  cajas.appendChild(h('div', { clase: 'stickman-selector', role: 'group', 'aria-label': 'Tipo de producción visual' },
+    ...[['convencional', '▧ Convencional'], ['stickman', '♙ Stickman Animation']].map(([modo, nombre]) =>
+      h('button', { type: 'button', clase: modo === (e.modo_visual || 'convencional') ? 'seleccionado' : '',
+        'aria-pressed': modo === (e.modo_visual || 'convencional') ? 'true' : 'false',
+        onclick: () => { e.modo_visual = modo; tocarEncargoLight(); pintarLight(); } }, nombre))));
+  if (stickman) cajas.appendChild(panelEstiloStickmanLight(e, tocarEncargoLight));
+  else cajas.appendChild(bloqueLight('🎨 Estilo gráfico',
     'las imágenes, las cartelas y los subtítulos', camposEstiloLight()));
 
   /* EL TONO SE ESCRIBE, y con eso basta: no hay nada que copiar de ningún
@@ -14087,10 +14230,10 @@ function vistaCrearLight() {
   cajas.appendChild(bloqueLight('⏱️ Ritmo', 'cada cuánto corta el vídeo',
     sliderRitmo(e.ritmo, v => { e.ritmo = v; tocarEncargoLight(); })));
 
-  cajas.appendChild(bibliotecasDelEncargo(e.montaje, tocarEncargoLight, true));
-  cajas.appendChild(personajesDelEncargo(e.montaje, tocarEncargoLight, true));
+  if (!stickman) cajas.appendChild(bibliotecasDelEncargo(e.montaje, tocarEncargoLight, true));
+  if (!stickman) cajas.appendChild(personajesDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(subtitulosDelEncargo(e.montaje, tocarEncargoLight, true));
-  cajas.appendChild(parallaxDelEncargo(e.montaje, tocarEncargoLight, true));
+  if (!stickman) cajas.appendChild(parallaxDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(efectosDelEncargo(e.montaje, tocarEncargoLight, true));
   cajas.appendChild(animacionesDelEncargo(e.montaje, tocarEncargoLight, true));
 
@@ -14507,13 +14650,19 @@ function vistaPresetLight() {
 
   // 🎨 el estilo gráfico, con sus muestras en fila
   const grafico = h('div', {});
-  grafico.appendChild(bannerMuestras(ficha));
+  if (!datos.estilo?.stickman) grafico.appendChild(bannerMuestras(ficha));
   /* SIN caja de «qué le cambiarías»: la de indicaciones es esa caja. Eran dos
      campos de texto seguidos preguntando lo mismo, y encima el de arriba se
      guardaba con el estilo y el de abajo no. Se queda el que se guarda: una
      indicación que sobrevive se vuelve a aplicar la próxima vez que regeneres,
      y un feedback que se evapora hay que volver a escribirlo. */
-  grafico.appendChild(fuenteDeEstiloLight(ficha));
+  if (datos.estilo?.stickman) {
+    const edicion = { stickman: datos.estilo.stickman };
+    grafico.appendChild(panelEstiloStickmanLight(edicion, () => {
+      datos.estilo.stickman = edicion.stickman;
+      guardarPresetLight(ficha.id, { stickman: edicion.stickman });
+    }));
+  } else grafico.appendChild(fuenteDeEstiloLight(ficha));
   caja.appendChild(bloqueLight('🎨 Estilo gráfico',
     'las imágenes, las cartelas y los subtítulos', grafico));
 
@@ -14555,10 +14704,10 @@ function vistaPresetLight() {
     datos.montaje = JSON.parse(JSON.stringify(montaje));
     guardarPresetLight(ficha.id, { montaje: datos.montaje });
   };
-  caja.appendChild(bibliotecasDelEncargo(montaje, guardarMontaje, true));
-  caja.appendChild(personajesDelEncargo(montaje, guardarMontaje, true));
+  if (!datos.estilo?.stickman) caja.appendChild(bibliotecasDelEncargo(montaje, guardarMontaje, true));
+  if (!datos.estilo?.stickman) caja.appendChild(personajesDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(subtitulosDelEncargo(montaje, guardarMontaje, true));
-  caja.appendChild(parallaxDelEncargo(montaje, guardarMontaje, true));
+  if (!datos.estilo?.stickman) caja.appendChild(parallaxDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(efectosDelEncargo(montaje, guardarMontaje, true));
   caja.appendChild(animacionesDelEncargo(montaje, guardarMontaje, true));
 
