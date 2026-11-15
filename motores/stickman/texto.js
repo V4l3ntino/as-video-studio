@@ -11,7 +11,7 @@ export function protegerTexto(g, activo, grosor=.12) {
       const size = Number(this.font.match(/([\d.]+)px/)?.[1] || 32);
       this.save();
       this.shadowBlur = 0; this.lineJoin = 'round';
-      this.lineWidth = Math.max(2, size*grosor);
+      this.lineWidth = Math.max(2, size*(typeof grosor==='function'?grosor():grosor));
       this.strokeStyle = luminancia < .179 ? '#ffffff' : '#000000';
       this.strokeText(str, x, y, ...args);
       // El resplandor de la tinta no debe tapar el contorno de contraste.

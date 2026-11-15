@@ -1,5 +1,5 @@
 // Adaptador declarativo sobre el rig GrowKaz. No ejecuta código del modelo.
-import { E, S, mood, layer, ease, key, glow, clamp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
+import { E, S, mood, layer, ease, key, glow, clamp, FONTS } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 import { posesAt, breathe, walkPose, face, drawFigure, bigFace, soccerBall, drawProp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/rig2d.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { cargarFuentes } from './fuentes.js';
@@ -13,7 +13,7 @@ import { movimientoEn } from './movimiento.js';
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
 canvas.width = D.ancho; canvas.height = D.alto;
-protegerTexto(g, () => Boolean(D.escena.realizacion));
+protegerTexto(g, () => Boolean(D.escena.realizacion),()=>D.escena.realizacion?.comparacion?.04:.12);
 Object.assign(E, { W: 1920, H: 1920 * D.alto / D.ancho, PX: D.ancho / 1920,
   vertical: D.alto > D.ancho, fps: D.fps, cfg: {}, words: D.escena.palabras || [] });
 aplicarEstilo(D.variante.acabado);
@@ -273,9 +273,10 @@ function objeto(o, t, ctx=g) {
   else if (o.tipo === 'linea') {trazo(0, 0, w * progreso, h * progreso);}
   else if (o.tipo === 'texto') {
     let size = Math.min(o.fuente ?? 48, h * .8);
-    g.font = `800 ${size}px sans-serif`;
+    const familia=D.escena.realizacion?.comparacion?`700 ${size}px "${FONTS.title}"`:`800 ${size}px sans-serif`;
+    g.font = familia;
     size *= Math.min(1, w / Math.max(1, g.measureText(o.texto).width));
-    g.font = `800 ${size}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = familia.replace(/[\d.]+px/,`${size}px`); g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(o.texto, 0, 0);
   }
   else if (o.tipo === 'pizarra') {

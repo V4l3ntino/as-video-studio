@@ -196,10 +196,11 @@ class Stickman(unittest.TestCase):
 
     def test_direccion_por_frase_viaja_del_guion_al_plan_sin_reiniciar_el_bloque(self):
         from pasos import p3_guion
-        opciones = dict(sistema_personajes=dict(stickman=True, generar_personajes=True))
-        visuales = [dict(texto='El niño pide consuelo.', descripcion_visual='El niño levanta los brazos.', personajes_visibles=['auto_nino']),
+        opciones = dict(sistema_personajes=dict(stickman=True, generar_personajes=True), _exigir_colores_escena=True)
+        visuales = [dict(texto='El niño pide consuelo.', descripcion_visual='El niño levanta los brazos.', personajes_visibles=['auto_nino'],
+            colores='azules fríos, turquesas, amarillo cálido'),
             dict(texto='El cuidador responde.', descripcion_visual='El cuidador se arrodilla junto al niño y extiende los brazos.',
-                 personajes_visibles=['auto_nino', 'auto_cuidador'])]
+                 personajes_visibles=['auto_nino', 'auto_cuidador'], colores='crema, marrón madera')]
         bloque = dict(id='B001', texto='El niño pide consuelo. El cuidador responde.', personaje_id='',
             personajes_visibles=['auto_nino', 'auto_cuidador'], descripcion_visual='Secuencia completa de consuelo.', escenas_visuales=visuales)
         datos = dict(bloques=[bloque], personajes_automaticos=[dict(id='auto_nino', nombre='Niño', descripcion='Niño pequeño'),
@@ -210,11 +211,17 @@ class Stickman(unittest.TestCase):
         personajes.aplicar_a_escenas(escenas, dict(guion=bloques), opciones)
         self.assertEqual([e['prompt'] for e in escenas], [v['descripcion_visual'] for v in visuales])
         self.assertEqual(escenas[0]['personajes'], ['auto_nino'])
+        self.assertEqual([e['colores'] for e in escenas], [v['colores'] for v in visuales])
         self.assertEqual(escenas[1]['intervencion']['descripcion_visual'], visuales[1]['descripcion_visual'])
         # Regrabar/editar la frase no debe aplicar una dirección de texto anterior.
         editada = dict(id='S003', narracion='El cuidador se aleja.', origen=dict(bloque='B001'), prompt='El adulto retrocede.')
         personajes.aplicar_a_escenas([editada], dict(guion=bloques), opciones)
         self.assertEqual(editada['prompt'], 'El adulto retrocede.')
+        self.assertNotIn('colores', editada)
+        sin_colores = copy.deepcopy(bloque)
+        sin_colores['escenas_visuales'][0].pop('colores')
+        with self.assertRaisesRegex(ValueError, 'colores principales'):
+            personajes.preparar_intervenciones(datos, [sin_colores], opciones)
         for cambio in (dict(escenas_visuales=visuales[:1]),
                 dict(escenas_visuales=[visuales[0], dict(visuales[1], texto='Otra frase.')]),
                 dict(escenas_visuales=[visuales[0], dict(visuales[1], descripcion_visual=visuales[0]['descripcion_visual'])])):

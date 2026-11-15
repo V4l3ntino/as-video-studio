@@ -7,6 +7,10 @@ import { pintar3D } from './espacio3d.js';
 import { encuadrar } from './encuadre.js';
 import { conNeon } from './neon.js';
 import { paletaEditorial } from './estilo.js';
+import { ambienteVisual } from './ambiente.js';
+import { bocadillo, proyectarRostro } from './bocadillos.js';
+import { fondoComparacion, recortarComparacion, separadorComparacion } from './comparacion.js';
+import { pintarCapitulo } from './capitulo.js';
 
 export function pintarEditorial(g,t,D,draw) {
   const S0=D.escena,R=S0.realizacion||{},W=E.W,H=E.H;
@@ -43,17 +47,26 @@ export function pintarEditorial(g,t,D,draw) {
     }
   }
   const blur=R.desenfoque??(['medio','primer_plano','detalle'].includes(R.encuadre)?5:0);
-  function graficos(capa){
-    for(const item of S0.graficos||[])if(item.capa===capa&&activo(item)){
+  function graficos(capa,filtro=()=>true){
+    for(const item of S0.graficos||[])if(item.capa===capa&&activo(item)&&filtro(item)){
       g.save();
-      const pintar=()=>conNeon(g,item.neon,item.opciones.color||S().ui.gold,
-        ctx=>grafico(ctx,item,t,draw.reparto));
+      if(item.tipo==='capitulo'){
+        pintarCapitulo(g,item,t,R);g.restore();continue;
+      }
+      if(item.tipo==='bocadillo'){
+        const actor=S0.personajes.find(c=>c.id===item.opciones.personaje);
+        bocadillo(g,item.opciones,proyectarRostro(draw.cabeza(actor,t),cam));
+        g.restore();continue;
+      }
+      const pintar=()=>conNeon(g,item.neon??(R.comparacion&&item.tipo==='comparacion'?.20:0),item.opciones.color||(R.comparacion?'#ffdb83':S().ui.gold),
+        ctx=>grafico(ctx,item,t,draw.reparto,R.comparacion));
       if(capa==='pantalla')pintar();
       else layer(g,cam,capa==='fondo'?(R.profundidad??.65):1,pintar);
       g.restore();
     }
   }
   if(S0.espacio3d)pintar3D(g,S0,t,D.duracion,draw.estado);
+  else if(R.comparacion)fondoComparacion(g,S0,t);
   else if(R.encuadre==='dividido'){
     for(const [i,colors] of [[0,['#061421','#184466']],[1,['#211008','#693414']]]){
       g.save();g.beginPath();g.rect(W*i/2,0,W/2,H);g.clip();
@@ -63,23 +76,33 @@ export function pintarEditorial(g,t,D,draw) {
   }else{
     blurLayer(g,blur,ctx=>{decorado(ctx,S0,t);efectos(ctx,'fondo');},cam,R.profundidad??.65);
   }
-  if(R.encuadre==='dividido')layer(g,cam,1,()=>efectos(g,'fondo'));
-  graficos('fondo');
+  if(R.encuadre==='dividido'||R.comparacion)layer(g,cam,1,()=>efectos(g,'fondo'));
+  if(R.particulas||R.malla){
+    graficos('fondo',item=>item.tipo==='blueprint');
+    if(!R.comparacion)ambienteVisual(g,S0,t);
+    graficos('fondo',item=>item.tipo!=='blueprint');
+  }else graficos('fondo');
   if(!S0.espacio3d){
     layer(g,cam,1,()=>{
       const panel=(p,fn)=>{
         g.save();
-        if(R.encuadre==='dividido'&&p){g.beginPath();g.rect(p==='izquierda'?0:W/2,0,W/2,H);g.clip();}
+        if(R.comparacion&&p){
+          const matriz=g.getTransform();g.setTransform(E.PX,0,0,E.PX,0,0);
+          recortarComparacion(g,p,R.comparacion);g.setTransform(matriz);
+        }else if(R.encuadre==='dividido'&&p){g.beginPath();g.rect(p==='izquierda'?0:W/2,0,W/2,H);g.clip();}
         fn();g.restore();
       };
-      S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>draw.objeto(g,o,t));
+      const panelObjeto=o=>o.panel||(o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel);
+      S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>panel(panelObjeto(o),()=>draw.objeto(g,o,t)));
       S0.personajes.forEach(c=>panel(c.panel,()=>{
         g.save();if(c.rol==='figurante')g.globalAlpha*=.42;
-        if(R.encuadre==='primer_plano'&&c.id===R.sujeto&&c.diseno.familia==='classic')draw.rostro(g,c,t);
-        else draw.figura(g,c,t);g.restore();
+        const tinta=c.panel==='izquierda'?(R.comparacion?.color_izquierdo||'#83d9f7'):(R.comparacion?.color_derecho||'#ffbd78');
+        const actor=R.comparacion&&c.panel?{...c,diseno:{...c.diseno,contorno:tinta}}:c;
+        if(R.encuadre==='primer_plano'&&c.id===R.sujeto&&c.diseno.familia==='classic')draw.rostro(g,actor,t);
+        else draw.figura(g,actor,t);g.restore();
       }));
       S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa!=='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>{
-        const p=o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel;
+        const p=panelObjeto(o);
         panel(p,()=>draw.objeto(g,o,t));
       });
       efectos(g,'frente');
@@ -92,18 +115,23 @@ export function pintarEditorial(g,t,D,draw) {
   // Primero gradación de la imagen; texto y gráficos conservan contraste y color.
   acabado(g,t,R);
   g.setTransform(E.PX,0,0,E.PX,0,0);
+  if(R.comparacion)separadorComparacion(g,R.comparacion);
   // Rótulos fuera de la gradación, conservando cámara, posición y ancla del mundo.
   layer(g,cam,1,()=>{
     S0.objetos.filter(o=>o.tipo==='texto'&&activo(o)).forEach(o=>{
-      const panel=o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel;
+      const panel=o.panel||(o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel);
       g.save();
-      if(R.encuadre==='dividido'&&panel){g.beginPath();g.rect(panel==='izquierda'?0:W/2,0,W/2,H);g.clip();}
+      if(R.comparacion&&panel){
+        const matriz=g.getTransform();g.setTransform(E.PX,0,0,E.PX,0,0);
+        recortarComparacion(g,panel,R.comparacion);g.setTransform(matriz);
+      }else if(R.encuadre==='dividido'&&panel){g.beginPath();g.rect(panel==='izquierda'?0:W/2,0,W/2,H);g.clip();}
       draw.objeto(g,o,t);g.restore();
     });
   });
-  graficos('pantalla');
+  graficos('pantalla',item=>item.tipo!=='capitulo');
   efectos(g,'pantalla');
-  if(R.encuadre==='dividido'){g.strokeStyle=alpha(S().ui.gold,.5);g.lineWidth=2;g.beginPath();g.moveTo(W/2,H*.12);g.lineTo(W/2,H*.9);g.stroke();}
+  if(R.encuadre==='dividido'&&!R.comparacion){g.strokeStyle=alpha(S().ui.gold,.5);g.lineWidth=2;g.beginPath();g.moveTo(W/2,H*.12);g.lineTo(W/2,H*.9);g.stroke();}
+  graficos('pantalla',item=>item.tipo==='capitulo');
   const bars=(R.bandas||0)*H;
   if(bars){g.fillStyle='#000';g.fillRect(0,0,W,bars);g.fillRect(0,H-bars,W,bars);}
   return 1;

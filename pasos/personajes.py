@@ -19,7 +19,7 @@ except ImportError:
     import imagenes_animacion
 
 CAMPOS_INTERVENCION = ("personaje_id", "personaje_nombre", "categoria", "voz_id",
-                       "personajes_visibles", "descripcion_visual", "escenas_visuales")
+                       "personajes_visibles", "descripcion_visual", "escenas_visuales", "capitulo")
 
 
 def normalizar(crudo, proyecto=None, pendientes=False):
@@ -193,7 +193,7 @@ def instruccion(opciones):
          if not solo_personajes(opciones) else "La aplicación resolverá la voz desde el ID personalizado. Usa solo hablantes con voz propia asignada; nunca uses la voz general ni inventes voces."),
         "Este contrato de hablantes prevalece sobre las instrucciones genéricas de narración en off; si el usuario aporta un guion propio, respeta sus palabras y etiqueta sus intervenciones sin reescribirlo.",
         instruccion_pov(personaje_pov(opciones)),
-        instruccion_visual_stickman() if modo.get("stickman") else "",
+        instruccion_visual_stickman(opciones.get("estilo_visual")) if modo.get("stickman") else "",
     ])
 
 
@@ -227,7 +227,8 @@ No añadas «con la chaqueta al hombro». Al adaptar descripciones anteriores, c
 """
 
 
-def instruccion_visual_stickman():
+def instruccion_visual_stickman(estilo=None):
+    from pasos import direccion_color, capitulos_guion
     return """== DIRECCIÓN VISUAL STICKMAN 2D ==
 La narración explica la idea; la imagen muestra una acción concreta que la hace comprensible.
 El motor dispone del kit completo: figuras articuladas, expresiones, utilería por piezas, escenarios reutilizables,
@@ -260,7 +261,7 @@ completa de texto, en el mismo orden: [{"texto":"Frase literal completa.","descr
 Las escenas consecutivas deben avanzar: conserva identidades y contexto, pero no reinicies la misma animación
 ni repitas la descripción con distinta velocidad. Cada entrada se anima solo durante su propia frase.
 Estas reglas de representabilidad prevalecen sobre sugerencias visuales genéricas del tono; conserva el sentido del relato.
-""" + instruccion_utileria_stickman() + instruccion_tiempo_visual()
+""" + instruccion_utileria_stickman() + instruccion_tiempo_visual() + direccion_color.instruccion(estilo) + capitulos_guion.INSTRUCCION
 
 
 def preparar_intervenciones(datos, bloques, opciones):
@@ -334,6 +335,13 @@ def preparar_intervenciones(datos, bloques, opciones):
                 if descripcion in descripciones:
                     raise ValueError(f'{b["id"]}: las frases deben avanzar visualmente, sin repetir la misma descripción')
                 descripciones.add(descripcion)
+                if opciones.get('_exigir_colores_escena') and not visual.get('colores'):
+                    raise ValueError(f'{b["id"]}: cada escena visual necesita colores principales separados por comas')
+                if 'colores' in visual:
+                    from pasos import direccion_color
+                    visual['colores'] = direccion_color.normalizar(visual['colores'])
+                    if opciones.get('_exigir_colores_escena') and not visual['colores']:
+                        raise ValueError(f'{b["id"]}: colores no puede estar vacío')
     return automaticos
 
 
@@ -403,6 +411,8 @@ def aplicar_a_escenas(escenas, documento, opciones=None):
             if repeticion < len(candidatos):
                 e.update(descripcion_visual=candidatos[repeticion]["descripcion_visual"],
                          personajes_visibles=list(candidatos[repeticion]["personajes_visibles"]))
+                if 'colores' in candidatos[repeticion]:
+                    e['colores'] = candidatos[repeticion]['colores']
             else:
                 # Una edición posterior de la voz puede dejar el ancla antigua.
                 # Conserva la dirección del catálogo, no otra frase del bloque.

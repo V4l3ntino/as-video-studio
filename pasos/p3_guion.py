@@ -1112,7 +1112,8 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         ejemplo_stickman = json.loads(ejemplo)
         for b in ejemplo_stickman["bloques"]:
             b["escenas_visuales"] = [dict(texto=b["texto"],
-                descripcion_visual=b["descripcion_visual"], personajes_visibles=b["personajes_visibles"])]
+                descripcion_visual=b["descripcion_visual"], personajes_visibles=b["personajes_visibles"],
+                colores="verde natural, marrón madera, blanco cálido")]
         ejemplo = json.dumps(ejemplo_stickman, ensure_ascii=False)
     if not propio:
         ejemplo_con_plan = json.loads(ejemplo)
@@ -1211,6 +1212,11 @@ def _instruccion_con_escaleta(transcript, metadatos, brief, opciones, idioma,
         "pronunciables. Frases naturales para el oido, sin solemnidad ni muletillas.",
     ]
     modo = opciones.get("sistema_personajes") or {}
+    if escaleta.get('capitulos'):
+        partes.append('Los capítulos declarados agrupan los tramos en el orden del relato. '
+            'Cada uno desarrolla su pregunta con varios bloques y ejemplos pertinentes, sin repetir la tesis. '
+            'El gancho puede preceder al primer capítulo. No escribas frases solo para locutar títulos o números; '
+            'las portadas serán visuales y se integrarán en la primera escena de cada capítulo.')
     if modo.get("generar_personajes"):
         partes.extend([
             "== HABLANTES, SIN DIRECCION VISUAL ==",
@@ -1259,17 +1265,19 @@ def _instruccion_con_escaleta(transcript, metadatos, brief, opciones, idioma,
 
 def _generar_escaleta(transcript, metadatos, brief, opciones, idioma, trabajo, avisar):
     presupuesto = _horquilla(brief, idioma)[0]
+    con_capitulos = bool((opciones.get('sistema_personajes') or {}).get('stickman'))
     prompt = editorial_guion.instruccion_escaleta(
         _transcript_legible(transcript, opciones["max_caracteres_transcript"], con_tiempos=False),
         brief.get("instrucciones") or "", opciones["prompt_general"], presupuesto,
         _nombre_idioma(brief, idioma), escaso=sum(comun.contar_palabras(t.get("texto", ""))
             for t in transcript) < fuentes.PALABRAS_MATERIAL_SUFICIENTE,
         contexto=dict(cta=opciones.get("cta"), personajes=personajes.activos(opciones),
-                      solo_dialogos=personajes.solo_personajes(opciones)))
+                      solo_dialogos=personajes.solo_personajes(opciones), capitulos_visuales=con_capitulos,
+                      estilo_visual=opciones.get('estilo_visual') or {}))
 
     def comprobar(datos):
         try:
-            datos["_escaleta"] = editorial_guion.validar_escaleta(datos, presupuesto)
+            datos["_escaleta"] = editorial_guion.validar_escaleta(datos, presupuesto, exigir_capitulos=con_capitulos)
         except ValueError as fallo:
             raise RuntimeError(str(fallo)) from fallo
         return []
@@ -1979,11 +1987,15 @@ def ejecutar(proyecto, params, avisar):
 
 def _redactar(proyecto, params, avisar):
     """Redacta el guion con el CLI de Claude a partir del material y el brief."""
+    from pasos import capitulos_guion
     arranque = time.time()
     opciones = _normalizar(params)
     assets_actuales = personajes.params_de(proyecto, "assets")
     if assets_actuales.get("generar_personajes") is True or "sistema_personajes" in opciones:
         opciones["sistema_personajes"] = personajes.contexto(assets_actuales, personajes.params_de(proyecto, "voz"))
+    if (opciones.get("sistema_personajes") or {}).get("stickman"):
+        opciones["estilo_visual"] = assets_actuales.get("estilo") or {}
+        opciones['_exigir_colores_escena'] = True
     personajes.validar_voces(opciones)
     trabajo = comun.preparar_trabajo(proyecto, PASO)
 
@@ -2004,6 +2016,8 @@ def _redactar(proyecto, params, avisar):
     origen = None
 
     anterior = None if opciones["regenerar_desde_cero"] else _guion_anterior(proyecto)
+    capitulos_anteriores = {b['id']: b['capitulo'] for b in ((anterior or {}).get('guion')
+        or (anterior or {}).get('bloques') or []) if isinstance(b, dict) and b.get('id') and 'capitulo' in b}
     # los bloques del guion sobre el que se itera, por id: un bloque que vuelve
     # diciendo lo mismo no se le cambian las siglas (ver `_deletrear_bloque`)
     intactos = {str(b.get("id") or "").upper(): str(b.get("texto") or "")
@@ -2042,9 +2056,13 @@ def _redactar(proyecto, params, avisar):
         propios = []
         bloques = _aplicar_marcas(_normalizar_bloques(datos), opciones,
                                   propios, idioma, intactos)
+        for bloque in bloques:
+            if 'capitulo' not in bloque and bloque['id'] in capitulos_anteriores:
+                bloque['capitulo'] = copy.deepcopy(capitulos_anteriores[bloque['id']])
         datos["_bloques"] = bloques
         datos["_avisos"] = propios
         try:
+            capitulos_guion.de_bloques(bloques)
             opciones_hablantes = opciones
             if dirigir:
                 opciones_hablantes = copy.deepcopy(opciones)
@@ -2108,6 +2126,9 @@ def _redactar(proyecto, params, avisar):
     # texto, asi que una persona puede teclear una que no existe sin saberlo, y
     # lo que Cartesia no reconoce lo locuta
     bloques = _aplicar_marcas(bloques, opciones, avisos_marcas, idioma, intactos)
+    capitulos = []
+    if escaleta is not None and escaleta.get('capitulos'):
+        capitulos = capitulos_guion.asignar(escaleta, bloques)
     if nueva:
         # Auditoria: las palabras existen antes de dirigir. No es una cache;
         # preparar_trabajo limpia los intentos anteriores al lanzar otra tanda.
@@ -2121,6 +2142,9 @@ def _redactar(proyecto, params, avisar):
         fases_guion["direccion"] = intentos_visual
     else:
         automaticos = personajes.preparar_intervenciones(datos, bloques, opciones)
+
+    if not capitulos:
+        capitulos = capitulos_guion.de_bloques(bloques)
 
     palabras = sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques)
     titulo = str(datos.get("titulo") or metadatos.get("titulo") or "Sin titulo").strip()
@@ -2215,6 +2239,8 @@ def _redactar(proyecto, params, avisar):
         documento["personajes_automaticos"] = automaticos
     if plan_narrativo is not None:
         documento["plan_narrativo"] = plan_narrativo
+    if capitulos:
+        documento['capitulos'] = capitulos
     if escaleta is not None:
         documento["escaleta_editorial"] = escaleta
         documento["fases_guion"] = fases_guion

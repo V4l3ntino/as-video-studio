@@ -72,6 +72,56 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+Los capítulos de guiones Stickman nuevos se deciden en `escaleta.capitulos`
+antes de escribir: numero/titulo/estilo y tramos contiguos, sin huecos en el
+desarrollo. `capitulos_guion.asignar` los enlaza a bloques reales; no inventes
+un capítulo por escena ni locutes títulos para justificar una portada. La
+dirección no puede cambiar ese metadato, y una corrección hereda la estructura
+del guion anterior si el proveedor omite sus campos. El propio del usuario y
+los guiones históricos no reciben numeración al abrirse.
+`descripciones_escenas` transmite el capítulo efectivo y P6 marca solo su
+primera escena con `apertura_capitulo`, calculada al reloj de la voz actual.
+El render `capitulo.js` es local y autoritativo: una frase <=3 s puede ser
+portada completa sin llamada al CLI; en una larga ocupa 1,8–2,8 s y el director
+reserva el resto. No añadas escenas o pausas al audio ya generado ni arrastres
+portadas por continuidad. Suprime solo las cabeceras SVG antiguas que duplican
+estos capítulos estructurados, no las de planes históricos sin metadato.
+Exportar/importar conserva capitulo por bloque. Los cambios solo visuales de
+capítulos van a assets.unidades.descripcion_escena, no a params guion/voz;
+guardar después una descripción debe conservar también ese capítulo efectivo.
+La UI inserta encabezados sin reemplazar los campos al refrescar por tandas.
+No cambies VERSION. Pruebas: `prueba_editorial_guion.py`,
+`prueba_descripciones_escenas.py --real` y `prueba_stickman_editorial.py --real`.
+
+Una comparación plana real usaba encuadre conjunto,
+dos rectángulos opacos azul/rojo, bandas grises y una línea blanca manual:
+tapaba el escenario, no era solo falta de bloom. `realizacion.comparacion`
+activa `comparacion.js`: luz fría/cálida, reflejos, partículas y borde de neón.
+Los planes nuevos dividido/comparacion lo reciben en `validar_entrega`;
+`preparar_comparacion_nueva` pide eliminar los paneles que lo cubren, sin
+borrarlos silenciosamente ni mutar proyectos al abrir. Los retoques históricos
+no se convierten por defecto; un retoque que elige comparacion sí se valida.
+El clip de cada panel se fija en pantalla antes de volver a la cámara: si se
+recorta en coordenadas de mundo, el borde se separa del neón con zoom/paneo.
+Los contornos locales no mutan las identidades. Los títulos/rasgos comparativos
+usan Fredoka grande con borde fino; los textos de otros planos conservan su ruta.
+Regresión: `prueba_stickman_editorial.py --real` (fondos no planos, movimiento,
+recorte con cámara y comparación de objetos sin actores). No cambies VERSION.
+
+Las referencias visuales se transmiten a descripciones (`direccion_color`) y
+dirección de animación (`realizacion_stickman`). Las generaciones nuevas añaden
+`particulas:true`, `desfase_ambiente:t_in` y malla en gráficos Arctic Glass;
+no los inyectes al leer planes históricos ni al editar solo zoom/actuación de
+un clip previo. `ambiente.js` pinta una malla transparente y partículas detrás
+de actores/rótulos, sin tapar fondos explícitos ni duplicar blueprint/dust.
+`bocadillo` requiere un personaje presente y capa pantalla: proyecta su cabeza
+con la cámara real y une cola triangular o círculos según diálogo/pensamiento.
+El texto se ajusta dentro de una caja lateral, después de la gradación. No uses
+`bubble` genérico como sustituto de ese vínculo. `neon_destacados` en población
+se limita a los índices elegidos. No cambies VERSION por estos campos optativos.
+Contrato, movimiento de partículas, malla tenue, nitidez y ancla de bocadillos:
+`python pasos/prueba_stickman_editorial.py --real`, sin proveedores.
+
 `realizacion.paleta` selecciona ember/arctic/sakura/retro para grafismos; los
 colores compartidos de prompt/render viven en `motores/stickman/paletas.json`.
 No uses esa paleta para sustituir los materiales ni la piel. `neon:0–1` en
@@ -207,6 +257,20 @@ no las guardes en params de guion ni reescribas su versión: eso invalidaría la
 voz sin haber cambiado ninguna palabra. La regeneración es un trabajo aparte,
 con validación de cobertura y comprobación de cambios antes de publicar cada tanda.
 Regresión offline y navegador: `python pasos/prueba_descripciones_escenas.py --real`.
+
+La dirección cromática de descripciones vive en `pasos/direccion_color.py` y
+consume las mismas `PALETAS` del renderer. `escenas_visuales[].colores` es una
+cadena de nombres separados por comas (hasta 500 caracteres), no un array.
+La redacción Stickman exige ese campo solo en entregas nuevas; la lectura de
+guiones históricos no inventa paletas ni persiste defaults. `estilo_visual` y
+`_exigir_colores_escena` son contexto interno de redacción, no params nuevos.
+Las correcciones de color se guardan con `descripcion_escena` en assets; compara
+también colores al detectar cambios, importar y refrescar etiquetas. P6 transmite
+colores aun sin generación de personajes y los incorpora al prompt (y su firma).
+Exportar/importar conserva `colores` por frase; omitirlo en un JSON antiguo no
+borra la dirección existente. Las etiquetas de cabecera son la unión sin
+duplicados de los colores de las escenas del bloque. La actualización por tandas
+renueva esas etiquetas sin reemplazar los campos de descripción ni su scroll.
 
 La dirección visual necesita el tiempo de CADA frase: `descripciones_escenas.listar`
 incluye `duracion_s` y `duracion_estimada`. Con audio, recalcula los cortes con

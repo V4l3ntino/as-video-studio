@@ -2,6 +2,7 @@
 import copy
 import json
 import math
+from pasos import capitulos_guion
 
 
 PAUTA = """Selecciona un recorrido para el espectador, no un indice del tema.
@@ -24,7 +25,7 @@ adaptable al genero, material y duracion. No inventes fuentes, cifras o estudios
 
 
 def instruccion_escaleta(material, guia, indicaciones, presupuesto, idioma, escaso=False,
-                         contexto=None):
+                          contexto=None):
     base = ("El material solo aporta un tema o notas muy breves, no un dosier verificado. "
             "Planea una explicacion prudente de conocimientos generales; no inventes "
             "fechas, porcentajes ni atribuciones bibliograficas para darle autoridad. "
@@ -34,6 +35,7 @@ def instruccion_escaleta(material, guia, indicaciones, presupuesto, idioma, esca
     return ("Eres editor de un video de YouTube. Decide la escaleta ANTES de redactar. "
             "No escribas narracion, bloques Bxxx, SSML ni descripciones visuales.\n"
             + PAUTA + "\n" + base + "\n"
+            + (capitulos_guion.INSTRUCCION if (contexto or {}).get('capitulos_visuales') else '')
             + json.dumps(dict(material=material, guia_del_canal=guia,
                 indicaciones_del_video=indicaciones, palabras_objetivo=presupuesto,
                 idioma=idioma, restricciones=contexto or {}), ensure_ascii=False)
@@ -47,10 +49,16 @@ def instruccion_escaleta(material, guia, indicaciones, presupuesto, idioma, esca
               '"palabras":100,"puente":"duda concreta o cadena vacia"}]}. '
               'Los presupuestos de los tramos deben sumar el objetivo. '
               'La cantidad de tramos depende del relato, no de una plantilla fija. '
-              'Declara solo los descubrimientos que los hechos de ese tramo permiten contar.')
+              'Declara solo los descubrimientos que los hechos de ese tramo permiten contar.'
+            + ('\nAñade capitulos:[{numero:1,titulo:"Título breve del punto",estilo:"arctic|ember|mixto|sakura|retro",'
+               'tramos:["T02","T03"]}]. Agrupa varios tramos si responden a la misma pregunta. '
+               'Todo el desarrollo queda asignado en orden, sin compartir tramos; solo el primer tramo '
+               '(gancho) y el último (cierre) pueden quedar fuera si corresponde. La cantidad de capítulos '
+               'depende del material, duración y estructura pedida; no impongas cuatro capítulos por copiar un ejemplo.'
+               if (contexto or {}).get('capitulos_visuales') else ''))
 
 
-def validar_escaleta(datos, presupuesto):
+def validar_escaleta(datos, presupuesto, exigir_capitulos=False):
     """Valida estructura y normaliza el reparto sin repetir por aritmetica."""
     if not isinstance(datos, dict):
         raise ValueError("la escaleta debe ser un objeto")
@@ -99,6 +107,8 @@ def validar_escaleta(datos, presupuesto):
         reparto[i] += 1
     for tramo, palabras in zip(salida["tramos"], reparto):
         tramo["palabras"] = palabras
+    if exigir_capitulos or 'capitulos' in datos:
+        salida['capitulos'] = capitulos_guion.validar_plan(datos.get('capitulos'), salida['tramos'])
     return salida
 
 
@@ -127,7 +137,7 @@ def aplicar_direccion(datos, bloques, respuesta):
         raise ValueError("la direccion debe conservar todos los IDs y su orden")
     salida = copy.deepcopy(bloques)
     for bloque, visual in zip(salida, visuales):
-        for campo in ("texto", "personaje_id"):
+        for campo in ("texto", "personaje_id", "capitulo"):
             if campo in visual and visual[campo] != bloque.get(campo):
                 raise ValueError(f"la direccion no puede cambiar {campo} en {bloque['id']}")
         for campo in ("personajes_visibles", "descripcion_visual", "escenas_visuales"):

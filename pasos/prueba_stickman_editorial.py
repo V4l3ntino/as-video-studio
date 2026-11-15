@@ -35,9 +35,67 @@ def narrativa(base, **cambios):
 
 
 def grafica(tipo, opciones):
-    return dict(ambiente='void', decorado='vacio', personajes=[], realizacion=dict(encuadre='grafico',
+    return dict(ambiente='void', decorado='vacio', personajes=[dict(id='ana',x=.5,y=.88,escala=2.4)]
+        if tipo=='bocadillo' else [], realizacion=dict(encuadre='grafico',
         escenario=dict(id='esquemas', tipo='vacio'), acabado=True),
         graficos=[dict(tipo='blueprint',capa='fondo'), dict(tipo=tipo,opciones=opciones,inicio=.1,fin=4)])
+
+
+def referencia_poblacion():
+    return dict(ambiente='void',decorado='vacio',personajes=[],realizacion=dict(encuadre='grafico',
+        paleta='arctic',particulas=True,malla=True,desfase_ambiente=12,color_fiel=True,grano=0,vineta=0,
+        escenario=dict(id='poblacion',tipo='vacio',semilla=23)),graficos=[dict(tipo='poblacion',opciones=dict(
+            titulo='EJEMPLO ILUSTRATIVO',total=100,filas=5,columnas=20,color_base='#46617c',color='#76ccff',
+            indices_destacados=[23,65,94],neon_destacados=.35))])
+
+
+def referencia_rostro(base,modo='dialogo'):
+    d=narrativa(base)
+    d['personajes']=d['personajes'][:1]
+    d['personajes'][0].update(x=.5,expresion='surprised',claves=[dict(t=0,pose='talk'),dict(t=2,pose='think')])
+    d['realizacion'].update(encuadre='primer_plano',sujeto='ana',desenfoque=6,
+        particulas=True,malla=False,color_fiel=True,grano=0,vineta=.18)
+    d['graficos']=[dict(tipo='bocadillo',opciones=dict(personaje='ana',modo=modo,
+        texto='No te mentiría.' if modo=='dialogo' else '¿Puedo confiar?'))]
+    return d
+
+
+def referencia_comparacion(base):
+    d=narrativa(base)
+    d['realizacion'].update(encuadre='dividido',comparacion={},particulas=True,malla=False,
+        color_fiel=True,grano=0,vineta=.12,desfase_ambiente=10)
+    for actor,x,panel in zip(d['personajes'],(.17,.84),('izquierda','derecha')):
+        actor.update(x=x,y=.89,panel=panel)
+    d['graficos']=[dict(tipo='comparacion',opciones=dict(titulo='DOS FORMAS DE ACTUAR',
+        izquierda='FRÍO',derecha='CALIENTE',rasgos_izquierdos=['Planificador','Casi sin miedo'],
+        rasgos_derechos=['Impulsivo','Errático']))]
+    return d
+
+
+def referencia_termometros():
+    utileria={}
+    for nombre,y,color in [('frio',555,'#83d9f7'),('caliente',155,'#ff8d38')]:
+        utileria[nombre]=dict(concepto='termometro-'+nombre,nombre='Termómetro '+nombre,
+            descripcion='Termómetro de vidrio con columna y bulbo.',ancho=200,alto=800,partes=[
+                dict(id='vidrio',formas=[dict(tipo='rectangulo',x=65,y=20,w=70,h=650,radio=35,
+                    relleno=None,trazo='$claro',grosor=4)]),
+                dict(id='liquido',formas=[dict(tipo='rectangulo',x=82,y=y,w=36,h=680-y,radio=18,
+                    relleno='$principal'),dict(tipo='elipse',x=40,y=640,w=120,h=120,relleno='$principal')]),
+                dict(id='escala',formas=[dict(tipo='trazo',comandos=[['M',140,yy],['L',156,yy]],
+                    relleno=None,trazo='$claro',grosor=3) for yy in range(70,620,80)])])
+    return dict(ambiente='void',decorado='vacio',personajes=[],utileria=utileria,
+        realizacion=dict(encuadre='grafico',comparacion={},particulas=True,color_fiel=True,grano=0,vineta=.12),
+        objetos=[dict(tipo='vector',recurso=nombre,panel=panel,x=x,y=.57,w=430,h=790,neon=.35,color=color,
+            paleta=dict(principal=color,claro='#c7dbea' if nombre=='frio' else '#ffd6ae'))
+            for nombre,panel,x,color in [('frio','izquierda',.25,'#83d9f7'),('caliente','derecha',.75,'#ff8d38')]],
+        graficos=[dict(tipo='bigLine',opciones=dict(str='LA MISMA ESCALA',y=105,size=78,color='#ffdb83'))])
+
+
+def referencia_capitulo(numero,titulo,estilo,fin=4):
+    return dict(ambiente='void',decorado='vacio',personajes=[],
+        realizacion=dict(encuadre='grafico',particulas=True,color_fiel=True,grano=0,vineta=0),
+        graficos=[dict(tipo='capitulo',inicio=0,fin=fin,capa='pantalla',
+            opciones=dict(numero=numero,titulo=titulo,estilo=estilo))])
 
 
 def escena_neon(paleta='arctic'):
@@ -62,6 +120,7 @@ def escena_neon(paleta='arctic'):
 
 
 CASOS_GRAFICOS = {
+    'capitulo': dict(numero=1,titulo='Una pregunta importante',estilo='arctic'),
     'titleCard': dict(lines=['UNA DIFERENCIA', 'QUE IMPORTA'],sub='Conocer y sentir'),
     'bigLine': dict(str='¿Qué cambia realmente?'),
     'badge': dict(str='CAPÍTULO 1'),
@@ -74,6 +133,7 @@ CASOS_GRAFICOS = {
     'blueprint': {},
     'lineFigure': dict(x=960,y=900,s=2),
     'bubble': dict(str='Una pregunta',w=700,h=160),
+    'bocadillo': dict(personaje='ana',modo='dialogo',texto='Puedo ayudarte.'),
     'captions': {},
     'endScreen': dict(question='¿Qué harías tú?',suscribir='Suscríbete'),
     'lista': dict(titulo='UNA IDEA A LA VEZ',filas=['Situación reconocible','Acción principal','Resultado visible'],intervalo=.8),
@@ -189,9 +249,268 @@ class Editorial(unittest.TestCase):
             dict(efectos_visuales=[dict(tipo='rain',opciones=dict(count=100000))]),
             dict(realizacion=dict(encuadre='primer_plano',sujeto='inventado')),
             dict(espacio3d=dict(objetos=[dict(tipo='figure3D',opciones=dict(personaje='inventado'))]))]
+        invalidos.extend([dict(realizacion=dict(particulas=1)),dict(realizacion=dict(malla='sí')),
+            grafica('capitulo',dict(numero=0,titulo='Un punto',estilo='arctic')),
+            grafica('capitulo',dict(numero=1.2,titulo='Un punto',estilo='arctic')),
+            grafica('capitulo',dict(numero=1,titulo='',estilo='arctic')),
+            dict(realizacion=dict(desfase_ambiente=-1)),
+            grafica('bocadillo',dict(personaje='inventado',texto='Hola')),
+            grafica('bocadillo',dict(personaje='ana',texto='')),
+            grafica('bocadillo',dict(personaje='ana',texto='Hola',modo='grito')),
+            dict(graficos=[dict(tipo='bocadillo',opciones=dict(personaje='ana',texto='Hola'))])])
         for d in invalidos:
             with self.subTest(d=d),self.assertRaises(ValueError):
                 stickman.escena(d,4,self.reparto)
+
+    def test_portadas_programaticas_respetan_tiempo_y_no_se_repiten_por_continuidad(self):
+        capitulo=dict(numero=1,titulo='La pregunta',estilo='arctic')
+        breve=dict(t_in=0,t_out=2.5,narracion='Una pregunta concreta.',capitulo=capitulo,
+            apertura_capitulo=dict(capitulo,duracion_s=2.5))
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar') as cli:
+            portada=stickman.generar_escena(breve,self.base,self.reparto,None,lambda *a:None)
+        cli.assert_not_called()
+        self.assertEqual(portada['personajes'],[])
+        self.assertEqual(portada['graficos'][0]['opciones'],capitulo)
+        self.assertEqual(portada['graficos'][0]['fin'],2.5)
+        larga=dict(breve,t_out=8,apertura_capitulo=dict(capitulo,duracion_s=2.8))
+        entrega=dict(personajes=[dict(id='ana',x=.5,y=.88,escala=2.6,
+            claves=[dict(t=0,pose='stand'),dict(t=3,pose='wave'),dict(t=7,pose='explain')])],
+            graficos=[dict(tipo='capitulo',opciones=dict(numero=99,titulo='Portada repetida',estilo='ember'))])
+        siguiente=dict(larga,t_in=8,t_out=16)
+        siguiente.pop('apertura_capitulo')
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[copy.deepcopy(entrega),copy.deepcopy(entrega)]):
+            abierta=stickman.generar_escena(larga,self.base,self.reparto,None,lambda *a:None)
+            desarrollo=stickman.generar_escena(siguiente,self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(abierta['graficos'][0]['opciones'],capitulo)
+        self.assertEqual(abierta['graficos'][0]['fin'],2.8)
+        self.assertEqual(abierta['personajes'][0]['claves'][-1]['t'],7)
+        self.assertFalse(desarrollo['graficos'])
+
+    @unittest.skipUnless(REAL,'usa --real para portadas de capítulos con fuentes, luz y partículas')
+    def test_portadas_reales_legibles_animadas_y_salida_al_contenido_sin_cambiar_reloj(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        casos=[('arctic','#76ccff'),('ember','#ff8d38'),('mixto','#ffcf70'),('sakura','#ff78b9'),('retro','#e9b938')]
+        for numero,(estilo,color) in enumerate(casos,1):
+            d=referencia_capitulo(numero,'Qué cambia en el cerebro y en la conducta',estilo,fin=2.5)
+            d['objetos']=[dict(tipo='rectangulo',x=.5,y=.5,w=1920,h=1080,color='#00ff00')]
+            def comprobar(nav,destino=None):
+                resultado=nav.evaluar('''(() => {
+                    const d=window.STICKMAN.escena,ctx=document.querySelector('canvas').getContext('2d');
+                    const pixels=t=>{window.pintar(t);return ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height).data;};
+                    const a=pixels(1.3),b=pixels(1.9),c=pixels(1.3),rgb=COLOR.match(/../g).map(h=>parseInt(h,16));
+                    let numero=0,titulo=0,movimiento=0,verdeDentro=0,verdeDespues=0,estable=true;
+                    for(let i=0;i<a.length;i+=4){
+                        if(a[i]===rgb[0]&&a[i+1]===rgb[1]&&a[i+2]===rgb[2])numero++;
+                        if(a[i]===255&&a[i+1]===241&&a[i+2]===220)titulo++;
+                        if(a[i]===0&&a[i+1]===255&&a[i+2]===0)verdeDentro++;
+                        if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2])movimiento++;
+                        if(a[i]!==c[i]||a[i+1]!==c[i+1]||a[i+2]!==c[i+2])estable=false;
+                    }
+                    const despues=pixels(2.6);
+                    for(let i=0;i<despues.length;i+=4)if(despues[i]===0&&despues[i+1]===255&&despues[i+2]===0)verdeDespues++;
+                    window.pintar(1.3);return {numero,titulo,movimiento,estable,verdeDentro,verdeDespues};
+                })()'''.replace('COLOR',json.dumps(color[1:])))
+                self.assertGreater(resultado['numero'],500)
+                self.assertGreater(resultado['titulo'],500)
+                self.assertGreater(resultado['movimiento'],100)
+                self.assertTrue(resultado['estable'])
+                self.assertEqual(resultado['verdeDentro'],0)
+                self.assertGreater(resultado['verdeDespues'],10000)
+                return original(nav,destino)
+            with self.subTest(estilo=estilo),patch.object(p8_render.Navegador,'capturar',comprobar):
+                stickman.renderizar(self.base,stickman.escena(d,4,{}),4,
+                    str(Path(TEMP.name)/f'capitulo-{estilo}.png'),salida=(960,540))
+
+    def test_ambiente_y_bocadillos_conservan_contrato_y_no_modifican_historicos(self):
+        for d in (referencia_poblacion(),referencia_rostro(self.base),referencia_rostro(self.base,'pensamiento')):
+            normal=stickman.escena(d,4,self.reparto)
+            self.assertEqual(stickman.escena(normal,4,self.reparto),normal)
+            self.assertTrue(normal['realizacion']['particulas'])
+        historico=stickman.escena(narrativa(self.base),4,self.reparto)
+        self.assertNotIn('particulas',historico['realizacion'])
+        self.assertNotIn('malla',historico['realizacion'])
+        d=referencia_rostro(self.base)
+        d['graficos'][0]['capa']='fondo'
+        with self.assertRaisesRegex(ValueError,'capa pantalla'):
+            stickman.escena(d,4,self.reparto)
+        from pasos import personajes
+        for prompt in (editorial.instruccion(),personajes.instruccion_visual_stickman()):
+            for pauta in ('partículas','malla','rostro','pensamiento'):
+                self.assertIn(pauta,prompt)
+
+    def test_ambiente_por_defecto_solo_al_generar_y_respeta_desactivacion_y_edicion(self):
+        entrega=dict(realizacion=dict(encuadre='grafico'),graficos=[dict(tipo='bigLine',opciones=dict(str='Una idea'))])
+        escena=dict(narracion='Una idea.',t_in=12,t_out=16)
+        base=dict(self.base,acabado='arctic')
+        desactivada=copy.deepcopy(entrega)
+        desactivada['realizacion'].update(particulas=False,malla=False)
+        editada=dict(escena,indicaciones_usuario=dict(edicion_stickman=dict(ancla=escena['narracion'],contenido=entrega)))
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[copy.deepcopy(entrega),desactivada,copy.deepcopy(entrega)]):
+            nueva=stickman.generar_escena(escena,base,self.reparto,None,lambda *a:None)
+            sinEfectos=stickman.generar_escena(escena,base,self.reparto,None,lambda *a:None)
+            retoque=stickman.generar_escena(editada,base,self.reparto,None,lambda *a:None)
+        self.assertTrue(nueva['realizacion']['particulas'])
+        self.assertTrue(nueva['realizacion']['malla'])
+        self.assertEqual(nueva['realizacion']['desfase_ambiente'],12)
+        self.assertFalse(sinEfectos['realizacion']['particulas'])
+        self.assertFalse(sinEfectos['realizacion']['malla'])
+        self.assertNotIn('particulas',retoque['realizacion'])
+        self.assertNotIn('malla',retoque['realizacion'])
+
+    def test_comparacion_nueva_corrige_paneles_planos_y_conserva_lectura_historica(self):
+        plana=referencia_comparacion(self.base)
+        plana['realizacion'].pop('comparacion')
+        plana['objetos']=[dict(tipo='rectangulo',x=x,y=.5,w=964,h=1080,capa='fondo',color=color)
+            for x,color in ((.25,'#2f6fd6'),(.75,'#d93a3a'))]
+        historica=stickman.escena(plana,4,self.reparto)
+        self.assertNotIn('comparacion',historica['realizacion'])
+        self.assertEqual(len(historica['objetos']),2)
+        with self.assertRaisesRegex(ValueError,'paneles planos'):
+            editorial.preparar_comparacion_nueva(copy.deepcopy(historica),[1920,1080])
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[plana,referencia_comparacion(self.base)]) as cli:
+            nueva=stickman.generar_escena(dict(t_in=0,t_out=4),self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(cli.call_count,2)
+        self.assertIn('paneles planos',cli.call_args.args[0])
+        self.assertIn('comparacion',nueva['realizacion'])
+        self.assertFalse(nueva['objetos'])
+        self.assertEqual(stickman.escena(nueva,4,self.reparto)['realizacion'],nueva['realizacion'])
+        con_edicion=dict(t_in=0,t_out=4,narracion='Un contraste.',indicaciones_usuario=dict(
+            edicion_stickman=dict(ancla='Un contraste.',contenido=plana)))
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=plana):
+            retoque=stickman.generar_escena(con_edicion,self.base,self.reparto,None,lambda *a:None)
+        self.assertNotIn('comparacion',retoque['realizacion'])
+        self.assertEqual(len(retoque['objetos']),2)
+        for objeto in (dict(tipo='rectangulo',x=.25,y=.89,w=964,h=238,capa='fondo'),
+                dict(tipo='linea',x=.5,y=0,w=0,h=1080,color='#ffffff')):
+            mala=referencia_comparacion(self.base)
+            mala['objetos']=[objeto]
+            with self.assertRaisesRegex(ValueError,'suelo con reflejos'):
+                editorial.preparar_comparacion_nueva(stickman.escena(mala,4,self.reparto),[1920,1080])
+        # Magnitudes y objetos comparados no requieren dos personajes inventados.
+        termometros=stickman.escena(referencia_termometros(),4,{})
+        self.assertEqual(termometros['personajes'],[])
+        self.assertEqual([o['panel'] for o in termometros['objetos']],['izquierda','derecha'])
+
+    @unittest.skipUnless(REAL,'usa --real para luz fría/cálida, tipografía y recorte luminoso')
+    def test_comparaciones_reales_profundidad_particulas_y_paneles_tras_camara(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            resultado=nav.evaluar('''(() => {
+                const d=window.STICKMAN.escena,ctx=document.querySelector('canvas').getContext('2d');
+                const pintar=t=>{window.pintar(t);return ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height).data;};
+                const a=pintar(2),b=pintar(3),c=pintar(2),colores=new Set();
+                let cambia=0,estable=true,azules=0,calidos=0;
+                for(let y=0;y<ctx.canvas.height*.28;y++)for(let x=0;x<ctx.canvas.width*.15;x++){
+                    const i=(y*ctx.canvas.width+x)*4;colores.add(`${a[i]},${a[i+1]},${a[i+2]}`);
+                    if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2])cambia++;
+                }
+                for(let i=0;i<a.length;i+=4){
+                    if(a[i]!==c[i]||a[i+1]!==c[i+1]||a[i+2]!==c[i+2])estable=false;
+                    if(a[i+2]>a[i]*1.4&&a[i+2]>60)azules++;
+                    if(a[i]>a[i+2]*1.4&&a[i]>60)calidos++;
+                }
+                // Sonda que cruza la unión en el mundo: el clip debe seguir en pantalla con zoom y desplazamiento.
+                const camara=d.camara;
+                d.objetos.push({tipo:'rectangulo',color:'#00ff00',x:.58,y:.72,w:900,h:50,
+                    inicio:0,fin:4,capa:'frente',panel:'izquierda',escala:1,claves:[],opacidad:1});
+                d.camara=[{t:0,x:.04,escala:1.2}];const probe=pintar(2);
+                let verdes=0,maxX=0;
+                for(let i=0;i<probe.length;i+=4)if(probe[i]===0&&probe[i+1]===255&&probe[i+2]===0){
+                    verdes++;maxX=Math.max(maxX,(i/4)%ctx.canvas.width);
+                }
+                d.objetos.pop();d.camara=camara;window.pintar(2);
+                return {colores:colores.size,cambia,estable,azules,calidos,verdes,maxX,w:ctx.canvas.width,
+                    fuente:document.fonts.check('700 78px "Fredoka"')};
+            })()''')
+            self.assertGreater(resultado['colores'],100)
+            self.assertGreater(resultado['cambia'],30)
+            self.assertTrue(resultado['estable'])
+            self.assertGreater(resultado['azules'],1000)
+            self.assertGreater(resultado['calidos'],1000)
+            self.assertGreater(resultado['verdes'],100)
+            self.assertLess(resultado['maxX'],resultado['w']*.54)
+            self.assertTrue(resultado['fuente'])
+            return original(nav,destino)
+        for nombre,datos in [('personajes',referencia_comparacion(self.base)),('termometros',referencia_termometros())]:
+            with self.subTest(caso=nombre),patch.object(p8_render.Navegador,'capturar',comprobar):
+                stickman.renderizar(self.base,stickman.escena(datos,4,self.reparto),4,
+                    str(Path(TEMP.name)/f'comparacion-{nombre}.png'),salida=(1280,720))
+
+    @unittest.skipUnless(REAL,'usa --real para partículas, malla y bocadillos en el navegador')
+    def test_referencias_visuales_fondo_animado_y_rostros_con_bocadillos(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar_fondo(nav,destino=None):
+            resultado=nav.evaluar('''(() => {
+                const d=window.STICKMAN.escena,r=d.realizacion,ctx=document.querySelector('canvas').getContext('2d');
+                const pintar=t=>{window.pintar(t);return ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height).data;};
+                const a=pintar(2),b=pintar(3),c=pintar(2);
+                let movimiento=0,repetida=true,malla=0,maxDiferencia=0;
+                for(let i=0;i<a.length;i++){if(a[i]!==b[i])movimiento++;if(a[i]!==c[i])repetida=false;}
+                r.particulas=false;const conMalla=pintar(2);r.malla=false;const liso=pintar(2);
+                for(let i=0;i<liso.length;i++){const dif=Math.abs(liso[i]-conMalla[i]);if(dif)malla++;maxDiferencia=Math.max(maxDiferencia,dif);}
+                r.particulas=true;r.malla=true;window.pintar(2);
+                return {movimiento,repetida,malla,maxDiferencia};
+            })()''')
+            self.assertGreater(resultado['movimiento'],300)
+            self.assertTrue(resultado['repetida'])
+            self.assertGreater(resultado['malla'],1000)
+            self.assertGreater(resultado['maxDiferencia'],0)
+            self.assertLess(resultado['maxDiferencia'],40)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar_fondo):
+            stickman.renderizar(self.base,stickman.escena(referencia_poblacion(),4,{}),4,
+                str(Path(TEMP.name)/'referencia-poblacion.png'),salida=(960,540))
+        imagenes=[]
+        for modo in ('dialogo','pensamiento'):
+            d=stickman.escena(referencia_rostro(self.base,modo),4,self.reparto)
+            def comprobar_bocadillo(nav,destino=None):
+                resultado=nav.evaluar('''(() => {
+                    const d=window.STICKMAN.escena,ctx=document.querySelector('canvas').getContext('2d');
+                    const original=ctx.fillText,arc=ctx.arc,lineTo=ctx.lineTo,camara=d.camara;
+                    let arcos=[],puntos=[];const textos=[];
+                    ctx.arc=function(x,y,r,...args){
+                        const m=this.getTransform(),p=m.transformPoint({x,y});arcos.push({...p,x:p.x,y:p.y,r:r*Math.hypot(m.a,m.b)});
+                        return arc.call(this,x,y,r,...args);
+                    };
+                    ctx.lineTo=function(x,y){const p=this.getTransform().transformPoint({x,y});puntos.push({x:p.x,y:p.y});return lineTo.call(this,x,y);};
+                    ctx.fillText=function(str,x,y,...args){
+                        const m=this.getTransform(),ancho=this.measureText(str).width;
+                        const a=m.transformPoint({x:x-ancho/2,y}),b=m.transformPoint({x:x+ancho/2,y});
+                        textos.push({str,izquierda:a.x,derecha:b.x,y:a.y});return original.call(this,str,x,y,...args);
+                    };
+                    const ancla=()=>{
+                        const head=arcos.sort((a,b)=>b.r-a.r)[0],p=puntos.at(-2);
+                        return p&&head?{x:p.x,distancia:Math.hypot(p.x-head.x,p.y-head.y)/head.r}:null;
+                    };
+                    let antes,despues;
+                    try{
+                        window.pintar(2);antes=ancla();
+                        arcos=[];puntos=[];ctx.fillText=original;
+                        d.camara=[{t:0,x:.04}];window.pintar(2);despues=ancla();
+                    }finally{ctx.fillText=original;ctx.arc=arc;ctx.lineTo=lineTo;d.camara=camara;window.pintar(2);}
+                    return {textos,antes,despues,w:ctx.canvas.width,h:ctx.canvas.height};
+                })()''')
+                self.assertTrue(resultado['textos'])
+                self.assertEqual(' '.join(t['str'] for t in resultado['textos']),d['graficos'][0]['opciones']['texto'])
+                for texto in resultado['textos']:
+                    self.assertGreaterEqual(texto['izquierda'],0)
+                    self.assertLessEqual(texto['derecha'],resultado['w'])
+                    self.assertTrue(0<texto['y']<resultado['h'])
+                if modo=='dialogo':
+                    for ancla in (resultado['antes'],resultado['despues']):
+                        self.assertTrue(.75<ancla['distancia']<1.05)
+                    self.assertGreater(abs(resultado['antes']['x']-resultado['despues']['x']),10)
+                imagenes.append(original(nav))
+                return original(nav,destino)
+            with patch.object(p8_render.Navegador,'capturar',comprobar_bocadillo):
+                stickman.renderizar(self.base,d,4,str(Path(TEMP.name)/f'referencia-{modo}.png'),salida=(960,540))
+        self.assertNotEqual(imagenes[0],imagenes[1])
 
     def test_encuadres_permiten_figurantes_pero_no_ocultan_un_principal(self):
         d=narrativa(self.base)

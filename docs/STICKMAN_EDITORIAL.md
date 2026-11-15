@@ -107,6 +107,83 @@ la sesión de un proveedor.
 
 ### Componentes gráficos
 
+#### Capítulos temáticos
+
+Las nuevas escaletas Stickman declaran `capitulos` con `numero`, `titulo`,
+`estilo` y `tramos`. Deben ser consecutivos, agrupar tramos contiguos y cubrir
+el desarrollo en orden; el primer y último tramo pueden ser gancho/cierre sin
+capítulo. La asignación a Bxxx se realiza sobre la narración final y se conserva
+al dirigir sin cambiar palabras ni hablantes. No es un capítulo por frase.
+
+P6 deriva `apertura_capitulo` en la primera escena de cada número. El componente
+`capitulo` usa número luminoso de dos dígitos, línea fina, título claro y fondo
+de partículas; `estilo` admite `arctic|ember|mixto|sakura|retro`. Las escenas
+de hasta 3 s muestran la portada completa; las más largas reservan entre
+1,8 y 2,8 s dentro del reloj y continúan con su contenido. El motor construye
+la portada localmente y no permite que reaparezca por continuidad en cada frase.
+
+Los capítulos se muestran en Guion y viajan en el JSON portátil por bloque.
+La importación visual conserva la voz; los metadatos efectivos se guardan en
+las unidades de assets con sus anclas, como las descripciones y colores. Las
+cabeceras SVG anteriores no se duplican sobre las nuevas portadas Stickman.
+
+#### Comparación cinematográfica
+
+En nuevas comparaciones utiliza `realizacion.comparacion:{}`; admite
+`color_izquierdo`, `color_derecho`, `color_separador` y
+`corte:quebrado|diagonal|vertical`. El escenario combina fondos oscuros con
+luz radial fría/cálida, suelo con reflejos y partículas diferenciadas. No se
+construye con dos rectángulos planos y una raya blanca. Los actores reciben
+una luz de contorno por lado; sus materiales y vestuario se conservan.
+
+El gráfico `comparacion` puede incluir `titulo`, `izquierda`, `derecha`,
+`rasgos_izquierdos`, `rasgos_derechos` (hasta tres por lado) y detalles opcionales.
+Utiliza títulos grandes Fredoka y etiquetas jerarquizadas, con contorno fino
+y halo moderado. Para listas de rasgos, separar actores (x~.16/.84) de las
+columnas de texto (x~.36/.64). No se copia toda la narración como título.
+
+El escenario también se aplica con encuadre `grafico` a objetos con `panel`,
+sin inventar personajes. Un panel recorta en el mismo borde luminoso, incluso
+con zoom o desplazamiento de cámara. Los títulos se dibujan delante de la unión.
+La generación rechaza fondos y separadores manuales que cubran el acabado;
+no se reescriben los planes históricos al leerlos ni al pedir un retoque local.
+
+#### Partículas y malla de referencia
+
+Las nuevas generaciones incluyen `realizacion.particulas:true` para un fondo
+de partículas pequeñas, suaves y lentas. `desfase_ambiente` conserva el reloj
+global al continuar una secuencia. `malla:true` añade líneas finas y de baja
+opacidad en explicaciones azuladas; no rellena el lienzo ni altera el fondo.
+Se evita duplicarla con un `blueprint` explícito. Los gráficos de fondo se
+componen sobre las partículas para conservar legibilidad; los actores quedan
+delante. La generación de gráficos Arctic Glass activa la malla por defecto.
+Los campos ausentes de planes históricos conservan el render anterior; los
+valores `false` y las ediciones locales se respetan.
+
+#### Bocadillos y primeros planos
+
+Combina `primer_plano` con un `sujeto` presente y un componente:
+
+```json
+{
+  "tipo": "bocadillo",
+  "inicio": 0,
+  "fin": 4,
+  "capa": "pantalla",
+  "opciones": {
+    "personaje": "ana",
+    "modo": "dialogo",
+    "texto": "No te mentiría."
+  }
+}
+```
+
+La cola sigue al rostro a través de cámara y movimiento, manteniendo el texto
+nítido y a tamaño de pantalla. `pensamiento` usa una cadena de círculos. El
+recuadro se coloca en un lateral con margen; admite geometría y tintas explícitas.
+Se utilizan intervenciones reales del personaje, pensamientos explícitos o ideas
+ilustrativas claras; no se atribuye la locución del narrador a otro personaje.
+
 Cada componente tiene `tipo`, `inicio`, `fin`, `capa` y `opciones`.
 
 ```json
@@ -131,7 +208,9 @@ Componentes semánticos adicionales:
 
 - `lista`: título, filas y activación escalonada.
 - `barras`: título y filas `{label,v,color?}` con magnitudes normalizadas 0–1.
-- `poblacion`: total, destacados y título.
+- `poblacion`: total, destacados y título; `neon_destacados` permite iluminar
+  solo las figuras seleccionadas.
+- `bocadillo`: personaje presente, texto breve y modo diálogo/pensamiento.
 - `cronologia`: título y etiquetas.
 - `documento`: título, filas, índice destacado y sello opcional.
 - `comparacion`: dos títulos y sus detalles.

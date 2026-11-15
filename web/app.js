@@ -8922,7 +8922,7 @@ function intercambioGuionLight() {
       h('button', {
         clase: 'mini', disabled: !!trabajoVideoLight(), onclick: importarGuionLight,
       }, 'Importar guion (.json o .txt)')),
-    h('p', { clase: 'meta' }, 'El JSON incluye la narración y la descripción visual de cada escena. '
+    h('p', { clase: 'meta' }, 'El JSON conserva los capítulos, la narración, la descripción visual y los colores de cada escena. '
       + 'Puedes cambiar los bloques y las escenas, conservando una descripción por frase. '
       + `El TXT antiguo necesita ${v.guion.bloques.length} párrafos en el mismo orden. `
       + 'El audio y las imágenes se generan después.'));
@@ -8943,10 +8943,13 @@ async function exportarGuionLight() {
     await refrescarDescripcionesLight(v.pid);
     if (APP.light.video !== v) throw new Error('El vídeo ha cambiado. Vuelve a exportar.');
     const texto = JSON.stringify({ formato: 'as-video-studio/guion-v1',
-      bloques: v.guion.bloques.map(b => ({ texto: textoVisibleLight(textoDeBloqueLight(b)),
-        escenas: (v.guion.escenasVisuales || []).filter(e => e.bloque === b.id)
-          .map(e => ({ texto: e.texto, descripcion_visual: e.descripcion_visual })),
-      })),
+      bloques: v.guion.bloques.map(b => {
+        const escenas = (v.guion.escenasVisuales || []).filter(e => e.bloque === b.id);
+        return { texto: textoVisibleLight(textoDeBloqueLight(b)),
+          ...(escenas[0] && 'capitulo' in escenas[0] ? { capitulo: escenas[0].capitulo } : {}),
+          escenas: escenas.map(e => ({ texto: e.texto, descripcion_visual: e.descripcion_visual, colores: e.colores || '' })),
+        };
+      }),
     }, null, 2);
     const url = URL.createObjectURL(new Blob([texto + '\n'], { type: 'application/json;charset=utf-8' }));
     const nombre = (v.guion.titulo || v.nombre || 'guion').replace(/[\\/:*?\x22<>|\x00-\x1f]/g, '_');
@@ -9097,6 +9100,7 @@ async function reescribirGuionLight() {
 function bloquesLight() {
   const v = APP.light.video;
   const lista = h('div', { clase: 'bloques-light' });
+  const capitulos = capitulosVisiblesGuionLight();
   const porBloque = {};
   for (const bloque of ((v.audio || {}).bloques || [])) porBloque[bloque.id] = bloque;
   const seccionDe = {};
@@ -9112,6 +9116,7 @@ function bloquesLight() {
         + (bloqueEditadoLight(bloque) ? ' tocado' : ''),
       datos: { bloque: bloque.id },
     });
+    if (capitulos.has(bloque.id)) ficha.appendChild(cabeceraCapituloGuionLight(capitulos.get(bloque.id)));
     /* CON AUDIO EL TEXTO SE LEE, PERO SIGUE SIENDO EDITABLE.
        Son dos vistas del mismo dato y no un capricho: una palabra pulsable
        tiene que ser un nodo propio y un <textarea> no tiene nodos dentro. Así
@@ -9123,6 +9128,7 @@ function bloquesLight() {
       h('span', { clase: 'id' }, bloque.id),
       'personaje_id' in bloque ? h('span', { clase: 'pastilla' },
         `${bloque.personaje_nombre || 'Narración'} · ${bloque.categoria === 'personaje' ? 'Personaje' : 'Narrador'}`) : null,
+      etiquetasColoresBloqueLight(bloque.id),
       bloqueEditadoLight(bloque) ? h('span', { clase: 'pastilla tocado' }, 'editado') : null,
       h('span', { clase: 'crece' }),
       hayAudio ? h('button', {
@@ -9176,6 +9182,38 @@ function bloquesLight() {
     lista.appendChild(ficha);
   }
   return lista;
+}
+
+function capitulosVisiblesGuionLight() {
+  return new Map((APP.light.video.guion.escenasVisuales || []).filter(e => e.apertura_capitulo)
+    .map(e => [e.bloque, e.capitulo]));
+}
+
+function cabeceraCapituloGuionLight(capitulo) {
+  return h('div', { clase: `capitulo-guion capitulo-estilo-${capitulo.estilo}` },
+    h('span', { clase: 'numero-capitulo' }, String(capitulo.numero).padStart(2, '0')),
+    h('h3', {}, capitulo.titulo));
+}
+
+function etiquetasColoresBloqueLight(bid) {
+  const etiquetas = h('span', { clase: 'colores-guion', datos: { coloresBloque: bid },
+    'aria-label': 'Colores de las escenas del bloque' });
+  const vistos = new Set();
+  const tonos = ['azul', 'turquesa', 'amarillo', 'naranja', 'cobre', 'rojo', 'rosa',
+    'violeta', 'ciruela', 'melocoton', 'verde', 'marron', 'blanco', 'negro', 'gris', 'crema', 'mostaza', 'sepia'];
+  for (const escena of APP.light.video.guion.escenasVisuales || []) {
+    if (escena.bloque !== bid) continue;
+    for (const nombre of String(escena.colores || '').split(',').map(c => c.trim()).filter(Boolean)) {
+      const clave = nombre.toLocaleLowerCase('es');
+      if (vistos.has(clave)) continue;
+      vistos.add(clave);
+      const normal = clave.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const tono = tonos.find(t => normal.includes(t)) || 'neutro';
+      etiquetas.appendChild(h('span', { clase: `pastilla color-guion tono-${tono}`,
+        title: 'Color principal declarado en las escenas de este bloque' }, nombre));
+    }
+  }
+  return etiquetas;
 }
 
 function descripcionesDeBloqueLight(bloque) {
@@ -9251,11 +9289,22 @@ async function refrescarDescripcionesLight(pid) {
   const refrescar = async () => {
     const resultado = await pedir(`${API.proyecto(pid)}/guion/descripciones`);
     if (APP.light.video !== v || v.pid !== pid || !v.guion) return;
-    const antes = new Map(v.guion.escenasVisuales.map(e => [`${e.bloque}:${e.indice}`, e.descripcion_visual]));
+    const antes = new Map(v.guion.escenasVisuales.map(e => [`${e.bloque}:${e.indice}`,
+      JSON.stringify([e.descripcion_visual, e.colores || ''])]));
     v.guion.escenasVisuales = resultado.escenas;
     const cambiadas = new Map(resultado.escenas.filter(e =>
-      antes.get(`${e.bloque}:${e.indice}`) !== e.descripcion_visual
+      antes.get(`${e.bloque}:${e.indice}`) !== JSON.stringify([e.descripcion_visual, e.colores || ''])
     ).map(e => [`${e.bloque}:${e.indice}`, e]));
+    document.querySelectorAll('[data-colores-bloque]').forEach(etiquetas => {
+      etiquetas.replaceWith(etiquetasColoresBloqueLight(etiquetas.dataset.coloresBloque));
+    });
+    const capitulos = capitulosVisiblesGuionLight();
+    document.querySelectorAll('.parrafo-guion[data-bloque]').forEach(ficha => {
+      const anterior = ficha.querySelector('.capitulo-guion'), capitulo = capitulos.get(ficha.dataset.bloque);
+      if (!capitulo) anterior?.remove();
+      else if (anterior) anterior.replaceWith(cabeceraCapituloGuionLight(capitulo));
+      else ficha.prepend(cabeceraCapituloGuionLight(capitulo));
+    });
     // Actualiza solo los campos: conserva scroll, audio y nodos del guion.
     document.querySelectorAll('textarea[data-descripcion]').forEach(area => {
       const escena = cambiadas.get(area.dataset.descripcion);

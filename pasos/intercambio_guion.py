@@ -3,7 +3,7 @@ import copy
 import os
 
 from nucleo import Estado
-from pasos import comun, descripciones_escenas, marcas_tts, medios, p4_voz
+from pasos import capitulos_guion, comun, descripciones_escenas, direccion_color, marcas_tts, medios, p4_voz
 
 
 FORMATO = 'as-video-studio/guion-v1'
@@ -17,6 +17,9 @@ def importar(proyecto, documento):
         raise ValueError('el guion necesita al menos un bloque')
     anterior = comun.leer_salida(proyecto, 'guion', 'guion.json', obligatorio=True)
     originales = p4_voz.ediciones_a_mano(proyecto, copy.deepcopy(anterior['guion']))
+    actuales = descripciones_escenas.listar(proyecto)
+    capitulos_actuales = {e['bloque']: e['capitulo'] for e in reversed(actuales) if 'capitulo' in e}
+    capitulos_importados = []
     segmentar = medios.motor('guion/segmentar.py').frases_del_texto
     bloques, escenas = [], []
     ids = {b['id'] for b in originales}
@@ -32,6 +35,10 @@ def importar(proyecto, documento):
                 bid += '_nuevo'
             ids.add(bid)
         bloque = dict(base, id=bid, texto=texto)
+        capitulo = entrada.get('capitulo', capitulos_actuales.get(bid))
+        if capitulo is not None:
+            capitulo = capitulos_guion.normalizar(capitulo)
+        capitulos_importados.append(capitulo)
         if texto == ' '.join(marcas_tts.limpiar(base.get('texto', '')).split()):
             bloque['texto'] = base['texto']  # Conserva pausas y marcas de voz.
         visuales = entrada.get('escenas')
@@ -47,9 +54,13 @@ def importar(proyecto, documento):
             # Los guiones históricos pueden no tener aún dirección visual.
             escenas.append(dict(bloque=bid, indice=indice, texto=frase,
                                 descripcion_visual=descripcion.strip()))
+            if 'colores' in visual:
+                escenas[-1]['colores'] = direccion_color.normalizar(visual['colores'])
+            if 'capitulo' in entrada or bid in capitulos_actuales:
+                escenas[-1]['capitulo'] = copy.deepcopy(capitulo)
         bloques.append(bloque)
+    capitulos_guion.validar_orden(capitulos_importados)
     estado = Estado(proyecto)
-    actuales = descripciones_escenas.listar(proyecto)
     por_ancla = {(e['bloque'], e['indice'], e['texto']): e for e in actuales}
     unidades = copy.deepcopy(estado.params('assets').get('unidades') or {})
     textos_cambiados = bloques != originales
@@ -62,7 +73,10 @@ def importar(proyecto, documento):
     visuales_cambiadas = 0
     for numero, escena in enumerate(escenas, 1):
         previa = por_ancla.get((escena['bloque'], escena['indice'], escena['texto']))
-        igual = previa and previa['descripcion_visual'] == escena['descripcion_visual']
+        if 'colores' not in escena and previa:
+            escena['colores'] = previa.get('colores', '')
+        igual = (previa and all(previa.get(k, '') == escena.get(k, '') for k in ('descripcion_visual', 'colores'))
+            and previa.get('capitulo') == escena.get('capitulo'))
         if igual and not textos_cambiados:
             continue
         uid = f'escena:S{numero:03d}'

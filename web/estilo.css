@@ -1808,7 +1808,7 @@ input[type=range].ritmo {
    —debajo va metraje real del mapa—, así que quien lee el guion tiene que poder
    saber cuál es sin ir a buscarlo. */
 .parrafo-guion > .cabecera {
-  display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 3px;
   font-size: 11px; color: var(--tenue2);
 }
 .parrafo-guion > .cabecera .id { font-variant-numeric: tabular-nums; }
@@ -1816,6 +1816,45 @@ input[type=range].ritmo {
 .parrafo-guion:hover > .cabecera button,
 .parrafo-guion > .cabecera button:focus { visibility: visible; }
 .parrafo-guion .pastilla.tocado { color: var(--acento); }
+.capitulo-guion {
+  --color-capitulo: #ffcf70;
+  display: flex; align-items: center; gap: 14px; margin: 12px 0 15px;
+  padding: 12px 0; border-bottom: 1px solid var(--linea);
+}
+.capitulo-guion h3 { margin: 0; color: var(--texto); font-size: 19px; line-height: 1.3; }
+.numero-capitulo {
+  font-size: 34px; font-weight: 800; line-height: 1; color: var(--color-capitulo);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-capitulo), transparent 65%);
+}
+.capitulo-estilo-arctic { --color-capitulo: #76ccff; }
+.capitulo-estilo-ember { --color-capitulo: #ff8d38; }
+.capitulo-estilo-sakura { --color-capitulo: #ff78b9; }
+.capitulo-estilo-retro { --color-capitulo: #e9b938; }
+.colores-guion { display: inline-flex; flex-wrap: wrap; gap: 5px; min-width: 0; max-width: 100%; }
+.colores-guion:empty { display: none; }
+.color-guion {
+  text-transform: none; letter-spacing: 0; color: var(--texto);
+  white-space: normal; overflow-wrap: anywhere; max-width: 100%;
+}
+.color-guion::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px;
+  border-radius: 50%; background: var(--color-etiqueta, #aab1ba);
+  box-shadow: 0 0 4px var(--color-etiqueta, #aab1ba);
+}
+.tono-azul { --color-etiqueta: #76ccff; }
+.tono-turquesa { --color-etiqueta: #32d7ef; }
+.tono-amarillo { --color-etiqueta: #ffcb52; }
+.tono-naranja, .tono-cobre { --color-etiqueta: #e98847; }
+.tono-rojo { --color-etiqueta: #ed6b61; }
+.tono-rosa { --color-etiqueta: #ff58a5; }
+.tono-violeta, .tono-ciruela { --color-etiqueta: #bd86d1; }
+.tono-melocoton, .tono-crema { --color-etiqueta: #ffd3ad; }
+.tono-verde { --color-etiqueta: #5baf83; }
+.tono-marron, .tono-sepia { --color-etiqueta: #b58b60; }
+.tono-blanco { --color-etiqueta: #f2f5e8; }
+.tono-negro { --color-etiqueta: #68717e; }
+.tono-gris { --color-etiqueta: #aab1ba; }
+.tono-mostaza { --color-etiqueta: #e9b938; }
 
 /* El texto, en los dos estados. Mismo cuerpo y mismo interlineado en el área
    editable y en el párrafo del karaoke: si no, al generar el audio el guion

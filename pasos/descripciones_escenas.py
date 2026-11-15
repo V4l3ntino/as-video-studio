@@ -8,7 +8,7 @@ import json
 import os
 
 from nucleo.estado import Estado
-from pasos import cadencia, comun, medios, personajes, p4_voz
+from pasos import cadencia, capitulos_guion, comun, direccion_color, medios, personajes, p4_voz
 
 
 def _clave(bloque, texto, indice):
@@ -57,17 +57,24 @@ def listar(proyecto):
                         if medios.normalizar_texto(v.get('texto') or '') == clave[1]]
             visual = visuales[repeticion] if repeticion < len(visuales) else {}
             descripcion = visual.get('descripcion_visual') or b.get('descripcion_visual') or anterior.get('descripcion_visual') or ''
+            colores = visual.get('colores', '')
+            capitulo = b.get('capitulo')
             guardada = por_ancla.get(_clave(b['id'], frase, indice))
             if guardada:
                 descripcion = guardada['descripcion_visual']
+                colores = guardada.get('colores', colores)
+                capitulo = guardada.get('capitulo', capitulo)
             duracion = float(anterior.get('t_out', 0)) - float(anterior.get('t_in', 0))
             estimada = duracion <= 0
             if estimada:
                 duracion = cadencia.estimar([frase], idioma=voz.get('idioma'),
                     velocidad=voz.get('velocidad'), voz=voz.get('voz_id'))['segundos']
             resultado.append(dict(id=sid, bloque=b['id'], indice=indice, texto=frase,
-                                  descripcion_visual=descripcion, duracion_s=round(duracion, 3),
-                                  duracion_estimada=estimada))
+                                  descripcion_visual=descripcion, colores=colores, duracion_s=round(duracion, 3),
+                                   duracion_estimada=estimada))
+            if capitulo is not None or 'capitulo' in b or (guardada and 'capitulo' in guardada):
+                resultado[-1]['capitulo'] = copy.deepcopy(capitulo)
+    capitulos_guion.marcar_aperturas(resultado)
     return resultado
 
 
@@ -93,7 +100,8 @@ def validar(cambios, actuales, completa=False):
             raise ValueError('las escenas del bloque necesitan acciones diferentes, sin repetir su descripción')
         descripciones.add(visual)
         vistos.add(clave)
-        salida.append(dict(actual, descripcion_visual=descripcion.strip()))
+        colores = direccion_color.normalizar(c.get('colores', actual.get('colores', '')))
+        salida.append(dict(actual, descripcion_visual=descripcion.strip(), colores=colores))
     if completa and vistos != set(por_clave):
         raise ValueError('falta una descripción por cada frase del guion')
     return salida
@@ -109,25 +117,44 @@ def guardar(proyecto, cambios, anteriores=None):
     cambios_unidad = {}
     for e in nuevos:
         actual = next(a for a in actuales if (a['bloque'], a['indice']) == (e['bloque'], e['indice']))
-        if actual['descripcion_visual'] == e['descripcion_visual']:
+        if all(actual.get(k, '') == e.get(k, '') for k in ('descripcion_visual', 'colores')):
             continue
         uid = 'escena:' + e['id']
         unidad = copy.deepcopy(unidades.get(uid) or {})
-        unidad['descripcion_escena'] = {k: e[k] for k in ('bloque', 'indice', 'texto', 'descripcion_visual')}
+        unidad['descripcion_escena'] = {k: e[k] for k in ('bloque', 'indice', 'texto', 'descripcion_visual', 'colores')}
+        if 'capitulo' in e:
+            unidad['descripcion_escena']['capitulo'] = copy.deepcopy(e['capitulo'])
         cambios_unidad[uid] = unidad
     if cambios_unidad:
         estado.actualizar_params('assets', {'unidades': cambios_unidad})
     return dict(escenas=listar(proyecto), cambiadas=len(cambios_unidad))
 
 
-def aplicar(escenas, params):
+def aplicar(escenas, params, documento=None):
     """Las correcciones del usuario mandan sobre la dirección generada anteriormente."""
     guardadas = [u['descripcion_escena'] for u in (params.get('unidades') or {}).values()
                  if isinstance(u, dict) and isinstance(u.get('descripcion_escena'), dict)]
     por_ancla = {_clave(v['bloque'], v['texto'], v['indice']): v for v in guardadas}
+    originales = {}
+    capitulos = {}
+    for bloque in (documento or {}).get('guion') or []:
+        if 'capitulo' in bloque:
+            capitulos[bloque['id']] = bloque['capitulo']
+        for visual in bloque.get('escenas_visuales') or []:
+            clave = (bloque['id'], medios.normalizar_texto(visual.get('texto') or ''))
+            originales.setdefault(clave, []).append(visual)
+    ocurrencias = {}
     indices = {}
     for e in escenas:
         bloque = (e.get('origen') or {}).get('bloque')
+        if bloque in capitulos:
+            e['capitulo'] = copy.deepcopy(capitulos[bloque])
+        clave = (bloque, medios.normalizar_texto(e.get('narracion') or ''))
+        repeticion = ocurrencias.get(clave, 0)
+        ocurrencias[clave] = repeticion + 1
+        candidatos = originales.get(clave, [])
+        if repeticion < len(candidatos) and 'colores' in candidatos[repeticion]:
+            e['colores'] = candidatos[repeticion]['colores']
         indice = (e.get('origen') or {}).get('indice', indices.get(bloque, 0))
         indices[bloque] = indice + 1
         visual = por_ancla.get(_clave(bloque, e.get('narracion') or '', indice))
@@ -135,6 +162,11 @@ def aplicar(escenas, params):
             e['descripcion_visual'] = visual['descripcion_visual']
             e['redactado'] = visual['descripcion_visual']
             e['accion'] = visual['descripcion_visual']
+            if 'colores' in visual:
+                e['colores'] = visual['colores']
+            if 'capitulo' in visual:
+                e['capitulo'] = copy.deepcopy(visual['capitulo'])
+    capitulos_guion.marcar_aperturas(escenas)
 
 
 ESCENAS_POR_TANDA = 6
@@ -168,7 +200,8 @@ def regenerar(proyecto, escenas, peticion='', avisar=None, publicar=None):
 
 
 def _entrada_temporal(escena):
-    return {k: escena[k] for k in ('bloque', 'indice', 'texto', 'duracion_s', 'duracion_estimada') if k in escena}
+    return {k: escena[k] for k in ('bloque', 'indice', 'texto', 'colores', 'capitulo', 'apertura_capitulo',
+        'duracion_s', 'duracion_estimada') if k in escena}
 
 
 def _regenerar_tanda(proyecto, escenas, peticion='', avisar=None, contexto=None, anteriores=None):
@@ -180,7 +213,7 @@ def _regenerar_tanda(proyecto, escenas, peticion='', avisar=None, contexto=None,
     instruccion = ('Regenera SOLO las descripciones visuales de las escenas de esta tanda. '
         'El texto narrado, su puntuación, bloque e índice son INMUTABLES. No devuelvas una reescritura del guion. '
         'Devuelve JSON {"escenas":[{"bloque":"B001","indice":0,"texto":"Frase literal.",'
-        '"descripcion_visual":"Lo que se ve durante esa frase."}]}. Una entrada por frase, sin omisiones. '
+        '"descripcion_visual":"Lo que se ve durante esa frase.","colores":"colores principales separados por comas"}]}. Una entrada por frase, sin omisiones. '
         'Conserva los personajes y sus identidades; no inventes otros. Cada escena debe ilustrar su propia frase '
         'y avanzar respecto a las vecinas, sin repetir la misma animación. Describe acciones, posturas, '
         'expresiones, objetos y entorno concretos, no el significado abstracto de los símbolos. '
@@ -188,7 +221,7 @@ def _regenerar_tanda(proyecto, escenas, peticion='', avisar=None, contexto=None,
         'guion_contexto contiene el relato completo SOLO para mantener continuidad: NO lo devuelvas. '
         'escenas_anteriores contiene la dirección ya elegida; continúa desde ella sin repetir sus acciones.\n')
     if (opciones.get('sistema_personajes') or {}).get('stickman'):
-        instruccion += personajes.instruccion_visual_stickman() + '\nEl formato de entrega de esta petición prevalece: SOLO escenas.\n'
+        instruccion += personajes.instruccion_visual_stickman(personajes.params_de(proyecto, 'assets').get('estilo')) + '\nEl formato de entrega de esta petición prevalece: SOLO escenas.\n'
     else:
         instruccion += personajes.instruccion_tiempo_visual()
     # Al regenerar no hacen falta las descripciones anteriores (los guiones
@@ -221,6 +254,10 @@ def _regenerar_tanda(proyecto, escenas, peticion='', avisar=None, contexto=None,
                     # que ejecutar() terminase con un error de proceso.
                     avisar(None, 'Regeneración de descripciones cancelada')
         try:
+            if (opciones.get('sistema_personajes') or {}).get('stickman'):
+                for escena in respuesta.get('escenas') or []:
+                    if not direccion_color.normalizar(escena.get('colores', '')):
+                        raise ValueError('cada escena necesita colores principales separados por comas')
             return validar(respuesta.get('escenas'), escenas, completa=True)
         except (ValueError, RuntimeError, AttributeError) as exc:
             if intento == 2:

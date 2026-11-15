@@ -299,6 +299,8 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if 'neon' in o:
             resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
+        if 'panel' in o:
+            resultado['objetos'][-1]['panel'] = elegir(o['panel'], ('izquierda', 'derecha'))
         if o.get('tipo') == 'vector':
             ident = utileria_stickman.resolver(o.get('recurso'), recursos, alias)
             recurso = recursos[ident]
@@ -509,7 +511,7 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
 
 
 def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
-    from pasos import personajes
+    from pasos import personajes, capitulos_guion
     dur = float(e['t_out']) - float(e['t_in'])
     catalogo_utileria = utileria_stickman.catalogo(proyecto)
     ejemplo = dict(ambiente='interiorWarm', decorado='vacio', atmosfera='ninguna', camara=[],
@@ -519,7 +521,12 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         personajes=[dict(id=next(iter(reparto)), x=.45, y=.79, escala=2.4, mirar=1,
             movimiento='gesto', expresion='neutral', claves=[dict(t=0, pose='stand'), dict(t=min(.7, dur), pose='explain')])],
         objetos=[], utileria={}, sfx=[dict(name='pop', at=0, dur=min(.3, dur), gain=-16)])
-    if os.environ.get('ESTUDIO_SIMULAR') == '1':
+    apertura = e.get('apertura_capitulo')
+    editando = (e.get('indicaciones_usuario') or {}).get('edicion_stickman')
+    if apertura and apertura['duracion_s'] >= dur - .000001 and not editando:
+        datos = dict(realizacion=dict(encuadre='grafico',color_fiel=True,grano=0),
+            personajes=[],graficos=[capitulos_guion.componente(apertura)])
+    elif os.environ.get('ESTUDIO_SIMULAR') == '1':
         datos = ejemplo
     else:
         edicion = (e.get('indicaciones_usuario') or {}).get('edicion_stickman')
@@ -530,7 +537,13 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'colores y claves no afectados. Para alejar el zoom ajusta cámara/encuadre sin reinventar la escena. '
             'El contenido actual es la fuente de verdad: los mensajes anteriores son contexto, no repitas cambios ya presentes. '
             'La petición de retoque manda sobre la descripción visual histórica y la continuidad cuando haya conflicto. '
-            'Devuelve el plan completo editado con el mismo contrato.\n') if edicion else ''
+             'Devuelve el plan completo editado con el mismo contrato.\n') if edicion else ''
+        def validar_entrega(d):
+            resolucion = e.get('resolucion', [1920, 1080])
+            contenido = validar_puesta_en_escena(d, dur, reparto, resolucion, catalogo_utileria)
+            if not edicion or 'comparacion' in (contenido.get('realizacion') or {}):
+                realizacion_stickman.preparar_comparacion_nueva(contenido, resolucion)
+            return utileria_stickman.validar_colores(contenido)
         datos = consultar(prefijo + 'Dirige una escena narrativa Stickman cuya acción se entienda SIN escuchar la voz. Devuelve SOLO un objeto JSON de esta forma: '
             + json.dumps(ejemplo) + '\nNo repitas una escena genérica: representa literalmente la acción y el contexto del guion. '
              'Prioriza la descripción visual (prompt) y la narración sobre la decoración. '
@@ -613,9 +626,20 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             + json.dumps(dict(escena=e, duracion=dur, estilo=diseno, reparto=reparto,
                 catalogo_utileria=utileria_stickman.indice(catalogo_utileria, e)), ensure_ascii=False),
             proyecto, avisar=avisar, proveedor=proveedor,
-            validar=lambda d: utileria_stickman.validar_colores(validar_puesta_en_escena(
-                d, dur, reparto, e.get('resolucion', [1920, 1080]), catalogo_utileria)))
+            validar=validar_entrega)
     datos.setdefault('realizacion', dict(encuadre='general', acabado=True))
+    if not editando and 'capitulo' in e:
+        datos['graficos'] = [g for g in datos.get('graficos', []) if g['tipo'] != 'capitulo']
+        if apertura:
+            datos['graficos'].append(capitulos_guion.componente(apertura))
+    realizacion = datos['realizacion']
+    if not (e.get('indicaciones_usuario') or {}).get('edicion_stickman'):
+        if diseno.get('acabado') in realizacion_stickman.PALETAS:
+            realizacion.setdefault('paleta', diseno['acabado'])
+        realizacion.setdefault('particulas', True)
+        realizacion.setdefault('malla', realizacion.get('paleta') == 'arctic'
+            and realizacion.get('encuadre') == 'grafico' and 'comparacion' not in realizacion and not datos.get('espacio3d'))
+        realizacion.setdefault('desfase_ambiente', float(e.get('t_in', 0)))
     resultado = escena(datos, dur, reparto)
     # El kit recibe las marcas reales, nunca un reloj de subtítulos independiente.
     palabras = (e.get('narracion') or '').split()

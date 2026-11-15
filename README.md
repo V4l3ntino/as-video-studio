@@ -180,6 +180,26 @@ Verificación sin consumir cuota:
 
 ### Realización editorial de los vídeos Stickman
 
+Los guiones Stickman nuevos se organizan desde la escaleta en **capítulos
+temáticos numerados**. Cada uno agrupa varios bloques y desarrolla una pregunta
+o punto distinto; el gancho y el cierre pueden quedar fuera de la numeración.
+La cantidad de capítulos se adapta al material y a la duración. Dentro de cada
+capítulo se alternan actuación, primeros planos, comparaciones, diagramas,
+cronologías y listas según lo que se explica.
+
+Cada capítulo abre con una **portada animada**: número grande `01`, `02`, `03`,
+halo de neón suave, línea fina, título en Fredoka y partículas flotantes. Puede
+ser fría azul, cálida ámbar/naranja, mixta frío/cálido con número dorado, Sakura
+o Retro. La portada ocupa el comienzo de la primera escena del capítulo y deja
+paso al contenido cuando hay tiempo; no añade escenas, palabras ni duración a
+la voz ya preparada. En planos breves ocupa esa primera frase completa. Los
+capítulos aparecen también como encabezados en la vista del guion.
+
+El JSON exportado conserva su número, título y estilo por bloque. Cambiar solo
+estos metadatos al importar conserva la narración y el audio. Los guiones
+anteriores sin capítulos siguen abriéndose como antes; una corrección conserva
+los capítulos ya existentes en lugar de renumerarlos automáticamente.
+
 Las nuevas generaciones combinan **actuación, primeros planos, detalles,
 pantalla dividida y motion graphics explicativos** según la idea del guion.
 El director puede utilizar listas progresivas, documentos con resaltado,
@@ -205,6 +225,26 @@ la palabra clave en color de acento. Los materiales y la piel conservan colores
 reconocibles. Las palabras clave o siluetas destacadas pueden llevar un halo
 leve de neón: se desenfoca una copia detrás y se conserva el dibujo nítido.
 El efecto es selectivo; no se aplica a todo el texto ni a todos los objetos.
+
+Las escenas Stickman nuevas incluyen **partículas flotantes de fondo**, pequeñas
+y discretas, con movimiento lento. Las explicaciones azuladas incorporan una
+**malla fina y tenuemente visible**, detrás de los datos y los rótulos. En matrices
+de población, el halo puede limitarse a las figuras destacadas. La dirección
+alterna planos generales con **primeros planos del rostro y fondo desenfocado**;
+un diálogo relevante puede mostrarse en un bocadillo con cola hacia su personaje,
+y un pensamiento mediante un bocadillo con círculos. Los textos son breves,
+legibles y pertinentes al guion, sin tapar los rasgos del rostro. Estas pautas
+se aplican también al crear y regenerar las descripciones visuales.
+
+Las **comparaciones** utilizan un escenario luminoso propio: fondos oscuros
+con degradados y focos fríos/cálidos, suelo con reflejos, partículas distintas
+por lado y un separador de neón quebrado o diagonal. La luz de contorno adapta
+cada personaje a su lado sin cambiar su ropa. Los títulos y rasgos usan letras
+grandes y redondeadas, con colores claros y contorno fino. El mismo acabado
+sirve para comparar objetos o magnitudes, sin añadir personajes innecesarios.
+La generación comprueba que los rectángulos de fondo, suelos planos y rayas
+manuales no tapen ese escenario. Para renovar una comparación existente,
+regenera su descripción visual si conserva el diseño plano y después su animación.
 
 Para planos que necesitan espacio, el director también dispone del módulo
 **Three.js del kit**: figuras, edificios, vegetación, público, materiales,
@@ -296,6 +336,15 @@ En **Guion**, despliega **Descripción visual de la escena** debajo de cada
 bloque. Cada frase tiene su propio campo editable, acompañado del texto narrado
 al que corresponde. Los cambios se guardan automáticamente y se utilizan al
 generar las imágenes o animaciones de esa escena.
+
+En Stickman, la creación y regeneración de descripciones elige también los
+colores principales de cada escena según las paletas editoriales, los materiales
+y el estilo seleccionado. Incluye el amarillo cálido de Arctic Glass para los
+focos explicativos y el halo de neón selectivo cuando aporta claridad. Junto a
+la categoría del bloque aparecen **etiquetas con los nombres de los colores**
+de sus escenas, sin repetirlos. Se actualizan al regenerar o importar dirección.
+Las escenas antiguas sin colores declarados no reciben una paleta al abrirlas;
+puedes regenerar sus descripciones para definirla.
 
 Junto a **Regenerar el guion y el audio**, **Regenerar las descripciones de las
 escenas** pide a Claude una nueva dirección visual para todo el guion. Puedes
@@ -1144,7 +1193,7 @@ anterior mantienen sus cortes; para adoptar el criterio nuevo hay que regenerar
 el guion y sus pasos dependientes.
 
 En la fase **Guion**, **Exportar guion (.json)** descarga la narración actual y
-las descripciones visuales de sus escenas, incluidas las correcciones manuales.
+las descripciones visuales y colores de sus escenas, incluidas las correcciones manuales.
 El JSON UTF-8 tiene este formato editable:
 
 ```json
@@ -1152,9 +1201,19 @@ El JSON UTF-8 tiene este formato editable:
   "formato": "as-video-studio/guion-v1",
   "bloques": [
     {
-      "texto": "Una puerta se abre.",
+      "texto": "Una puerta se abre. La luz entra en el salón.",
+      "capitulo": {"numero": 1, "titulo": "La entrada", "estilo": "arctic"},
       "escenas": [
-        {"texto": "Una puerta se abre.", "descripcion_visual": "Una mano gira el pomo y abre la puerta de una casa."}
+        {
+          "texto": "Una puerta se abre.",
+          "descripcion_visual": "Portada 01, LA ENTRADA: número azul luminoso, línea fina, título claro y partículas suaves.",
+          "colores": "azules fríos, blanco cálido"
+        },
+        {
+          "texto": "La luz entra en el salón.",
+          "descripcion_visual": "La luz atraviesa la puerta de madera e ilumina la pared crema del salón.",
+          "colores": "crema, marrón madera, blanco cálido"
+        }
       ]
     }
   ]
@@ -1165,6 +1224,14 @@ El JSON UTF-8 tiene este formato editable:
 y el número de bloques y escenas del JSON. Cada frase del bloque debe aparecer
 literalmente y en orden en `escenas`, con su `descripcion_visual` (hasta 8000
 caracteres). Se comprueba el documento completo antes de aplicar cambios.
+`colores` es una cadena de nombres separados por comas (hasta 500 caracteres),
+por ejemplo `"azules fríos, turquesas, amarillo cálido"`. Puede editarse en el JSON;
+cambiar solo la dirección cromática conserva narración y voz. Los JSON antiguos
+sin ese campo siguen siendo compatibles y no borran colores ya declarados.
+`capitulo` es opcional y contiene `numero` consecutivo desde 1, `titulo` y
+`estilo` (`arctic`, `ember`, `mixto`, `sakura` o `retro`). Varios bloques pueden
+pertenecer al mismo capítulo; la portada se muestra solo al empezar. Omitir
+el campo conserva la organización actual; `null` retira esa asignación visual.
 Si cambia el número de bloques se guarda una nueva versión del guion.
 
 También se admiten los TXT antiguos: un párrafo por bloque, en el mismo orden y

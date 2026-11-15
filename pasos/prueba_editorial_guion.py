@@ -35,6 +35,12 @@ def narracion():
         for i in (1, 2)])
 
 
+def escaleta_capitulos():
+    return dict(escaleta(), capitulos=[
+        dict(numero=1,titulo='La decisión',estilo='arctic',tramos=['T01']),
+        dict(numero=2,titulo='Los costes',estilo='ember',tramos=['T02'])])
+
+
 class Editorial(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=AISLADO.name)
@@ -119,9 +125,10 @@ class Editorial(unittest.TestCase):
             frases = p3_guion.medios.motor("guion/segmentar.py").frases_del_texto(b["texto"])
             visuales.append(dict(id=b["id"], personajes_visibles=[], descripcion_visual="Una tubería.",
                 escenas_visuales=[dict(texto=f, personajes_visibles=[],
+                    colores='azules fríos, turquesas, amarillo cálido',
                     descripcion_visual=f"Una tubería en el panel {i} de {b['id']}.") for i, f in enumerate(frases)]))
         with patch.object(p3_guion.personajes, "contexto", return_value=modo):
-            salida, doc, cli = self.ejecutar([escaleta(), narracion(),
+            salida, doc, cli = self.ejecutar([escaleta_capitulos(), narracion(),
                 dict(personajes_automaticos=[], bloques=visuales)], dict(sistema_personajes=modo))
         self.assertEqual(cli.call_count, 3)
         self.assertNotIn("DIRECCIÓN VISUAL STICKMAN", cli.call_args_list[1].args[0])
@@ -129,7 +136,40 @@ class Editorial(unittest.TestCase):
         self.assertEqual([marcas_tts.limpiar(b["texto"]) for b in doc["guion"]],
                          [b["texto"] for b in narracion()["bloques"]])
         self.assertTrue(all(b["escenas_visuales"] for b in doc["guion"]))
+        self.assertEqual([b['capitulo']['numero'] for b in doc['guion']],[1,2])
+        self.assertEqual([c['bloques'] for c in doc['capitulos']],[['B001'],['B002']])
+        self.assertTrue(all(b['abre_seccion'] for b in doc['guion']))
+        self.assertIn('CAPÍTULOS Y PUNTOS VISUALES',cli.call_args_list[0].args[0])
+        self.assertTrue(all(e['colores']=='azules fríos, turquesas, amarillo cálido'
+            for b in doc['guion'] for e in b['escenas_visuales']))
+        self.assertIn('DIRECCIÓN DE COLOR POR ESCENA', cli.call_args_list[2].args[0])
+        self.assertIn('"stickman": {"activo": true}', cli.call_args_list[2].args[0])
         self.assertEqual(salida["tokens"]["entrada"], 30)
+        self.estado.completar('guion',salida)
+        correccion=dict(titulo=doc['titulo'],personajes_automaticos=[],bloques=copy.deepcopy(doc['guion']))
+        for bloque in correccion['bloques']:
+            bloque.pop('capitulo',None)
+        _,corregido,cli_correccion=self.ejecutar([correccion],dict(prompt_general='Hazlo más directo.'))
+        self.assertEqual(cli_correccion.call_count,1)
+        self.assertEqual([b['capitulo'] for b in corregido['guion']],[b['capitulo'] for b in doc['guion']])
+
+    def test_capitulos_editoriales_validan_orden_cobertura_y_no_inventan_texto(self):
+        from pasos import capitulos_guion
+        plan=editorial.validar_escaleta(escaleta_capitulos(),140,exigir_capitulos=True)
+        bloques=narracion()['bloques']
+        textos=[b['texto'] for b in bloques]
+        capitulos=capitulos_guion.asignar(plan,bloques)
+        self.assertEqual([b['texto'] for b in bloques],textos)
+        self.assertEqual([c['numero'] for c in capitulos],[1,2])
+        for cambio in ([dict(numero=2,titulo='Fuera de orden',estilo='arctic',tramos=['T01'])],
+                [dict(numero=1,titulo='Faltan tramos',estilo='mixto',tramos=['T99'])],
+                [dict(numero=1,titulo='Orden invertido',estilo='mixto',tramos=['T02','T01'])],
+                [dict(numero=1,titulo='Sin estilo válido',estilo='invento',tramos=['T01','T02'])]):
+            with self.subTest(cambio=cambio),self.assertRaises(ValueError):
+                editorial.validar_escaleta(dict(escaleta(),capitulos=cambio),140,exigir_capitulos=True)
+        with self.assertRaisesRegex(ValueError,'capítulos temáticos'):
+            editorial.validar_escaleta(escaleta(),140,exigir_capitulos=True)
+        self.assertNotIn('capitulos',editorial.validar_escaleta(escaleta(),140))
 
     def test_director_no_puede_reescribir_ni_cambiar_orden(self):
         bloques = narracion()["bloques"]

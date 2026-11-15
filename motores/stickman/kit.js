@@ -49,7 +49,7 @@ export function rotulo(g, str, x, y, w, size=42, color=S().ui.cream, extra={}) {
   g.restore();
 }
 
-export function grafico(g, item, t, reparto) {
+export function grafico(g, item, t, reparto, contraste=null) {
   const o = item.opciones, local = t-item.inicio+(item.desfase||0),
     dur = item.duracion_total??(item.fin-item.inicio+(item.desfase||0)), ui=S().ui;
   const p = ease.out(prog(local, 0, Math.min(1.1,dur*.35))), color=o.color || ui.gold;
@@ -114,9 +114,13 @@ export function grafico(g, item, t, reparto) {
       for(let i=0;i<total;i++){
         const x=W*.11+dx*(i%cols+.5),y=H*.3+dy*(Math.floor(i/cols)+.2);
         const figura=c=>{circle(g,x,y,rad,c);rr(g,x-rad,y+rad*1.4,rad*2,rad*2.8,rad*.8);g.fillStyle=c;g.fill();};
-        if(!explicita){figura(i<active?color:alpha(ui.blueprint,.32));continue;}
+        if(!explicita){
+          if(i<active&&o.neon_destacados)glow(g,x,y+rad*1.8,rad*5,color,o.neon_destacados*.45);
+          figura(i<active?color:alpha(ui.blueprint,.32));continue;
+        }
         g.save();
         if(!seleccion.has(i)&&seleccion.size)g.globalAlpha*=1-(1-(o.atenuacion??1))*avance;
+        if(seleccion.has(i)&&o.neon_destacados)glow(g,x,y+rad*1.8,rad*5,color,o.neon_destacados*.45*avance);
         figura(o.color_base??'#888888');
         if(seleccion.has(i)){g.globalAlpha*=avance;figura(color);}
         g.restore();
@@ -147,6 +151,19 @@ export function grafico(g, item, t, reparto) {
       if(o.sello&&p>.8){g.save();g.translate(W*.63,H*.75);g.rotate(-.1);g.strokeStyle='#d95245';g.lineWidth=5;g.strokeRect(-200,-36,400,72);rotulo(g,o.sello,0,0,375,36,'#d95245');g.restore();}return;
     }
     case 'comparacion': {
+      if(contraste){
+        const actores=Object.keys(reparto).length>0;
+        if(o.titulo)rotulo(g,o.titulo,W/2,H*.09,W*.88,80,'#ffdb83');
+        rotulo(g,o.izquierda,W*.25,H*.23,W*.40,78,contraste.color_izquierdo||'#a5e6ff');
+        rotulo(g,o.derecha,W*.75,H*.23,W*.40,78,contraste.color_derecho||'#ffc487');
+        for(const [lado,xx] of [['izquierdos',actores?.36:.25],['derechos',actores?.64:.75]]){
+          const filas=o[`rasgos_${lado}`]||[];
+          filas.forEach((fila,i)=>rotulo(g,fila,W*xx,H*(.43+i*.13),W*(actores?.235:.39),62,'#fff1dc'));
+        }
+        if(o.detalle_izquierdo)rotulo(g,o.detalle_izquierdo,W*.25,H*.93,W*.4,40,'#e5f4fc');
+        if(o.detalle_derecho)rotulo(g,o.detalle_derecho,W*.75,H*.93,W*.4,40,'#ffdfbc');
+        return;
+      }
       rotulo(g,o.izquierda,W*.25,H*.18,W*.4,48,ui.blueprint);
       rotulo(g,o.derecha,W*.75,H*.18,W*.4,48,'#ff9b50');
       if(o.detalle_izquierdo)rotulo(g,o.detalle_izquierdo,W*.25,H*.95,W*.39,34);

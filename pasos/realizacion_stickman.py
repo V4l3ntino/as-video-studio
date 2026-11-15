@@ -8,6 +8,7 @@ import math
 import re
 from pathlib import Path
 from pasos.tiempos_stickman import tiempo
+from pasos.capitulos_guion import ESTILOS as ESTILOS_CAPITULO
 
 ENCUADRES = ('general', 'conjunto', 'medio', 'primer_plano', 'detalle', 'grafico', 'dividido', 'cierre')
 ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'parque', 'cocina', 'teatro', 'aula')
@@ -30,6 +31,8 @@ def opciones(**campos):
 
 FILA = opciones(label=TEXTO, v=U, color=COLOR)
 GRAFICOS = {
+    'capitulo': dict(numero=('numero', 1, 99), titulo=('texto', 120),
+        estilo=('elegir', *ESTILOS_CAPITULO), color=COLOR, particulas=BOOL),
     'titleCard': dict(lines=('lista', TEXTO, 1, 3), sub=TEXTO, y=N),
     'bigLine': dict(str=TEXTO, y=N, size=('numero', 24, 160), color=COLOR),
     'badge': dict(str=TEXTO, x=N, y=N, size=('numero', 24, 96), color=COLOR),
@@ -44,6 +47,9 @@ GRAFICOS = {
     'blueprint': dict(grid=('numero', 20, 200), a=U),
     'lineFigure': dict(x=N, y=N, s=('numero', .1, 8), color=COLOR, facing=('elegir', -1, 1)),
     'bubble': dict(x=N, y=N, w=POS, h=POS, color=COLOR, dots=BOOL, str=('texto', 100)),
+    'bocadillo': dict(personaje=('texto', 120), modo=('elegir', 'dialogo', 'pensamiento'),
+        texto=('texto', 160), x=N, y=N, w=('numero', 180, 1200), h=('numero', 90, 400),
+        color=COLOR, tinta=COLOR, size=('numero', 24, 64)),
     'endScreen': dict(question=TEXTO, personajes=('lista', ('texto', 120), 0, 8), suscribir=('texto', 40)),
     'captions': dict(y=N, size=('numero', 28, 100), max=('numero', 1, 8), color=COLOR, hi=COLOR),
     # Componentes semánticos del adaptador, construidos con el dibujo del kit.
@@ -53,10 +59,12 @@ GRAFICOS = {
     'poblacion': dict(titulo=TEXTO, total=('numero', 1, 300), destacados=('numero', 0, 300), color=COLOR,
         filas=('numero', 1, 300), columnas=('numero', 1, 300), color_base=COLOR,
         indices_destacados=('lista', ('numero', 0, 299), 0, 300), atenuacion=U,
-        inicio_destacado=('numero', 0, 120), duracion_destacado=('numero', .01, 120)),
+        inicio_destacado=('numero', 0, 120), duracion_destacado=('numero', .01, 120), neon_destacados=U),
     'cronologia': dict(titulo=TEXTO, etiquetas=('lista', ('texto', 60), 2, 8), color=COLOR),
     'documento': dict(titulo=TEXTO, filas=('lista', TEXTO, 1, 8), destacar=('numero', 0, 7), sello=('texto', 40)),
-    'comparacion': dict(izquierda=TEXTO, derecha=TEXTO, detalle_izquierdo=TEXTO, detalle_derecho=TEXTO),
+    'comparacion': dict(titulo=('texto', 120), izquierda=TEXTO, derecha=TEXTO,
+        detalle_izquierdo=TEXTO, detalle_derecho=TEXTO,
+        rasgos_izquierdos=('lista', ('texto', 60), 0, 3), rasgos_derechos=('lista', ('texto', 60), 0, 3)),
     'interruptor': dict(titulo=TEXTO, activo=BOOL, cambio=('numero', 0, 120)),
     'dial': dict(titulo=TEXTO, valor=POS, maximo=('numero', .001, 100000), unidad=('texto', 20)),
 }
@@ -162,7 +170,7 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
         ops = validar(d.get('opciones', {}), opciones(**catalogo[d['tipo']]), nombre + '.' + d['tipo'])
         if 'neon' in d and nombre != 'graficos':
             raise ValueError('neon se aplica a graficos u objetos, no a efectos_visuales')
-        for k in ('count', 'rows', 'cols', 'doors', 'ticks', 'branches', 'blinds', 'max', 'total', 'destacados', 'destacar', 'decimals', 'perRow', 'columnas'):
+        for k in ('count', 'rows', 'cols', 'doors', 'ticks', 'branches', 'blinds', 'max', 'total', 'destacados', 'destacar', 'decimals', 'perRow', 'columnas', 'numero'):
             if k in ops and isinstance(ops[k], (int, float)) and int(ops[k]) != ops[k]:
                 raise ValueError(f'{nombre}.{k}: entero requerido')
         if d['tipo'] in ('lista', 'barras', 'documento') and not ops.get('filas'):
@@ -192,6 +200,14 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
         componente = dict(tipo=d['tipo'], inicio=inicio, fin=fin, opciones=ops,
             capa=validar(d.get('capa', 'pantalla' if nombre == 'graficos' else 'fondo'),
                 ('elegir', 'fondo', 'frente', 'pantalla'), nombre + '.capa'))
+        if d['tipo'] == 'bocadillo':
+            if not ops.get('personaje') or not ops.get('texto', '').strip():
+                raise ValueError('bocadillo necesita personaje y texto no vacío')
+            if componente['capa'] != 'pantalla':
+                raise ValueError('bocadillo debe usar capa pantalla para seguir el rostro sin ampliar su texto')
+        if d['tipo'] == 'capitulo':
+            if 'numero' not in ops or not ops.get('titulo', '').strip() or componente['capa'] != 'pantalla':
+                raise ValueError('capitulo necesita numero, titulo y capa pantalla')
         if 'neon' in d:
             componente['neon'] = validar(d['neon'], U, ruta + '.neon')
         if 'desfase' in d:
@@ -211,6 +227,9 @@ def normalizar(datos, duracion, reparto):
             encuadre=('elegir', *ENCUADRES), sujeto=('texto', 120), objetivo=('texto', 500),
             escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000)),
             fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
+            particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400),
+            comparacion=opciones(color_izquierdo=COLOR,color_derecho=COLOR,color_separador=COLOR,
+                corte=('elegir', 'quebrado', 'diagonal', 'vertical')),
             acabado=BOOL, color_fiel=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
             foco=('lista', U, 2, 2)), 'realizacion')
         if r.get('sujeto') and r['sujeto'] not in reparto:
@@ -226,6 +245,10 @@ def normalizar(datos, duracion, reparto):
     if 'realizacion' not in resultado and any(datos.get(k) for k in ('graficos', 'efectos_visuales', 'espacio3d')):
         resultado['realizacion'] = dict(encuadre='general' if datos.get('personajes') else 'grafico', acabado=True)
     for grafico in resultado.get('graficos', []):
+        if grafico['tipo'] == 'bocadillo':
+            ident = grafico['opciones']['personaje']
+            if ident not in reparto or ident not in {p.get('id') for p in datos.get('personajes', [])}:
+                raise ValueError('bocadillo: personaje debe estar presente en la escena y pertenecer al reparto')
         for ident in grafico['opciones'].get('personajes', []):
             if ident not in reparto:
                 raise ValueError('endScreen: personaje desconocido')
@@ -258,9 +281,50 @@ def normalizar(datos, duracion, reparto):
     return resultado
 
 
+def preparar_comparacion_nueva(escena, resolucion):
+    """El escenario luminoso no sirve si el plan vuelve a cubrirlo con paneles planos.
+
+    Se aplica al generar o editar el acabado luminoso, nunca a lectura/caché;
+    los retoques de planos antiguos no reciben este acabado automáticamente.
+    Las tarjetas, vectores y elementos explicativos conservan su geometría.
+    """
+    r = escena.get('realizacion') or {}
+    if r.get('encuadre') == 'dividido' or any(g['tipo'] == 'comparacion' for g in escena.get('graficos', [])):
+        r.setdefault('comparacion', {})
+        r.setdefault('color_fiel', True)
+        escena['realizacion'] = r
+    alto = 1920 * resolucion[1] / resolucion[0]
+    paneles = [o for o in escena['objetos'] if o['tipo'] == 'rectangulo' and o['capa'] == 'fondo'
+        and not o.get('ancla') and o['w'] * o['escala'] >= 1920 * .45 and o['h'] * o['escala'] >= alto * .8]
+    lados = {'izquierda' if o['x'] < .5 else 'derecha' for o in paneles}
+    if lados == {'izquierda', 'derecha'} or ('comparacion' in r and paneles):
+        raise ValueError('Comparación cubierta con paneles planos: usa realizacion.comparacion con luces '
+            'fría/cálida y elimina los rectángulos de fondo. No tapes ese escenario con colores sólidos.')
+    if 'comparacion' in r:
+        for o in escena['objetos']:
+            suelo = (o['tipo'] == 'rectangulo' and o['capa'] == 'fondo' and o['y'] > .75
+                and o['w'] * o['escala'] >= 1920 * .45 and o['h'] * o['escala'] >= alto * .12)
+            raya = o['tipo'] == 'linea' and abs(o['x'] - .5) < .04 and abs(o['w']) < 5 and abs(o['h']) >= alto * .75
+            if suelo or raya:
+                raise ValueError('La comparación ya incorpora suelo con reflejos y separador de neón: '
+                    'elimina la franja plana de suelo y la línea central manual; configura corte y color_separador.')
+        if any(g['tipo'] == 'blueprint' for g in escena.get('graficos', [])):
+            raise ValueError('No tapes la comparación con blueprint: usa realizacion.malla si necesita una malla tenue.')
+    return escena
+
+
 def instruccion():
     return '''
 == REALIZACIÓN EDITORIAL STICKMAN (contrato editorial-2) ==
+CAPÍTULOS: escena.capitulo declara su número, título y estilo. escena.apertura_capitulo aparece
+SOLO en la primera escena del capítulo. El motor añade una portada numerada durante duracion_s
+segundos desde el inicio: número luminoso 01/02/03, línea fina, título grande y partículas.
+Ese intervalo ya está dentro del audio; programa la actuación/diagramas principales DESPUÉS
+de ese tiempo, con acciones que quepan en el resto, sin acelerar ni añadir segundos o palabras.
+No dibujes otra portada, no cambies su título o numeración y no la arrastres a escenas siguientes
+por continuidad. Desarrolla los puntos con distintos recursos visuales según su significado.
+El componente manual capitulo usa opciones:{numero:1,titulo:"Tema",estilo:arctic|ember|mixto|sakura|retro}
+y capa:pantalla. Las portadas no añaden narración ni diálogos.
 Decide primero el objetivo explicativo. Alterna actuación contextual, primer plano emocional,
 detalle, comparación simultánea, documento, diagrama y gráfico según la idea. No fuerces un actor
 en un gráfico. No copies toda la voz como texto. Una relación dominante; revela por orden, conserva
@@ -268,7 +332,33 @@ el resultado legible. Metáforas simples con transformación clara, nunca símbo
 Incluye realizacion:{encuadre:general|conjunto|medio|primer_plano|detalle|grafico|dividido|cierre,
 sujeto:ID opcional,objetivo:"qué se entiende",escenario:{id:"lugar estable",tipo,semilla:7},
  desenfoque:0–20,profundidad:.1–1,acabado:true,color_fiel:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional,
- paleta:ember|arctic|sakura|retro}.
+ paleta:ember|arctic|sakura|retro,particulas:true,malla:true|false,desfase_ambiente:segundos}.
+COMPARACIONES LUMINOSAS (referencia fría/cálida): en dividido y en comparaciones gráficas utiliza
+realizacion.comparacion:{color_izquierdo:"#83d9f7",color_derecho:"#ff8d38",color_separador:"#ffdb83",corte:"quebrado"}.
+También puedes usar esa realización con encuadre grafico para comparar objetos o magnitudes, sin inventar actores.
+El motor construye fondos oscuros con degradados y focos radiales, suelo con reflejos, partículas frías
+y motas cálidas, luz de contorno por lado y una unión quebrada/diagonal con halo de neón.
+NO dibujes rectángulos azules/rojos opacos de media pantalla, una banda gris de suelo ni una raya
+blanca central: tapan el acabado. No arrastres esos objetos desde una continuidad antigua.
+Conserva identidades, acciones, posiciones y el significado de los colores; azul/rojo describe la
+familia de luz, no obliga a rellenar cada mitad con pintura saturada. Para rojo explícito usa
+color_derecho rojo, sin convertirlo en naranja. corte admite quebrado, diagonal o vertical luminoso.
+Rótulos de comparación: usa graficos tipo comparacion con titulo breve, izquierda, derecha,
+rasgos_izquierdos/rasgos_derechos (hasta 3 frases breves por lado) y detalles opcionales.
+Tipografía grande Fredoka/Nunito, título dorado claro, etiquetas frías/cálidas y contorno fino legible;
+evita texto diminuto disperso. Un título selectivo, no copiar toda la voz. Con rasgos, coloca actores
+en x~.16/.84 y deja columnas de texto en .36/.64; sin rasgos pueden estar en .25/.75.
+Los objetos vectoriales comparados admiten panel:izquierda|derecha, igual que los actores.
+En objetos focales como termómetros usa neon:.2–.35 y color del halo coherente con su lado;
+conserva el vidrio, las marcas y el líquido nítidos. No hagas luminosos todos los materiales.
+En un retoque local conserva el acabado original salvo que se haya pedido cambiarlo.
+ACABADO DE REFERENCIA: incluye partículas de fondo flotantes, pequeñas, escasas, suaves y lentas.
+particulas:true las dibuja detrás de actores y textos; no son lluvia, nieve ni confeti. No dupliques
+dust si ya utilizas este ambiente. Mantén profundidad con fondo suave, luz de contorno y foco claro.
+En explicaciones azuladas/Arctic Glass usa malla:true: cuadrícula fina y tenuemente visible sobre
+fondo azul oscuro, nunca por delante de caras ni en un salón realista. No hace falta añadir blueprint:
+malla no rellena el lienzo ni tapa el fondo elegido. particulas:false/malla:false respetan una petición sin esos efectos.
+desfase_ambiente conserva el reloj global de las partículas al continuar la secuencia.
 PATRÓN DE COLOR: elige una familia coherente con el encargo y mantenla durante la secuencia.
 Respeta el acabado elegido si es ember/arctic/sakura/retro; si es editorial, elige por el tono:
 Ember Forge (drama: negro, rojo intenso, cobre y naranja); Arctic Glass (ciencia/tecnología:
@@ -284,7 +374,7 @@ En Arctic Glass incorpora el amarillo cálido #ffcb52 (detalle) para títulos, c
 etiquetas, umbrales o el elemento que explica la conclusión. Mantén ejes, estructura y datos
 de contexto en azul/turquesa sobre fondo azul oscuro, y el texto auxiliar blanco hielo.
 El amarillo puede tener neon:.2–.4 en el foco; no conviertas todo el diagrama en amarillo.
-Una cuadrícula muy tenue solo si ayuda al diagrama científico/técnico; no en toda escena.
+La malla tenue forma parte del fondo de las explicaciones azuladas; no la extiendas a escenas cotidianas.
 NEÓN SELECTIVO: añade neon:.2–.4 a un gráfico o a un objeto destacado (texto, vector o silueta).
 Ejemplo {tipo:"bigLine",inicio:0,fin:duracion,capa:"pantalla",neon:.3,
 opciones:{str:"GENES",color:"#76ccff",size:120}}. Para siluetas sirve lineFigure o un objeto vector.
@@ -293,12 +383,23 @@ El halo es una copia suavemente desenfocada detrás del dibujo nítido, no un de
 Limita el efecto normalmente a 1–3 elementos focales; agrupa una silueta compuesta en un vector,
 en lugar de añadir un halo independiente a cada pieza. badge alinea a la derecha de su x;
 reserva columnas separadas para ilustración y palabras, sin invadir el diagrama con los rótulos.
+En poblacion usa neon_destacados:.2–.4 para iluminar SOLO las figuras seleccionadas, no un halo
+en el grupo completo. Mantén las demás azul grisáceo/atenuadas. Las cantidades proceden del relato.
 neon:0 desactiva el halo; no se añade por defecto al material histórico. Mantén contraste y contornos.
 Escenarios disponibles: ''' + ', '.join(ESCENARIOS) + '''.
 Reutiliza el mismo escenario/id/semilla en reapariciones, consultando escenarios_video y continuidad_bloque.
 Cada escenario ya dibuja mobiliario y luces; no lo tapes con rectángulos. Adapta ambiente a la hora.
 medio/primer_plano requieren sujeto presente. El motor encuadra su cara automáticamente: escribe
 pies y escala normales, no agrandes el rig. detalle admite foco:[x,y] normalizado para centrar la cámara.
+Para una frase hablada o un pensamiento significativo alterna primer_plano con la actuación general:
+realizacion:{encuadre:"primer_plano",sujeto:"ID",desenfoque:6,...}. El rostro es el foco, no un icono flotante.
+Añade graficos:[{tipo:"bocadillo",capa:"pantalla",inicio:0,fin:duracion,opciones:{personaje:"ID",
+modo:"dialogo"|"pensamiento",texto:"Frase breve pertinente"}}]. El motor coloca el recuadro en un lateral
+y une la cola al rostro siguiendo cámara y movimiento. Diálogo lleva cola triangular; pensamiento,
+una cadena de círculos. Fondo claro y texto oscuro, sin tapar ojos o boca. No uses bubble genérico
+para atribuir palabras: bocadillo conoce al personaje. Puedes ajustar x,y,w,h,size,color,tinta en unidades lógicas.
+No inventes una cita ni un pensamiento como hecho: usa palabras pronunciadas por ese personaje,
+un pensamiento explícito del guion o una idea ilustrativa inequívoca, nunca diálogo del narrador atribuido a otro.
 Los figurantes usan rol:figurante y escala reducida; no compiten con el protagonista.
 dividido: requiere exactamente dos protagonistas de IDs distintos del reparto, x~.25/.75.
 En personajes, escribe uno con rol:"principal",panel:"izquierda" y el otro con rol:"principal",panel:"derecha".
@@ -309,10 +410,13 @@ graficos:[{tipo,inicio:0,fin:duracion,capa:"pantalla",opciones:{...}}]. Los graf
 la cámara. En un gráfico completo usa decorado vacio y personajes:[]; blueprint como fondo.
 Usa lista/barras/documento/comparacion/cronologia/poblacion/dial/interruptor antes que inventar layouts.
 Fidelidad: las cantidades, colores, posiciones y transformaciones EXPLÍCITAS del prompt son obligatorias.
+escena.colores contiene la dirección cromática ya decidida al describir esa frase: respétala junto
+con descripcion_visual. Asigna esas tintas a materiales, objetos y gráficos; no vuelvas a elegir
+otra paleta ni sustituyas el amarillo cálido de un destacado por azul al interpretar Arctic Glass.
 El estilo completa lo no especificado; nunca sustituye gris por verde ni recolorea un destacado narrativo.
 Usa color_fiel:true para evitar que la gradación tiña los colores de la escena. No añade una paleta nueva:
-especifica los colores pedidos en los objetos y gráficos. No añadas blueprint/cuadrícula como adorno;
-en un diagrama científico puede ser sutil (blueprint con a:.025), siempre subordinada al contenido.
+especifica los colores pedidos en los objetos y gráficos. La malla de una explicación azulada es
+tenue y subordinada al contenido; evita otras cuadrículas ornamentales y la duplicación con blueprint.
 poblacion admite filas/columnas, color_base, color para destacados, indices_destacados (índices desde 0,
 por filas de izquierda a derecha), atenuacion (opacidad final del resto), inicio_destacado y duracion_destacado.
 Ejemplo: cien figuras grises en diez filas, una roja en la tercera fila:

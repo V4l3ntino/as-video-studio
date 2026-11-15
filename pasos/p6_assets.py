@@ -1343,7 +1343,7 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         else:
             escena.pop("redactado", None)
     from pasos import descripciones_escenas
-    descripciones_escenas.aplicar(escenas, p)
+    descripciones_escenas.aplicar(escenas, p, _guion_del_proyecto(proyecto) or {})
     # LOS QUE SE QUEDAN SIN DIRIGIR EN UN VIDEO DIRIGIDO, dichos. Se arman con
     # la accion del tramo, que es la misma para sus vecinos y va en el idioma
     # del guion: en un video largo (28-09-2026) diez planos salieron asi sin
@@ -1392,6 +1392,14 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         if escena.get("descripcion_visual"):
             escena["accion"] = escena["descripcion_visual"]
             escena["prompt"] = _unir(escena["prompt"], escena["descripcion_visual"])
+        if escena.get('colores'):
+            escena['prompt'] = _unir(escena['prompt'], 'Colores principales de esta escena: ' + escena['colores'])
+        if escena.get('apertura_capitulo'):
+            cap = escena['apertura_capitulo']
+            escena['prompt'] = _unir(escena['prompt'],
+                f'Apertura del capítulo {cap["numero"]:02d}: {cap["titulo"]}. '
+                f'Portada numerada durante los primeros {cap["duracion_s"]:g} segundos, dentro de esta escena; '
+                'después desarrolla su contenido sin reiniciar el relato ni cambiar la voz.')
         entra = bool(escena["set"]) and escena["set"] != set_anterior
         nuevos = [q for q in (escena.get("personajes") or []) if q not in presentados]
         presentados.update(nuevos)
@@ -1402,6 +1410,9 @@ def planificar(proyecto, params, inventario=None, replantear=False,
             palabras=(escena.get("narracion") or "").split(),
             duracion=escena.get("duracion"),
             minimo_s=p.get("min_s_rotulos", MIN_S_ROTULOS))
+        if (p.get('estilo') or {}).get('stickman') and 'capitulo' in escena:
+            # La portada ya forma parte del clip: no producir otra cabecera SVG encima.
+            escena['capa_vectorial'] = [c for c in escena['capa_vectorial'] if c.get('tipo') != 'capitulo']
         set_anterior = escena["set"] or set_anterior
 
     # `estirados` desaparecio con los rotulos: estiraba un

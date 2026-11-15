@@ -166,6 +166,68 @@ histórico. Para aplicar la dirección nueva a clips existentes hay que regenera
 
 Pruebas de contrato y píxeles: `python pasos/prueba_stickman_editorial.py --real`.
 
+### Fondos vivos y bocadillos vinculados al rostro
+
+`realizacion.particulas:true` activa partículas suaves y lentas de fondo;
+`desfase_ambiente` (segundos) mantiene su reloj entre escenas. `malla:true`
+añade una cuadrícula tenue sin relleno opaco. En generación nueva se activan
+partículas y, en gráficos Arctic Glass, la malla. Los valores explícitos `false`
+se conservan; leer planes históricos y retocar una animación existente no les
+inyecta estos valores. No se cambia la versión de firmas de las tandas.
+
+`graficos` admite `bocadillo` con `capa:pantalla` y
+`opciones:{personaje:"ID",modo:"dialogo"|"pensamiento",texto:"Frase breve"}`.
+El personaje debe estar presente en la escena. La cola triangular de diálogo o
+los círculos de pensamiento apuntan al borde del rostro proyectado con la misma
+cámara que el actor; el recuadro y el texto mantienen tamaño de pantalla. Se
+coloca por defecto en un lateral, con texto oscuro sobre fondo claro, ajuste
+multilínea y margen seguro. Admite x,y,w,h,size,color,tinta. `bubble` sigue
+disponible para iconos genéricos, sin vínculo con un actor.
+
+`poblacion.opciones.neon_destacados:0–1` ilumina únicamente los índices
+seleccionados, conservando intactas las figuras de contexto.
+
+## Comparaciones luminosas
+
+`realizacion.comparacion:{color_izquierdo,color_derecho,color_separador,corte}`
+activa el escenario de `comparacion.js`. Sus tintas son opcionales; por defecto
+combina luz azul fría y ámbar cálida, reflejos de suelo y partículas diferenciadas.
+`corte:quebrado|diagonal|vertical` controla una unión luminosa común al fondo y
+al recorte de actores/objetos con `panel:izquierda|derecha`. El recorte se hace
+en pantalla antes de restaurar la cámara; no debe desplazarse con zoom o paneo.
+La ropa y los materiales conservan sus tintas; solo el contorno recibe luz local.
+
+El gráfico `comparacion` admite `titulo`, `izquierda`, `derecha`, hasta tres
+`rasgos_izquierdos`/`rasgos_derechos` y detalles opcionales. Con el escenario
+luminoso usa tipografía Fredoka grande, títulos claros y halo ligero con contorno
+fino. Los objetos de texto de esa comparación utilizan también la fuente del kit.
+
+Solo al generar se añade este acabado a `dividido` y a gráficos `comparacion`.
+`preparar_comparacion_nueva` devuelve al proveedor los planes que lo cubren con
+paneles opacos, franjas de suelo o separadores manuales. La lectura histórica y
+los retoques que conservan el acabado anterior siguen siendo compatibles.
+Comparaciones de objetos usan `grafico` y sus paneles, sin exigir dos actores.
+
+## Portadas de capítulo
+
+`capitulos_guion.py` valida los capítulos de la escaleta y asigna sus bloques
+reales. `capitulo:{numero,titulo,estilo}` es metadato del bloque; P6 marca
+`apertura_capitulo` únicamente en su primera escena, con el tiempo disponible.
+El estilo admite arctic, ember, mixto, sakura o retro. Los planes históricos sin
+estos campos no reciben capítulos al abrirse ni cambian sus firmas.
+
+`capitulo.js` dibuja el componente `graficos.tipo:capitulo` a pantalla completa,
+después de las demás capas: número de dos dígitos con halo, línea, título
+multilínea legible y partículas frías/cálidas. Las portadas breves se preparan
+localmente sin consultar al proveedor. En escenas largas se añade una apertura
+de 1,8–2,8 s dentro de su reloj y el director reserva el resto para el contenido.
+No se añade silencio ni se alarga el clip. Las escenas siguientes del capítulo
+no heredan la portada desde continuidad. Los retoques locales conservan su base.
+
+El gráfico manual usa `{tipo:"capitulo",capa:"pantalla",opciones:{numero:1,
+titulo:"La pregunta",estilo:"mixto"}}`. Se evita generar también la cabecera SVG
+antigua del catálogo en escenas con estructura de capítulos Stickman.
+
 ## Catálogo extensible de utilería
 
 `pasos/utileria_stickman.py` mantiene fichas vectoriales inmutables, identificadas
