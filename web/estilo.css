@@ -2746,7 +2746,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .editor-global .escena-regla { overflow: hidden; }
 .editor-global .escena-regla span:not(:first-child) { visibility: hidden; }
 .editor-global .escena-regla span:first-child { visibility: visible; }
-.editor-global .generacion-activa .escena-editor-panel { pointer-events: none; opacity: .6; }
+.editor-global .generacion-activa .escena-editor-panel:not(.escena-editor-galeria) { pointer-events: none; opacity: .6; }
 @media (max-width: 800px) {
   .editor-global { display: block; }
   .editor-global-visual, .editor-global-timeline { margin-top: 12px; }

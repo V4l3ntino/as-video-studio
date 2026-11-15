@@ -11516,7 +11516,7 @@ function editorGlobalImagenes(escenas) {
         cargarEscena(e);
       }
       const c = controles.get(id); if (!c) return;
-      if (!soloCursor && id !== seleccionada && controles.get(seleccionada)?.ocupado()) return;
+      if (!soloCursor && id !== seleccionada && controles.get(seleccionada)?.ocupadoLocal()) return;
       controles.get(actual)?.pausar(!continuo);
       if (!continuo) reproduciendo = false;
       actual = id; PREVIA.i = escenas.findIndex(e => e.id === id);
@@ -11824,7 +11824,7 @@ async function abrirEditorEscena(escena, estudio) {
       canvas = nuevoCanvas; canvasEnlace = nuevoEnlace;
       medios.replaceChildren();
     },
-    listo: false, ocupado, modificado: () => !!borrador && JSON.stringify(borrador) !== original,
+    listo: false, ocupado, ocupadoLocal, modificado: () => !!borrador && JSON.stringify(borrador) !== original,
     revalidar: async () => {
       if (!control.listo || ocupado() || revalidando || revisionDatos === escena.editor_revision) return;
       revalidando = true;
@@ -11907,7 +11907,8 @@ async function abrirEditorEscena(escena, estudio) {
     } };
   estudio.registrar(escena, control);
 
-  function ocupado() { return guardando || subiendo || generando || remotionOcupado || revalidando || !!trabajoVideoLight(); }
+  function ocupadoLocal() { return guardando || subiendo || generando || remotionOcupado || revalidando; }
+  function ocupado() { return ocupadoLocal() || !!trabajoVideoLight(); }
   async function trabajoRemotion(ruta, datos, mensaje, alProgresar) {
     if (ocupado()) throw new Error('Espera a que termine la operación actual.');
     remotionOcupado = true; pausar();
@@ -12065,6 +12066,7 @@ async function abrirEditorEscena(escena, estudio) {
     listaActual().push(b); seleccionado = listaActual().length - 1; pintarPanel(); cambio();
   }
   function pintarPanel() {
+    panel.classList.toggle('escena-editor-galeria', pestaña === 'imagenes');
     vaciar(panel);
     if (!ficha || !borrador) return;
     if (pestaña === 'remotion') {

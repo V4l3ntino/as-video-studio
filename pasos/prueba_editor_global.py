@@ -176,6 +176,31 @@ class EditorGlobal(unittest.TestCase):
                     self.assertEqual(pagina.evaluate('PREVIA.i'), 2)
                     self.assertAlmostEqual(pagina.evaluate('PREVIA.t'), 12, places=2)
                     self.assertEqual(activo.locator('[aria-pressed="true"][data-escena]').get_attribute('data-escena'), 'S003')
+                    # Una tanda global no bloquea la galería ni el cambio de
+                    # escena. Las ediciones siguen protegidas mientras genera.
+                    pagina.evaluate('''() => {
+                        window.trabajoVideoOriginal = trabajoVideoLight;
+                        trabajoVideoLight = () => ({id: 'tanda-simulada', estado: 'ejecutando'});
+                        EDITOR_GLOBAL.refrescar(PREVIA.ficha.escenas);
+                    }''')
+                    galeria = activo.locator('.previa-galeria')
+                    self.assertEqual(galeria.evaluate('n => getComputedStyle(n).pointerEvents'), 'auto')
+                    self.assertEqual(activo.locator('.escena-editor-panel').evaluate('n => getComputedStyle(n).opacity'), '1')
+                    galeria.locator('[data-escena="S004"]').click()
+                    self.assertEqual(pagina.evaluate('PREVIA.i'), 3)
+                    galeria.locator('[data-escena="S002"]').focus()
+                    pagina.keyboard.press('Enter')
+                    self.assertEqual(pagina.evaluate('PREVIA.i'), 1)
+                    activo.get_by_role('tab', name='Animación', exact=True).click()
+                    self.assertEqual(activo.locator('.escena-editor-panel').evaluate('n => getComputedStyle(n).pointerEvents'), 'none')
+                    activo.get_by_role('tab', name='Imágenes', exact=True).click()
+                    galeria.locator('[data-escena="S003"]').click()
+                    pagina.screenshot(path='/tmp/opencode/galeria-durante-generacion.png', full_page=True)
+                    pagina.evaluate('''() => {
+                        trabajoVideoLight = window.trabajoVideoOriginal;
+                        delete window.trabajoVideoOriginal;
+                        EDITOR_GLOBAL.refrescar(PREVIA.ficha.escenas);
+                    }''')
                     # El cabezal se puede arrastrar a través de los cortes.
                     pistas = pagina.locator('.editor-global-columna .anim-timeline-pista.audio')
                     desde, hasta = pistas.nth(0).bounding_box(), pistas.nth(3).bounding_box()
