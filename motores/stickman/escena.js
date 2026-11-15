@@ -7,6 +7,7 @@ import { pintarEditorial } from './editorial.js';
 import { aplicarEstilo } from './estilo.js';
 import { protegerTexto } from './texto.js';
 import { esquinas } from './encuadre.js';
+import { movimientoEn } from './movimiento.js';
 
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
@@ -27,9 +28,10 @@ function estado(c, t) {
   const v = c.diseno, keys = c.claves;
   const x = valor(keys, t, 'x', c.x) * E.W, y = valor(keys, t, 'y', c.y) * E.H;
   const s = valor(keys, t, 'escala', c.escala) * (D.escena.muestra ? E.H / 1920 : 1), rot = valor(keys, t, 'rot', 0);
-  const fase = t * Math.PI * (c.movimiento === 'correr' ? 3.2 : 1.8);
+  const movimiento=movimientoEn(c,t);
+  const fase = t * Math.PI * (movimiento === 'correr' ? 3.2 : 1.8);
   const act=c.actuacion||{};
-  const pose = ['caminar', 'correr'].includes(c.movimiento) ? walkPose(fase, {run: c.movimiento === 'correr'})
+  const pose = ['caminar', 'correr'].includes(movimiento) ? walkPose(fase, {run: movimiento === 'correr'})
     : breathe(posesAt(t, keys.filter(k => k.pose).map(k => [k.t, k.pose]),act.mezcla_pose??.35), t,act.respiracion??1);
   const exp = keys.filter(k => k.t <= t && k.expresion).at(-1)?.expresion || c.expresion;
   const mirar = keys.filter(k => k.t <= t && k.mirar !== undefined).at(-1)?.mirar ?? c.mirar;
@@ -204,6 +206,7 @@ function limites() {
   const hayFrente=escena.objetos.some(o=>o.capa!=='fondo')||escena.personajes.length;
   for(const t of tiempos){
     for(const o of escena.objetos){
+      if(o.ancla&&escena.personajes.some(c=>c.id===o.ancla.personaje&&c.transito))continue;
       if((hayFrente&&o.capa==='fondo'&&o.tipo!=='texto')||t<o.inicio||t>o.fin||valor(o.claves,t,'opacidad',o.opacidad??1)<=.001)continue;
       const {x,y,s,rot}=posicionObjeto(o,t),margen=o.tipo==='texto'?16:Math.max(8,o.grosor||0);
       if(o.tipo==='linea'){
@@ -232,6 +235,9 @@ function limites() {
       }
     }
     for(const c of escena.personajes){
+      // Una entrada/salida intencionada no debe ensanchar el encuadre para
+      // perseguir al actor (ni a su utilería anclada) fuera del escenario.
+      if(c.transito)continue;
       if(valor(c.claves,t,'opacidad',1)<=.001)continue;
       const a=estado(c,t),v=c.diseno;
       // Poses comparten las mismas articulaciones en todas las familias.

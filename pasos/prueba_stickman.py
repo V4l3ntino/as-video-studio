@@ -273,7 +273,8 @@ class Stickman(unittest.TestCase):
                 validar(dict(personajes=[dict(id='ana', **actor)]))
         with self.assertRaisesRegex(ValueError, 'estática'):
             validar(dict(personajes=[dict(id='ana', claves=[dict(t=0, pose='stand'), dict(t=2, pose='stand')])]))
-        self.assertEqual(validar(dict(personajes=[dict(id='ana', movimiento='caminar')]))['personajes'][0]['movimiento'], 'caminar')
+        self.assertEqual(validar(dict(personajes=[dict(id='ana', movimiento='caminar',
+            claves=[dict(t=0,x=.2),dict(t=2,x=.5)])]))['personajes'][0]['movimiento'], 'caminar')
         with patch.object(stickman, '_consultar', side_effect=[dict(personajes=[dict(id='ana', escala=.4)]),
                 dict(personajes=[dict(id='ana', claves=[dict(t=0, pose='stand'), dict(t=2, pose='phone')])])]) as consulta:
             resultado = stickman.consultar('escena', validar=validar)

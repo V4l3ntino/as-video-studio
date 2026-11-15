@@ -200,6 +200,8 @@ def claves(datos, duracion, ruta='claves'):
             f['pose'] = elegir(k['pose'], POSES)
         if 'expresion' in k:
             f['expresion'] = elegir(k['expresion'], EXPRESIONES)
+        if 'movimiento' in k:
+            f['movimiento'] = elegir(k['movimiento'], ('gesto', 'caminar', 'correr'))
         if 'mirar' in k:
             f['mirar'] = numero(k['mirar'], -1, 1)
             if f['mirar'] not in (-1, 1):
@@ -242,6 +244,10 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             resultado['personajes'][-1]['rol'] = elegir(c['rol'], ('principal', 'figurante'))
         if 'panel' in c:
             resultado['personajes'][-1]['panel'] = elegir(c['panel'], ('izquierda', 'derecha'))
+        if 'transito' in c:
+            if type(c['transito']) is not bool:
+                raise ValueError('personaje.transito debe ser booleano')
+            resultado['personajes'][-1]['transito'] = c['transito']
         if 'vestuario' in c:
             vestuario = realizacion_stickman.validar(c['vestuario'], realizacion_stickman.opciones(
                 ropa=('elegir', 'hoodie', 'labcoat', 'trench', 'jersey', 'tshirt', 'suit', 'dress', 'tracksuit', 'none'),
@@ -436,8 +442,10 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
         for k in estados:
             altura = 240 * k['escala'] * c['diseno']['altura']
             minimo = .1 if c.get('rol') == 'figurante' or encuadre == 'cierre' else .28
-            if not .06 <= k['x'] <= .94 or not .4 <= k['y'] <= .94 or not minimo * alto <= altura <= .78 * alto or k['y'] * alto - altura < .04 * alto:
-                raise ValueError(f'{c["id"]}: personaje pequeño o fuera de encuadre; pies x=.06–.94, y<=.94 y altura visible {minimo:.0%}–78% del lienzo de alto {alto:g}')
+            x_valida = -.5 <= k['x'] <= 1.5 if c.get('transito') else .06 <= k['x'] <= .94
+            if not x_valida or not .4 <= k['y'] <= .94 or not minimo * alto <= altura <= .78 * alto or k['y'] * alto - altura < .04 * alto:
+                rango_x = '-.5–1.5 (transito)' if c.get('transito') else '.06–.94 (para entrar/salir usa transito:true)'
+                raise ValueError(f'{c["id"]}: personaje pequeño o fuera de encuadre; pies x={rango_x}, y=.4–.94 y altura visible {minimo:.0%}–78% del lienzo de alto {alto:g}')
     if encuadre == 'dividido':
         principales = [c for c in resultado['personajes'] if c.get('rol') != 'figurante']
         # Completar solo metadatos inequívocos: no mover actores, cambiar roles
@@ -466,11 +474,11 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
     if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d'):
         raise ValueError('escena sin contenido explicativo: añade actuación, objeto o gráfico')
     if duracion >= 2:
-        cambios = any(c['movimiento'] in ('caminar', 'correr') for c in resultado['personajes'])
+        cambios = False
         for c in resultado['personajes']:
             anterior = dict(x=c['x'], y=c['y'], escala=c['escala'], expresion=c['expresion'], pose='stand', rot=0, opacidad=1, mirar=c['mirar'])
             for k in c['claves']:
-                cambios |= k['t'] > 0 and any(v != anterior.get(campo) for campo, v in k.items() if campo != 't')
+                cambios |= k['t'] > 0 and any(v != anterior.get(campo) for campo, v in k.items() if campo not in ('t', 'movimiento'))
                 anterior.update(k)
         cambios |= any(o['inicio'] > 0 or o['fin'] < duracion or o['claves'] for o in resultado['objetos'])
         cambios |= any(p['claves'] for o in resultado['objetos'] for p in o.get('partes', []))
@@ -545,10 +553,20 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'Cada personaje usa un ID del reparto, sin redefinir identidad. Solo si el prompt pide otra ropa o color, '
              'añade vestuario:{ropa:suit|hoodie|labcoat|trench|jersey|tshirt|dress|tracksuit|none,color:"#RRGGBB",secundario:"#RRGGBB"}; '
              'es una copia local, no cambia su diseño ni proporciones. Conserva ese vestuario mientras continúe la acción. '
-             'Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1}. '
+             'Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1,movimiento?:gesto|caminar|correr}. '
             'mirar cambia de orientación en ese instante; usa -1 hacia la izquierda y 1 hacia la derecha, también para dar la espalda a una petición. '
             'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
-            'movimiento: gesto,caminar,correr. decorado: interior,ciudad,naturaleza,vacio. atmosfera: polvo,lluvia,nieve,ninguna. '
+             'movimiento: gesto,caminar,correr. decorado: interior,ciudad,naturaleza,vacio. atmosfera: polvo,lluvia,nieve,ninguna. '
+             'La caminata/carrera solo se dibuja durante tramos con desplazamiento x/y; al llegar al destino se detiene. '
+             'Para un encuentro: mueve los pies hasta el punto de reunión, añade allí movimiento:"gesto" y la pose de espera/conversación; '
+             'mantén x/y constantes hasta que deba irse. Para esperar antes de partir, repite la posición en la clave de partida. '
+             'Puedes cambiar movimiento en cada clave: no uses caminar durante una conversación inmóvil. '
+             'Para entrar o SALIR realmente de pantalla añade transito:true al personaje: permite x entre -.5 y 1.5 '
+             'sin que el encuadre automático lo persiga. Mantén escala e y normales. '
+             'Usa encuadre general/conjunto para entradas y salidas, no un primer plano que siga su rostro. '
+             'Una salida debe terminar con el cuerpo ENTERO fuera (normalmente x=-.4 o x=1.4), no cerca del borde .06/.94. '
+             'Al acabar, conserva esa posición fuera de campo y no lo devuelvas a escena. '
+             'La utilería anclada sale con él. No uses transito para ocultar personajes pequeños o mal colocados. '
             'ambiente: day,golden,dusk,night,storm,interiorWarm,interiorCool,void. '
             'objetos: [{tipo:' + '|'.join(OBJETOS) + ',texto:"",color:"#RRGGBB",x:.5,y:.5,w:160,h:100,escala:1,inicio:0,fin:duracion,capa:fondo|frente,claves:[],fuente:48,grosor:6,opacidad:1,progreso:1}]. '
             'Todos los objetos salvo linea están centrados en x,y; w,h son ancho y alto, NO tamaño de letra ni radio. '
@@ -572,6 +590,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Los textos deben coincidir con la narración, en su idioma. sfx: [{name,at,dur,gain:-12,seed:1,pitch:1}], '
             'incluye ambientes como rain,city,roomtone con dur de la escena y gain -26 si corresponde. Sonidos disponibles: '
             + ','.join(EFECTOS) + '. Evita efectos que no correspondan a acciones. '
+            + personajes.instruccion_utileria_stickman()
             + personajes.instruccion_tiempo_visual()
             + realizacion_stickman.instruccion()
             + utileria_stickman.CONTRATO

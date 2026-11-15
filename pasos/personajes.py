@@ -215,6 +215,18 @@ Mantén escenario y continuidad; no repitas la presentación ni adelantes accion
 """
 
 
+def instruccion_utileria_stickman():
+    return """== UTILERÍA FÁCIL DE REPRESENTAR EN STICKMAN ==
+No describas personajes llevando chaquetas, bolsos u otros objetos al hombro, echados sobre la espalda
+o colgados del cuello: esas superposiciones con el cuerpo resultan visualmente ambiguas en este motor.
+Evita también ponerse/quitarse ropa como acción secundaria. Mantén las prendas puestas normalmente.
+Si el objeto importa al relato, colócalo sobre una mesa o sostenido en una mano, separado del torso y del rostro.
+Si solo adorna una salida o una actitud, omítelo: expresa la intención con postura, expresión y desplazamiento.
+Ejemplo: «Andrés desliza sus tareas hasta la mesa de Clara y se marcha; Clara sigue trabajando bajo la lámpara».
+No añadas «con la chaqueta al hombro». Al adaptar descripciones anteriores, conserva la acción y elimina ese adorno.
+"""
+
+
 def instruccion_visual_stickman():
     return """== DIRECCIÓN VISUAL STICKMAN 2D ==
 La narración explica la idea; la imagen muestra una acción concreta que la hace comprensible.
@@ -248,7 +260,7 @@ completa de texto, en el mismo orden: [{"texto":"Frase literal completa.","descr
 Las escenas consecutivas deben avanzar: conserva identidades y contexto, pero no reinicies la misma animación
 ni repitas la descripción con distinta velocidad. Cada entrada se anima solo durante su propia frase.
 Estas reglas de representabilidad prevalecen sobre sugerencias visuales genéricas del tono; conserva el sentido del relato.
-""" + instruccion_tiempo_visual()
+""" + instruccion_utileria_stickman() + instruccion_tiempo_visual()
 
 
 def preparar_intervenciones(datos, bloques, opciones):

@@ -121,6 +121,28 @@ está entre hombros y cadera; no sobre el cuello.
 Las claves de actor admiten `mirar: -1|1`: el giro se aplica en ese instante,
 sin interpolar un reflejo a través de cero, y las anclas siguen su orientación.
 
+### Desplazamiento, paradas y salidas
+
+`movimiento: caminar|correr` anima las piernas solo en los tramos donde cambian
+los pies (`x` o `y`). Al alcanzar el destino, el actor vuelve a su pose y
+respiración; no sigue andando sobre el sitio. Las claves admiten también
+`movimiento: gesto|caminar|correr` para cambiar de modo por tramos. Para esperar
+antes de partir, repite la posición en la clave de partida:
+
+```json
+{"id":"ana","x":0.2,"y":0.87,"movimiento":"caminar","transito":true,
+ "claves":[{"t":0,"pose":"stand"},{"t":1,"x":0.45,"movimiento":"gesto","pose":"talk"},
+           {"t":2,"x":0.45,"movimiento":"caminar"},{"t":3,"x":1.4}]}
+```
+
+`transito:true` permite entradas/salidas horizontales entre x=-.5 y 1.5,
+conservando los mínimos de tamaño y los límites verticales. El actor y su utilería
+anclada no amplían los límites del encuadre automático: la cámara no debe rescatar
+a quien abandona la pantalla. Utiliza general/conjunto y lleva todo el cuerpo
+fuera, normalmente x=-.4 o 1.4, no solo hasta el borde. Las poses y posiciones
+finales se conservan al transmitir continuidad a la siguiente escena. Los MP4
+publicados necesitan regenerarse para mostrar esta corrección.
+
 ## Catálogo extensible de utilería
 
 `pasos/utileria_stickman.py` mantiene fichas vectoriales inmutables, identificadas

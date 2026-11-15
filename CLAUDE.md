@@ -18,6 +18,16 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+La locomoción del rig se limita a tramos con desplazamiento x/y en
+`motores/stickman/movimiento.js`; un `movimiento:caminar` global no puede seguir
+sustituyendo las poses cuando el actor ya llegó. Las claves admiten movimiento
+para caminar/esperar/correr por tramos. `transito:true` permite solo la excepción
+horizontal (-.5–1.5), conservando tamaños y límites verticales; el encuadre seguro
+excluye ese actor y su utilería anclada para no seguirlo fuera de pantalla.
+El director pide general/conjunto y destino con cuerpo entero fuera. No cambies
+VERSION para invalidar tandas terminadas: los clips se corrigen al regenerarlos.
+Contrato, locomoción Node y píxeles Canvas: `prueba_stickman_editorial.py [--real]`.
+
 `pasos/edicion_stickman.py` conversa sin generar y prepara retoques de una sola
 escena desde su `.animacion.json` publicado, comprobando firma y narración del
 recibo. El encargo completo vive en `assets.params.unidades[uid].edicion_stickman`;

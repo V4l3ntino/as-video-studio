@@ -182,6 +182,79 @@ class Editorial(unittest.TestCase):
         self.assertEqual(stickman.escena(antes,4,self.reparto),copia)
         self.assertEqual(antes,copia)
 
+    def test_movimiento_temporal_y_transito_respetan_el_contrato(self):
+        d=narrativa(self.base)
+        c=d['personajes'][0]
+        c.update(transito=True,movimiento='caminar')
+        c['claves']=[dict(t=0,x=.32,pose='stand'),dict(t=1,x=.45,movimiento='gesto',pose='talk'),
+            dict(t=2,x=.45,movimiento='correr'),dict(t=3,x=1.4)]
+        resultado=self.validar(d)
+        self.assertEqual(resultado['personajes'][0]['claves'][1]['movimiento'],'gesto')
+        self.assertEqual(stickman.escena(resultado,4,self.reparto),resultado)
+        for cambio in (dict(transito=False),dict(transito='true'),dict(y=.1),dict(escala=.1)):
+            copia=copy.deepcopy(d)
+            copia['personajes'][0].update(cambio)
+            with self.subTest(cambio=cambio),self.assertRaises(ValueError):
+                self.validar(copia)
+        for modo in ('caminar','correr'):
+            with self.subTest(modo=modo),self.assertRaisesRegex(ValueError,'estática'):
+                self.validar(dict(personajes=[dict(id='ana',movimiento=modo)]))
+        with self.assertRaises(ValueError):
+            stickman.claves([dict(t=0,movimiento='volar')],4)
+
+    def test_movimiento_sigue_traslados_y_se_detiene_en_las_esperas(self):
+        import subprocess
+        modulo=(stickman.RAIZ/'motores/stickman/movimiento.js').as_uri()
+        programa='''
+            const {movimientoEn}=await import(process.argv[1]);
+            const c={x:.2,y:.87,movimiento:'caminar',claves:[
+                {t:0,x:.2},{t:1,x:.2},{t:2,x:.45},{t:3,x:.45},
+                {t:4,x:1.4,movimiento:'gesto'}]};
+            const tiempos=[0,.5,1,1.5,2,2.5,3,3.5,4,5];
+            const salida=[tiempos.map(t=>movimientoEn(c,t))];
+            c.claves[3].movimiento='correr';
+            salida.push(movimientoEn(c,3.5));
+            c.claves[3].movimiento='gesto';
+            salida.push(movimientoEn(c,3.5));
+            salida.push(movimientoEn({x:.2,y:.87,movimiento:'caminar',claves:[]},1));
+            salida.push(movimientoEn({x:.2,y:.87,movimiento:'caminar',claves:[{t:2,y:.8}]},1));
+            console.log(JSON.stringify(salida));
+        '''
+        r=subprocess.run(['node','--input-type=module','-e',programa,modulo],capture_output=True,text=True,check=True)
+        self.assertEqual(json.loads(r.stdout),[
+            ['gesto','gesto','caminar','caminar','gesto','gesto','caminar','caminar','gesto','gesto'],
+            'correr','gesto','gesto','caminar'])
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar paradas y salidas en Canvas')
+    def test_movimiento_y_transito_render_real(self):
+        from pasos import p8_render
+        d=narrativa(self.base)
+        d['realizacion'].update(acabado=False,grano=0,vineta=0)
+        c=d['personajes'][0]
+        c.update(transito=True,movimiento='caminar',x=.2)
+        c['claves']=[dict(t=0,x=.2,pose='stand'),dict(t=1,x=.42),
+            dict(t=2,x=.42),dict(t=3,x=1.4)]
+        d['objetos']=[dict(tipo='movil',w=54,h=90,ancla=dict(personaje='ana',punto='mano'))]
+        contenido=self.validar(d)
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const s=window.STICKMAN.escena,c=s.personajes[0],canvas=document.querySelector('canvas');
+                const imagen=t=>{window.pintar(t);return canvas.toDataURL();};
+                const andando=imagen(.5);c.movimiento='gesto';const quieto=imagen(.5);
+                c.movimiento='caminar';const llegada=imagen(1.5);c.movimiento='gesto';const espera=imagen(1.5);
+                c.movimiento='caminar';const salida=imagen(3.5);
+                c.claves.push({t:3,opacidad:0});const sinActor=imagen(3.5);
+                const objetos=s.objetos;s.objetos=[];const sinUtileria=imagen(3.5);s.objetos=objetos;
+                c.claves.pop();
+                return {anda:andando!==quieto,para:llegada===espera,
+                    sale:salida===sinActor,utileriaSale:sinActor===sinUtileria};
+            })()''')
+            self.assertEqual(r,dict(anda=True,para=True,sale=True,utileriaSale=True))
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,contenido,4,str(Path(TEMP.name)/'transito.png'),salida=(640,360))
+
     def test_poblacion_rechaza_distribuciones_e_indices_imposibles(self):
         for ops in (dict(filas=2.5),dict(total=100,filas=2,columnas=3),
                 dict(total=100,columnas=2.5),dict(indices_destacados=[100]),
