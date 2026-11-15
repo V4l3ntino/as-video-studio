@@ -225,9 +225,10 @@ def normalizar(datos, duracion, reparto):
     if 'realizacion' in datos:
         r = validar(datos['realizacion'], opciones(
             encuadre=('elegir', *ENCUADRES), sujeto=('texto', 120), objetivo=('texto', 500),
-            escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000)),
+            escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000),
+                atril=BOOL, publico=BOOL, atril_x=('numero', .15, .85), luz=COLOR),
             fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
-            particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400),
+            particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400), escenografia_detallada=BOOL,
             comparacion=opciones(color_izquierdo=COLOR,color_derecho=COLOR,color_separador=COLOR,
                 corte=('elegir', 'quebrado', 'diagonal', 'vertical')),
             acabado=BOOL, color_fiel=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
@@ -281,6 +282,52 @@ def normalizar(datos, duracion, reparto):
     return resultado
 
 
+def heredar_escenografia(escena, continuidad, renovar=False):
+    """Al continuar un lugar, conserva su acabado y sus elementos si no se cambian explícitamente."""
+    r = escena.get('realizacion') or {}
+    actual = r.get('escenario') or {}
+    if not actual.get('id'):
+        return
+    for clave in ('anterior', 'raiz'):
+        referencia = ((continuidad or {}).get(clave) or {}).get('contenido') or {}
+        previa = referencia.get('realizacion') or {}
+        lugar = previa.get('escenario') or {}
+        if lugar.get('id') == actual['id'] and lugar.get('tipo') == actual.get('tipo'):
+            # La ausencia en una referencia histórica significa dibujo anterior, no un default retroactivo.
+            if not renovar:
+                r.setdefault('escenografia_detallada', previa.get('escenografia_detallada', False))
+            for campo in ('semilla', 'atril', 'atril_x', 'publico', 'luz'):
+                if campo in lugar:
+                    actual.setdefault(campo, lugar[campo])
+            return
+
+
+def preparar_escenografia_nueva(escena, resolucion):
+    """Pide corregir planos que ocultan la arquitectura o duplican el decorado."""
+    r = escena.setdefault('realizacion', {})
+    r.setdefault('encuadre', 'general')
+    r.setdefault('escenografia_detallada', True)
+    tipo = (r.get('escenario') or {}).get('tipo') or escena.get('decorado')
+    if (not r['escenografia_detallada'] or tipo in (None, 'vacio') or 'comparacion' in r
+            or r.get('encuadre') == 'dividido' or escena.get('espacio3d')):
+        return escena
+    alto = 1920 * resolucion[1] / resolucion[0]
+    for objeto in escena['objetos']:
+        if (objeto['tipo'] == 'rectangulo' and objeto['capa'] == 'fondo' and not objeto.get('ancla')
+                and objeto['w'] * objeto['escala'] >= 1920 * .45 and objeto['h'] * objeto['escala'] >= alto * .55):
+            raise ValueError('Un rectángulo opaco tapa la escenografía detallada. Usa realizacion.fondo '
+                'para el color de la pared/telón y conserva su material, luces y profundidad; '
+                'no reconstruyas el escenario con paneles planos.')
+    if any(g['tipo'] == 'blueprint' for g in escena.get('graficos', [])):
+        raise ValueError('blueprint tapa el escenario real. Para explicar dentro del decorado usa una '
+            'pantalla o pizarra; para un gráfico a cuadro completo selecciona escenario vacio.')
+    if tipo == 'teatro' and (r.get('escenario') or {}).get('publico') is not False:
+        if any(e['tipo'] == 'crowd' for e in escena.get('efectos_visuales', [])):
+            raise ValueError('El teatro ya incluye público de primer término: no dupliques filas de '
+                'personajes diminutos. Usa escenario.publico:false solo si vas a componer un público propio.')
+    return escena
+
+
 def preparar_comparacion_nueva(escena, resolucion):
     """El escenario luminoso no sirve si el plan vuelve a cubrirlo con paneles planos.
 
@@ -330,9 +377,37 @@ detalle, comparación simultánea, documento, diagrama y gráfico según la idea
 en un gráfico. No copies toda la voz como texto. Una relación dominante; revela por orden, conserva
 el resultado legible. Metáforas simples con transformación clara, nunca símbolos anidados.
 Incluye realizacion:{encuadre:general|conjunto|medio|primer_plano|detalle|grafico|dividido|cierre,
-sujeto:ID opcional,objetivo:"qué se entiende",escenario:{id:"lugar estable",tipo,semilla:7},
+ sujeto:ID opcional,objetivo:"qué se entiende",escenario:{id:"lugar estable",tipo,semilla:7},
  desenfoque:0–20,profundidad:.1–1,acabado:true,color_fiel:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional,
- paleta:ember|arctic|sakura|retro,particulas:true,malla:true|false,desfase_ambiente:segundos}.
+ paleta:ember|arctic|sakura|retro,particulas:true,malla:true|false,desfase_ambiente:segundos,escenografia_detallada:true}.
+ESCENARIOS CONSTRUIDOS: escenografia_detallada:true separa arquitectura de fondo, suelo y mobiliario
+en el plano de los actores, y primer término. Describe materiales, volumen, luz y escala reconocibles,
+no una etiqueta del lugar ni rectángulos genéricos. El suelo comparte cámara con los pies: coloca
+actores en y~.85–.90; la pared puede quedar suavizada, pero el personaje y su apoyo quedan nítidos.
+Teatro: telón de terciopelo burdeos con pliegues y sombras, cortinas laterales, tarima de madera
+con juntas en perspectiva, candilejas, haz de foco cálido que sigue al protagonista y partículas
+visibles en la luz. El público son siluetas de cabezas en primer término, no filas de muñecos minúsculos.
+Conserva el borde del escenario y las candilejas en los planos generales; evita bandas o recortes
+que eliminen toda esa profundidad salvo que la indicación pida ese encuadre.
+En escenario puedes añadir atril:true solo si la acción lo necesita, atril_x:.61, publico:true|false,
+y luz:"#RRGGBB" para una iluminación explícita. No añadas un atril si no interviene ni lo dupliques
+con otro vector. En un teatro vacío usa publico:false. sujeto identifica a quien recibe el foco.
+Salón/fiesta: ventana con profundidad, cuadros o sofá con cojines y costuras, suelo de madera y luz
+de lámparas. Oficina: ventana, escritorio, pantalla y silla reconocibles. Laboratorio: azulejos,
+banco metálico, cristalería y microscopio. Cocina: armarios con tiradores, encimera, fregadero y
+frigorífico. Aula: pizarra enmarcada, bandeja y pupitres. Barrio/parque: distancia entre planos,
+fachadas de materiales naturales, vegetación y caminos; no casas verdes con tejados eléctricos.
+El motor construye ese decorado estable. No lo tapes con rectángulos opacos, un blueprint a
+pantalla completa o una segunda multitud genérica; usa la utilería adicional para la acción concreta.
+Conserva id/semilla y los elementos del escenario al continuar. Los detalles ambientales no inventan
+hechos ni cifras y no sustituyen la acción principal. En un retoque local conserva el acabado
+anterior salvo que se haya pedido mejorarlo. escenografia_detallada:false conserva el dibujo sencillo.
+La continuidad también fija ese acabado: si raíz/anterior del mismo lugar no tiene el campo,
+es un plano histórico y se continúa con escenografia_detallada:false, salvo petición de mejorarlo.
+renovar_escenografia:true indica una regeneración explícita: usa el acabado detallado actual,
+conservando lugar, actuación y elementos; la continuidad no obliga a copiar la simplificación antigua.
+Conserva asimismo atril, público, posición y luz del escenario; no los omitas al pasar de frase.
+Para retirar atril o público decláralos false explícitamente, en lugar de omitir el campo.
 COMPARACIONES LUMINOSAS (referencia fría/cálida): en dividido y en comparaciones gráficas utiliza
 realizacion.comparacion:{color_izquierdo:"#83d9f7",color_derecho:"#ff8d38",color_separador:"#ffdb83",corte:"quebrado"}.
 También puedes usar esa realización con encuadre grafico para comparar objetos o magnitudes, sin inventar actores.

@@ -50,6 +50,17 @@ No atribuyas al personaje palabras del narrador ni pensamientos inventados como 
 El bocadillo queda en un lateral sin tapar ojos o boca, con fondo claro y tinta oscura nítida.
 No pongas un bocadillo en cada frase: úsalo cuando el diálogo, la intención o la reacción sean el foco.
 Mantén continuidad de escenario, luz, actores y partículas entre frases de la misma secuencia.
+ESCENOGRAFÍA RECONOCIBLE: describe el espacio construido con materiales, profundidad y luz,
+no solo "un teatro" o bloques planos. En teatro: terciopelo burdeos con pliegues y sombras,
+cortinas laterales, tarima de madera con juntas, candilejas y un foco cálido suave sobre el
+protagonista, con partículas y destellos discretos en el haz. Público como siluetas cercanas
+en el borde inferior, no muñecos diminutos repetidos. Atril únicamente si participa en la acción;
+si el teatro está vacío, indícalo y no inventes espectadores. Mantén claros los planos de profundidad.
+Aplica el mismo criterio a otros espacios: sofá/cojines, ventana y lámparas en un salón;
+escritorio y silla en oficina; banco, cristalería y microscopio en laboratorio; azulejos,
+armarios, fregadero y frigorífico en cocina; pizarra enmarcada y pupitres en aula; fachadas,
+vegetación y caminos con escala y distancia en exteriores. Los materiales conservan sus colores.
+El decorado apoya la acción y no añade una lista de cosas que deban animarse dentro de la frase.
 Las peticiones explícitas de fondo liso, ausencia de partículas o de cuadrícula tienen prioridad.
 OBLIGATORIO: cada entrada de escenas_visuales y cada escena regenerada incluye
 colores como CADENA de nombres separados por comas, por ejemplo:

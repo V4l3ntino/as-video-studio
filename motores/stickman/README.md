@@ -228,6 +228,35 @@ El gráfico manual usa `{tipo:"capitulo",capa:"pantalla",opciones:{numero:1,
 titulo:"La pregunta",estilo:"mixto"}}`. Se evita generar también la cabecera SVG
 antigua del catálogo en escenas con estructura de capítulos Stickman.
 
+## Escenografía detallada
+
+`realizacion.escenografia_detallada:true` activa `escenografia.js` para los
+decorados construidos. Las generaciones nuevas lo usan por defecto; los planes
+anteriores y los retoques locales conservan su ruta si no solicitan este acabado.
+No se cambia la versión de firmas ni se modifican parámetros al leer proyectos.
+Al continuar el mismo id/tipo se heredan acabado, semilla, atril, público y luz
+si el proveedor los omite. Una referencia histórica sin el campo de detalle
+mantiene su dibujo al continuar; una regeneración explícita envía
+`renovar_escenografia:true` al director y permite renovar el acabado. Ese indicador
+es contexto de ejecución, no un parámetro guardado ni un cambio de firma global.
+
+La arquitectura se pinta en el plano de fondo con su desenfoque; suelo y muebles
+comparten cámara con los pies; cortinas laterales y público quedan en primer
+término. El foco del teatro utiliza la posición real de `sujeto` o del actor
+principal, también con zoom/paneo. Los contornos reciben luz local sobre una
+copia del diseño, sin mutar el reparto. Los materiales no heredan el acento de marca.
+
+En `realizacion.escenario`, el teatro admite `atril:true|false`, `atril_x:.15–.85`,
+`publico:true|false` y `luz:"#RRGGBB"`. El atril es opcional; el público por
+defecto son cabezas en primer término, no figuras diminutas. `particulas:false`
+apaga el polvo luminoso del haz. Se evitan duplicados con dust/público explícitos.
+`fondo` puede cambiar el tono de pared o telón conservando sus pliegues y volumen.
+
+La validación de entregas nuevas pide retirar rectángulos o blueprints que
+tapen el decorado, y un crowd duplicado del teatro. `escenografia_detallada:false`
+mantiene el dibujo sencillo. Pruebas de materiales, público, movimiento y ancla
+del foco: `python pasos/prueba_stickman_editorial.py --real`.
+
 ## Catálogo extensible de utilería
 
 `pasos/utileria_stickman.py` mantiene fichas vectoriales inmutables, identificadas

@@ -524,7 +524,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     apertura = e.get('apertura_capitulo')
     editando = (e.get('indicaciones_usuario') or {}).get('edicion_stickman')
     if apertura and apertura['duracion_s'] >= dur - .000001 and not editando:
-        datos = dict(realizacion=dict(encuadre='grafico',color_fiel=True,grano=0),
+        datos = dict(ambiente='void',decorado='vacio',realizacion=dict(encuadre='grafico',color_fiel=True,grano=0),
             personajes=[],graficos=[capitulos_guion.componente(apertura)])
     elif os.environ.get('ESTUDIO_SIMULAR') == '1':
         datos = ejemplo
@@ -541,6 +541,10 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         def validar_entrega(d):
             resolucion = e.get('resolucion', [1920, 1080])
             contenido = validar_puesta_en_escena(d, dur, reparto, resolucion, catalogo_utileria)
+            if not edicion or (contenido.get('realizacion') or {}).get('escenografia_detallada'):
+                realizacion_stickman.heredar_escenografia(contenido, e.get('continuidad_bloque'),
+                    renovar=bool(e.get('renovar_escenografia')))
+                realizacion_stickman.preparar_escenografia_nueva(contenido, resolucion)
             if not edicion or 'comparacion' in (contenido.get('realizacion') or {}):
                 realizacion_stickman.preparar_comparacion_nueva(contenido, resolucion)
             return utileria_stickman.validar_colores(contenido)
@@ -637,6 +641,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         if diseno.get('acabado') in realizacion_stickman.PALETAS:
             realizacion.setdefault('paleta', diseno['acabado'])
         realizacion.setdefault('particulas', True)
+        realizacion.setdefault('escenografia_detallada', True)
         realizacion.setdefault('malla', realizacion.get('paleta') == 'arctic'
             and realizacion.get('encuadre') == 'grafico' and 'comparacion' not in realizacion and not datos.get('espacio3d'))
         realizacion.setdefault('desfase_ambiente', float(e.get('t_in', 0)))
@@ -764,6 +769,8 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                     resolucion=plan['resolucion'], contexto_frase=contexto_frase, continuidad_bloque=continuidad,
                     escenarios_video=escenarios_video)
                 edicion = contexto['indicaciones_usuario'].get('edicion_stickman') or {}
+                if rehacer and not edicion:
+                    contexto['renovar_escenografia'] = True
                 proveedor = edicion.get('proveedor') or ('Claude' if i < n_claude else 'ChatGPT')
                 try:
                     contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)

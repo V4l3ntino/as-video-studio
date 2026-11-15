@@ -105,6 +105,33 @@ recupera localizaciones de los planes publicados; la continuidad del bloque
 conserva además actores, geometrías y estados finales. Al retomar no depende de
 la sesión de un proveedor.
 
+#### Construcción material y planos de profundidad
+
+Las generaciones nuevas usan `realizacion.escenografia_detallada:true`.
+`escenografia.js` divide el dibujo en arquitectura de fondo, suelo/mobiliario
+en el plano de los actores y elementos de primer término. Así se puede suavizar
+el fondo sin desenfocar el apoyo de los pies ni desplazar el suelo con otro
+paralaje. Los encuadres y la cámara existentes se conservan.
+
+El teatro incorpora pliegues de terciopelo, cortinas laterales, tarima de madera
+con juntas, candilejas y un foco suave con partículas que sigue al protagonista.
+El público son cabezas/siluetas cercanas, no un crowd de pequeños cuerpos al
+pie del telón. `escenario` admite `atril`, `atril_x`, `publico` y `luz`; el atril
+solo se añade si participa en el relato y un teatro vacío usa `publico:false`.
+
+Salón y fiesta tienen ventanas, luz práctica, sofá o mesas y madera; oficina,
+escritorio, pantalla y silla; laboratorio, azulejos, metal, cristalería y
+microscopio; cocina, armarios, fregadero y frigorífico; aula, pizarra enmarcada
+y pupitres con patas; exteriores, fachadas de materiales naturales, vegetación,
+camino y profundidad. No se añaden datos ni texto ficticio como decoración.
+
+El renderer anterior queda disponible para planes históricos o con el campo
+en `false`. La validación nueva devuelve los planos que ocultan esta escenografía
+con paneles opacos, blueprint a pantalla completa o multitudes duplicadas.
+Para un mismo id/tipo se heredan los elementos y el acabado de la referencia de
+continuidad si no se declaran cambios. Continuar una tanda histórica conserva
+su dibujo; regenerar explícitamente renueva el acabado sin cambiar la actuación.
+
 ### Componentes gráficos
 
 #### Capítulos temáticos

@@ -11,9 +11,14 @@ import { ambienteVisual } from './ambiente.js';
 import { bocadillo, proyectarRostro } from './bocadillos.js';
 import { fondoComparacion, recortarComparacion, separadorComparacion } from './comparacion.js';
 import { pintarCapitulo } from './capitulo.js';
+import { usaEscenografia, luzEscenografia, fondoEscenografia, sueloEscenografia, frenteEscenografia } from './escenografia.js';
 
 export function pintarEditorial(g,t,D,draw) {
   const S0=D.escena,R=S0.realizacion||{},W=E.W,H=E.H;
+  const escenografia=usaEscenografia(S0);
+  const principal=S0.personajes.find(c=>c.id===R.sujeto)||S0.personajes.find(c=>c.rol!=='figurante'&&!c.transito);
+  const estadoLuz=principal?draw.estado(principal,t):null;
+  const luz=estadoLuz&&estadoLuz.x>0&&estadoLuz.x<W?{x:estadoLuz.x,y:estadoLuz.y}:{x:W*.5,y:H*.87};
   const cam={z:draw.valor(S0.camara,t,'escala',1),x:draw.valor(S0.camara,t,'x',0)*W,
     y:draw.valor(S0.camara,t,'y',0)*H,r:draw.valor(S0.camara,t,'rot',0)};
   if(['medio','primer_plano'].includes(R.encuadre)){
@@ -74,7 +79,10 @@ export function pintarEditorial(g,t,D,draw) {
       FX.pool(g,W*(i?.75:.25),H*.87,W*.25,H*.04,i?'#ff9b50':'#8acbff',.2);g.restore();
     }
   }else{
-    blurLayer(g,blur,ctx=>{decorado(ctx,S0,t);efectos(ctx,'fondo');},cam,R.profundidad??.65);
+    blurLayer(g,blur,ctx=>{
+      if(escenografia)fondoEscenografia(ctx,S0,t);else decorado(ctx,S0,t);
+      efectos(ctx,'fondo');
+    },cam,R.profundidad??.65);
   }
   if(R.encuadre==='dividido'||R.comparacion)layer(g,cam,1,()=>efectos(g,'fondo'));
   if(R.particulas||R.malla){
@@ -84,6 +92,7 @@ export function pintarEditorial(g,t,D,draw) {
   }else graficos('fondo');
   if(!S0.espacio3d){
     layer(g,cam,1,()=>{
+      if(escenografia)sueloEscenografia(g,S0,t,luz);
       const panel=(p,fn)=>{
         g.save();
         if(R.comparacion&&p){
@@ -97,7 +106,8 @@ export function pintarEditorial(g,t,D,draw) {
       S0.personajes.forEach(c=>panel(c.panel,()=>{
         g.save();if(c.rol==='figurante')g.globalAlpha*=.42;
         const tinta=c.panel==='izquierda'?(R.comparacion?.color_izquierdo||'#83d9f7'):(R.comparacion?.color_derecho||'#ffbd78');
-        const actor=R.comparacion&&c.panel?{...c,diseno:{...c.diseno,contorno:tinta}}:c;
+        const actor=R.comparacion&&c.panel?{...c,diseno:{...c.diseno,contorno:tinta}}:
+          escenografia?{...c,diseno:{...c.diseno,contorno:luzEscenografia(S0)}}:c;
         if(R.encuadre==='primer_plano'&&c.id===R.sujeto&&c.diseno.familia==='classic')draw.rostro(g,actor,t);
         else draw.figura(g,actor,t);g.restore();
       }));
@@ -108,6 +118,7 @@ export function pintarEditorial(g,t,D,draw) {
       efectos(g,'frente');
     });
   }
+  if(escenografia)layer(g,cam,1.05,()=>frenteEscenografia(g,S0));
   graficos('frente');
   if(S0.atmosfera==='lluvia')FX.rain(g,t,{count:120,a:.2});
   else if(S0.atmosfera==='polvo')FX.dust(g,t,{count:25,a:.2});

@@ -214,6 +214,19 @@ grano forman parte del render. Los estilos nuevos parten del acabado
 **Editorial Cinema**, con color neutro y contorno cálido; las variantes elegidas
 conservan su paleta. Los cinco acabados anteriores siguen disponibles.
 
+Los escenarios nuevos usan **escenografía detallada**, separada en arquitectura
+de fondo, suelo y mobiliario al mismo plano que los actores, y elementos de
+primer término. El teatro incluye telón de terciopelo con pliegues y sombras,
+cortinas laterales, tarima de madera, candilejas, foco suave sobre el protagonista
+y partículas iluminadas. El público aparece como siluetas cercanas en el borde
+inferior. Puede incluir atril si la acción lo necesita o mostrarse sin público.
+Los salones, oficinas, laboratorios, cocinas, aulas y exteriores incorporan
+materiales, ventanas, mobiliario y luces propios del lugar. Estas pautas llegan
+también a la creación y regeneración de descripciones visuales.
+Una regeneración explícita de la animación puede renovar ese acabado. Al
+continuar un bloque de una tanda antigua se conserva la escenografía de su
+referencia para mantener la continuidad entre planos.
+
 La dirección de escenas nuevas utiliza las familias **Ember Forge** (negro,
 rojo, cobre y naranja), **Arctic Glass** (azules fríos, turquesa y blanco hielo,
 con amarillo cálido para títulos, cifras y focos explicativos),

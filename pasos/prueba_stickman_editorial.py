@@ -98,6 +98,17 @@ def referencia_capitulo(numero,titulo,estilo,fin=4):
             opciones=dict(numero=numero,titulo=titulo,estilo=estilo))])
 
 
+def referencia_escenario_detallado(base,tipo='teatro'):
+    d=narrativa(base)
+    d['personajes']=d['personajes'][:1]
+    d['personajes'][0].update(x=.45,y=.87,expresion='neutral',claves=[dict(t=0,pose='stand'),dict(t=2,pose='explain')])
+    d['realizacion'].update(encuadre='conjunto',sujeto='ana',escenografia_detallada=True,
+        escenario=dict(id='escenario_'+tipo,tipo=tipo,semilla=17),particulas=True,color_fiel=True,grano=0,vineta=0)
+    if tipo=='teatro':
+        d['realizacion']['escenario'].update(atril=True,publico=True)
+    return d
+
+
 def escena_neon(paleta='arctic'):
     import math
     p=editorial.PALETAS[paleta]
@@ -250,6 +261,8 @@ class Editorial(unittest.TestCase):
             dict(realizacion=dict(encuadre='primer_plano',sujeto='inventado')),
             dict(espacio3d=dict(objetos=[dict(tipo='figure3D',opciones=dict(personaje='inventado'))]))]
         invalidos.extend([dict(realizacion=dict(particulas=1)),dict(realizacion=dict(malla='sí')),
+            dict(realizacion=dict(escenografia_detallada='sí')),
+            dict(realizacion=dict(escenario=dict(id='teatro',tipo='teatro',atril_x=2))),
             grafica('capitulo',dict(numero=0,titulo='Un punto',estilo='arctic')),
             grafica('capitulo',dict(numero=1.2,titulo='Un punto',estilo='arctic')),
             grafica('capitulo',dict(numero=1,titulo='',estilo='arctic')),
@@ -261,6 +274,107 @@ class Editorial(unittest.TestCase):
         for d in invalidos:
             with self.subTest(d=d),self.assertRaises(ValueError):
                 stickman.escena(d,4,self.reparto)
+
+    def test_escenografia_detallada_nueva_respeta_historial_y_pide_no_taparla(self):
+        entrega=referencia_escenario_detallado(self.base)
+        entrega['realizacion'].pop('escenografia_detallada')
+        historica=stickman.escena(entrega,4,self.reparto)
+        self.assertNotIn('escenografia_detallada',historica['realizacion'])
+        tapada=copy.deepcopy(entrega)
+        tapada['objetos']=[dict(tipo='rectangulo',capa='fondo',x=.5,y=.5,w=1920,h=800,color='#771122')]
+        con_crowd=copy.deepcopy(entrega)
+        con_crowd['efectos_visuales']=[dict(tipo='crowd',capa='fondo',opciones=dict(rows=2,size=1.5))]
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[tapada,con_crowd,entrega]) as consulta:
+            nueva=stickman.generar_escena(dict(t_in=0,t_out=4),self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(consulta.call_count,3)
+        self.assertIn('rectángulo opaco',consulta.call_args_list[1].args[0])
+        self.assertIn('público de primer término',consulta.call_args_list[2].args[0])
+        self.assertTrue(nueva['realizacion']['escenografia_detallada'])
+        self.assertEqual(stickman.escena(nueva,4,self.reparto)['realizacion'],nueva['realizacion'])
+        e=dict(t_in=0,t_out=4,continuidad_bloque=dict(anterior=dict(contenido=historica)))
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=tapada):
+            continuada=stickman.generar_escena(e,self.base,self.reparto,None,lambda *a:None)
+        self.assertFalse(continuada['realizacion']['escenografia_detallada'])
+        self.assertEqual(len(continuada['objetos']),1)  # Continúa el plano antiguo, no cambia su acabado a mitad de bloque.
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[copy.deepcopy(tapada),copy.deepcopy(entrega)]) as consulta:
+            renovada=stickman.generar_escena(dict(e,renovar_escenografia=True),self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(consulta.call_count,2)
+        self.assertTrue(renovada['realizacion']['escenografia_detallada'])
+        incompleta=copy.deepcopy(entrega)
+        for campo in ('semilla','atril','publico'):
+            incompleta['realizacion']['escenario'].pop(campo,None)
+        e['continuidad_bloque']['anterior']['contenido']=nueva
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=incompleta):
+            continuada=stickman.generar_escena(e,self.base,self.reparto,None,lambda *a:None)
+        self.assertTrue(continuada['realizacion']['escenografia_detallada'])
+        self.assertTrue(continuada['realizacion']['escenario']['atril'])
+        self.assertEqual(continuada['realizacion']['escenario']['semilla'],17)
+        propia=copy.deepcopy(con_crowd)
+        propia['realizacion']['escenario']['publico']=False
+        editorial.preparar_escenografia_nueva(stickman.escena(propia,4,self.reparto),[1920,1080])
+        from pasos import personajes
+        for prompt in (editorial.instruccion(),personajes.instruccion_visual_stickman()):
+            for pauta in ('terciopelo','tarima','foco','laboratorio','cocina'):
+                self.assertIn(pauta,prompt)
+
+    @unittest.skipUnless(REAL,'usa --real para telón, tarima, público, luz anclada y decorados materiales')
+    def test_teatro_detallado_y_escenarios_reales_con_camara_y_materiales(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar_teatro(nav,destino=None):
+            resultado=nav.evaluar('''(() => {
+                const d=window.STICKMAN.escena,r=d.realizacion,ctx=document.querySelector('canvas').getContext('2d');
+                const pixels=t=>{window.pintar(t);return ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height).data;};
+                const a=pixels(2.2),b=pixels(2.8),c=pixels(2.2);
+                let publico=0,sinPublico=0,madera=0,movimiento=0,estable=true;
+                for(let i=0;i<a.length;i+=4){
+                    const y=Math.floor(i/4/ctx.canvas.width);
+                    if(a[i]===6&&a[i+1]===6&&a[i+2]===7)publico++;
+                    if(y>ctx.canvas.height*.82&&a[i]>a[i+1]*1.1&&a[i+1]>a[i+2]*1.1&&a[i]>40)madera++;
+                    if(y<ctx.canvas.height*.25&&(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]))movimiento++;
+                    if(a[i]!==c[i]||a[i+1]!==c[i+1]||a[i+2]!==c[i+2])estable=false;
+                }
+                r.escenario.publico=false;const sin=pixels(2.2);
+                for(let i=0;i<sin.length;i+=4)if(sin[i]===6&&sin[i+1]===6&&sin[i+2]===7)sinPublico++;
+                r.escenario.publico=true;
+                const antes=d.camara,arc=ctx.arc,translate=ctx.translate,actor=d.personajes[0];let focos=[],pies=[];
+                ctx.arc=function(x,y,rad,...args){
+                    if(Math.abs(rad-1920*.17)<.01){const p=this.getTransform().transformPoint({x,y});focos.push({x:p.x,y:p.y});}
+                    return arc.call(this,x,y,rad,...args);
+                };
+                ctx.translate=function(x,y){
+                    if(this.globalCompositeOperation==='source-over'&&Math.abs(x-actor.x*1920)<.01&&
+                      Math.abs(y-actor.y*(1920*ctx.canvas.height/ctx.canvas.width))<.01){
+                        const p=this.getTransform().transformPoint({x,y});pies.push({x:p.x,y:p.y});
+                    }return translate.call(this,x,y);
+                };
+                try{d.camara=[{t:0,x:.04,y:.025,escala:1.15}];window.pintar(2.2);}
+                finally{ctx.arc=arc;ctx.translate=translate;d.camara=antes;window.pintar(2.2);}
+                return {publico,sinPublico,madera,movimiento,estable,focos,pies};
+            })()''')
+            self.assertGreater(resultado['publico'],1500)
+            self.assertLess(resultado['sinPublico'],resultado['publico']*.1)
+            self.assertGreater(resultado['madera'],1000)
+            self.assertGreater(resultado['movimiento'],50)
+            self.assertTrue(resultado['estable'])
+            self.assertTrue(resultado['focos'])
+            self.assertTrue(resultado['pies'])
+            foco,pie=resultado['focos'][0],resultado['pies'][0]
+            self.assertAlmostEqual(foco['x'],pie['x'],places=4)
+            self.assertAlmostEqual(foco['y'],pie['y'],places=4)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar_teatro):
+            stickman.renderizar(self.base,stickman.escena(referencia_escenario_detallado(self.base),4,self.reparto),
+                4,str(Path(TEMP.name)/'teatro-detallado.png'),salida=(960,540))
+        muestras=set()
+        for tipo in ('salon','oficina','laboratorio','cocina','aula','barrio','parque','fiesta'):
+            png=Path(TEMP.name)/f'escenario-detallado-{tipo}.png'
+            stickman.renderizar(self.base,stickman.escena(referencia_escenario_detallado(self.base,tipo),4,self.reparto),
+                4,str(png),salida=(640,360))
+            muestras.add(png.read_bytes())
+        self.assertEqual(len(muestras),8)
 
     def test_portadas_programaticas_respetan_tiempo_y_no_se_repiten_por_continuidad(self):
         capitulo=dict(numero=1,titulo='La pregunta',estilo='arctic')
@@ -345,7 +459,7 @@ class Editorial(unittest.TestCase):
         escena=dict(narracion='Una idea.',t_in=12,t_out=16)
         base=dict(self.base,acabado='arctic')
         desactivada=copy.deepcopy(entrega)
-        desactivada['realizacion'].update(particulas=False,malla=False)
+        desactivada['realizacion'].update(particulas=False,malla=False,escenografia_detallada=False)
         editada=dict(escena,indicaciones_usuario=dict(edicion_stickman=dict(ancla=escena['narracion'],contenido=entrega)))
         with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
                 side_effect=[copy.deepcopy(entrega),desactivada,copy.deepcopy(entrega)]):
@@ -354,11 +468,14 @@ class Editorial(unittest.TestCase):
             retoque=stickman.generar_escena(editada,base,self.reparto,None,lambda *a:None)
         self.assertTrue(nueva['realizacion']['particulas'])
         self.assertTrue(nueva['realizacion']['malla'])
+        self.assertTrue(nueva['realizacion']['escenografia_detallada'])
         self.assertEqual(nueva['realizacion']['desfase_ambiente'],12)
         self.assertFalse(sinEfectos['realizacion']['particulas'])
         self.assertFalse(sinEfectos['realizacion']['malla'])
+        self.assertFalse(sinEfectos['realizacion']['escenografia_detallada'])
         self.assertNotIn('particulas',retoque['realizacion'])
         self.assertNotIn('malla',retoque['realizacion'])
+        self.assertNotIn('escenografia_detallada',retoque['realizacion'])
 
     def test_comparacion_nueva_corrige_paneles_planos_y_conserva_lectura_historica(self):
         plana=referencia_comparacion(self.base)

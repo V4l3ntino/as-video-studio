@@ -72,6 +72,26 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+El teatro antiguo era franjas verticales, suelo genérico y `FX.crowd` diminuto:
+el fallo era construcción/escala del decorado, no solo falta de partículas.
+`escenografia_detallada:true` activa `escenografia.js` en entregas nuevas:
+arquitectura al fondo, suelo/muebles a profundidad 1 y cortinas/público delante.
+No metas otra vez el suelo dentro del blur/paralaje .65 del fondo: se separa
+del apoyo de los pies al mover la cámara. El foco usa `draw.estado` del sujeto;
+su reflejo debe coincidir con los pies en pantalla. El público del teatro son
+siluetas cercanas; `publico:false` permite teatro vacío/público personalizado.
+`atril` es opcional y `atril_x`/id/semilla mantienen su ubicación, no lo arrastres
+con cada gesto del actor. Materiales y luz local no mutan identidades guardadas.
+La generación rechaza paneles/blueprint que tapan el escenario y crowd duplicado;
+la lectura histórica y un retoque local sin este campo conservan el dibujo anterior.
+`heredar_escenografia` recupera semilla/atril/público/luz del mismo id/tipo si se
+omiten. La continuidad antigua sin campo de detalle conserva acabado false al
+continuar un bloque. Rehacer explícitamente pasa `renovar_escenografia:true`
+solo como contexto del ejecutor, para no impedir que se actualice esa escena;
+un retoque de zoom/actuación no debe recibirlo ni cambiar el acabado por defecto.
+No cambies VERSION ni persistas defaults al abrir. Regresión y nueve decorados:
+`python pasos/prueba_stickman_editorial.py --real`, sin proveedores.
+
 Los capítulos de guiones Stickman nuevos se deciden en `escaleta.capitulos`
 antes de escribir: numero/titulo/estilo y tramos contiguos, sin huecos en el
 desarrollo. `capitulos_guion.asignar` los enlaza a bloques reales; no inventes

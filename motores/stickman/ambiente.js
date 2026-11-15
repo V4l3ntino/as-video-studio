@@ -3,6 +3,7 @@ import { E, S, alpha } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/eng
 import { dust } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { semillaLugar } from './decorados.js';
 import { paletaEditorial } from './estilo.js';
+import { usaEscenografia, tipoEscenografia } from './escenografia.js';
 
 export function ambienteVisual(g,escena,t){
   const r=escena.realizacion||{},p=paletaEditorial(r.paleta),W=E.W,H=E.H;
@@ -20,7 +21,7 @@ export function ambienteVisual(g,escena,t){
     }
   }
   const polvo=escena.atmosfera==='polvo'||(escena.efectos_visuales||[]).some(i=>i.tipo==='dust'&&activo(i));
-  if(r.particulas&&!polvo){
+  if(r.particulas&&!polvo&&!(usaEscenografia(escena)&&tipoEscenografia(escena)==='teatro')){
     dust(g,t+(r.desfase_ambiente||0),{seed:semillaLugar(r.escenario||{}),count:32,
       color:p?.texto||S().ui.cream,size:2.3,speed:9,a:.16});
   }
