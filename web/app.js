@@ -11223,7 +11223,15 @@ function editorGlobalImagenes(escenas) {
     controles.forEach(c => c.descartar()); ultimaEdicion = []; estudio.cambio();
   } }, 'Descartar cambios');
   const zoom = h('input', { type: 'range', min: 1, max: Math.max(12, escenas.length / 2), step: .5, value: zoomInicial,
-    'aria-label': 'Zoom del timeline', oninput: ev => { columnas.style.width = `${Number(ev.target.value) * 100}%`; estudio.ajustarPistas(); } });
+    'aria-label': 'Zoom del timeline', oninput: ev => {
+      const fraccion = Math.max(0, Math.min(1, PREVIA.t / duracion));
+      const x = fraccion * columnas.clientWidth - scroll.scrollLeft;
+      // Conserva el cabezal en su posición visible; si quedó fuera, recupéralo en el centro.
+      const ancla = x >= 0 && x <= scroll.clientWidth ? x : scroll.clientWidth / 2;
+      columnas.style.width = `${Number(ev.target.value) * 100}%`;
+      scroll.scrollLeft = fraccion * columnas.clientWidth - ancla;
+      estudio.ajustarPistas();
+    } });
   const etiquetas = h('div', { clase: 'editor-global-etiquetas' }, h('span', {}, ''),
     ...['▱ Bloques', '♪ Audio', '‹/› Remotion', '✦ Animación', '♫ Sonidos', '♙ Avatar', '◩ Transición'].map(n => h('span', {}, n)));
   const scroll = h('div', { clase: 'editor-global-scroll' }, columnas);
