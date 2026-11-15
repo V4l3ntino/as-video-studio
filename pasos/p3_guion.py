@@ -6,9 +6,9 @@ video de referencia como documentacion, el brief del usuario, el guion anterior
 (si lo hay, para no perder el contexto entre iteraciones) y la instruccion
 concreta de esta pasada.
 
-La regla que gobierna el paso es que el guion se REDACTA de nuevo: se siguen los
-mismos hechos, el mismo orden y el mismo ritmo de capitulos, pero las frases son
-propias. Se pide en la instruccion y ahi se queda.
+El guion se REDACTA de nuevo a partir de los hechos. Una transcripcion conserva
+su orden de referencia; las notas escritas y los dosieres se organizan para el
+espectador. Un guion propio marcado como tal se respeta sin reescribirlo.
 
 Aqui hubo ademas un DETECTOR DE COPIAS -- tiradas de diez palabras identicas
 entre cada bloque y el material, y una nueva pasada si pasaban del umbral -- y se
@@ -428,6 +428,71 @@ REGLA_REDACCION_DOSIER = (
     "dosier salen los hechos; del orden que tu elijas sale el video. Las frases "
     "son tuyas: no copies ni parafrasees ficha a ficha.")
 
+REGLA_REDACCION_ESCRITO = (
+    "REDACTA DE NUEVO, Y EL ORDEN LO PONES TU. El material escrito es "
+    "DOCUMENTACION: conserva sus hechos, no su orden de parrafos ni el espacio "
+    "que dedica a cada dato. Organizalo para responder al titulo y sostener la "
+    "curiosidad, no como un resumen del documento. No copies ninguna frase ni "
+    "parafrasees frase a frase. Si el usuario pide expresamente una estructura "
+    "o un orden, respeta esa decision.")
+
+# Criterio editorial para redactar, no otra llamada ni un detector de calidad.
+# No se aplica a guiones propios ni convierte una correccion local en reescritura.
+NARRATIVA_YOUTUBE = """== NARRATIVA PARA QUE EL ESPECTADOR QUIERA SEGUIR ==
+Antes de redactar, decide que viene a descubrir el espectador por el titulo,
+que respuesta util recibira pronto y que descubrimiento merece el cierre.
+Adapta estas pautas al tono, genero, duracion e indicaciones del usuario;
+no conviertas todos los videos en la misma plantilla.
+
+  - GANCHO CONCRETO. Abre con una situacion reconocible, una contradiccion o un
+    hecho sorprendente documentado y muestra por que importa. En dos o tres
+    frases debe entenderse el asunto y que esta en juego. Sin saludos de relleno,
+    alarmismo, estadisticas convertidas en amenazas personales ni certezas sobre
+    la vida del espectador que el material no permite afirmar.
+  - ENTREGA TEMPRANA. Da una primera respuesta al titulo en los primeros treinta
+    a sesenta segundos, antes si el video es corto. Si comparas dos cosas,
+    muestralas pronto ante una misma situacion y explica la diferencia central,
+    con sus limites. No interpongas una historia de autores, fechas, definiciones
+    o clasificaciones antes de llegar a la razon por la que alguien ha entrado.
+    La historia y los terminos aparecen cuando ayudan a entender algo concreto;
+    si el encargo es historico o cronologico, la historia es el propio relato.
+  - PROMESA QUE SE CUMPLE. Si ayuda, plantea una duda especifica que resolveras
+    mas adelante. Da valor mientras llega su respuesta; no retrases artificialmente
+    la respuesta principal ni anuncies secretos o beneficios que no entregas.
+  - EXPLICAR CON SITUACIONES. Alterna explicaciones con ejemplos cotidianos,
+    contrastes y, cuando los haya en el material, experimentos o casos con
+    planteamiento, resultado y significado. Los ejemplos hipoteticos deben
+    reconocerse como tales; no inventes testimonios, estudios, dialogos ni casos
+    reales. Una analogia aclara un mecanismo, no demuestra una afirmacion.
+  - CAMBIOS DE RITMO CON CONTENIDO. Evita encadenar biografias de investigadores
+    o parrafos con la misma formula. Tras una explicacion abstracta, aterriza en
+    una accion o consecuencia visible. Tras un caso, explica que cambia en lo
+    que entendemos. Cada tramo aporta una respuesta y abre una duda nueva que
+    nace de ella, sin muletillas de suspense ni reiniciar la promesa del video.
+  - FUENTES AL SERVICIO DE LA IDEA. Cuenta que se hizo, que se encontro y por
+    que importa. Incluye autor, fecha e institucion cuando aporten contexto o
+    atribucion necesaria, sin convertir cada hallazgo en una ficha bibliografica.
+    No hace falta utilizar todos los nombres ni todos los datos del material.
+  - RIGOR DENTRO DEL RELATO. Distingue consenso, hipotesis, asociacion y anecdota.
+    No conviertas tendencias en reglas universales, correlaciones en causas ni
+    un caso o un escaner en un diagnostico. Si los terminos se usan de formas
+    distintas o una comparacion es divulgativa y no una division consensuada,
+    aclaralo al introducirla, no despues de haberla presentado como un hecho.
+    Conserva las limitaciones relevantes sin repetir una advertencia en cada bloque.
+  - CIERRE CON RECOMPENSA. Resuelve la duda o promesa inicial con una conclusion
+    concreta que se desprenda de lo contado. Si encaja, vuelve a la situacion de
+    apertura para que ahora se entienda de otra manera. Elige una idea final
+    memorable o una aplicacion practica, sin acumular otra lista de autores,
+    consejos o temas nuevos. No prometas proteccion garantizada ni diagnosticos
+    caseros. Las llamadas a la accion son solo las configuradas para este video;
+    no inventes una suscripcion, una siguiente entrega ni otro video del canal.
+
+REPASO EDITORIAL ANTES DE ENTREGAR, en esta misma pasada y sin mostrar el analisis:
+comprueba si la entrada entrega lo que promete el titulo, si el contexto retrasa
+la respuesta, si hay varios bloques seguidos que solo enumeran datos y si el
+cierre paga la promesa. Reordena o recorta lo que falle antes de entregar el JSON.
+"""
+
 REGLA_GUION_PROPIO = (
     "ESTE GUION YA ESTA ESCRITO Y ES DE LA CASA. El material que va arriba no es "
     "documentacion: es el guion, escrito por quien te lo pide. Conservalo palabra "
@@ -458,12 +523,16 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         1, int(round(presupuesto / max(1, por_bloque))))
 
     propio = bool(opciones.get("guion_propio"))
+    escrito = bool(metadatos.get("sin_tiempos")) \
+        or metadatos.get("origen") == "escrito"
     # QUE REGLA DE REDACCION TOCA lo decide de donde viene el material, que es un
     # dato y no una adivinanza: un dosier no tiene orden que seguir.
     if propio:
         regla_redaccion = REGLA_GUION_PROPIO
     elif origen and (origen[0] if origen else None):
         regla_redaccion = REGLA_REDACCION_DOSIER
+    elif escrito:
+        regla_redaccion = REGLA_REDACCION_ESCRITO
     else:
         regla_redaccion = REGLA_REDACCION
     # EL MATERIAL ESCRITO SE PRESENTA COMO LO QUE ES. Este estudio no baja
@@ -472,8 +541,6 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
     # 0 s ... Transcripcion con marcas de tiempo», con todos los parrafos en
     # [00:00]. Con tiempos de verdad (un proyecto traido de la otra version) se
     # sigue presentando como antes.
-    escrito = bool(metadatos.get("sin_tiempos")) \
-        or metadatos.get("origen") == "escrito"
     if escrito:
         cabecera = [
             f"Material escrito: {metadatos.get('titulo') or 'sin titulo'}",
@@ -652,18 +719,24 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
     partes.extend([
         "",
         "== COMO SE ESTRUCTURA ESTE VIDEO ==",
+        "Estas pautas orientan una redaccion nueva. Si el material es un guion "
+        "propio, conserva su estructura. Si estas iterando o corrigiendo un "
+        "guion, aplicalas solo dentro de los cambios pedidos, sin reordenar ni "
+        "mejorar los bloques que deben conservarse.",
         "Un video no es una lista de datos buenos: es UN RELATO con unas pocas "
         "paradas, y cada parada existe porque la anterior la pide.",
         "",
         "  - POCOS TEMAS Y BIEN CONTADOS. Elige unas pocas paradas para todo el "
-        "video --cuatro o seis, no doce-- y quedate ahi. Cada una se lleva "
+        "video --cuatro o seis pueden bastar en uno largo; menos en uno corto-- "
+        "y quedate ahi. Cada una se lleva "
         "varios bloques seguidos y se explica con calma: el dato, que significa "
         "y por que importa. Un tema que se despacha en un bloque y no vuelve no "
         "era un tema, era un dato suelto.",
         "  - EL ORDEN ES UN ARGUMENTO. Cada parada se apoya en la anterior: la "
         "primera deja una pregunta que contesta la segunda. Si puedes cambiar "
-        "dos paradas de sitio y el video sigue funcionando igual, no hay "
-        "relato: hay lista.",
+        "dos paradas de sitio, revisa si hay una progresion mejor. Una "
+        "comparacion puede alternar perfiles por ejes comunes sin fingir una "
+        "cadena causal entre ellos.",
         "  - NO SE RELLENA. El material trae mas hechos de los que caben, y ese "
         "es su trabajo: que puedas ELEGIR. Un hecho entra si empuja la parada en "
         "la que esta; si solo es curioso, se queda fuera. Vale mas un video con "
@@ -686,6 +759,10 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "partirse en dos secciones; lo que no puede pasar es cambiar de parada "
         "sin abrir seccion, porque ahi es donde el motor pone el silencio que "
         "deja respirar el video.",
+    ])
+    if not propio:
+        partes.extend(["", NARRATIVA_YOUTUBE])
+    partes.extend([
         "",
         "== INSTRUCCION DE ESTA ITERACION ==",
         opciones["prompt_general"] or
@@ -746,7 +823,9 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
            "debajo, que no se locutan: le dicen al sintetizador donde parar."
            if opciones["anotaciones_voz"] else ""),
         "7. Respeta cifras, fechas y nombres propios del material. No inventes "
-        "datos que no esten en el.",
+        "datos que no esten en el. Respeta tambien su grado de certeza y sus "
+        "limites: una estimacion no es un hecho universal ni una asociacion "
+        "demuestra una causa.",
         # Esta regla existe por un fallo concreto y oido: un guion en ingles con
         # «Spain, May 2024» se locuto «may dos mil veinticuatro». Una cifra no es
         # una palabra: es algo que alguien tiene que expandir, y quien la expande
@@ -839,10 +918,11 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "no tenia. Si necesitas recordar un dato para lo que viene, recuerdalo "
         "en tres palabras y de pasada, nunca con el tono con el que se revela "
         "algo por primera vez.",
-        "13. EL GANCHO ES UNO Y VA AL PRINCIPIO. El tono de entrada --la "
-        "promesa, la sorpresa, el «esto es mas grande de lo que parece»-- se "
-        "usa en los dos primeros bloques y no vuelve a aparecer. A mitad de "
-        "video ese tono no promete nada: repite, y se nota.",
+        "13. EL GANCHO INICIAL NO SE REPITE. No vuelvas a vender a mitad del "
+        "video lo que ya prometiste al principio. SI puedes renovar la "
+        "curiosidad con un hallazgo nuevo, un contraste o una duda concreta "
+        "que nazca de lo que acabas de explicar y se resuelva despues. Cada "
+        "sorpresa aporta informacion nueva, no un anuncio vacio de lo que viene.",
         "14. El titulo es para el video, no para el guion: corto y concreto.",
         # LAS DOS QUE SALIERON DE REPASAR UN VIDEO LARGO (28-09-2026), y las dos
         # se pidieron corregir a mano. La primera con esas palabras: «veo el

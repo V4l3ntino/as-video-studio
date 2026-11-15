@@ -24,6 +24,14 @@ serviría para nada: **una tanda de imágenes cuesta dinero de verdad**.
 dejar de teclear, y el paso siguiente usa la última versión. No hay botones de
 «guardar cambios» ni de «aprobar»; pasar al paso siguiente ES la aprobación.
 
+Los guiones nuevos se redactan con una pauta narrativa para YouTube: gancho
+concreto, una primera respuesta temprana al título, ejemplos y cambios de ritmo,
+y un cierre que resuelve la promesa inicial. El contexto histórico y las fuentes
+se introducen donde ayudan a comprender la idea. Las notas escritas se pueden
+reordenar para construir ese relato, respetando la estructura que pidas y el
+grado de certeza del material. Un material marcado como guion propio conserva
+su redacción; las correcciones de un guion anterior se limitan a lo solicitado.
+
 ---
 
 ## Las dos cosas que se crean

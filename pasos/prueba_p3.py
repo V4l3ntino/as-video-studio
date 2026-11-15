@@ -477,6 +477,24 @@ def prueba_instruccion():
               "con dosier, la regla 1 deja de mandar seguir un orden que no existe")
     comprobar("EL ORDEN LO PONES TU" not in texto,
               "y con un video transcrito de verdad se sigue su orden, como antes")
+    # Las notas no son un relato de referencia. La seleccion de la regla debe
+    # distinguirlas de una transcripcion y de un guion propio ya aprobado.
+    for meta_escrita in ({"sin_tiempos": True}, {"origen": "escrito"}):
+        escrito = p3_guion._instruccion(
+            transcript, meta_escrita, brief, None, opciones, [], "es")
+        comprobar(p3_guion.REGLA_REDACCION_ESCRITO in escrito
+                  and p3_guion.REGLA_REDACCION not in escrito,
+                  "el material escrito permite ordenar por interes narrativo")
+        comprobar(p3_guion.NARRATIVA_YOUTUBE in escrito,
+                  "la redaccion nueva recibe la pauta editorial completa")
+        propio = p3_guion._instruccion(
+            transcript, meta_escrita, brief, None,
+            p3_guion._normalizar({"guion_propio": True}), [], "es", origen=origen)
+        comprobar(p3_guion.REGLA_GUION_PROPIO in propio
+                  and p3_guion.REGLA_REDACCION_ESCRITO not in propio
+                  and p3_guion.REGLA_REDACCION_DOSIER not in propio
+                  and p3_guion.NARRATIVA_YOUTUBE not in propio,
+                  "el guion propio prima sobre notas y dosier sin pedir reescritura editorial")
     comprobar("EL VIDEO DE ORIGEN" not in texto,
               "sin dosier no se pinta la seccion: seria el mismo texto dos veces")
 
