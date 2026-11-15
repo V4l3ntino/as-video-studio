@@ -18,7 +18,7 @@ from pasos import medios, utileria_stickman, realizacion_stickman
 
 RAIZ = Path(__file__).resolve().parents[1]
 KIT = RAIZ / 'GrowKaz_Stickman/skills/make-2d-video/kit'
-VERSION = 'stickman-5-editorial-1'
+VERSION = 'stickman-5-editorial-2'
 OBJETOS = ('circulo', 'rectangulo', 'redondeado', 'linea', 'texto',
            'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector', 'balon')
 FAMILIAS = {'classic': 'Classic Stick', 'bean': 'Bean Body', 'rubber': 'Rubber Hose', 'geometric': 'Geometric'}
@@ -240,6 +240,11 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             resultado['personajes'][-1]['rol'] = elegir(c['rol'], ('principal', 'figurante'))
         if 'panel' in c:
             resultado['personajes'][-1]['panel'] = elegir(c['panel'], ('izquierda', 'derecha'))
+        if 'vestuario' in c:
+            vestuario = realizacion_stickman.validar(c['vestuario'], realizacion_stickman.opciones(
+                ropa=('elegir', 'hoodie', 'labcoat', 'trench', 'jersey', 'tshirt', 'suit', 'dress', 'tracksuit', 'none'),
+                color=realizacion_stickman.COLOR, secundario=realizacion_stickman.COLOR), 'personaje.vestuario')
+            resultado['personajes'][-1].update(vestuario=vestuario, diseno=dict(reparto[ident], **vestuario))
         if 'actuacion' in c:
             resultado['personajes'][-1]['actuacion'] = realizacion_stickman.validar(c['actuacion'],
                 realizacion_stickman.opciones(mirada=('lista', ('numero', -1, 1), 2, 2),
@@ -464,7 +469,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     catalogo_utileria = utileria_stickman.catalogo(proyecto)
     ejemplo = dict(ambiente='interiorWarm', decorado='vacio', atmosfera='ninguna', camara=[],
         realizacion=dict(encuadre='general', objetivo='Acción principal y resultado visible',
-            escenario=dict(id='interior_principal', tipo='salon', semilla=7), acabado=True, desenfoque=0),
+            escenario=dict(id='interior_principal', tipo='salon', semilla=7), acabado=True, color_fiel=True, desenfoque=0),
         graficos=[], efectos_visuales=[],
         personajes=[dict(id=next(iter(reparto)), x=.45, y=.79, escala=2.4, mirar=1,
             movimiento='gesto', expresion='neutral', claves=[dict(t=0, pose='stand'), dict(t=min(.7, dur), pose='explain')])],
@@ -474,7 +479,10 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     else:
         datos = consultar('Dirige una escena narrativa Stickman cuya acción se entienda SIN escuchar la voz. Devuelve SOLO un objeto JSON de esta forma: '
             + json.dumps(ejemplo) + '\nNo repitas una escena genérica: representa literalmente la acción y el contexto del guion. '
-            'Prioriza la descripción visual (prompt) y la narración sobre la decoración. '
+             'Prioriza la descripción visual (prompt) y la narración sobre la decoración. '
+             'La descripción de ESTA escena manda sobre el estilo y la continuidad: respeta colores explícitos, '
+             'cantidades, distribución espacial, rótulos literales y el resultado de cada transformación. '
+             'Antes de entregar, comprueba cada requisito contra tus objetos, gráficos y claves; representar solo el concepto no basta. '
             'duracion es el tiempo REAL de pantalla: adapta a él cualquier descripción demasiado extensa o escueta. '
             'En este encargo duracion equivale a duracion_s y no es estimada. '
             'La situación inicial puede estar establecida desde el primer fotograma. '
@@ -486,7 +494,11 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'aunque esta frase no vuelva a nombrarlos. No cambies el escenario ni elimines al personaje que espera su turno. '
             'Parte del estado final de la anterior (sus últimas claves, no sus posiciones iniciales); '
             'no repitas sus entradas, acciones ni sonidos. Solo cambia el lugar o retira elementos si la dirección lo pide explícitamente. '
-            'Reutiliza las geometrías y recursos exactos recibidos, adaptando inicio/fin y claves a la duración local actual. '
+             'Reutiliza las geometrías y recursos exactos recibidos, adaptando inicio/fin y claves a la duración local actual. '
+             'Si el prompt pide transformación o cambio de lugar, conserva solo los elementos que sigan siendo pertinentes: '
+             'retira el gráfico anterior con fin, anima su salida o desvanece sus objetos con claves de opacidad. '
+             'No arrastres una matriz, cuadrícula o decorado sobre el nuevo personaje por continuidad. '
+             'Muestra el estado final pedido (personaje, vestuario y lugar), no solo un zoom o una sonrisa. '
             'Cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
             'No sustituyas conductas por iconos pequeños: muestra distancia con desplazamiento y defensa con postura. '
             'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta a una acción corporal o a UNA metáfora simple '
@@ -497,7 +509,10 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Lienzo lógico ancho 1920, alto=1920*resolucion[1]/resolucion[0]. En personajes x,y son los PIES, no el centro; '
             'su altura es aproximadamente 240*escala*diseno.altura. Deben ocupar 28–78% de la altura del plano sin cortar la cabeza; '
             'pies y=.80–.90, x=.15–.85; en horizontal escala suele ser 2.4–3. No los hagas diminutos. '
-            'Cada personaje usa un ID del reparto, sin redefinir apariencia. Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1}. '
+             'Cada personaje usa un ID del reparto, sin redefinir identidad. Solo si el prompt pide otra ropa o color, '
+             'añade vestuario:{ropa:suit|hoodie|labcoat|trench|jersey|tshirt|dress|tracksuit|none,color:"#RRGGBB",secundario:"#RRGGBB"}; '
+             'es una copia local, no cambia su diseño ni proporciones. Conserva ese vestuario mientras continúe la acción. '
+             'Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1}. '
             'mirar cambia de orientación en ese instante; usa -1 hacia la izquierda y 1 hacia la derecha, también para dar la espalda a una petición. '
             'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
             'movimiento: gesto,caminar,correr. decorado: interior,ciudad,naturaleza,vacio. atmosfera: polvo,lluvia,nieve,ninguna. '

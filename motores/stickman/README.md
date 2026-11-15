@@ -20,6 +20,30 @@ encuadres y componentes editoriales se componen en los módulos de esta carpeta.
 El acabado del player original se adapta al reloj del Estudio; no se arranca
 un segundo montaje ni se duplica el sonido.
 
+Desde `stickman-5-editorial-2`, el director prioriza las instrucciones explícitas
+de la descripción sobre la paleta y la continuidad. `realizacion.color_fiel:true`
+omite la gradación cromática del estilo (conserva viñeta y grano); no cambia los
+colores del decorado por sí solo. Las nuevas entregas parten de ese modo. Una
+transformación debe mostrar su resultado y retirar los elementos anteriores que
+ya no correspondan; no basta con acercar la cámara.
+
+`poblacion` admite `filas`, `columnas`, `color_base`, `color` del destacado,
+`indices_destacados` (desde cero, por filas), `atenuacion` (opacidad final del
+resto), `inicio_destacado` y `duracion_destacado`. Por ejemplo, cien figuras en
+diez filas usan `total:100,filas:10,columnas:10`; el índice 20 está en la tercera
+fila. Todas se ven desde el comienzo; después progresa el destacado. Se rechazan
+índices duplicados/fuera de rango y cuadrículas sin capacidad suficiente.
+
+El actor admite `vestuario:{ropa,color,secundario}` para prendas explícitas de
+esa escena: se aplica sobre una copia del diseño, sin cambiar la identidad ni
+el reparto guardado. El director debe conservarlo si continúa la misma acción.
+
+Todos los textos editoriales reciben un contorno claro u oscuro según la
+luminancia de la tinta, manteniendo el color solicitado. Los objetos `texto` se
+dibujan después del acabado, conservando sus anclas y cámara; los rótulos de
+pantalla deben utilizar `graficos` con `capa:pantalla`. El resplandor no tapa el
+contorno. Estas correcciones requieren regenerar los clips existentes.
+
 Instalar `npm ci --prefix motores/stickman` además de Remotion: fija Three.js y
 las fuentes originales. El bundle contiene las fuentes sin depender de la red.
 Python espera `window.STICKMAN_READY` antes de capturar. Los planes históricos

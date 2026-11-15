@@ -5,10 +5,12 @@ import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d
 import { cargarFuentes } from './fuentes.js';
 import { pintarEditorial } from './editorial.js';
 import { aplicarEstilo } from './estilo.js';
+import { protegerTexto } from './texto.js';
 
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
 canvas.width = D.ancho; canvas.height = D.alto;
+protegerTexto(g, () => Boolean(D.escena.realizacion));
 Object.assign(E, { W: 1920, H: 1920 * D.alto / D.ancho, PX: D.ancho / 1920,
   vertical: D.alto > D.ancho, fps: D.fps, cfg: {}, words: D.escena.palabras || [] });
 aplicarEstilo(D.variante.acabado);

@@ -18,6 +18,17 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+`stickman-5-editorial-2` da prioridad a colores, cantidades, posiciones y cambios
+de escenario explícitos sobre estilo/continuidad. `realizacion.color_fiel:true`
+omite la gradación cromática; no neutraliza los colores propios del decorado.
+`poblacion` permite filas/columnas, color base, índices destacados desde cero y
+tiempo/atenuación del destacado. `vestuario` es una copia local del diseño del
+actor, nunca una mutación del reparto. Los objetos texto se pintan tras el acabado
+con sus anclas/cámara; `texto.js` protege también los textos del kit con contorno
+opuesto a la luminancia de la tinta. No vuelvas a aplicar un glow encima del
+contorno: lo oscurece hasta hacerlo ilegible. Regresión visual y de píxeles en
+`python pasos/prueba_stickman_editorial.py --real` (sin proveedores).
+
 Desde `stickman-5-editorial-1`, las entregas nuevas incorporan `realizacion` y
 pueden incluir `graficos`, `efectos_visuales` y `espacio3d`. El contrato por lista
 blanca vive en `pasos/realizacion_stickman.py`; el renderer se divide en

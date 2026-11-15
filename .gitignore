@@ -36,6 +36,7 @@ node_modules/
 plantillas_remotion/
 .claude/
 animaciones/
+videoanalisis/
 
 # NOTAS INTERNAS de quien lo desarrolla (estado, despliegues, cuentas): se
 # quedan en su maquina y no viajan en el repositorio publico.

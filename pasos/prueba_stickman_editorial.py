@@ -141,6 +141,73 @@ class Editorial(unittest.TestCase):
         self.assertEqual(stickman.escena(antes,4,self.reparto),copia)
         self.assertEqual(antes,copia)
 
+    def test_poblacion_rechaza_distribuciones_e_indices_imposibles(self):
+        for ops in (dict(filas=2.5),dict(total=100,filas=2,columnas=3),
+                dict(total=100,columnas=2.5),dict(indices_destacados=[100]),
+                dict(indices_destacados=[20,20]),dict(indices_destacados=[20.5]),
+                dict(indices_destacados=[20],destacados=2),dict(inicio_destacado=5)):
+            with self.subTest(ops=ops),self.assertRaisesRegex(ValueError,'poblacion|columnas'):
+                stickman.escena(grafica('poblacion',ops),4,self.reparto)
+
+    def test_vestuario_local_no_muta_identidad_y_sobrevive_normalizacion(self):
+        original=copy.deepcopy(self.reparto)
+        d=narrativa(self.base)
+        d['personajes'][0]['vestuario']=dict(ropa='suit',color='#888888')
+        d=self.validar(d)
+        self.assertEqual(d['personajes'][0]['diseno']['color'],'#888888')
+        self.assertEqual(d['personajes'][0]['diseno']['familia'],self.base['familia'])
+        self.assertEqual(self.reparto,original)
+        self.assertEqual(stickman.escena(d,4,self.reparto),d)
+
+    @unittest.skipUnless(REAL,'usa --real para fidelidad de colores, matriz y rótulos')
+    def test_render_fidelidad_matriz_y_rotulos_sobre_fondo_del_mismo_color(self):
+        from pasos import p8_render
+        from PIL import Image
+        d=grafica('poblacion',dict(total=100,filas=10,columnas=10,color_base='#888888',
+            color='#9b2020',indices_destacados=[20],atenuacion=.3,inicio_destacado=.5,duracion_destacado=.5))
+        d['graficos']=d['graficos'][1:]
+        d['graficos'][0]['inicio']=0
+        d['realizacion'].update(color_fiel=True,fondo='#101010',vineta=0,grano=0)
+        d['objetos']=[dict(tipo='rectangulo',color='#888888',x=.5,y=.12,w=100,h=100)]
+        original=p8_render.Navegador.capturar
+        muestras=Path(os.environ.get('ESTUDIO_PRUEBA_STICKMAN_MUESTRAS',TEMP.name))
+        muestras.mkdir(parents=True,exist_ok=True)
+        def comprobar(navegador,destino=None):
+            def imagen(t):
+                navegador.pintar(t)
+                return Image.open(io.BytesIO(original(navegador))).convert('RGB')
+            # Centro de la cabeza de cada figura en un lienzo de 960x540.
+            def punto(i):return (round(960*(.11+.078*(i%10+.5))),round(540*(.3+.058*(i//10+.2))))
+            inicio=imagen(0)
+            self.assertEqual(inicio.getpixel((480,65)),(136,136,136))
+            for i in range(100):self.assertEqual(inicio.getpixel(punto(i)),(136,136,136))
+            fin=imagen(2)
+            self.assertEqual(fin.getpixel(punto(20)),(155,32,32))
+            self.assertLess(max(fin.getpixel(punto(0))),70)
+            fin.save(muestras/'fidelidad_poblacion.png')
+            # Tinta oscura en fondo idéntico: conserva el relleno y añade contorno claro,
+            # incluso con Emerald y acabado activado. Prueba el texto nativo y el del kit.
+            rotulos=stickman.escena(dict(personajes=[],decorado='vacio',
+                realizacion=dict(encuadre='grafico',fondo='#10261e',acabado=True,vineta=0,grano=0),
+                objetos=[dict(tipo='texto',texto='Psicópata',color='#10261e',x=.25,y=.2,w=750,h=100,fuente=80)],
+                graficos=[dict(tipo='badge',opciones=dict(str='Sociópata',color='#10261e',x=1440,y=216,size=80))]),4,{})
+            navegador.evaluar('window.STICKMAN.escena='+json.dumps(rotulos))
+            img=imagen(2)
+            img.save(muestras/'fidelidad_rotulos.png')
+            for caja in ((30,75,440,140),(520,75,930,140)):
+                colores=list(img.crop(caja).getdata())
+                self.assertGreater(sum(min(c)>230 for c in colores),50)
+                self.assertIn((16,38,30),colores)
+            # Retirar la matriz en la frase siguiente no deja residuos del frame anterior.
+            rotulos['objetos']=[];rotulos['graficos']=[]
+            rotulos['realizacion'].update(color_fiel=True,fondo='#101010')
+            navegador.evaluar('window.STICKMAN.escena='+json.dumps(rotulos))
+            self.assertEqual(imagen(2).getpixel(punto(20)),(16,16,16))
+            return original(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(dict(self.base,acabado='emerald'),stickman.escena(d,4,{}),4,
+                str(muestras/'fidelidad.png'),salida=(960,540))
+
     @unittest.skipUnless(REAL,'usa --real para todos los componentes en Chromium')
     def test_render_catalogo_completo_fuentes_relojes_y_determinismo(self):
         from pasos import p8_render

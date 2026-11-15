@@ -102,12 +102,24 @@ export function grafico(g, item, t, reparto) {
       });return;
     }
     case 'poblacion': {
-      const total=o.total??100, cols=Math.ceil(Math.sqrt(total*1.9)), rows=Math.ceil(total/cols);
+      const total=o.total??100,
+        cols=o.columnas??(o.filas?Math.ceil(total/o.filas):Math.ceil(Math.sqrt(total*1.9))),
+        rows=o.filas??Math.ceil(total/cols);
       const dx=W*.78/cols,dy=H*.58/rows,rad=Math.min(dx*.17,dy*.15,14),active=Math.round((o.destacados??0)*p);
+      const indices=o.indices_destacados??Array.from({length:o.destacados??0},(_,i)=>i);
+      const seleccion=new Set(indices);
+      const explicita=['color_base','indices_destacados','atenuacion','inicio_destacado','duracion_destacado'].some(k=>k in o);
+      const avance=ease.out(prog(local,o.inicio_destacado??0,(o.inicio_destacado??0)+(o.duracion_destacado??Math.min(1.1,dur*.35))));
       rotulo(g,o.titulo,W/2,H*.16,W*.85,48);
       for(let i=0;i<total;i++){
-        const x=W*.11+dx*(i%cols+.5),y=H*.3+dy*(Math.floor(i/cols)+.2),c=i<active?color:alpha(ui.blueprint,.32);
-        circle(g,x,y,rad,c);rr(g,x-rad,y+rad*1.4,rad*2,rad*2.8,rad*.8);g.fillStyle=c;g.fill();
+        const x=W*.11+dx*(i%cols+.5),y=H*.3+dy*(Math.floor(i/cols)+.2);
+        const figura=c=>{circle(g,x,y,rad,c);rr(g,x-rad,y+rad*1.4,rad*2,rad*2.8,rad*.8);g.fillStyle=c;g.fill();};
+        if(!explicita){figura(i<active?color:alpha(ui.blueprint,.32));continue;}
+        g.save();
+        if(!seleccion.has(i)&&seleccion.size)g.globalAlpha*=1-(1-(o.atenuacion??1))*avance;
+        figura(o.color_base??'#888888');
+        if(seleccion.has(i)){g.globalAlpha*=avance;figura(color);}
+        g.restore();
       }return;
     }
     case 'cronologia': {

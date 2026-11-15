@@ -47,7 +47,10 @@ GRAFICOS = {
     'lista': dict(titulo=TEXTO, filas=('lista', TEXTO, 1, 6), intervalo=('numero', .15, 10),
                   color=COLOR, x=N, y=N, w=POS),
     'barras': dict(titulo=TEXTO, filas=('lista', FILA, 1, 5), color=COLOR),
-    'poblacion': dict(titulo=TEXTO, total=('numero', 1, 300), destacados=('numero', 0, 300), color=COLOR),
+    'poblacion': dict(titulo=TEXTO, total=('numero', 1, 300), destacados=('numero', 0, 300), color=COLOR,
+        filas=('numero', 1, 300), columnas=('numero', 1, 300), color_base=COLOR,
+        indices_destacados=('lista', ('numero', 0, 299), 0, 300), atenuacion=U,
+        inicio_destacado=('numero', 0, 120), duracion_destacado=('numero', .01, 120)),
     'cronologia': dict(titulo=TEXTO, etiquetas=('lista', ('texto', 60), 2, 8), color=COLOR),
     'documento': dict(titulo=TEXTO, filas=('lista', TEXTO, 1, 8), destacar=('numero', 0, 7), sello=('texto', 40)),
     'comparacion': dict(izquierda=TEXTO, derecha=TEXTO, detalle_izquierdo=TEXTO, detalle_derecho=TEXTO),
@@ -151,7 +154,7 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
         inicio = validar(d.get('inicio', 0), ('numero', 0, duracion), nombre + '.inicio')
         fin = validar(d.get('fin', duracion), ('numero', inicio + .001, duracion), nombre + '.fin')
         ops = validar(d.get('opciones', {}), opciones(**catalogo[d['tipo']]), nombre + '.' + d['tipo'])
-        for k in ('count', 'rows', 'cols', 'doors', 'ticks', 'branches', 'blinds', 'max', 'total', 'destacados', 'destacar', 'decimals', 'perRow'):
+        for k in ('count', 'rows', 'cols', 'doors', 'ticks', 'branches', 'blinds', 'max', 'total', 'destacados', 'destacar', 'decimals', 'perRow', 'columnas'):
             if k in ops and isinstance(ops[k], (int, float)) and int(ops[k]) != ops[k]:
                 raise ValueError(f'{nombre}.{k}: entero requerido')
         if d['tipo'] in ('lista', 'barras', 'documento') and not ops.get('filas'):
@@ -160,6 +163,20 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
             raise ValueError('comparacion necesita izquierda y derecha')
         if d['tipo'] == 'poblacion' and ops.get('destacados', 0) > ops.get('total', 100):
             raise ValueError('poblacion: destacados supera total')
+        if d['tipo'] == 'poblacion':
+            total = ops.get('total', 100)
+            filas, columnas = ops.get('filas'), ops.get('columnas')
+            if filas is not None and int(filas) != filas:
+                raise ValueError('poblacion.filas: entero requerido')
+            if filas and columnas and filas * columnas < total:
+                raise ValueError('poblacion: filas y columnas no alojan total')
+            indices = ops.get('indices_destacados', [])
+            if any(int(i) != i or i >= total for i in indices) or len(set(indices)) != len(indices):
+                raise ValueError('poblacion: índices repetidos, no enteros o fuera de total')
+            if 'indices_destacados' in ops and 'destacados' in ops and len(indices) != ops['destacados']:
+                raise ValueError('poblacion: destacados no coincide con índices')
+            if ops.get('inicio_destacado', 0) > d.get('duracion_total', fin - inicio + d.get('desfase', 0)):
+                raise ValueError('poblacion: inicio_destacado fuera del intervalo')
         if d['tipo'] == 'dial' and ops.get('valor', 0) > ops.get('maximo', 100):
             raise ValueError('dial: valor supera maximo')
         if d['tipo'] == 'interruptor' and ops.get('cambio', 0) > fin - inicio:
@@ -184,7 +201,7 @@ def normalizar(datos, duracion, reparto):
             encuadre=('elegir', *ENCUADRES), sujeto=('texto', 120), objetivo=('texto', 500),
             escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000)),
             fondo=COLOR, desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
-            acabado=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
+            acabado=BOOL, color_fiel=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
             foco=('lista', U, 2, 2)), 'realizacion')
         if r.get('sujeto') and r['sujeto'] not in reparto:
             raise ValueError('realizacion.sujeto debe pertenecer al reparto')
@@ -233,14 +250,14 @@ def normalizar(datos, duracion, reparto):
 
 def instruccion():
     return '''
-== REALIZACIÓN EDITORIAL STICKMAN (contrato editorial-1) ==
+== REALIZACIÓN EDITORIAL STICKMAN (contrato editorial-2) ==
 Decide primero el objetivo explicativo. Alterna actuación contextual, primer plano emocional,
 detalle, comparación simultánea, documento, diagrama y gráfico según la idea. No fuerces un actor
 en un gráfico. No copies toda la voz como texto. Una relación dominante; revela por orden, conserva
 el resultado legible. Metáforas simples con transformación clara, nunca símbolos anidados.
 Incluye realizacion:{encuadre:general|conjunto|medio|primer_plano|detalle|grafico|dividido|cierre,
 sujeto:ID opcional,objetivo:"qué se entiende",escenario:{id:"lugar estable",tipo,semilla:7},
-desenfoque:0–20,profundidad:.1–1,acabado:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional}.
+ desenfoque:0–20,profundidad:.1–1,acabado:true,color_fiel:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional}.
 Escenarios disponibles: ''' + ', '.join(ESCENARIOS) + '''.
 Reutiliza el mismo escenario/id/semilla en reapariciones, consultando escenarios_video y continuidad_bloque.
 Cada escenario ya dibuja mobiliario y luces; no lo tapes con rectángulos. Adapta ambiente a la hora.
@@ -251,6 +268,18 @@ dividido: usa dos protagonistas, x~.25/.75, cada uno con panel:izquierda|derecha
 graficos:[{tipo,inicio:0,fin:duracion,capa:"pantalla",opciones:{...}}]. Los grafismos NO se mueven con
 la cámara. En un gráfico completo usa decorado vacio y personajes:[]; blueprint como fondo.
 Usa lista/barras/documento/comparacion/cronologia/poblacion/dial/interruptor antes que inventar layouts.
+Fidelidad: las cantidades, colores, posiciones y transformaciones EXPLÍCITAS del prompt son obligatorias.
+El estilo completa lo no especificado; nunca sustituye gris por verde ni recolorea un destacado narrativo.
+Usa color_fiel:true para evitar que la gradación tiña los colores de la escena. No añade una paleta nueva:
+especifica los colores pedidos en los objetos y gráficos. No añadas blueprint/cuadrícula salvo que se pida.
+poblacion admite filas/columnas, color_base, color para destacados, indices_destacados (índices desde 0,
+por filas de izquierda a derecha), atenuacion (opacidad final del resto), inicio_destacado y duracion_destacado.
+Ejemplo: cien figuras grises en diez filas, una roja en la tercera fila:
+{total:100,filas:10,columnas:10,color_base:"#888888",color:"#9b2020",indices_destacados:[20],
+atenuacion:.3,inicio_destacado:.5,duracion_destacado:.6}. Todas son visibles desde el primer frame;
+el destacado y la atenuación progresan después. No inventes otra disposición por estética.
+Los rótulos explicativos van en graficos con capa:pantalla y colores legibles sobre su fondo;
+los objetos texto conservan cámara/anclas, pero se dibujan después del acabado con protección de contraste.
 Las cantidades, escalas y etiquetas deben proceder del relato: no inventes cifras como evidencia.
 efectos_visuales:[{tipo,inicio,fin,capa:fondo|frente|pantalla,opciones:{...}}] da acceso a TODO fx2d:
 atmósfera, luces, mobiliario, ventanas, público y decorados. Usa solo efectos con función visual.

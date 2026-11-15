@@ -30,13 +30,16 @@ export function acabado(g, t, r) {
   preparar();
   const W = g.canvas.width, H = g.canvas.height, gr = S().grade || {}, sat = gr.sat ?? 1;
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
-  const img = g.getImageData(0, 0, W, H), d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const r0 = tablas[0][d[i]], g0 = tablas[1][d[i+1]], b0 = tablas[2][d[i+2]];
-    const l = .2126 * r0 + .7152 * g0 + .0722 * b0;
-    d[i] = l + (r0-l)*sat; d[i+1] = l + (g0-l)*sat; d[i+2] = l + (b0-l)*sat;
+  // El acabado cromático del estilo no puede recolorear una instrucción explícita.
+  if (!r.color_fiel) {
+    const img = g.getImageData(0, 0, W, H), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r0 = tablas[0][d[i]], g0 = tablas[1][d[i+1]], b0 = tablas[2][d[i+2]];
+      const l = .2126 * r0 + .7152 * g0 + .0722 * b0;
+      d[i] = l + (r0-l)*sat; d[i+1] = l + (g0-l)*sat; d[i+2] = l + (b0-l)*sat;
+    }
+    g.putImageData(img, 0, 0);
   }
-  g.putImageData(img, 0, 0);
   const vineta = r.vineta ?? Math.min(.45, gr.vignette || .3);
   if (vineta) {
     const grad = g.createRadialGradient(W/2, H*.46, Math.min(W,H)*.3, W/2, H/2, Math.max(W,H)*.65);

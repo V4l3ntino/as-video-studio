@@ -55,13 +55,13 @@ export function pintarEditorial(g,t,D,draw) {
         if(R.encuadre==='dividido'&&p){g.beginPath();g.rect(p==='izquierda'?0:W/2,0,W/2,H);g.clip();}
         fn();g.restore();
       };
-      S0.objetos.filter(o=>o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>draw.objeto(g,o,t));
+      S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>draw.objeto(g,o,t));
       S0.personajes.forEach(c=>panel(c.panel,()=>{
         g.save();if(c.rol==='figurante')g.globalAlpha*=.42;
         if(R.encuadre==='primer_plano'&&c.id===R.sujeto&&c.diseno.familia==='classic')draw.rostro(g,c,t);
         else draw.figura(g,c,t);g.restore();
       }));
-      S0.objetos.filter(o=>o.capa!=='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>{
+      S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa!=='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>{
         const p=o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel;
         panel(p,()=>draw.objeto(g,o,t));
       });
@@ -75,6 +75,15 @@ export function pintarEditorial(g,t,D,draw) {
   // Primero gradación de la imagen; texto y gráficos conservan contraste y color.
   acabado(g,t,R);
   g.setTransform(E.PX,0,0,E.PX,0,0);
+  // Rótulos fuera de la gradación, conservando cámara, posición y ancla del mundo.
+  layer(g,cam,1,()=>{
+    S0.objetos.filter(o=>o.tipo==='texto'&&activo(o)).forEach(o=>{
+      const panel=o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel;
+      g.save();
+      if(R.encuadre==='dividido'&&panel){g.beginPath();g.rect(panel==='izquierda'?0:W/2,0,W/2,H);g.clip();}
+      draw.objeto(g,o,t);g.restore();
+    });
+  });
   graficos('pantalla');
   efectos(g,'pantalla');
   if(R.encuadre==='dividido'){g.strokeStyle=alpha(S().ui.gold,.5);g.lineWidth=2;g.beginPath();g.moveTo(W/2,H*.12);g.lineTo(W/2,H*.9);g.stroke();}
