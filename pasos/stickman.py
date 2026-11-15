@@ -440,8 +440,27 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
                 raise ValueError(f'{c["id"]}: personaje pequeño o fuera de encuadre; pies x=.06–.94, y<=.94 y altura visible {minimo:.0%}–78% del lienzo de alto {alto:g}')
     if encuadre == 'dividido':
         principales = [c for c in resultado['personajes'] if c.get('rol') != 'figurante']
+        # Completar solo metadatos inequívocos: no mover actores, cambiar roles
+        # ni inventar un segundo protagonista para satisfacer el contrato.
+        if len(principales) == 2:
+            paneles = []
+            for c in principales:
+                posiciones = [c['x']] + [k['x'] for k in c['claves'] if 'x' in k]
+                paneles.append('izquierda' if all(x < .5 for x in posiciones) else
+                    'derecha' if all(x > .5 for x in posiciones) else None)
+            if set(paneles) == {'izquierda', 'derecha'} and all(
+                    c.get('panel', p) == p for c, p in zip(principales, paneles)):
+                for c, p in zip(principales, paneles):
+                    c.setdefault('panel', p)
         if len(principales) != 2 or {c.get('panel') for c in principales} != {'izquierda', 'derecha'}:
-            raise ValueError('encuadre dividido necesita dos actores con panel izquierda/derecha')
+            actores = ', '.join(f'{c["id"]}: rol={c.get("rol", "principal")}, panel={c.get("panel", "ausente")}, x={c["x"]}'
+                for c in resultado['personajes']) or 'ninguno'
+            raise ValueError('encuadre dividido necesita exactamente dos protagonistas, uno con panel="izquierda" '
+                'y otro con panel="derecha", en personajes (no en realizacion ni graficos). '
+                f'Actores recibidos: {actores}. '
+                'Conserva los IDs del reparto y marca como figurantes solo los extras reales. '
+                'Si la escena no compara dos protagonistas, usa encuadre="conjunto" para actuación '
+                'o encuadre="grafico" para una comparación de objetos o magnitudes; no inventes actores.')
     if encuadre == 'detalle' and not realizacion.get('foco'):
         raise ValueError('detalle necesita foco:[x,y] normalizado')
     if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d'):

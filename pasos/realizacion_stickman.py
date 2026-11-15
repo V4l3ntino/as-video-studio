@@ -268,7 +268,11 @@ Cada escenario ya dibuja mobiliario y luces; no lo tapes con rectángulos. Adapt
 medio/primer_plano requieren sujeto presente. El motor encuadra su cara automáticamente: escribe
 pies y escala normales, no agrandes el rig. detalle admite foco:[x,y] normalizado para centrar la cámara.
 Los figurantes usan rol:figurante y escala reducida; no compiten con el protagonista.
-dividido: usa dos protagonistas, x~.25/.75, cada uno con panel:izquierda|derecha. No dupliques IDs.
+dividido: requiere exactamente dos protagonistas de IDs distintos del reparto, x~.25/.75.
+En personajes, escribe uno con rol:"principal",panel:"izquierda" y el otro con rol:"principal",panel:"derecha".
+No pongas panel en realizacion ni graficos. Los extras reales llevan rol:"figurante". No dupliques IDs
+ni inventes actores para llenar paneles. Con un solo protagonista usa conjunto/medio; para comparar
+objetos o magnitudes usa encuadre grafico y el componente comparacion/barras, sin forzar personajes.
 graficos:[{tipo,inicio:0,fin:duracion,capa:"pantalla",opciones:{...}}]. Los grafismos NO se mueven con
 la cámara. En un gráfico completo usa decorado vacio y personajes:[]; blueprint como fondo.
 Usa lista/barras/documento/comparacion/cronologia/poblacion/dial/interruptor antes que inventar layouts.

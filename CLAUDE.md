@@ -18,6 +18,14 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+En entregas nuevas, `dividido` completa los `panel` omitidos solo si hay exactamente
+dos protagonistas, cada uno permanece en una mitad distinta (base y claves x) y
+ninguna etiqueta explícita contradice su posición. No mueve actores ni inventa
+reparto. Las composiciones ambiguas siguen pasando por la corrección del proveedor,
+con IDs, roles y paneles en el diagnóstico; para comparar objetos/magnitudes se pide
+`grafico`, no dos actores obligatorios. No cambies VERSION por esta normalización:
+continuar debe reutilizar los clips terminados. Regresión offline en ambas suites.
+
 El encuadre seguro limita el zoom y recoloca la cámara contra los límites
 de los objetos y articulaciones de toda la escena, con un margen del 4% y espacio
 para encabezados/pies de pantalla. `detalle` multiplicaba por 2,6 sin comprobar

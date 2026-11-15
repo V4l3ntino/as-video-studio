@@ -114,10 +114,51 @@ class Editorial(unittest.TestCase):
         d['realizacion'].update(encuadre='primer_plano',sujeto='ana')
         self.validar(d)
         d['realizacion'].update(encuadre='dividido')
+        d['personajes'][1]['x']=.4
         with self.assertRaisesRegex(ValueError,'dividido'):
             self.validar(d)
+        d['personajes'][1]['x']=.68
         for c,p in zip(d['personajes'],['izquierda','derecha']):c['panel']=p
         self.validar(d)
+
+    def test_dividido_completa_paneles_inequivocos_sin_cambiar_la_entrega(self):
+        for proveedor in ('Claude','ChatGPT'):
+            for parcial in (False,True):
+                entrega=narrativa(self.base)
+                entrega['realizacion']['encuadre']='dividido'
+                entrega['personajes'].reverse()  # El orden no determina el panel.
+                if parcial:
+                    entrega['personajes'][0]['panel']='derecha'
+                original=copy.deepcopy(entrega)
+                with self.subTest(proveedor=proveedor,parcial=parcial),\
+                        patch.dict(os.environ,ESTUDIO_SIMULAR='0'),\
+                        patch.object(stickman,'_consultar',return_value=entrega) as consultar:
+                    resultado=stickman.generar_escena(dict(id='S001',t_in=0,t_out=4),
+                        self.base,self.reparto,None,lambda *a:None,proveedor)
+                self.assertEqual(consultar.call_count,1)
+                self.assertEqual([c['panel'] for c in resultado['personajes']],['derecha','izquierda'])
+                self.assertEqual(entrega,original)
+                self.assertEqual(self.validar(resultado),resultado)
+
+    def test_dividido_ambiguo_pide_correccion_sin_inventar_actores(self):
+        for caso in ('un_actor','figurante','cruza_panel','panel_contradictorio'):
+            entrega=narrativa(self.base)
+            entrega['realizacion']['encuadre']='dividido'
+            if caso=='un_actor':
+                entrega['personajes'].pop()
+            elif caso=='figurante':
+                entrega['personajes'][1]['rol']='figurante'
+            elif caso=='cruza_panel':
+                entrega['personajes'][0]['claves'][-1]['x']=.7
+            else:
+                entrega['personajes'][0]['panel']='derecha'
+            with self.subTest(caso=caso),self.assertRaisesRegex(ValueError,'Actores recibidos:.*no inventes actores'):
+                self.validar(entrega)
+        corregida=narrativa(self.base)
+        with patch.object(stickman,'_consultar',side_effect=[entrega,corregida]) as consultar:
+            resultado=stickman.consultar('encargo',validar=self.validar)
+        self.assertEqual(resultado['realizacion']['encuadre'],'conjunto')
+        self.assertIn('encuadre="grafico"',consultar.call_args.args[0])
 
     def test_escenarios_estables_y_marcas_reales_llegan_a_ambos_proveedores(self):
         entrada=dict(id='S001',narracion='Ana entiende.',t_in=10,t_out=14,marcas=[[10.2,10.7],[11,11.8]],
