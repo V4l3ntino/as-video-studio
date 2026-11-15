@@ -6,10 +6,12 @@ los nombres de componentes corresponden a las funciones originales del kit.
 import json
 import math
 import re
+from pathlib import Path
 from pasos.tiempos_stickman import tiempo
 
 ENCUADRES = ('general', 'conjunto', 'medio', 'primer_plano', 'detalle', 'grafico', 'dividido', 'cierre')
 ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'parque', 'cocina', 'teatro', 'aula')
+PALETAS = json.loads((Path(__file__).resolve().parents[1] / 'motores/stickman/paletas.json').read_text(encoding='utf-8'))
 
 # Esquemas pequeños compartidos por validación e instrucciones al modelo.
 N = ('numero', -10000, 10000)
@@ -152,12 +154,14 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
         raise ValueError(f'{nombre}: demasiados componentes')
     resultado = []
     for d in datos:
-        if not isinstance(d, dict) or not isinstance(d.get('tipo'), str) or d['tipo'] not in catalogo or set(d) - {'tipo', 'inicio', 'fin', 'opciones', 'capa', 'desfase', 'duracion_total'}:
+        if not isinstance(d, dict) or not isinstance(d.get('tipo'), str) or d['tipo'] not in catalogo or set(d) - {'tipo', 'inicio', 'fin', 'opciones', 'capa', 'desfase', 'duracion_total', 'neon'}:
             raise ValueError(f'{nombre}: componente desconocido')
         ruta = f'{nombre}[{len(resultado)}]'
         inicio = tiempo(d.get('inicio', 0), 0, duracion, ruta + '.inicio')
         fin = tiempo(d.get('fin', duracion), inicio + .001, duracion, ruta + '.fin')
         ops = validar(d.get('opciones', {}), opciones(**catalogo[d['tipo']]), nombre + '.' + d['tipo'])
+        if 'neon' in d and nombre != 'graficos':
+            raise ValueError('neon se aplica a graficos u objetos, no a efectos_visuales')
         for k in ('count', 'rows', 'cols', 'doors', 'ticks', 'branches', 'blinds', 'max', 'total', 'destacados', 'destacar', 'decimals', 'perRow', 'columnas'):
             if k in ops and isinstance(ops[k], (int, float)) and int(ops[k]) != ops[k]:
                 raise ValueError(f'{nombre}.{k}: entero requerido')
@@ -188,6 +192,8 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
         componente = dict(tipo=d['tipo'], inicio=inicio, fin=fin, opciones=ops,
             capa=validar(d.get('capa', 'pantalla' if nombre == 'graficos' else 'fondo'),
                 ('elegir', 'fondo', 'frente', 'pantalla'), nombre + '.capa'))
+        if 'neon' in d:
+            componente['neon'] = validar(d['neon'], U, ruta + '.neon')
         if 'desfase' in d:
             componente['desfase'] = validar(d['desfase'], ('numero', 0, 600), nombre + '.desfase')
         if 'duracion_total' in d:
@@ -204,7 +210,7 @@ def normalizar(datos, duracion, reparto):
         r = validar(datos['realizacion'], opciones(
             encuadre=('elegir', *ENCUADRES), sujeto=('texto', 120), objetivo=('texto', 500),
             escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000)),
-            fondo=COLOR, desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
+            fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
             acabado=BOOL, color_fiel=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
             foco=('lista', U, 2, 2)), 'realizacion')
         if r.get('sujeto') and r['sujeto'] not in reparto:
@@ -261,7 +267,33 @@ en un gráfico. No copies toda la voz como texto. Una relación dominante; revel
 el resultado legible. Metáforas simples con transformación clara, nunca símbolos anidados.
 Incluye realizacion:{encuadre:general|conjunto|medio|primer_plano|detalle|grafico|dividido|cierre,
 sujeto:ID opcional,objetivo:"qué se entiende",escenario:{id:"lugar estable",tipo,semilla:7},
- desenfoque:0–20,profundidad:.1–1,acabado:true,color_fiel:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional}.
+ desenfoque:0–20,profundidad:.1–1,acabado:true,color_fiel:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional,
+ paleta:ember|arctic|sakura|retro}.
+PATRÓN DE COLOR: elige una familia coherente con el encargo y mantenla durante la secuencia.
+Respeta el acabado elegido si es ember/arctic/sakura/retro; si es editorial, elige por el tono:
+Ember Forge (drama: negro, rojo intenso, cobre y naranja); Arctic Glass (ciencia/tecnología:
+azules fríos, turquesa y blanco hielo, con amarillo cálido de contraste);
+Sakura Bloom (emoción: rosa, violeta, ciruela y melocotón);
+Retro Print (historia: verde azulado apagado, mostaza, sepia y naranja).
+Paletas de referencia, compartidas con el render: ''' + json.dumps(PALETAS, ensure_ascii=False) + '''.
+Estas paletas dirigen fondos, diagramas, palabras clave y acentos luminosos, NO sustituyen
+los materiales reconocibles de casas, muebles o personas. No mezcles todos los acentos a la vez.
+Para explicaciones gráficas parte de fondo oscuro profundo, texto secundario blanco cálido/hielo,
+palabra clave grande en el acento y diagramas de líneas finas con puntos claros y jerarquía visual.
+En Arctic Glass incorpora el amarillo cálido #ffcb52 (detalle) para títulos, cifras clave,
+etiquetas, umbrales o el elemento que explica la conclusión. Mantén ejes, estructura y datos
+de contexto en azul/turquesa sobre fondo azul oscuro, y el texto auxiliar blanco hielo.
+El amarillo puede tener neon:.2–.4 en el foco; no conviertas todo el diagrama en amarillo.
+Una cuadrícula muy tenue solo si ayuda al diagrama científico/técnico; no en toda escena.
+NEÓN SELECTIVO: añade neon:.2–.4 a un gráfico o a un objeto destacado (texto, vector o silueta).
+Ejemplo {tipo:"bigLine",inicio:0,fin:duracion,capa:"pantalla",neon:.3,
+opciones:{str:"GENES",color:"#76ccff",size:120}}. Para siluetas sirve lineFigure o un objeto vector.
+El halo es una copia suavemente desenfocada detrás del dibujo nítido, no un desenfoque del elemento.
+Úsalo en una palabra clave o silueta focal, no en párrafos, todos los objetos, piel ni mobiliario.
+Limita el efecto normalmente a 1–3 elementos focales; agrupa una silueta compuesta en un vector,
+en lugar de añadir un halo independiente a cada pieza. badge alinea a la derecha de su x;
+reserva columnas separadas para ilustración y palabras, sin invadir el diagrama con los rótulos.
+neon:0 desactiva el halo; no se añade por defecto al material histórico. Mantén contraste y contornos.
 Escenarios disponibles: ''' + ', '.join(ESCENARIOS) + '''.
 Reutiliza el mismo escenario/id/semilla en reapariciones, consultando escenarios_video y continuidad_bloque.
 Cada escenario ya dibuja mobiliario y luces; no lo tapes con rectángulos. Adapta ambiente a la hora.
@@ -279,7 +311,8 @@ Usa lista/barras/documento/comparacion/cronologia/poblacion/dial/interruptor ant
 Fidelidad: las cantidades, colores, posiciones y transformaciones EXPLÍCITAS del prompt son obligatorias.
 El estilo completa lo no especificado; nunca sustituye gris por verde ni recolorea un destacado narrativo.
 Usa color_fiel:true para evitar que la gradación tiña los colores de la escena. No añade una paleta nueva:
-especifica los colores pedidos en los objetos y gráficos. No añadas blueprint/cuadrícula salvo que se pida.
+especifica los colores pedidos en los objetos y gráficos. No añadas blueprint/cuadrícula como adorno;
+en un diagrama científico puede ser sutil (blueprint con a:.025), siempre subordinada al contenido.
 poblacion admite filas/columnas, color_base, color para destacados, indices_destacados (índices desde 0,
 por filas de izquierda a derecha), atenuacion (opacidad final del resto), inicio_destacado y duracion_destacado.
 Ejemplo: cien figuras grises en diez filas, una roja en la tercera fila:

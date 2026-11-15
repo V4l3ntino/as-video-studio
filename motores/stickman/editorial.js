@@ -5,6 +5,8 @@ import { efecto, grafico } from './kit.js';
 import { acabado } from './acabado.js';
 import { pintar3D } from './espacio3d.js';
 import { encuadrar } from './encuadre.js';
+import { conNeon } from './neon.js';
+import { paletaEditorial } from './estilo.js';
 
 export function pintarEditorial(g,t,D,draw) {
   const S0=D.escena,R=S0.realizacion||{},W=E.W,H=E.H;
@@ -33,7 +35,7 @@ export function pintarEditorial(g,t,D,draw) {
   g.setTransform(E.PX,0,0,E.PX,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';
   g.clearRect(0,0,W,H);
   // blurLayer atenúa el alpha en los bordes: mantener un respaldo opaco.
-  g.fillStyle=R.fondo||mood(S0.ambiente).wall;g.fillRect(0,0,W,H);
+  g.fillStyle=R.fondo||paletaEditorial(R.paleta)?.fondo||mood(S0.ambiente).wall;g.fillRect(0,0,W,H);
   const activo=item=>t>=item.inicio&&t<item.fin;
   function efectos(ctx,capa){
     for(const item of S0.efectos_visuales||[])if(item.capa===capa&&activo(item)){
@@ -44,8 +46,10 @@ export function pintarEditorial(g,t,D,draw) {
   function graficos(capa){
     for(const item of S0.graficos||[])if(item.capa===capa&&activo(item)){
       g.save();
-      if(capa==='pantalla')grafico(g,item,t,draw.reparto);
-      else layer(g,cam,capa==='fondo'?(R.profundidad??.65):1,()=>grafico(g,item,t,draw.reparto));
+      const pintar=()=>conNeon(g,item.neon,item.opciones.color||S().ui.gold,
+        ctx=>grafico(ctx,item,t,draw.reparto));
+      if(capa==='pantalla')pintar();
+      else layer(g,cam,capa==='fondo'?(R.profundidad??.65):1,pintar);
       g.restore();
     }
   }

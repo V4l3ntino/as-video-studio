@@ -4,7 +4,8 @@ import { posesAt, breathe, walkPose, face, drawFigure, bigFace, soccerBall, draw
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { cargarFuentes } from './fuentes.js';
 import { pintarEditorial } from './editorial.js';
-import { aplicarEstilo } from './estilo.js';
+import { aplicarEstilo, aplicarPaleta } from './estilo.js';
+import { conNeon } from './neon.js';
 import { protegerTexto } from './texto.js';
 import { esquinas } from './encuadre.js';
 import { movimientoEn } from './movimiento.js';
@@ -16,6 +17,7 @@ protegerTexto(g, () => Boolean(D.escena.realizacion));
 Object.assign(E, { W: 1920, H: 1920 * D.alto / D.ancho, PX: D.ancho / 1920,
   vertical: D.alto > D.ancho, fps: D.fps, cfg: {}, words: D.escena.palabras || [] });
 aplicarEstilo(D.variante.acabado);
+aplicarPaleta(D.escena.realizacion?.paleta);
 window.STICKMAN_READY = D.escena.realizacion ? cargarFuentes() : Promise.resolve(1);
 function valor(keys, t, campo, defecto, interpolacion = ease.inOut) {
   const lista = keys.filter(k => k[campo] !== undefined).map(k => [k.t, k[campo], ease[k.curva]]);
@@ -136,7 +138,8 @@ function estadoParte(p,o,t) {
     return valor(ks,t,campo,inicial);
   };
 }
-function vector(o, t) {
+function vector(o, t, ctx=g) {
+  const g=ctx;
   const d = D.escena.utileria[o.recurso];
   const paleta = {principal: D.variante.color, secundario: D.variante.secundario,
     contorno: D.variante.contorno, claro: '#fff8ee', oscuro: '#162532', ...o.paleta};
@@ -253,7 +256,8 @@ function limites() {
   limitesPorEscena.set(escena,puntos);return puntos;
 }
 
-function objeto(o, t) {
+function objeto(o, t, ctx=g) {
+  const g=ctx;
   const {x,y,s,rot}=posicionObjeto(o,t);
   const progreso = valor(o.claves, t, 'progreso', o.progreso ?? 1);
   const w = o.w, h = o.h;
@@ -263,7 +267,7 @@ function objeto(o, t) {
   g.lineJoin = g.lineCap = 'round';
   const caja = (x, y, w, h, r=8) => {g.beginPath(); g.roundRect(x, y, w, h, Math.min(r, w/2, h/2)); g.fill();};
   const trazo = (x, y, xx, yy) => {g.beginPath(); g.moveTo(x, y); g.lineTo(xx, yy); g.stroke();};
-  if (o.tipo === 'vector') vector(o, t);
+  if (o.tipo === 'vector') vector(o, t, g);
   else if(o.tipo === 'balon')soccerBall(g,0,0,Math.min(w,h)/2,0,o.color);
   else if (o.tipo === 'circulo') {g.beginPath(); g.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI * 2); g.fill();}
   else if (o.tipo === 'linea') {trazo(0, 0, w * progreso, h * progreso);}
@@ -332,7 +336,8 @@ function objeto(o, t) {
 }
 window.pintar = t => {
   if (D.escena.realizacion) return pintarEditorial(g,t,D,{
-    valor, estado, cabeza, limites, figura:(_g,c,time)=>figura(c,time), rostro:(_g,c,time)=>rostro(c,time), objeto:(_g,o,time)=>objeto(o,time),
+    valor, estado, cabeza, limites, figura:(_g,c,time)=>figura(c,time), rostro:(_g,c,time)=>rostro(c,time),
+    objeto:(ctx,o,time)=>conNeon(ctx,o.neon,o.color,c=>objeto(o,time,c)),
     reparto:Object.fromEntries(D.escena.personajes.map(c=>[c.id,c.diseno])),
   });
   const S = D.escena, M = mood(S.ambiente);

@@ -71,6 +71,26 @@ def escena_pizarra(base):
               for x, t in ((.28, 'APEGO EVITATIVO'), (.72, 'NARCISISMO'))]]), 3, {'lucia': base}, [1920, 1080])
 
 
+def utileria_domestica():
+    # Slots heredados del catálogo que provocaron fachadas verdes y cunas de neón.
+    def rect(x, y, w, h, relleno):
+        return dict(tipo='rectangulo', x=x, y=y, w=w, h=h, relleno=relleno, trazo='$contorno', grosor=4)
+    casa = dict(concepto='casa', nombre='Casa', descripcion='Fachada, tejado y puerta.', etiquetas=['casa'],
+        ancho=400, alto=300, partes=[
+            dict(id='fachada', formas=[rect(40, 100, 320, 190, '$principal')]),
+            dict(id='tejado', formas=[dict(tipo='trazo', comandos=[['M', 15, 105], ['L', 200, 10],
+                ['L', 385, 105], ['Z']], relleno='$secundario', trazo='$contorno', grosor=4)]),
+            dict(id='puerta', formas=[rect(175, 190, 50, 100, '$secundario')])])
+    cuna = dict(concepto='cuna', nombre='Cuna con bebé', descripcion='Madera, colchón y bebé envuelto.',
+        etiquetas=['cuna', 'bebé'], ancho=400, alto=300, partes=[
+            dict(id='estructura', formas=[rect(15, 90, 370, 180, '$principal'), rect(30, 105, 340, 115, '$claro')]),
+            dict(id='bebe', formas=[dict(tipo='elipse', x=140, y=140, w=180, h=65, relleno='$secundario', trazo='$contorno'),
+                dict(tipo='elipse', x=70, y=125, w=85, h=85, relleno='#EBCDB2', trazo='$contorno'),
+                rect(93, 153, 5, 6, '$contorno'), rect(126, 153, 5, 6, '$contorno')]),
+            dict(id='barrotes', formas=[rect(x, 220, 8, 70, '$principal') for x in (20, 90, 160, 230, 300, 372)])])
+    return dict(casa=casa, cuna=cuna)
+
+
 class Stickman(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=TEMP.name)
@@ -266,6 +286,67 @@ class Stickman(unittest.TestCase):
         self.assertIn('#882222', prompt)
         self.assertIn('estado final', prompt)
 
+    def test_entregas_invalidas_no_bloquean_otras_escenas_y_reintento_selectivo(self):
+        from pasos import p6_assets
+        p = Proyecto.crear(self.temp.name, 'Tanda con huecos')
+        params = dict(estilo=dict(stickman=self.config))
+        escenas = [dict(id=f'S00{i+1}', narracion=f'Frase {i+1}.', prompt='Saluda.',
+            origen=dict(bloque='B001'), t_in=i*3, t_out=(i+1)*3) for i in range(4)]
+        plan = dict(escenas=escenas, assets={}, dependencias={}, resolucion=[1920, 1080],
+            conservacion=dict(retirados=[]), duracion_total=12)
+        contenido = stickman.escena(dict(personajes=[dict(id='protagonista',
+            claves=[dict(t=0, pose='stand'), dict(t=2, pose='wave')])]), 3, {'protagonista': self.base})
+        def render(diseno, contenido, duracion, png, clip, *a, **kw):
+            Path(png).write_bytes(b'poster')
+            Path(clip).write_bytes(b'clip')
+        avisos = []
+        with patch.object(p6_assets, 'planificar', side_effect=lambda *a, **kw: copy.deepcopy(plan)), \
+                patch.object(p6_assets, '_catalogo_de', return_value={}), \
+                patch.object(stickman, 'renderizar', side_effect=render) as motor, \
+                patch.object(stickman, '_sonidos', return_value=[]):
+            # Se recorre la tanda entera y se informa de todos los huecos al final.
+            fallo = stickman.ErrorValidacion('una parte solo anima t,x,y,rot,escala,opacidad')
+            with patch.object(stickman, 'generar_escena', side_effect=[contenido, fallo, fallo, contenido]) as generar:
+                with self.assertRaises(stickman.ErrorEscenas) as error:
+                    stickman.ejecutar(p, params, lambda f, msg: avisos.append(msg))
+            self.assertEqual([c.args[0]['id'] for c in generar.call_args_list], [e['id'] for e in escenas])
+            self.assertEqual(set(error.exception.errores), {'S002', 'S003'})
+            self.assertIn('t,x,y,rot,escala,opacidad', str(error.exception))
+            self.assertEqual(motor.call_count, 2)
+            trabajo = Path(p.ruta_trabajo('assets'))
+            self.assertFalse((trabajo / 'escenas/S002.json').exists())
+            self.assertFalse((trabajo / 'escenas/S003.json').exists())
+            self.assertIsNone(p.version_activa('assets'))
+            previa = copy.deepcopy(plan)
+            previa['estilo'] = params['estilo']
+            stickman.aplicar_recursos(p, previa)
+            self.assertEqual([e['id'] for e in previa['escenas'] if e.get('stickman')], ['S001', 'S004'])
+            self.assertTrue(any('S002' in msg and 'Continuando' in msg for msg in avisos))
+            publicados = {sid: (trabajo / f'escenas/{sid}.json').read_bytes() for sid in ('S001', 'S004')}
+            # Reintentar los huecos conserva incluso las escenas posteriores.
+            with patch.object(stickman, 'generar_escena', return_value=contenido) as generar:
+                resultado = stickman.ejecutar(p, params, lambda *a: None,
+                    unidades=['escena:S002', 'escena:S003'])
+            self.assertEqual([c.args[0]['id'] for c in generar.call_args_list], ['S002', 'S003'])
+            self.assertEqual(set(resultado['unidades']), {'escena:S002', 'escena:S003'})
+            for sid, recibo in publicados.items():
+                self.assertEqual((trabajo / f'escenas/{sid}.json').read_bytes(), recibo)
+            # Los errores globales y Parar no se convierten en fallos locales.
+            from nucleo.trabajos import Cancelado
+            from pasos.cli_claude import LimiteAgotado
+            for fallo in (Cancelado('parar'), LimiteAgotado('sin cuota'), RuntimeError('motor')):
+                with self.subTest(fallo=type(fallo).__name__), \
+                        patch.object(stickman, 'generar_escena', side_effect=fallo) as generar:
+                    with self.assertRaises(type(fallo)):
+                        stickman.ejecutar(p, params, lambda *a: None, rehacer=True)
+                    self.assertEqual(generar.call_count, 1)
+
+    def test_consultar_distingue_entrega_invalida_tras_agotar_correcciones(self):
+        with patch.object(stickman, '_consultar', return_value={}) as consulta:
+            with self.assertRaisesRegex(stickman.ErrorValidacion, 'falta contenido'):
+                stickman.consultar('escena', validar=lambda d: (_ for _ in ()).throw(ValueError('falta contenido')))
+        self.assertEqual(consulta.call_count, 3)
+
     def test_puesta_en_escena_corrige_personajes_ilegibles_y_no_acepta_estaticos(self):
         validar = lambda d: stickman.validar_puesta_en_escena(d, 6, {'ana': self.base}, [1920, 1080])
         for actor in (dict(escala=.4), dict(x=.99), dict(y=.4, escala=3)):
@@ -298,6 +379,7 @@ class Stickman(unittest.TestCase):
         segundo = Proyecto.crear(self.temp.name, 'Historia de la aviación')
         e = dict(id='S001', narracion='El avión despega.', t_in=0, t_out=3)
         objeto = dict(tipo='vector', recurso='avión', x=.5, y=.4, w=650, h=325,
+            paleta=dict(principal='#b6bfc4', secundario='#78929d', claro='#f5f2eb', oscuro='#27313a'),
             claves=[dict(t=0, x=.3), dict(t=3, x=.7)])
         entrega = dict(utileria=dict(avion=avion_vectorial()), objetos=[objeto])
         with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), patch.object(stickman, '_consultar', side_effect=[dict(objetos=[objeto]), entrega, dict(objetos=[objeto])]) as consulta:
@@ -312,6 +394,58 @@ class Stickman(unittest.TestCase):
         self.assertIn('falta utilería', consulta.call_args_list[1].args[0])
         self.assertIn(ident, consulta.call_args_list[2].args[0])
         self.assertIn('catalogo_utileria', consulta.call_args_list[2].args[0])
+
+    def test_colores_domesticos_explicitos_corrigen_herencia_del_estilo(self):
+        recursos = {d['id']: d for d in map(utileria_stickman.definicion, utileria_domestica().values())}
+        utileria_stickman.guardar(recursos)
+        objetos = [dict(tipo='vector', recurso=k, x=x, y=.5, w=650, h=490,
+            claves=[dict(t=0, opacidad=.8), dict(t=2, opacidad=1)]) for k, x in (('casa', .25), ('cuna', .75))]
+        corregidos = copy.deepcopy(objetos)
+        corregidos[0]['paleta'] = dict(principal='#e5d8c1', secundario='#925540', contorno='#42382f')
+        corregidos[1]['paleta'] = dict(principal='#b58b60', secundario='#b8c8c5', contorno='#42382f', claro='#faf6ed')
+        with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), patch.object(stickman, '_consultar',
+                side_effect=[dict(objetos=objetos), dict(objetos=corregidos)]) as consulta:
+            resultado = stickman.generar_escena(dict(t_in=0, t_out=3), self.base, {'ana': self.base}, None, lambda *a: None)
+        self.assertEqual(consulta.call_count, 2)
+        self.assertIn('Colores de «casa»', consulta.call_args.args[0])
+        self.assertIn('colores por parte', consulta.call_args_list[0].args[0])
+        for objeto, esperado in zip(resultado['objetos'], corregidos):
+            self.assertEqual(objeto['paleta'], esperado['paleta'])
+        self.assertEqual(utileria_stickman.catalogo(), recursos)  # Fichas inmutables.
+        # La lectura histórica sigue admitiendo planes sin paleta; no invalida clips.
+        historico = stickman.escena(dict(objetos=objetos), 3, {}, recursos)
+        self.assertEqual(historico['objetos'][0]['paleta'], {})
+        incompleta = copy.deepcopy(resultado)
+        del incompleta['objetos'][1]['paleta']['contorno']
+        with self.assertRaisesRegex(ValueError, 'cuna.*contorno'):
+            utileria_stickman.validar_colores(incompleta)
+        # Un dibujo con materiales fijos no necesita slots ni adoptar el estilo.
+        fija = utileria_domestica()['casa']
+        for p in fija['partes']:
+            for f in p['formas']:
+                f['relleno'], f['trazo'] = '#e5d8c1', '#42382f'
+        utileria_stickman.validar_colores(stickman.escena(dict(utileria=dict(casa=fija),
+            objetos=[dict(tipo='vector', recurso='casa')]), 3, {}))
+
+    @unittest.skipUnless(REAL, 'usa --real para colores domésticos en Chromium')
+    def test_render_materiales_no_heredan_colores_del_personaje(self):
+        from PIL import Image
+        contenido = stickman.escena(dict(decorado='vacio', utileria=utileria_domestica(), objetos=[
+            dict(tipo='vector', recurso='casa', x=.25, y=.5, w=700, h=530,
+                paleta=dict(principal='#e5d8c1', secundario='#925540', contorno='#42382f')),
+            dict(tipo='vector', recurso='cuna', x=.75, y=.5, w=700, h=530,
+                paleta=dict(principal='#b58b60', secundario='#b8c8c5', contorno='#42382f', claro='#faf6ed'))]), 3, {})
+        utileria_stickman.validar_colores(contenido)
+        for i, color in enumerate(('#00ff00', '#ff00ff')):
+            png = Path(self.temp.name) / f'materiales-{i}.png'
+            stickman.renderizar(dict(self.base, color=color, secundario='#0000ff', contorno='#ccff00'),
+                contenido, 3, str(png), salida=(960, 540))
+            with Image.open(png) as img:
+                colores = {c for _, c in img.convert('RGB').getcolors(img.width * img.height)}
+            for tinta in ('e5d8c1', '925540', 'b58b60', 'b8c8c5', 'faf6ed', 'ebcdb2', '42382f'):
+                self.assertIn(tuple(bytes.fromhex(tinta)), colores)
+            for tinta in ('00ff00', 'ff00ff', '0000ff', 'ccff00'):
+                self.assertNotIn(tuple(bytes.fromhex(tinta)), colores)
 
     def test_catalogo_persistente_fuera_del_programa_tambien_en_servicio(self):
         datos = Path(self.temp.name) / 'datos'

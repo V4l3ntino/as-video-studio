@@ -2,6 +2,7 @@
 import { E, mood, alpha, shade, rr, seg, poly, linGrad, rng } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { blueprint } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/ui2d.js';
+import { paletaEditorial } from './estilo.js';
 
 export function semillaLugar(lugar) {
   let seed=lugar.semilla??7;
@@ -12,7 +13,8 @@ export function semillaLugar(lugar) {
 export function decorado(g, escena, t) {
   const R=escena.realizacion||{},lugar=R.escenario||{tipo:escena.decorado},tipo=lugar.tipo;
   const W=E.W,H=E.H,M=mood(escena.ambiente),floor=H*.84,seed=semillaLugar(lugar),random=rng(seed);
-  if(R.fondo){g.fillStyle=R.fondo;g.fillRect(-W,-H,W*3,H*3);}
+  const fondo=R.fondo||(tipo==='vacio'?paletaEditorial(R.paleta)?.fondo:null);
+  if(fondo){g.fillStyle=fondo;g.fillRect(-W,-H,W*3,H*3);}
   else if(['grafico','cierre'].includes(R.encuadre)&&tipo==='vacio')blueprint(g,{a:.035});
   else {g.fillStyle=linGrad(g,0,0,0,H,[shade(M.wall,-.3),M.wall,M.floor]);g.fillRect(-W,-H,W*3,H*3);}
   if(tipo==='vacio')return;

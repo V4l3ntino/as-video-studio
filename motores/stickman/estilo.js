@@ -1,4 +1,5 @@
 import { E, setStyle } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
+import PALETAS from './paletas.json';
 
 // Perfil neutro para vídeos nuevos: no tiñe todas las identidades de verde/rojo.
 // Los cinco acabados originales siguen pasando por setStyle sin alteraciones.
@@ -13,4 +14,14 @@ const EDITORIAL = {
 export function aplicarEstilo(id){
   if(id==='editorial'){E.styleId=id;E.style=EDITORIAL;}
   else setStyle(id);
+}
+
+export function paletaEditorial(id){return PALETAS[id];}
+
+export function aplicarPaleta(id){
+  const p=paletaEditorial(id);
+  if(!p)return;
+  // Solo grafismo: ni el vestuario ni los materiales de utilería se recolorean.
+  E.style={...E.style,ui:{...E.style.ui,accent:p.detalle||p.acento,gold:p.acento,cream:p.texto,
+    text:p.texto,sub:p.secundario,blueprint:p.secundario,bpBg:p.fondo}};
 }

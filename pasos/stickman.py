@@ -31,7 +31,21 @@ EXPRESIONES = ('neutral', 'smile', 'happy', 'joy', 'surprised', 'shocked', 'scar
 EFECTOS = ('whoosh', 'swish', 'impact', 'hit', 'riser', 'slowmo', 'freeze', 'tick', 'clock',
            'heartbeat', 'pop', 'blip', 'counter', 'ding', 'shimmer', 'stinger', 'footstep', 'kick',
            'whistle', 'carpass', 'phonebuzz', 'phonering', 'cheer', 'applause', 'murmur', 'rain',
-           'thunder', 'wind', 'roomtone', 'city', 'hum', 'powerup', 'glitch', 'flash', 'buzz')
+            'thunder', 'wind', 'roomtone', 'city', 'hum', 'powerup', 'glitch', 'flash', 'buzz')
+
+
+class ErrorValidacion(ValueError):
+    """El proveedor agotó las correcciones de una entrega, no falló el servicio."""
+
+
+class ErrorEscenas(ValueError):
+    """La tanda recorrió las pendientes pero algunas entregas siguen inválidas."""
+
+    def __init__(self, errores):
+        self.errores = dict(errores)
+        super().__init__('Se han procesado las demás escenas Stickman. '
+            'Las animaciones terminadas se conservan. Reintenta las escenas fallidas: '
+            + '\n'.join(f'{sid}: {error}' for sid, error in errores.items()))
 
 
 def activo(params):
@@ -143,7 +157,7 @@ def consultar(prompt, proyecto=None, referencias=(), avisar=None, proveedor='Cla
             except (ValueError, KeyError, TypeError) as fallo:
                 error, anterior = str(fallo), json.dumps(datos, ensure_ascii=False)[:15000]
         if intento == 2:
-            raise ValueError('No se pudo validar la animación Stickman: ' + error)
+            raise ErrorValidacion('No se pudo validar la animación Stickman: ' + error)
         if avisar:
             avisar(None, f'Corrigiendo el plan de animación · intento {intento + 1} de 2')
         prompt = original + '\nCorrige esta entrega respetando el contrato. Error: ' + error + '\nEntrega anterior: ' + anterior
@@ -283,6 +297,8 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             capa=elegir(o.get('capa', 'frente'), ('fondo', 'frente')), claves=claves(o.get('claves', []), duracion, f'objetos[{indice}].claves'),
             ancla=ancla, fuente=numero(o.get('fuente', 48), 16, 96), grosor=numero(o.get('grosor', 6), 1, 24),
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
+        if 'neon' in o:
+            resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
         if o.get('tipo') == 'vector':
             ident = utileria_stickman.resolver(o.get('recurso'), recursos, alias)
             recurso = recursos[ident]
@@ -597,7 +613,8 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             + json.dumps(dict(escena=e, duracion=dur, estilo=diseno, reparto=reparto,
                 catalogo_utileria=utileria_stickman.indice(catalogo_utileria, e)), ensure_ascii=False),
             proyecto, avisar=avisar, proveedor=proveedor,
-            validar=lambda d: validar_puesta_en_escena(d, dur, reparto, e.get('resolucion', [1920, 1080]), catalogo_utileria))
+            validar=lambda d: utileria_stickman.validar_colores(validar_puesta_en_escena(
+                d, dur, reparto, e.get('resolucion', [1920, 1080]), catalogo_utileria)))
     datos.setdefault('realizacion', dict(encuadre='general', acabado=True))
     resultado = escena(datos, dur, reparto)
     # El kit recibe las marcas reales, nunca un reloj de subtítulos independiente.
@@ -668,7 +685,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
     if not reparto:
         reparto['protagonista'] = base
     medios.escribir_json(os.path.join(trabajo, 'plan.json'), plan)
-    resultados, rehechas = {}, {}
+    resultados, rehechas, errores = {}, {}, {}
     # Las piezas son datos de rig; no se solicitan imágenes a un proveedor.
     for uid, ficha in plan['assets'].items():
         salida = dict(tipo=ficha['tipo'], origen='stickman', diseno=reparto.get(ficha['nombre'], base))
@@ -724,7 +741,15 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                     escenarios_video=escenarios_video)
                 edicion = contexto['indicaciones_usuario'].get('edicion_stickman') or {}
                 proveedor = edicion.get('proveedor') or ('Claude' if i < n_claude else 'ChatGPT')
-                contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
+                try:
+                    contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
+                except ErrorValidacion as fallo:
+                    # Solo una entrega inválida es local a la escena. Cancelación,
+                    # cuota y fallos del motor siguen interrumpiendo la tarea.
+                    errores[e['id']] = str(fallo)
+                    avisar((i + 1) / len(escenas),
+                        f'{e["id"]}: animación inválida; queda pendiente. Continuando con las demás escenas. {fallo}')
+                    continue
                 fuente.parent.mkdir(parents=True, exist_ok=True)
                 medios.escribir_json(str(fuente), dict(firma=firma, contenido=contenido))
             # Las definiciones viajan con la versión y se incorporan al catálogo
@@ -752,6 +777,9 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
             avisar((i + 1) / len(escenas), f'Animación {e["id"]} lista')
     medios.escribir_json(os.path.join(trabajo, 'assets.json'), dict(assets=plan['assets'], resultados=resultados))
     medios.escribir_json(os.path.join(trabajo, 'dependencias.json'), plan['dependencias'])
+    if errores:
+        # No completar assets ni sus dependientes con huecos en la tanda.
+        raise ErrorEscenas(errores)
     retiradas = ['escena:' + sid for sid in plan['conservacion'].get('retirados', [])] if unidades is None else []
     return dict(salidas=dict(plan='plan.json', escenas='escenas', assets='assets.json', dependencias='dependencias.json',
         n_escenas=len(plan['escenas']), duracion=plan['duracion_total'], coste_usd=0,

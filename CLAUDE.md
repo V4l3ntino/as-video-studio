@@ -72,6 +72,34 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+`realizacion.paleta` selecciona ember/arctic/sakura/retro para grafismos; los
+colores compartidos de prompt/render viven en `motores/stickman/paletas.json`.
+No uses esa paleta para sustituir los materiales ni la piel. `neon:0–1` en
+objetos/gráficos es un halo alfa local detrás del original nítido (`neon.js`),
+no `filter:blur` sobre el elemento o el fotograma completo. La capa aislada
+protege los textos con contorno fino; el contorno habitual conserva su grosor.
+Los planes históricos sin esos campos siguen el camino anterior; no cambies
+VERSION para invalidar tandas al continuar. Regresión de cuatro paletas,
+halo, determinismo y fidelidad interior: `prueba_stickman_editorial.py --real`.
+
+Las entregas nuevas pasan por `utileria_stickman.validar_colores` después de la
+puesta en escena: cada vector debe declarar todos los slots `$` usados por su
+recurso. Fachadas, tejados y cunas heredaban el verde/azul del personaje y los
+rasgos del bebé el contorno de marca. El índice expone rellenos/trazos por parte
+para elegir materiales coherentes; los dibujos nuevos prefieren hex propios.
+No impongas esa validación a la lectura de planes históricos ni cambies VERSION:
+los clips publicados se corrigen al regenerar su animación. Contrato y píxeles:
+`python pasos/prueba_stickman.py --real`, sin proveedores.
+
+`stickman.consultar` distingue `ErrorValidacion` tras agotar sus tres entregas.
+Durante una tanda, `ejecutar` deja esa escena pendiente y recorre las restantes;
+al final lanza `ErrorEscenas` con IDs y motivos, sin completar assets con huecos.
+Los recibos de clips terminados quedan en trabajo y se ven en la previa. El
+reintento selectivo con `unidades` conserva las demás, incluidas las posteriores
+al hueco. No captures excepciones genéricas en ese punto: cancelación, cuota y
+fallos del servicio/motor deben detener el trabajo. Regresión offline en
+`python pasos/prueba_stickman.py`.
+
 La locomoción del rig se limita a tramos con desplazamiento x/y en
 `motores/stickman/movimiento.js`; un `movimiento:caminar` global no puede seguir
 sustituyendo las poses cuando el actor ya llegó. Las claves admiten movimiento

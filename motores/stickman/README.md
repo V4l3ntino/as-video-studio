@@ -143,6 +143,29 @@ fuera, normalmente x=-.4 o 1.4, no solo hasta el borde. Las poses y posiciones
 finales se conservan al transmitir continuidad a la siguiente escena. Los MP4
 publicados necesitan regenerarse para mostrar esta corrección.
 
+## Paletas editoriales y neón selectivo
+
+`realizacion.paleta: ember|arctic|sakura|retro` selecciona fondo y tintas de
+grafismo desde `paletas.json`, compartido con las instrucciones del director.
+No recolorea el vestuario ni los materiales de utilería. Un `fondo` o color
+explícito tiene prioridad. En escenarios vacíos se usa el fondo profundo de la
+paleta; los decorados narrativos conservan su iluminación y materiales.
+Arctic Glass incorpora además `detalle:#ffcb52`: amarillo cálido para títulos,
+cifras, etiquetas y umbrales explicativos. Se conecta a `ui.accent`; el azul
+principal permanece en `ui.gold` y el turquesa en las tintas estructurales.
+
+Los `graficos` y `objetos` admiten `neon:0–1` (normalmente `.2–.4`):
+`{tipo:"bigLine",neon:.3,opciones:{str:"GENES",color:"#76ccff"}}`.
+En `neon.js` se dibuja el elemento en una capa aislada, se tiñe una máscara
+alfa con el color de acento y se compone desenfocada debajo del original nítido.
+El texto conserva una protección de contraste fina. No se desenfoca el lienzo
+completo ni se extiende el halo a elementos vecinos. En vectores, `color`
+define el halo y `paleta` conserva las tintas interiores. Siluetas gráficas
+pueden usar `lineFigure`. La ausencia de `paleta`/`neon` conserva el render
+histórico. Para aplicar la dirección nueva a clips existentes hay que regenerar.
+
+Pruebas de contrato y píxeles: `python pasos/prueba_stickman_editorial.py --real`.
+
 ## Catálogo extensible de utilería
 
 `pasos/utileria_stickman.py` mantiene fichas vectoriales inmutables, identificadas
@@ -168,6 +191,17 @@ elipses. No se aceptan código, imágenes externas ni SVG arbitrario. Los
 rellenos y trazos admiten colores hexadecimales o `$principal`, `$secundario`,
 `$contorno`, `$claro`, `$oscuro`; esas referencias se resuelven contra el estilo
 del vídeo y la paleta de la instancia.
+
+En generaciones nuevas, cada instancia debe declarar en `paleta` todos los slots
+`$` utilizados por su dibujo. El validador devuelve los slots ausentes al director
+para corregirlos antes de renderizar: la utilería no debe heredar automáticamente
+el verde/azul del vestuario ni los contornos de marca. El índice del catálogo
+incluye rellenos y trazos por parte para elegir según su material (fachada,
+tejado, madera, manta, piel y rasgos), también al reutilizar dibujos antiguos.
+Los dibujos nuevos priorizan colores hexadecimales propios de cada material;
+las instrucciones explícitas de la escena tienen prioridad. Las fichas y sus
+huellas siguen siendo inmutables. La lectura de planes históricos no exige
+paletas nuevas ni invalida clips terminados.
 
 `parte.animacion:{duracion,claves}` define un ciclo reutilizable (por ejemplo,
 una hélice). Las claves de parte animan desplazamiento local `x,y`, `rot` en

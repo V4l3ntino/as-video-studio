@@ -119,6 +119,12 @@ reproducir las escenas disponibles mientras continúa la tanda; **Parar** conser
 las terminadas y **Continuar animaciones** retoma las pendientes. El botón de
 montaje utiliza los clips generados, las voces, los subtítulos y las transiciones.
 
+Si una escena entrega un plan inválido incluso tras sus correcciones automáticas,
+queda pendiente y la tanda continúa con las siguientes. Al terminar se indican
+las escenas fallidas y su motivo para poder reintentarlas individualmente;
+las animaciones preparadas se conservan. La tanda queda incompleta hasta resolver
+esas escenas.
+
 Los efectos y ambientes procedurales del plugin GrowKaz aparecen en la pista
 **Sonidos**. Se escuchan en la previsualización y se mezclan en el MP4 final con
 las voces y la música, sin duplicarlos dentro del clip visual. Puedes moverlos,
@@ -143,7 +149,10 @@ que falta —por ejemplo, un avión—, Claude o ChatGPT puede diseñarlo con fo
 vectoriales y piezas animables. La definición utilizada se valida y se guarda
 automáticamente en un **catálogo compartido**: otras escenas y vídeos, aunque
 sean de otra temática, pueden reutilizarla sin volver a diseñarla. Los colores
-de paleta se adaptan al estilo del vídeo. El catálogo guarda el objeto, no los
+se eligen según el elemento y sus materiales: fachadas y tejados plausibles,
+madera o lacado para muebles y tonos naturales para piel. La utilería no hereda
+automáticamente los colores del personaje; al reutilizar dibujos con paleta,
+la generación debe elegir explícitamente sus tintas. El catálogo guarda el objeto, no los
 tiempos ni las acciones particulares de la escena.
 
 Cada vídeo conserva una copia de la utilería utilizada para poder duplicarlo,
@@ -184,6 +193,18 @@ suavizar el decorado. Luces, sombras de apoyo, atmósfera, gradación, viñeta y
 grano forman parte del render. Los estilos nuevos parten del acabado
 **Editorial Cinema**, con color neutro y contorno cálido; las variantes elegidas
 conservan su paleta. Los cinco acabados anteriores siguen disponibles.
+
+La dirección de escenas nuevas utiliza las familias **Ember Forge** (negro,
+rojo, cobre y naranja), **Arctic Glass** (azules fríos, turquesa y blanco hielo,
+con amarillo cálido para títulos, cifras y focos explicativos),
+**Sakura Bloom** (rosa, violeta, ciruela y melocotón) y **Retro Print** (verde
+azulado apagado, mostaza, sepia y naranja). Respeta el acabado elegido de esas
+familias y mantiene la continuidad cromática de la secuencia. En explicaciones
+gráficas, un fondo profundo y oscuro separa el diagrama, el texto secundario y
+la palabra clave en color de acento. Los materiales y la piel conservan colores
+reconocibles. Las palabras clave o siluetas destacadas pueden llevar un halo
+leve de neón: se desenfoca una copia detrás y se conserva el dibujo nítido.
+El efecto es selectivo; no se aplica a todo el texto ni a todos los objetos.
 
 Para planos que necesitan espacio, el director también dispone del módulo
 **Three.js del kit**: figuras, edificios, vegetación, público, materiales,

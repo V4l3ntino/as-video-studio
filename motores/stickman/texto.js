@@ -2,7 +2,7 @@
 // Se conserva el color solicitado: el respaldo es claro para tinta oscura y viceversa.
 import { rgb } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 
-export function protegerTexto(g, activo) {
+export function protegerTexto(g, activo, grosor=.12) {
   const original = g.fillText;
   g.fillText = function(str, x, y, ...args) {
     if (activo() && typeof this.fillStyle === 'string') {
@@ -11,7 +11,7 @@ export function protegerTexto(g, activo) {
       const size = Number(this.font.match(/([\d.]+)px/)?.[1] || 32);
       this.save();
       this.shadowBlur = 0; this.lineJoin = 'round';
-      this.lineWidth = Math.max(2, size*.12);
+      this.lineWidth = Math.max(2, size*grosor);
       this.strokeStyle = luminancia < .179 ? '#ffffff' : '#000000';
       this.strokeText(str, x, y, ...args);
       // El resplandor de la tinta no debe tapar el contorno de contraste.

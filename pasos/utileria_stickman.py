@@ -219,8 +219,32 @@ def indice(recursos, contexto, maximo=100):
         tokens = set(re.findall(r'[a-z0-9]+', unicodedata.normalize('NFKD', ' '.join([d['concepto'], d['nombre'], *d['etiquetas']])).encode('ascii', 'ignore').decode().lower()))
         return (-len(palabras & tokens), d['concepto'], d['id'])
     return [dict(id=d['id'], concepto=d['concepto'], nombre=d['nombre'], descripcion=d['descripcion'],
-        etiquetas=d['etiquetas'], ancho=d['ancho'], alto=d['alto'], partes=[p['id'] for p in d['partes']])
+        etiquetas=d['etiquetas'], ancho=d['ancho'], alto=d['alto'], partes=[p['id'] for p in d['partes']],
+        colores=colores_por_parte(d))
         for d in sorted(recursos.values(), key=relevancia)[:maximo]]
+
+
+def colores_por_parte(d):
+    """Expone materiales y tintas sin enviar toda la geometría al director."""
+    return {p['id']: {campo: sorted({f[campo] for f in p['formas'] if f[campo] is not None})
+        for campo in ('relleno', 'trazo')} for p in d['partes']}
+
+
+def validar_colores(escena):
+    """Solo para entregas nuevas: ninguna tinta queda a merced del vestuario."""
+    for o in escena['objetos']:
+        if o['tipo'] != 'vector':
+            continue
+        d = escena['utileria'][o['recurso']]
+        usados = {f[campo][1:] for p in d['partes'] for f in p['formas']
+            for campo in ('relleno', 'trazo') if (f[campo] or '').startswith('$')}
+        faltan = usados - o['paleta'].keys()
+        if faltan:
+            raise ValueError(f'Colores de «{d["concepto"]}»: define paleta para '
+                + ', '.join(sorted(faltan)) + '. Elige tonos propios del material y del elemento, '
+                'no los colores del personaje. Colores por parte: '
+                + json.dumps(colores_por_parte(d), ensure_ascii=False))
+    return escena
 
 
 def guardar(recursos, trabajo=None):
@@ -247,8 +271,24 @@ UTILERÍA EXTENSIBLE Y REUTILIZABLE:
 Consulta catalogo_utileria y reutiliza sus recursos para cualquier temática. Un objeto compuesto
 se instancia con {tipo:"vector",recurso:"ID o concepto",x:.5,y:.4,w:400,h:200,...}; admite las mismas
 anclas, claves, opacidad y capas que los demás objetos. Se ajusta a w,h sin deformarse.
-Admite paleta:{principal:"#RRGGBB",secundario:"#RRGGBB",...} para personalizar sus colores;
-por defecto usa el estilo del vídeo, sin modificar la ficha reutilizable.
+Admite paleta:{principal:"#RRGGBB",secundario:"#RRGGBB",...} para personalizar sus colores,
+sin modificar la ficha reutilizable. OBLIGATORIO: declara en cada instancia todos los slots $
+usados por su recurso (también contorno, claro y oscuro si aparecen). No heredes el vestuario
+ni copies automáticamente los colores del estilo. El índice incluye colores por parte,
+separando relleno y trazo: comprueba qué material o rasgo pinta cada slot antes de asignarlo.
+COLOR CON SENTIDO, para TODA la escena (también primitivas, gráficos y figuras 3D):
+Elige según el objeto, material, contexto e iluminación, con saturación moderada por defecto.
+Casas: fachadas de yeso blanco roto, crema, piedra o ladrillo; tejas terracota o pizarra,
+puertas de madera o pintura plausible, ventanas de vidrio y contornos oscuros discretos.
+Una fachada verde con tejado azul eléctrico y borde lima NO es la opción por defecto.
+Cunas: madera natural o lacado blanco, colchón y sábanas claros; mantas de tonos suaves.
+Bebés y personas: piel de tonos humanos naturales y diversos, rasgos legibles con tinta oscura;
+separa piel, pelo, ropa y manta. No tiñas ojos, boca o piel con el acento de marca.
+Vegetación verde natural, madera marrón, metal gris y vidrio claro salvo motivo concreto.
+Una petición explícita de color o una codificación informativa manda sobre estos ejemplos;
+no prohíbas colores plausibles ni recolorees personajes Stickman de identidad ya establecida.
+Conserva los colores elegidos al continuar el mismo objeto dentro del vídeo. Entre vídeos,
+reutilizar geometría NO obliga a repetir la combinación cromática de otro vídeo.
 Si el concepto necesario NO existe, dibújalo tú y añade en la RAÍZ del JSON:
 utileria:{"avion":{concepto:"avion",nombre:"Avión",descripcion:"Avión de pasajeros visto de lado",
 etiquetas:["avión","airplane","transporte","viaje"],ancho:1000,alto:500,partes:[
@@ -259,7 +299,9 @@ ventanas y detalles distintivos para que el objeto se reconozca sin etiquetas.
 No inventes utilería innecesaria ni dibujes de nuevo conceptos disponibles. Puedes referenciar
 un concepto por nombre aunque no aparezca en el índice resumido; si falta se te pedirá definirlo.
 Las definiciones no contienen posiciones de escena, tiempos de narración, nombres de personajes
-ni texto temático: deben servir para otros vídeos. Preferir colores de paleta adaptables al estilo.
+ni texto temático: deben servir para otros vídeos. En dibujos nuevos usa #RRGGBB propios de
+cada material, separando sus rellenos y contornos; reserva los slots $ para tintas que deban
+personalizarse explícitamente, nunca como sustituto automático del color de todos los materiales.
 Cada definición tiene hasta 40 partes; cada parte agrupa formas con un pivote [x,y] local.
 Formas: trazo (M x y; L x y; Q cx cy x y; C c1x c1y c2x c2y x y; Z),
 rectangulo o elipse (x,y esquina superior izquierda,w,h,radio opcional para rectangulo).

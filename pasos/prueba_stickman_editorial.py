@@ -40,6 +40,27 @@ def grafica(tipo, opciones):
         graficos=[dict(tipo='blueprint',capa='fondo'), dict(tipo=tipo,opciones=opciones,inicio=.1,fin=4)])
 
 
+def escena_neon(paleta='arctic'):
+    import math
+    p=editorial.PALETAS[paleta]
+    objetos=[]
+    for i in range(12):
+        y=.16+i*.057
+        apertura=.045+.09*abs(math.cos(i*.68))
+        x=.32-apertura
+        objetos.append(dict(tipo='linea',x=x,y=y,w=apertura*3840,h=0,color=p['sombra'],grosor=4))
+        for j,xx in enumerate((x,.32+apertura)):
+            objetos.append(dict(tipo='circulo',x=xx,y=y,w=22,h=22,
+                color=p['acento'] if (i+j)%3 else p['texto'],neon=.25 if (i+j)%3 else 0))
+    return dict(ambiente='void',decorado='vacio',personajes=[],objetos=objetos,
+        realizacion=dict(encuadre='grafico',paleta=paleta,color_fiel=True,grano=0,vineta=.15,
+            escenario=dict(id='genetica',tipo='vacio')),
+        graficos=[dict(tipo='blueprint',capa='fondo',opciones=dict(a=.025,grid=75)),
+            dict(tipo='badge',opciones=dict(str='FUERTEMENTE INFLUIDO POR',x=1740,y=400,size=40,
+                color=p['detalle'] if paleta=='arctic' else p['texto'])),
+            dict(tipo='badge',neon=.35,opciones=dict(str='LOS GENES',x=1740,y=550,size=96))])
+
+
 CASOS_GRAFICOS = {
     'titleCard': dict(lines=['UNA DIFERENCIA', 'QUE IMPORTA'],sub='Conocer y sentir'),
     'bigLine': dict(str='¿Qué cambia realmente?'),
@@ -85,6 +106,76 @@ class Editorial(unittest.TestCase):
             with self.subTest(tipo=tipo):
                 d=stickman.escena(dict(efectos_visuales=[dict(tipo=tipo)]),4,{})
                 self.assertEqual(d['efectos_visuales'][0]['tipo'],tipo)
+
+    def test_paletas_y_neon_selectivo_son_datos_validados_y_opcionales(self):
+        for paleta in editorial.PALETAS:
+            d=stickman.escena(escena_neon(paleta),4,{})
+            self.assertEqual(d['realizacion']['paleta'],paleta)
+            self.assertEqual(d['graficos'][-1]['neon'],.35)
+            self.assertEqual(d['objetos'][1]['neon'],0)
+            self.assertEqual(stickman.escena(d,4,{}),d)
+        historico=stickman.escena(grafica('bigLine',{}),4,{})
+        self.assertNotIn('paleta',historico['realizacion'])
+        self.assertNotIn('neon',historico['graficos'][-1])
+        for d in (dict(realizacion=dict(paleta='inventada')),
+                dict(graficos=[dict(tipo='bigLine',neon=1.1)]),
+                dict(objetos=[dict(tipo='circulo',neon=-.1)]),
+                dict(objetos=[dict(tipo='texto',neon=True)]),
+                dict(efectos_visuales=[dict(tipo='dust',neon=.3)])):
+            with self.subTest(d=d),self.assertRaises(ValueError):
+                stickman.escena(d,4,{})
+        prompt=editorial.instruccion()
+        for nombre in ('Ember Forge','Arctic Glass','Sakura Bloom','Retro Print','neon:.2–.4'):
+            self.assertIn(nombre,prompt)
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar halo, nitidez y paletas en Canvas')
+    def test_neon_real_preserva_interiores_y_colores_y_se_puede_apagar(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        for paleta in editorial.PALETAS:
+            d=escena_neon(paleta)
+            d['realizacion']['vineta']=0
+            # Incluye un vector con tinta distinta al acento para comprobar la máscara.
+            d['utileria']={'prueba':dict(concepto='silueta',nombre='Silueta',descripcion='Cuadrado de prueba',
+                ancho=100,alto=100,partes=[dict(id='silueta',pivote=[50,50],formas=[
+                dict(tipo='rectangulo',x=0,y=0,w=100,h=100,radio=0,relleno='#b58b60',trazo=None)])])}
+            d['objetos'].append(dict(tipo='vector',recurso='prueba',x=.7,y=.8,w=180,h=90,neon=.3,
+                color=editorial.PALETAS[paleta]['acento']))
+            d=stickman.escena(d,4,{})
+            def comprobar(nav,destino=None):
+                resultado=nav.evaluar('''(() => {
+                  const d=window.STICKMAN.escena,ctx=document.querySelector('canvas').getContext('2d');
+                  const items=[...d.objetos,...d.graficos],valores=items.map(o=>o.neon);
+                  const pixels=()=>ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height).data;
+                  items.forEach(o=>o.neon=0);window.pintar(2);const base=pixels();
+                  items.forEach((o,i)=>o.neon=valores[i]);window.pintar(2);const neon=pixels();
+                  const rgb=COLOR_ESPERADO.match(/[a-f0-9]{2}/gi).map(n=>parseInt(n,16));
+                  let diferentes=0,madera=0,maderaIgual=0,acento=0,acentoIgual=0,amarillo=0;
+                  for(let i=0;i<base.length;i+=4){
+                    if(neon[i]===255&&neon[i+1]===203&&neon[i+2]===82)amarillo++;
+                    if(base[i]!==neon[i]||base[i+1]!==neon[i+1]||base[i+2]!==neon[i+2])diferentes++;
+                    if(base[i]===181&&base[i+1]===139&&base[i+2]===96){
+                      madera++;if(base[i]===neon[i]&&base[i+1]===neon[i+1]&&base[i+2]===neon[i+2])maderaIgual++;
+                    }
+                    if(base[i]===rgb[0]&&base[i+1]===rgb[1]&&base[i+2]===rgb[2]){
+                      acento++;if(base[i]===neon[i]&&base[i+1]===neon[i+1]&&base[i+2]===neon[i+2])acentoIgual++;
+                    }
+                  }
+                  window.pintar(2);const repetida=pixels();let estable=true;
+                  for(let i=0;i<neon.length;i++)if(neon[i]!==repetida[i]){estable=false;break;}
+                  return {diferentes,madera,maderaIgual,acento,acentoIgual,amarillo,estable};
+                })()'''.replace('COLOR_ESPERADO',json.dumps(editorial.PALETAS[paleta]['acento'])))
+                self.assertGreater(resultado['diferentes'],300)
+                self.assertGreater(resultado['madera'],100)
+                self.assertEqual(resultado['madera'],resultado['maderaIgual'])
+                self.assertGreater(resultado['acento'],300)
+                self.assertEqual(resultado['acento'],resultado['acentoIgual'])
+                self.assertTrue(resultado['estable'])
+                if paleta=='arctic':
+                    self.assertGreater(resultado['amarillo'],100)
+                return original(nav,destino)
+            with self.subTest(paleta=paleta),patch.object(p8_render.Navegador,'capturar',comprobar):
+                stickman.renderizar(self.base,d,4,str(Path(TEMP.name)/f'neon-{paleta}.png'),salida=(960,540))
 
     def test_rechaza_inyecciones_magnitudes_no_finitas_y_referencias_rotas(self):
         invalidos=[grafica('barras',dict(filas=[dict(label='A',v=float('nan'))])),

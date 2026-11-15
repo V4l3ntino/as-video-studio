@@ -1,0 +1,6 @@
+{
+  "ember": {"nombre":"Ember Forge","uso":"Drama, tensión y energía","fondo":"#100909","sombra":"#641c16","acento":"#ff782b","secundario":"#bd4724","texto":"#fff0dc"},
+  "arctic": {"nombre":"Arctic Glass","uso":"Ciencia, genética y tecnología","fondo":"#08121f","sombra":"#2e6881","acento":"#76ccff","secundario":"#32d7ef","detalle":"#ffcb52","texto":"#f2f5e8"},
+  "sakura": {"nombre":"Sakura Bloom","uso":"Emoción, intimidad y sensibilidad","fondo":"#1a0b17","sombra":"#69354f","acento":"#ff58a5","secundario":"#b45c95","texto":"#ffd3ad"},
+  "retro": {"nombre":"Retro Print","uso":"Historia, memoria e impresión antigua","fondo":"#1d1711","sombra":"#59483a","acento":"#e9b938","secundario":"#5b8c83","detalle":"#e8603a","texto":"#f2e4c8"}
+}
