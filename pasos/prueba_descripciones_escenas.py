@@ -21,7 +21,7 @@ for nombre in ('ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_ESTADISTICAS', 'E
 os.environ['ESTUDIO_SIMULAR'] = '1'
 
 from nucleo import Estado, Proyecto
-from pasos import descripciones_escenas as visuales, medios, p4_voz, p6_assets
+from pasos import descripciones_escenas as visuales, intercambio_guion, medios, p4_voz, p6_assets
 
 REAL = '--real' in sys.argv
 if REAL:
@@ -56,6 +56,58 @@ class Descripciones(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(dir=AISLADO.name)
         self.addCleanup(self.tmp.cleanup)
         self.p, self.estado = construir(self.tmp.name)
+
+    def documento_portatil(self):
+        escenas = visuales.listar(self.p)
+        bloques = p4_voz.cargar_guion(self.p)
+        return dict(formato=intercambio_guion.FORMATO, bloques=[dict(texto=b['texto'],
+            escenas=[dict(texto=e['texto'], descripcion_visual=e['descripcion_visual'])
+                     for e in escenas if e['bloque'] == b['id']]) for b in bloques])
+
+    def test_importacion_sin_cambios_y_solo_visual_conserva_audio(self):
+        documento = self.documento_portatil()
+        antes = Path(self.p.ruta('estado.json')).read_bytes()
+        intercambio_guion.importar(self.p, documento)
+        self.assertEqual(Path(self.p.ruta('estado.json')).read_bytes(), antes)
+        firmas = {p: self.estado.firma(p) for p in ('guion', 'voz', 'revision_audio')}
+        documento['bloques'][0]['escenas'][0]['descripcion_visual'] = 'Un niño saluda desde el umbral.'
+        intercambio_guion.importar(self.p, documento)
+        self.assertEqual(visuales.listar(self.p)[0]['descripcion_visual'], 'Un niño saluda desde el umbral.')
+        self.assertEqual({p: self.estado.firma(p) for p in firmas}, firmas)
+        plan = p6_assets.planificar(self.p, self.estado.params('assets'))
+        self.assertIn('saluda desde el umbral', plan['escenas'][0]['prompt'])
+
+    def test_importacion_nuevas_frases_y_estructura_llegan_a_voz_y_plan(self):
+        documento = self.documento_portatil()
+        documento['bloques'][0] = dict(texto='La puerta se abre.', escenas=[dict(
+            texto='La puerta se abre.', descripcion_visual='Una mano gira el pomo de la puerta.')])
+        intercambio_guion.importar(self.p, documento)
+        self.assertEqual(p4_voz.cargar_guion(self.p)[0]['texto'], 'La puerta se abre.')
+        self.assertEqual(visuales.listar(self.p)[0]['descripcion_visual'], 'Una mano gira el pomo de la puerta.')
+        # También puede sustituirse por un guion completamente nuevo, más corto.
+        documento['bloques'] = documento['bloques'][:1]
+        intercambio_guion.importar(self.p, documento)
+        self.assertEqual(len(p4_voz.cargar_guion(self.p)), 1)
+        self.assertTrue(Path(self.p.ruta_paso('guion', 1) + '/guion.json').exists())
+        with patch.object(p4_voz, 'simulado', return_value=True):
+            voz = p4_voz.ejecutar(self.p, self.estado.params('voz'))
+        self.estado.completar('voz', voz)
+        plan = p6_assets.planificar(self.p, self.estado.params('assets'))
+        self.assertEqual(len(plan['escenas']), 1)
+        self.assertIn('gira el pomo', plan['escenas'][0]['prompt'])
+        documento['bloques'].append(dict(texto='El sol sale.', escenas=[dict(
+            texto='El sol sale.', descripcion_visual='El sol asoma tras las montañas.')]))
+        intercambio_guion.importar(self.p, documento)
+        self.assertEqual(len(p4_voz.cargar_guion(self.p)), 2)
+        self.assertEqual(visuales.listar(self.p)[1]['descripcion_visual'], 'El sol asoma tras las montañas.')
+
+    def test_importacion_invalida_no_guarda_narracion_parcial(self):
+        documento = self.documento_portatil()
+        documento['bloques'][0]['texto'] = 'Otra narración.'
+        antes = Path(self.p.ruta('estado.json')).read_bytes()
+        with self.assertRaisesRegex(ValueError, 'descripción por frase'):
+            intercambio_guion.importar(self.p, documento)
+        self.assertEqual(Path(self.p.ruta('estado.json')).read_bytes(), antes)
 
     def test_lectura_pura_y_edicion_llega_al_plan_sin_tocar_guion_ni_audio(self):
         antes = Path(self.p.ruta('estado.json')).read_bytes()
@@ -294,6 +346,24 @@ app.main()
                 pagina.wait_for_function('!Object.keys(APP.light.video.descripcionesPendientes || {}).length')
                 pagina.evaluate('cargarVideoLight(APP.light.video.pid)')
                 self.assertEqual(area.input_value(), 'El niño se acerca al cuidador con los brazos abiertos.')
+                exportar = pagina.get_by_role('button', name='Exportar guion (.json)', exact=True)
+                self.assertTrue(exportar.is_visible())
+                # La descarga recoge incluso una descripción aún pendiente de autoguardar.
+                area.fill('El niño saluda desde el umbral de la casa.')
+                with pagina.expect_download() as descarga:
+                    exportar.click()
+                documento = json.loads(Path(descarga.value.path()).read_text(encoding='utf-8'))
+                self.assertEqual(documento['bloques'][0]['escenas'][0]['descripcion_visual'],
+                    'El niño saluda desde el umbral de la casa.')
+                documento['bloques'][0]['texto'] = 'El niño saluda. El cuidador se acerca.'
+                documento['bloques'][0]['escenas'][0] = dict(texto='El niño saluda.',
+                    descripcion_visual='El niño mueve la mano para saludar al cuidador.')
+                with pagina.expect_file_chooser() as selector:
+                    pagina.get_by_role('button', name='Importar guion (.json o .txt)', exact=True).click()
+                selector.value.set_files(dict(name='nuevo-guion.json', mimeType='application/json',
+                    buffer=json.dumps(documento, ensure_ascii=False).encode('utf-8')))
+                pagina.wait_for_function('APP.light.video.guion?.escenasVisuales[0]?.texto === "El niño saluda."')
+                self.assertEqual(area.input_value(), 'El niño mueve la mano para saludar al cuidador.')
                 captura = os.environ.get('ESTUDIO_CAPTURA_GUION')
                 if captura:
                     pagina.screenshot(path=captura, full_page=True)

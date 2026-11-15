@@ -8848,31 +8848,49 @@ function vistaGuionLight() {
   return caja;
 }
 
-/* Texto portátil: un párrafo por bloque, sin títulos ni ids que puedan acabar
-   locutándose. La posición conserva la correspondencia con las escenas. */
+/* JSON portátil con narración y dirección por frase; admite también el TXT antiguo. */
 function intercambioGuionLight() {
   const v = APP.light.video;
   return h('div', { clase: 'intercambio-guion' },
     h('div', { clase: 'fila' },
-      h('button', { clase: 'mini', onclick: exportarGuionLight }, 'Exportar guion (.txt)'),
+      h('button', { clase: 'mini', disabled: !!trabajoVideoLight(), onclick: exportarGuionLight }, 'Exportar guion (.json)'),
       h('button', {
         clase: 'mini', disabled: !!trabajoVideoLight(), onclick: importarGuionLight,
-      }, 'Importar guion (.txt)')),
-    h('p', { clase: 'meta' }, `Un párrafo por bloque del guion: ${v.guion.bloques.length} `
-      + 'párrafos en el mismo orden, separados por una línea en blanco. '
-      + 'Sin título ni numeración. Importar cambia el texto; el audio se genera después.'));
+      }, 'Importar guion (.json o .txt)')),
+    h('p', { clase: 'meta' }, 'El JSON incluye la narración y la descripción visual de cada escena. '
+      + 'Puedes cambiar los bloques y las escenas, conservando una descripción por frase. '
+      + `El TXT antiguo necesita ${v.guion.bloques.length} párrafos en el mismo orden. `
+      + 'El audio y las imágenes se generan después.'));
 }
 
-function exportarGuionLight() {
+async function exportarGuionLight() {
   const v = APP.light.video;
-  const texto = v.guion.bloques.map(b => textoVisibleLight(textoDeBloqueLight(b))).join('\n\n');
-  const url = URL.createObjectURL(new Blob([texto + '\n'], { type: 'text/plain;charset=utf-8' }));
-  const nombre = (v.guion.titulo || v.nombre || 'guion').replace(/[\\/:*?\x22<>|\x00-\x1f]/g, '_');
-  const enlace = h('a', { href: url, download: `${nombre}.txt` });
-  document.body.appendChild(enlace);
-  enlace.click();
-  enlace.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  try {
+    // Publica lo que está en los campos antes de pedir la dirección por frase.
+    if (_guardadoBloqueLight) {
+      clearTimeout(_guardadoBloqueLight);
+      _guardadoBloqueLight = null;
+      await pedir(API.params(v.pid, 'guion'), {
+        method: 'PUT', cuerpo: { params: { bloques: v.fichas.guion.params.bloques } },
+      });
+    }
+    await persistirDescripcionesLight(v);
+    await refrescarDescripcionesLight(v.pid);
+    if (APP.light.video !== v) throw new Error('El vídeo ha cambiado. Vuelve a exportar.');
+    const texto = JSON.stringify({ formato: 'as-video-studio/guion-v1',
+      bloques: v.guion.bloques.map(b => ({ texto: textoVisibleLight(textoDeBloqueLight(b)),
+        escenas: (v.guion.escenasVisuales || []).filter(e => e.bloque === b.id)
+          .map(e => ({ texto: e.texto, descripcion_visual: e.descripcion_visual })),
+      })),
+    }, null, 2);
+    const url = URL.createObjectURL(new Blob([texto + '\n'], { type: 'application/json;charset=utf-8' }));
+    const nombre = (v.guion.titulo || v.nombre || 'guion').replace(/[\\/:*?\x22<>|\x00-\x1f]/g, '_');
+    const enlace = h('a', { href: url, download: `${nombre}.json` });
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) { toast(`No se ha podido exportar: ${err.message}`, true); }
 }
 
 function parrafosImportadosGuion(texto, cantidad) {
@@ -8891,18 +8909,36 @@ function importarGuionLight() {
   const v = APP.light.video;
   const pid = v.pid;
   const guion = v.guion;
-  const entrada = h('input', { type: 'file', accept: '.txt,text/plain',
+  const entrada = h('input', { type: 'file', accept: '.json,application/json,.txt,text/plain',
     onchange: async () => {
       const archivo = entrada.files[0];
       if (!archivo) return;
       let guardadoPendiente = false;
       try {
-        const parrafos = parrafosImportadosGuion(await archivo.text(), guion.bloques.length);
+        const contenido = (await archivo.text()).replace(/^\uFEFF/, '').trim();
+        const esJson = archivo.name.toLowerCase().endsWith('.json') || contenido.startsWith('{');
+        const documento = esJson ? JSON.parse(contenido) : null;
+        const parrafos = esJson ? null : parrafosImportadosGuion(contenido, guion.bloques.length);
         if (APP.light.video !== v || v.pid !== pid || v.guion !== guion) {
           throw new Error('El vídeo o el guion ha cambiado. Abre de nuevo la importación.');
         }
         if (trabajoVideoLight() || v.importandoGuion) {
           throw new Error('Espera a que termine el trabajo antes de importar el guion.');
+        }
+        if (esJson) {
+          guardadoPendiente = !!_guardadoBloqueLight;
+          clearTimeout(_guardadoBloqueLight);
+          _guardadoBloqueLight = null;
+          v.importandoGuion = true;
+          pintarLight();
+          await persistirDescripcionesLight(v);
+          const resultado = await pedir(`${API.proyecto(pid)}/guion/importar`, {
+            method: 'POST', cuerpo: documento,
+          });
+          guardadoPendiente = false;
+          if (APP.light.video === v && v.pid === pid) await cargarVideoLight(pid);
+          toast(`Guion importado: ${resultado.bloques} bloques · ${resultado.descripciones_cambiadas} descripciones actualizadas.`);
+          return;
         }
         const ficha = v.fichas.guion;
         const bloques = Object.assign({}, (ficha.params || {}).bloques || {});

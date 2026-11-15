@@ -145,6 +145,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `GET` | `/api/proyectos/{pid}/guion/descripciones` | Descripciones visuales editables de cada frase del guion actual. |
 | `PUT` | `/api/proyectos/{pid}/guion/descripciones` | Guarda descripciones por escena sin modificar narración ni audio. |
 | `POST` | `/api/proyectos/{pid}/guion/descripciones/regenerar` | Regenera con Claude solo la dirección visual de las escenas del guion. |
+| `POST` | `/api/proyectos/{pid}/guion/importar` | Importa narración y descripciones visuales de un guion portátil. |
 
 ## Voz
 
@@ -336,4 +337,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**222 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**223 endpoints.** Escrito por `generar_api.py` desde `app.py`.

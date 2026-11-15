@@ -2448,6 +2448,21 @@ def _correr_reescribir(avisar, ctx, ids, peticion, ajuste):
             "resumen": f"{len(cambiados)} de {len(ids)} bloque(s) cambiados"}
 
 
+@app.post("/api/proyectos/{pid}/guion/importar")
+def importar_guion(pid: str, cuerpo: dict = Body(...)):
+    """Importa narración y descripciones visuales de un guion portátil."""
+    from pasos import intercambio_guion
+    ctx = contexto(pid)
+    if ctx.gestor.listar(activos=True):
+        raise ErrorApi(409, 'espera a que termine el trabajo del vídeo antes de importar el guion')
+    try:
+        resultado = intercambio_guion.importar(ctx.proyecto, cuerpo)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    ctx.bitacora.anotar('guion_importado', 'guion', resultado)
+    return resultado
+
+
 @app.get("/api/proyectos/{pid}/guion/descripciones")
 def leer_descripciones_guion(pid: str):
     """Descripciones visuales editables de cada frase del guion actual."""

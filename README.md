@@ -1050,20 +1050,38 @@ La regla se conserva al revisar o regrabar la voz. Los proyectos con un guion
 anterior mantienen sus cortes; para adoptar el criterio nuevo hay que regenerar
 el guion y sus pasos dependientes.
 
-En la fase **Guion**, **Exportar guion (.txt)** descarga el texto actual,
-incluidas las correcciones manuales. Cada bloque ocupa un párrafo, separado del
-siguiente por una línea en blanco, sin título ni numeración.
+En la fase **Guion**, **Exportar guion (.json)** descarga la narración actual y
+las descripciones visuales de sus escenas, incluidas las correcciones manuales.
+El JSON UTF-8 tiene este formato editable:
 
-Para revisarlo fuera del Estudio, conserva **el mismo número de párrafos y su
-orden**: cada párrafo vuelve al bloque de escenas que ocupaba esa posición.
-**Importar guion (.txt)** comprueba esa estructura antes de guardar; si el número
-no coincide, muestra el error sin aplicar cambios. Los saltos de línea dentro de
-un párrafo se consideran espacios. Usa texto UTF-8.
+```json
+{
+  "formato": "as-video-studio/guion-v1",
+  "bloques": [
+    {
+      "texto": "Una puerta se abre.",
+      "escenas": [
+        {"texto": "Una puerta se abre.", "descripcion_visual": "Una mano gira el pomo y abre la puerta de una casa."}
+      ]
+    }
+  ]
+}
+```
 
-La importación sustituye solo los textos modificados y conserva los ids de los
-bloques. No genera contenido ni consume cuota: el audio se actualiza después
-desde los controles habituales. Exportar y volver a importar sin editar conserva
-también las pausas de locución originales.
+**Importar guion (.json o .txt)** permite cambiar la narración, las descripciones
+y el número de bloques y escenas del JSON. Cada frase del bloque debe aparecer
+literalmente y en orden en `escenas`, con su `descripcion_visual` (hasta 8000
+caracteres). Se comprueba el documento completo antes de aplicar cambios.
+Si cambia el número de bloques se guarda una nueva versión del guion.
+
+También se admiten los TXT antiguos: un párrafo por bloque, en el mismo orden y
+con el mismo número de bloques del guion actual, separados por una línea en
+blanco. Este formato solo modifica la narración.
+
+La importación no genera contenido ni consume cuota: el audio y las imágenes se
+actualizan después desde los controles habituales. Cambiar solo descripciones
+conserva el audio; exportar y volver a importar sin editar conserva también las
+pausas de locución originales y no invalida los recursos existentes.
 
 ### Shorts del vídeo completo
 
