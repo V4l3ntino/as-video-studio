@@ -10,6 +10,7 @@ un material de referencia en ingles con un brief en espanol.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -92,7 +93,26 @@ class ProcesoFalso:
     def communicate(self, entrada=None, timeout=None):
         if isinstance(self.al_comunicar, BaseException):
             raise self.al_comunicar
+        self.entregar(entrada)
         return self.stdout, self.stderr
+
+    def entregar(self, entrada):
+        """Emula Write: el contenido viaja por fichero, el acuse por stdout."""
+        instruccion = (entrada or b"").decode("utf-8")
+        ruta = re.search(r"ESCRIBE EL RESULTADO EN EL FICHERO `([^`]+)`", instruccion)
+        if not ruta or self.returncode:
+            return
+        try:
+            sobre = json.loads(self.stdout)
+        except ValueError:
+            return
+        texto = sobre.get("result", "")
+        if sobre.get("is_error") or not texto.strip():
+            return
+        with open(ruta[1], "w", encoding="utf-8") as fh:
+            fh.write(texto)
+        sobre["result"] = "LISTO"
+        self.stdout = json.dumps(sobre).encode("utf-8")
 
     def kill(self):
         self.matado = True
@@ -115,6 +135,7 @@ def _tardar(proceso, segundos=1.5):
     """communicate() que tarda, para probar la regla de no reintentar esperas largas."""
     def comunicar(entrada=None, timeout=None):
         time.sleep(segundos)
+        proceso.entregar(entrada)
         return proceso.stdout, proceso.stderr
     return comunicar
 
@@ -150,6 +171,12 @@ def prueba_params():
                                      "regenerar_desde_cero": 1})
     igual(opciones["prompt_general"], "menos cifras", "el prompt se limpia")
     igual(opciones["regenerar_desde_cero"], True, "la bandera se vuelve booleana")
+    igual((opciones["modelo"], opciones["esfuerzo"]), ("opus", "medium"),
+          "la redaccion usa Opus medio, sin razonamiento extra por defecto")
+    igual(p3_guion._normalizar({"esfuerzo": "xhigh"})["esfuerzo"], "xhigh",
+          "se respeta el esfuerzo elegido expresamente")
+    igual(p3_guion._normalizar({"esfuerzo": ""})["esfuerzo"], "medium",
+          "una seleccion vacia usa el defecto del guion, no el global xhigh")
 
     resumen = p3_guion.describir({"prompt_general": "empieza por el final",
                                   "regenerar_desde_cero": True})
@@ -450,6 +477,19 @@ def prueba_instruccion():
               "y ata las paradas a las secciones del guion")
     comprobar("COMO SE ESTRUCTURA ESTE VIDEO)" in texto,
               "y la regla de las secciones apunta de vuelta a las paradas")
+    comprobar("REMATAR el tema que cierra, no enlazar" not in texto
+              and "motive el siguiente tramo" in texto,
+              "resolver una pregunta permite enlazar con la siguiente")
+    comprobar("varios tramos del plan narrativo" in texto,
+              "los descubrimientos no obligan a multiplicar secciones de audio")
+    comprobar("La estructura y los cambios pedidos expresamente para ESTE video mandan" in texto,
+              "las instrucciones del video tienen prioridad sobre preferencias generales")
+    comprobar(p3_guion.INSTRUCCION_PLAN_NARRATIVO in texto,
+              "se pide un mapa del resultado sin ampliar las correcciones locales")
+    ejemplo = json.loads(texto.split("con esta forma exacta:\n", 1)[1])
+    plan, avisos = p3_guion._plan_narrativo(ejemplo["plan_narrativo"], ejemplo["bloques"])
+    comprobar(plan is not None and not avisos,
+              "el ejemplo de entrega lleva un mapa con referencias validas")
 
     # EL VIDEO DE ORIGEN, cuando el material es un dosier de busquedas. Sin el,
     # encender las busquedas borraba del prompt el video que se puso de
@@ -492,9 +532,12 @@ def prueba_instruccion():
             p3_guion._normalizar({"guion_propio": True}), [], "es", origen=origen)
         comprobar(p3_guion.REGLA_GUION_PROPIO in propio
                   and p3_guion.REGLA_REDACCION_ESCRITO not in propio
-                  and p3_guion.REGLA_REDACCION_DOSIER not in propio
-                  and p3_guion.NARRATIVA_YOUTUBE not in propio,
-                  "el guion propio prima sobre notas y dosier sin pedir reescritura editorial")
+                   and p3_guion.REGLA_REDACCION_DOSIER not in propio
+                    and p3_guion.NARRATIVA_YOUTUBE not in propio
+                    and p3_guion.REPASO_EDITORIAL not in propio
+                   and p3_guion.INSTRUCCION_PLAN_NARRATIVO not in propio
+                   and "plan_narrativo" not in propio.split("== FORMATO DE SALIDA ==", 1)[1],
+                   "el guion propio prima sobre notas y dosier sin pedir reescritura editorial")
     comprobar("EL VIDEO DE ORIGEN" not in texto,
               "sin dosier no se pinta la seccion: seria el mismo texto dos veces")
 
@@ -510,6 +553,96 @@ def prueba_instruccion():
                                                          None, opciones, [], "es")),
               "el recorte de verdad acorta la instruccion")
 
+
+
+def mapa_narrativo():
+    return {
+        "pregunta_central": "Cómo redujo sus costes la empresa.",
+        "respuesta_temprana": "Construyó sus propias tuberías.",
+        "promesa_final": "",
+        "tramos": [
+            {"pregunta": "Qué hizo la empresa.", "aporte_nuevo": "La decisión de construir.",
+             "recurso": "explicacion", "bloques": ["B001"], "puente": "Qué cambió con ello."},
+            {"pregunta": "Qué cambió.", "aporte_nuevo": "Redujo sus costes.",
+             "recurso": "consecuencia", "bloques": ["B002"], "puente": ""}],
+        "recompensa_final": "La infraestructura propia redujo los costes.",
+    }
+
+
+def prueba_plan_narrativo():
+    print("\n[5b] mapa editorial opcional y cobertura del texto final")
+    bloques = [{"id": "B001"}, {"id": "B002"}]
+    crudo = mapa_narrativo()
+    crudo["razonamiento"] = "Este campo no pertenece al contrato."
+    crudo["tramos"][0]["otro"] = "Tampoco se conserva."
+    plan, avisos = p3_guion._plan_narrativo(crudo, bloques)
+    igual(plan, mapa_narrativo(), "el mapa conserva solo los campos editoriales conocidos")
+    igual(avisos, [], "la cobertura completa y ordenada se acepta sin avisos")
+    comprobar("razonamiento" in crudo, "la validacion no muta la respuesta original")
+
+    casos = [None, [], {}, dict(mapa_narrativo(), tramos=[]),
+             dict(mapa_narrativo(), pregunta_central=False)]
+    for ids in (["B001", "B001"], ["B002", "B001"], ["B001", "B999"], ["B001"]):
+        roto = mapa_narrativo()
+        roto["tramos"] = [dict(roto["tramos"][0], bloques=ids)]
+        casos.append(roto)
+    for roto in casos:
+        plan, avisos = p3_guion._plan_narrativo(roto, bloques)
+        comprobar(plan is None and len(avisos) == 1,
+                  "un mapa ausente, mal formado o con cobertura incorrecta se omite y se avisa")
+
+    from unittest.mock import patch
+    base = tempfile.mkdtemp(prefix="prueba_plan_narrativo_")
+    try:
+        frase = "La empresa construyó sus propias tuberías y redujo sus costes. "
+        respuesta = {"titulo": "La infraestructura propia", "plan_narrativo": mapa_narrativo(),
+                     "bloques": [{"id": "B001", "texto": (frase * 7).strip(), "abre_seccion": True},
+                                 {"id": "B002", "texto": (frase * 7).strip()}]}
+        casos = [({}, respuesta, True),
+                 ({"bloques": {"B002": {"texto": respuesta["bloques"][1]["texto"]}}},
+                  respuesta, True),
+                 ({}, dict(respuesta, plan_narrativo={}), False),
+                 ({"guion_propio": True}, respuesta, False),
+                 ({"bloques": {"B002": {"texto": "La empresa optó por otra solución."}}},
+                  respuesta, False)]
+        for numero, (params, entrega, con_plan) in enumerate(casos):
+            proyecto, estado = preparar_proyecto(base, f"Mapa {numero}")
+            with patch.object(p3_guion, "_llamar_claude", return_value=(
+                    json.dumps(entrega, ensure_ascii=False), {"is_error": False})) as llamada:
+                salidas = p3_guion.ejecutar(proyecto, params, lambda *a: None)
+            igual(llamada.call_count, 1, "el mapa no provoca otra llamada ni reintentos editoriales")
+            trabajo = proyecto.ruta_trabajo("guion", crear=False)
+            documento = leer_json(os.path.join(trabajo, "guion.json"))
+            igual("plan_narrativo" in documento, con_plan,
+                  "se publica solo un mapa valido, sin guion propio ni ediciones posteriores")
+            if con_plan:
+                igual(documento["plan_narrativo"], mapa_narrativo(),
+                      "el mapa se guarda separado de los bloques locutados")
+                estado.completar("guion", salidas)
+                sin_mapa = dict(respuesta)
+                sin_mapa.pop("plan_narrativo")
+                with patch.object(p3_guion, "_llamar_claude", return_value=(
+                        json.dumps(sin_mapa), {"is_error": False})):
+                    p3_guion.ejecutar(proyecto, {"prompt_general": "conserva el texto"},
+                                      lambda *a: None)
+                corregido = leer_json(os.path.join(trabajo, "guion.json"))
+                comprobar("plan_narrativo" not in corregido,
+                          "una iteracion sin mapa no hereda el de otra version")
+                igual([b["texto"] for b in corregido["guion"]],
+                      [b["texto"] for b in documento["guion"]],
+                      "la falta de mapa no modifica los bloques conservados")
+            if params.get("guion_propio"):
+                igual([marcas_tts.limpiar(b["texto"]) for b in documento["guion"]],
+                      [b["texto"] for b in respuesta["bloques"]],
+                      "el guion propio conserva las palabras sin mapa editorial")
+            if params.get("bloques") and not con_plan:
+                igual(marcas_tts.limpiar(documento["guion"][1]["texto"]),
+                      params["bloques"]["B002"]["texto"],
+                      "la edicion manual gana al texto del modelo")
+                comprobar(any("ediciones manuales" in a for a in salidas["avisos"]),
+                          "se explica por que se omite el mapa desfasado")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def prueba_fallos_cli():
@@ -574,6 +707,10 @@ def prueba_reintento():
                   "la redaccion nueva declara una frase completa por escena")
         comprobar(os.path.exists(os.path.join(trabajo, "instruccion_2.txt")),
                   "guarda la instruccion de cada intento")
+        igual(leer_json(os.path.join(trabajo, "respuesta_instruccion_2.json"))["result"],
+              "LISTO", "el mensaje final ya no transporta el guion largo")
+        comprobar(os.path.exists(os.path.join(trabajo, "entrega_instruccion_2.txt")),
+                  "conserva el guion entregado para diagnosticar la validacion")
 
         respuestas = [ProcesoFalso(0, sobre_cli("sigo sin darte JSON")),
                       ProcesoFalso(0, sobre_cli("y sigo sin darte JSON"))]
@@ -591,6 +728,7 @@ def prueba_reintento():
         # un 46 % mas largo que el de la primera, que estaba listo para grabar,
         # y se entrego el largo solo porque era el ultimo.
         bueno = {"titulo": "El bueno",
+                 "plan_narrativo": mapa_narrativo(),
                  "bloques": [{"id": "B001", "texto": "uno " * 70},
                              {"id": "B002", "texto": "y en 1880 pasa esto"}]}
         peor = {"titulo": "El peor",
@@ -609,7 +747,11 @@ def prueba_reintento():
         igual(salidas["intentos"], 2, "sin mentir sobre cuantas llamadas se pagaron")
         comprobar(any("se entrega el intento 1 y no el 2" in a
                       for a in salidas["avisos"]),
-                  "y se dice cual se ha entregado")
+                   "y se dice cual se ha entregado")
+        documento = leer_json(os.path.join(proyecto.ruta_trabajo("guion", crear=False),
+                                          "guion.json"))
+        igual(documento.get("plan_narrativo"), mapa_narrativo(),
+              "el mapa pertenece al intento seleccionado, no al ultimo")
 
         # una llamada lenta no se reintenta: dos esperas largas seguidas es lo
         # que convertia un paso de un minuto en un paso de diez
@@ -635,6 +777,59 @@ def prueba_reintento():
             p3_guion.subprocess.Popen = original
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def prueba_espera_y_prevision():
+    from unittest.mock import patch
+    import recetas
+
+    print("\n[7c] no repetir esperas largas y prever la salida, no solo la entrada")
+    opciones = p3_guion._normalizar({"modelo": "opus", "esfuerzo": "xhigh"})
+    comprobar(not p3_guion._puede_reintentar(1, 1303, opciones),
+              "un intento roto de 22 minutos no lanza otra redaccion completa")
+    comprobar(p3_guion._puede_reintentar(1, 20, opciones),
+              "un fallo rapido aun permite corregir el encargo")
+    brief = {"presupuesto_palabras": 2261}
+    with patch.object(p3_guion.estadisticas, "estimar", return_value={}) as estimar:
+        p3_guion.prevision_de(22, brief, {})
+        igual(estimar.call_args.args[1], 2261,
+              "22 palabras de tema no se confunden con 22 palabras de guion")
+        p3_guion.prevision_de(22, brief, {"sistema_personajes": {"stickman": True}})
+        igual(estimar.call_args.args[1], 6783,
+              "la direccion por frase tambien pesa en la prevision Stickman")
+        igual(estimar.call_args.args[0], p3_guion.FASE_REDACCION,
+              "el historial nuevo no reutiliza muestras escaladas por transcript")
+    mensaje = "redactando el guion (intento 2); lleva 6 min y se estimaron 2 min: sigue esperando la respuesta"
+    publico = recetas.publico_de("guion", .95, mensaje=mensaje)
+    comprobar("intento 2" in publico and "lleva 6 min" in publico
+              and "rematando el cierre" not in publico,
+              "el mensaje publico muestra el reintento y la espera, no un cierre inventado")
+
+    # Una entrega que no cabe razonablemente en un mensaje final: el CLI solo
+    # devuelve LISTO, pero el guion completo y su consumo deben llegar al paso.
+    largo = {"titulo": "Guion largo", "bloques": [
+        {"id": f"B{i:03d}", "texto": "Una frase completa. " * 100}
+        for i in range(1, 151)]}
+    proceso = ProcesoFalso(0, sobre_cli(json.dumps(largo)))
+    ordenes = []
+
+    def lanzar(orden, **kwargs):
+        ordenes.append((orden, kwargs))
+        return proceso
+
+    with patch.object(p3_guion.subprocess, "Popen", side_effect=lanzar):
+        texto, sobre = p3_guion._llamar_claude("El encargo", opciones, "/no/es/el/proyecto")
+    igual(p3_guion._extraer_json(texto), largo,
+          "una entrega de mas de 250 KB llega entera por fichero")
+    igual(sobre["result"], "LISTO", "el mensaje final solo contiene el acuse")
+    comprobar("total_cost_usd" in sobre and "_ajuste" in sobre,
+              "el sobre de consumo se conserva para el medidor aunque la entrega sea aparte")
+    orden, kwargs = ordenes[0]
+    comprobar(not os.path.exists(kwargs["cwd"]), "el temporal de entrega se limpia")
+    vetadas = orden[orden.index("--disallowedTools") + 1].split(",")
+    comprobar("Bash" in vetadas and "WebSearch" in vetadas and "Task" in vetadas
+              and "Write" not in vetadas,
+              "la entrega habilita escritura, sin habilitar shell, busquedas ni agentes")
 
 
 def prueba_siglas_al_iterar():
@@ -857,6 +1052,10 @@ def principal():
     # con el CLI sustituido por un doble y sus centesimas no miden nada
     os.environ["ESTUDIO_ESTADISTICAS"] = os.path.join(base, "estadisticas.json")
     conservar = "--conservar" in sys.argv
+    # Esta suite prueba los contratos historicos y reintentos de UNA redaccion.
+    # La orquestacion nueva se verifica en prueba_editorial_guion.py.
+    escaleta_por_defecto = p3_guion.PARAMS_POR_DEFECTO["escaleta_previa"]
+    p3_guion.PARAMS_POR_DEFECTO["escaleta_previa"] = False
     try:
         prueba_params()
         prueba_parseo()
@@ -864,18 +1063,22 @@ def principal():
         prueba_aire()
         prueba_copias()
         prueba_instruccion()
+        prueba_plan_narrativo()
         prueba_fallos_cli()
         prueba_reintento()
+        prueba_espera_y_prevision()
         prueba_siglas_al_iterar()
         # La redaccion REAL es opt-in, con el mismo flag que prueba_pasos_voz:
         # llama al CLI de verdad (red, medio minuto y varianza del modelo -- una
         # tirada salio de horquilla con 196 palabras sobre 179). La suite por
         # defecto es determinista y en seco.
         if "--con-claude" in sys.argv:
+            p3_guion.PARAMS_POR_DEFECTO["escaleta_previa"] = escaleta_por_defecto
             prueba_real(base)
         else:
             print("\n[8] redaccion real omitida (pasa --con-claude para probarla)")
     finally:
+        p3_guion.PARAMS_POR_DEFECTO["escaleta_previa"] = escaleta_por_defecto
         if conservar:
             print(f"\nproyectos temporales conservados en {base}")
         else:

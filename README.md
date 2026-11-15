@@ -26,11 +26,47 @@ dejar de teclear, y el paso siguiente usa la última versión. No hay botones de
 
 Los guiones nuevos se redactan con una pauta narrativa para YouTube: gancho
 concreto, una primera respuesta temprana al título, ejemplos y cambios de ritmo,
-y un cierre que resuelve la promesa inicial. El contexto histórico y las fuentes
-se introducen donde ayudan a comprender la idea. Las notas escritas se pueden
+y un cierre que resuelve la promesa inicial. Cada pregunta principal puede
+desarrollarse con varios descubrimientos, contrastes o consecuencias, sin abrir
+una sección de audio por cada ejemplo. El gancho se diseña a partir de la
+respuesta que recibirá el espectador. El contexto histórico y las fuentes
+se introducen cerca de la pregunta que resuelven. El repaso final recorta tramos
+que repiten la misma tesis aunque cambien de escena, limita las conclusiones de
+los experimentos a lo que permiten afirmar y concentra el cierre en una sola
+recompensa, sin encadenar listas y recapitulaciones. Las notas escritas se pueden
 reordenar para construir ese relato, respetando la estructura que pidas y el
 grado de certeza del material. Un material marcado como guion propio conserva
 su redacción; las correcciones de un guion anterior se limitan a lo solicitado.
+La estructura pedida para el vídeo tiene prioridad sobre las preferencias del
+estilo y las pautas generales. Una redacción nueva se prepara en fases separadas:
+primero una **escaleta editorial**, con los contenidos seleccionados, descartes
+y presupuesto por tramo; después la **narración**, con un encargo de escritura
+más breve. Si se generan personajes, otra fase añade la **dirección visual**
+sin poder cambiar palabras, orden ni hablantes. Se conserva el mismo paso
+`guion` del grafo; no se generan imágenes ni voces durante estas fases.
+
+`escaleta.json` y `narracion.json` permiten inspeccionar las decisiones anteriores
+a la dirección. Son archivos de auditoría, no una caché: una nueva ejecución
+limpia `trabajo/`. `guion.json` guarda la `escaleta_editorial`, las `fases_guion`
+y un `plan_narrativo` asociado a los bloques reales. La escritura debe recorrer
+todos los tramos en orden; el mapa ya no se inventa retrospectivamente.
+Si las ediciones manuales cambian las palabras después de redactarlas, se omite
+el mapa final para evitar una descripción desfasada.
+
+Un tema breve no se presenta como un dosier verificado: se permite una explicación
+prudente de conocimientos generales, registrando qué información necesitaría
+fuentes y evitando citas, cifras y estudios fabricados. La aplicación no busca
+esas fuentes automáticamente. Los guiones propios y las correcciones de una
+versión anterior conservan su alcance y el flujo anterior. El parámetro avanzado
+`escaleta_previa: false` permite utilizar ese flujo en una redacción nueva.
+La revisión de calidad narrativa se describe en
+[docs/EVALUACION_GUIONES.md](docs/EVALUACION_GUIONES.md).
+
+La redacción utiliza **Opus con esfuerzo medio** por defecto. Los guiones largos
+se entregan mediante un fichero para evitar respuestas cortadas. La barra indica
+el intento y el tiempo transcurrido; su porcentaje es una estimación. Un intento
+que haya tardado más de cinco minutos no se repite automáticamente, salvo que se
+haya configurado expresamente otro umbral de reintento.
 
 ---
 

@@ -427,7 +427,7 @@ def _orden_esfuerzo(nombre):
 
 
 def por_defecto_de(fase):
-    """Lo que corre en esa fase si nadie elige. Hoy, lo mismo en todas.
+    """Lo que corre en esa fase si nadie elige.
 
     MANDA EL DEFECTO DEL CANAL, no la recomendacion por fase. `POR_FASE` sigue
     entera y no se borra ni una linea: es lo que cada fase NECESITARIA, medido y
@@ -437,9 +437,21 @@ def por_defecto_de(fase):
     cosa mientras el sistema hace otra es la clase de discrepancia que acaba con
     alguien depurando por que su seleccion no se aplica.
 
-    Volver al reparto por fase es devolver aqui `dict(ficha)`.
+    El guion es la excepcion: Opus/medium desde el 15-11-2026, para no
+    anteponer decenas de miles de tokens de razonamiento a una redaccion.
+    Volver al reparto completo por fase es devolver aqui `dict(ficha)`.
     """
     ficha = POR_FASE.get(str(fase))
+    if fase == "guion":
+        # Una redaccion larga no necesita decenas de miles de tokens de
+        # razonamiento. Opus/xhigh llego a gastar 122.569 tokens de thinking
+        # y 22 minutos antes de entregar un mensaje cortado (15-11-2026).
+        # Se conserva Opus, pero el esfuerzo por defecto es el de redaccion.
+        # Las elecciones explicitas en params siguen mandando.
+        return {"modelo": "opus", "esfuerzo": "medium",
+                "porque": "redaccion con Opus y esfuerzo medio para evitar "
+                          "razonamiento desproporcionado antes de entregar el guion",
+                "recomendado": dict(ficha)}
     modelo, esfuerzo = MODELO_POR_DEFECTO, ESFUERZO_POR_DEFECTO
     porque = f"el canal corre todo en {modelo} con esfuerzo {esfuerzo}"
     if ficha:
@@ -882,7 +894,7 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
                 esfuerzo=ESFUERZO_POR_DEFECTO, tiempo_max_s=0,
                 base_tiempo_s=600, herramientas_vetadas=(), avance=None,
                 para="la llamada", que="la respuesta", carpetas=(),
-                herramientas_permitidas=()):
+                herramientas_permitidas=(), entrega_cruda=False):
     """Como `ejecutar`, pero el agente ESCRIBE su JSON y aqui se lee. -> dict.
 
     La instruccion NO tiene que decir como entregarlo: se le anade el cierre
@@ -895,6 +907,9 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
     Sin esto, Read de una ruta fuera del directorio de trabajo pide permiso y en
     headless eso es colgarse. Se pasan las carpetas que EXISTEN: una ruta
     inventada aborta el CLI entero antes de arrancar.
+
+    `entrega_cruda` devuelve (contenido del fichero, sobre del CLI), para los
+    consumidores que registran el consumo ANTES de validar su propio contrato.
     """
     import json                                                # noqa: PLC0415
     import shutil                                              # noqa: PLC0415
@@ -937,6 +952,8 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
             crudo = fh.read()
     finally:
         shutil.rmtree(carpeta, ignore_errors=True)
+    if entrega_cruda:
+        return crudo, sobre
     try:
         return json.loads(crudo)
     except ValueError:

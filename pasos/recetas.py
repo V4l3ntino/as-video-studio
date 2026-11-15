@@ -342,7 +342,7 @@ PUBLICO = {
 PUBLICO_GENERICO = "Trabajando"
 
 
-def publico_de(tid, fraccion=None, unidades=None, stickman=False):
+def publico_de(tid, fraccion=None, unidades=None, stickman=False, mensaje=""):
     """Como se cuenta una tarea en publico, con su fase si se sabe por donde va.
 
     `fraccion` es lo avanzado DENTRO de la tarea (0..1). Sin ella -- o con una
@@ -361,6 +361,10 @@ def publico_de(tid, fraccion=None, unidades=None, stickman=False):
         ficha = dict(nombre='Generando las animaciones', unidad='escenas',
                      fases=['preparando acciones y personajes', 'animando las escenas', 'terminando los clips y sus sonidos'])
     titulo = ficha.get("nombre") or PUBLICO_GENERICO
+    if tid == "guion" and mensaje:
+        # El porcentaje de esta llamada es estimado: no permite saber si el
+        # modelo esta escribiendo el cierre. Mostrar el intento y su reloj real.
+        return f"{titulo} — {mensaje}"
     cuenta = _cuenta_legible(ficha, unidades)
     if cuenta:
         return f"{titulo} — {cuenta}"

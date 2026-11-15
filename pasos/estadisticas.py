@@ -86,7 +86,12 @@ INICIALES = {
     "ingesta":        {"por_unidad": 0.14, "suelo": 45.0, "unidad": "segundos de video"},
     "brief":          {"por_unidad": 0.0,  "suelo": 2.0,  "unidad": "palabras de transcript"},
     "guion":          {"por_unidad": 0.02, "suelo": 90.0, "unidad": "palabras de transcript",
-                       "medido_con": {"modelo": "sonnet", "esfuerzo": "low"}},
+                        "medido_con": {"modelo": "sonnet", "esfuerzo": "low"}},
+    # Contrato nuevo: entrega a fichero y tamano del encargo, incluida direccion
+    # visual. No mezclar con muestras que escalaban por 22 palabras de entrada.
+    "redaccion_guion": {"por_unidad": 0.03, "suelo": 30.0,
+                        "unidad": "palabras de encargo",
+                        "medido_con": {"modelo": "sonnet", "esfuerzo": "low"}},
     "voz":            {"por_unidad": 0.05, "suelo": 30.0, "unidad": "palabras de guion"},
     "revision_audio": {"por_unidad": 0.05, "suelo": 40.0, "unidad": "palabras de guion",
                        "medido_con": {"modelo": "sonnet", "esfuerzo": "low"}},

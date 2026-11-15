@@ -1,10 +1,9 @@
 """
 Paso 3: redaccion del guion.
 
-Llama al CLI de Claude en modo headless y le da cuatro cosas: el transcript del
-video de referencia como documentacion, el brief del usuario, el guion anterior
-(si lo hay, para no perder el contexto entre iteraciones) y la instruccion
-concreta de esta pasada.
+Las redacciones nuevas separan escaleta editorial, narracion y, cuando hay
+personajes, direccion visual posterior. Las correcciones locales y los guiones
+propios conservan el contrato de una sola fase. Todo se entrega por fichero.
 
 El guion se REDACTA de nuevo a partir de los hechos. Una transcripcion conserva
 su orden de referencia; las notas escritas y los dosieres se organizan para el
@@ -96,6 +95,7 @@ De ahi las tres reglas que gobiernan ahora los reintentos:
      una apuesta se puede perder. Si el segundo vuelve peor que el primero, se
      entrega el primero y se dice.
 """
+import copy
 import json
 import os
 import re
@@ -103,12 +103,13 @@ import subprocess  # noqa: F401  (las pruebas sustituyen p3_guion.subprocess.Pop
 import time
 
 try:
-    from . import animaciones, cli_claude, comun, cta, estadisticas, fuentes, marcas_tts, medios, personajes
+    from . import animaciones, cli_claude, comun, cta, editorial_guion, estadisticas, fuentes, marcas_tts, medios, personajes
 except ImportError:  # ejecutado con la carpeta pasos directamente en sys.path
     import animaciones
     import cli_claude
     import comun
     import cta
+    import editorial_guion
     import estadisticas
     import fuentes
     import marcas_tts
@@ -130,12 +131,17 @@ MAX_CARACTERES_ORIGEN = 60000
 TIEMPO_BASE_S = 420
 
 # Espera maxima de una llamada con esfuerzo 'low' para que todavia compense
-# repetirla. Tambien escala con el ajuste (ver umbral_reintento_de).
+# repetirla. Escala con el ajuste, pero nunca autoriza repetir automaticamente
+# una llamada de mas de cinco minutos (ver umbral_reintento_de).
 UMBRAL_REINTENTO_BASE_S = 120
+UMBRAL_REINTENTO_MAX_S = 300
+FASE_REDACCION = "redaccion_guion"
 
 PARAMS_POR_DEFECTO = {
     "prompt_general": "",
     "regenerar_desde_cero": False,
+    # Solo redacciones nuevas: no cambia guiones propios ni correcciones locales.
+    "escaleta_previa": True,
     # El ajuste por defecto de cada fase vive en cli_claude.POR_FASE, elegido
     # por la complejidad de la tarea y con las fuentes anotadas alli.
     "modelo": cli_claude.por_defecto_de("guion")["modelo"],
@@ -207,15 +213,10 @@ ESFUERZOS = cli_claude.ESFUERZOS
 # lance.
 ENTORNO_FUERA = ("CLAUDE_EFFORT", "MAX_THINKING_TOKENS")
 
-# Sin herramientas el CLI contesta en un solo turno: aqui no tiene nada que leer
-# ni que escribir, todo el material va en la instruccion.
+# Todo el material va en la instruccion. Al entregar a fichero se habilitan
+# SOLO Read/Write/Edit dentro del temporal gestionado por cli_claude.
 HERRAMIENTAS_VETADAS = ("Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob",
                         "Grep", "WebFetch", "WebSearch", "Task", "TodoWrite")
-
-# Una sola linea y sin metacaracteres: en Windows el CLI se invoca a traves de
-# claude.cmd y un salto de linea dentro de un argumento parte el comando.
-SISTEMA = ("Responde exclusivamente con el objeto JSON pedido, sin texto "
-           "alrededor, sin vallas de markdown y sin usar herramientas.")
 
 def describir(params):
     """Resumen de una linea de la configuracion del paso, para la bitacora."""
@@ -246,14 +247,17 @@ def _normalizar(params, estricto=True):
 
     opciones["prompt_general"] = str(opciones.get("prompt_general") or "").strip()
     opciones["regenerar_desde_cero"] = bool(opciones.get("regenerar_desde_cero"))
+    opciones["escaleta_previa"] = bool(opciones.get("escaleta_previa"))
     opciones["anotaciones_voz"] = bool(opciones.get("anotaciones_voz"))
     opciones["emocion_en_voz"] = bool(opciones.get("emocion_en_voz"))
     # Un modelo mal escrito solo se detectaba por returncode != 0, o sea despues
     # de haber pagado el arranque del CLI y la espera entera.
     opciones["modelo"] = cli_claude.normalizar_modelo(
-        opciones.get("modelo"), estricto=estricto)
+        opciones.get("modelo"), estricto=estricto,
+        defecto=PARAMS_POR_DEFECTO["modelo"])
     opciones["esfuerzo"] = cli_claude.normalizar_esfuerzo(
-        opciones.get("esfuerzo"), estricto=estricto)
+        opciones.get("esfuerzo"), estricto=estricto,
+        defecto=PARAMS_POR_DEFECTO["esfuerzo"])
 
     for clave, minimo in (("reintentos", 0), ("umbral_reintento_s", 0),
                           ("pausa_seccion_ms", 0),
@@ -439,8 +443,11 @@ REGLA_REDACCION_ESCRITO = (
 # Criterio editorial para redactar, no otra llamada ni un detector de calidad.
 # No se aplica a guiones propios ni convierte una correccion local en reescritura.
 NARRATIVA_YOUTUBE = """== NARRATIVA PARA QUE EL ESPECTADOR QUIERA SEGUIR ==
-Antes de redactar, decide que viene a descubrir el espectador por el titulo,
-que respuesta util recibira pronto y que descubrimiento merece el cierre.
+Antes de redactar, trabaja en este orden:
+  1. Decide que respuesta concreta se llevara el espectador y que parte recibira pronto.
+  2. Elige el descubrimiento que mas cambia su comprension del tema.
+  3. Selecciona los hechos y situaciones que conducen a esa respuesta y ese hallazgo.
+  4. Escribe un gancho que prometa exactamente ese recorrido.
 Adapta estas pautas al tono, genero, duracion e indicaciones del usuario;
 no conviertas todos los videos en la misma plantilla.
 
@@ -459,38 +466,112 @@ no conviertas todos los videos en la misma plantilla.
   - PROMESA QUE SE CUMPLE. Si ayuda, plantea una duda especifica que resolveras
     mas adelante. Da valor mientras llega su respuesta; no retrases artificialmente
     la respuesta principal ni anuncies secretos o beneficios que no entregas.
+    La recompensa es una respuesta que importa, no el nombre de una herramienta
+    ni el anuncio de que mas tarde pondras un matiz. No recuerdes varias veces
+    que algo llegara: avanza hacia ello aportando informacion nueva.
+    Un experimento o un caso que resuelve una pregunta local va cerca de ella,
+    sin separarlos con varios tramos de contexto. Reservalo para el cierre solo
+    si su resultado entrega de verdad la recompensa principal prometida.
   - EXPLICAR CON SITUACIONES. Alterna explicaciones con ejemplos cotidianos,
     contrastes y, cuando los haya en el material, experimentos o casos con
     planteamiento, resultado y significado. Los ejemplos hipoteticos deben
     reconocerse como tales; no inventes testimonios, estudios, dialogos ni casos
     reales. Una analogia aclara un mecanismo, no demuestra una afirmacion.
   - CAMBIOS DE RITMO CON CONTENIDO. Evita encadenar biografias de investigadores
-    o parrafos con la misma formula. Tras una explicacion abstracta, aterriza en
-    una accion o consecuencia visible. Tras un caso, explica que cambia en lo
-    que entendemos. Cada tramo aporta una respuesta y abre una duda nueva que
-    nace de ella, sin muletillas de suspense ni reiniciar la promesa del video.
+    o tramos que hacen el mismo trabajo con palabras distintas. Despues de
+    definir, muestra una conducta o un ejemplo. Despues de un caso, explica que
+    demuestra y que no. Tras explicar un mecanismo, muestra una consecuencia o
+    un contraste que haga avanzar la pregunta central. Una secuencia puede ser
+    curiosidad, situacion o evidencia, explicacion y consecuencia; no es una
+    formula obligatoria ni una cuota de sorpresas por minuto. Usa solo los
+    recursos que permita el material. Cada tramo resuelve una pregunta local y,
+    cuando nace de ella, deja una duda concreta que motive el siguiente, sin
+    muletillas de suspense ni reiniciar la promesa del video.
+  - NOVEDAD DE CONTENIDO, NO SOLO DE ESCENA. Tras la primera respuesta, cada
+    tramo debe anadir un mecanismo, una evidencia, un limite o una consecuencia
+    aun no explicados. Cambiar personajes, metafora o escenario para repetir
+    la misma tesis o contraste no es un descubrimiento. En una comparacion,
+    avanza por ejes distintos en vez de volver a describir los dos perfiles.
+    Recupera una escena solo si revela algo nuevo; no presentes otra vez a sus
+    personajes. Fusiona o elimina los tramos cuyo aporte ya estaba contado.
   - FUENTES AL SERVICIO DE LA IDEA. Cuenta que se hizo, que se encontro y por
     que importa. Incluye autor, fecha e institucion cuando aporten contexto o
     atribucion necesaria, sin convertir cada hallazgo en una ficha bibliografica.
     No hace falta utilizar todos los nombres ni todos los datos del material.
+    Evita una cadena de historia, escala, puntuacion y prevalencia si demora
+    la pregunta activa: introduce solo el contexto necesario para responderla.
   - RIGOR DENTRO DEL RELATO. Distingue consenso, hipotesis, asociacion y anecdota.
     No conviertas tendencias en reglas universales, correlaciones en causas ni
     un caso o un escaner en un diagnostico. Si los terminos se usan de formas
     distintas o una comparacion es divulgativa y no una division consensuada,
     aclaralo al introducirla, no despues de haberla presentado como un hecho.
     Conserva las limitaciones relevantes sin repetir una advertencia en cada bloque.
+    Ese grado de certeza se mantiene tambien en analogias y remates: no expliques
+    una distincion como orientativa y luego la conviertas en dos tipos biologicos
+    tajantes. Un personaje inventado ilustra acciones, no demuestra lo que siente
+    por dentro una categoria de personas. El resultado de una tarea experimental
+    no prueba una incapacidad general ni valida por si solo consejos para la vida
+    cotidiana. Separa lo observado, su interpretacion y la recomendacion practica;
+    si esta ultima no se deriva del estudio, no la presentes como su hallazgo.
   - CIERRE CON RECOMPENSA. Resuelve la duda o promesa inicial con una conclusion
     concreta que se desprenda de lo contado. Si encaja, vuelve a la situacion de
     apertura para que ahora se entienda de otra manera. Elige una idea final
-    memorable o una aplicacion practica, sin acumular otra lista de autores,
-    consejos o temas nuevos. No prometas proteccion garantizada ni diagnosticos
+    memorable o una aplicacion practica, expresable en una frase y con pocos
+    ejemplos que la concreten. Si ya la has entregado, termina: no encadenes una
+    lista de senales, otra de consejos, advertencias repetidas y un resumen final.
+    Si el tema es una guia o lista pedida por el usuario, desarrollala en el cuerpo
+    y cierra con su conclusion, sin volver a enumerarla. El regreso a la apertura
+    debe mostrar una observacion nueva, no repetir todo el contraste inicial.
+    No prometas proteccion garantizada ni diagnosticos
     caseros. Las llamadas a la accion son solo las configuradas para este video;
     no inventes una suscripcion, una siguiente entrega ni otro video del canal.
 
-REPASO EDITORIAL ANTES DE ENTREGAR, en esta misma pasada y sin mostrar el analisis:
-comprueba si la entrada entrega lo que promete el titulo, si el contexto retrasa
-la respuesta, si hay varios bloques seguidos que solo enumeran datos y si el
-cierre paga la promesa. Reordena o recorta lo que falle antes de entregar el JSON.
+"""
+
+# Cerca del formato de entrega: el repaso contrasta el texto completo, despues
+# de las reglas de oficio y de las correcciones, sin otra llamada al proveedor.
+REPASO_EDITORIAL = """== REPASO EDITORIAL DEL TEXTO FINAL ==
+En esta misma pasada, sin mostrar el analisis y solo dentro del alcance pedido:
+  1. Comprueba que respuesta concreta recibe el espectador al principio.
+  2. Resume el aporte de cada tramo en una frase. Si dos aportes dicen lo mismo
+     con otra escena o metafora, fusiona o recorta los bloques redundantes.
+     Una transicion distinta no convierte una reiteracion en informacion nueva.
+  3. Acerca cada caso o experimento a la pregunta que responde. Comprueba que
+     sus conclusiones no exceden lo observado y que los consejos no se presentan
+     como resultados de un estudio que no los evaluo. Manten estos limites
+     tambien en el remate; un matiz anterior no justifica una certeza posterior.
+  4. Localiza donde se entrega la recompensa final. Elimina los cierres
+     sucesivos que vuelven a explicar la misma idea. Conserva los limites
+     relevantes y las llamadas a la accion configuradas, sin otra recapitulacion.
+  5. Actualiza el plan para que describa esos bloques reales. No basta con
+     declarar un aporte nuevo: debe poder localizarse en el texto del tramo.
+Respeta los hechos y la horquilla. Para completar longitud desarrolla aspectos
+documentados aun no explicados, no repitas la tesis ni alargues la despedida.
+En una correccion local o reintento, esto NO autoriza cambiar otros bloques.
+"""
+
+INSTRUCCION_PLAN_NARRATIVO = """== PLAN NARRATIVO DE LA ENTREGA ==
+Incluye en el JSON un resumen editorial breve en "plan_narrativo", separado
+del texto que se locuta. No es tu razonamiento ni otra narracion: es el mapa
+del guion final para poder revisarlo.
+  - "pregunta_central": que viene a descubrir el espectador.
+  - "respuesta_temprana": la respuesta concreta que recibe al principio.
+  - "promesa_final": que respuesta se reserva para el cierre; cadena vacia si
+    no hay una promesa diferida. No inventes una para rellenar el campo.
+  - "tramos": lista ordenada de movimientos narrativos. Cada uno lleva
+    "pregunta", "aporte_nuevo", "recurso" (por ejemplo contraste, situacion,
+    explicacion, evidencia o aplicacion), "bloques" (sus IDs) y "puente"
+    (la duda o consecuencia concreta que lleva al siguiente; vacio si no hace falta).
+    Reparte TODOS los bloques una sola vez, en su orden final. Cada tramo agrupa
+    bloques consecutivos; varios tramos pueden pertenecer a una seccion de audio.
+    "aporte_nuevo" concreta que se entiende aqui que no se entendia antes; no
+    repitas la tesis central con otros sinonimos. Un tramo de apertura o cierre
+    puede cumplir su funcion sin estrenar un hecho: describela con honestidad,
+    sin fabricar un descubrimiento para rellenar el mapa.
+  - "recompensa_final": la conclusion o aplicacion concreta que entrega el cierre.
+Describe lo que realmente dicen los bloques, no lo que te gustaria que dijeran.
+En una correccion o reintento, describe el resultado sin reordenar ni mejorar
+los bloques que deban conservarse. Este mapa no autoriza cambios adicionales.
 """
 
 REGLA_GUION_PROPIO = (
@@ -503,7 +584,7 @@ REGLA_GUION_PROPIO = (
 
 
 def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
-                 idioma, previo=None, origen=None):
+                  idioma, previo=None, origen=None, escaleta=None):
     """Texto completo que se le pasa al CLI por la entrada estandar.
 
     'previo' son los datos que devolvio el intento que se esta corrigiendo. No
@@ -512,6 +593,9 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
     CLI es una sesion limpia.
 
     """
+    if escaleta is not None:
+        return _instruccion_con_escaleta(transcript, metadatos, brief, opciones,
+                                        idioma, escaleta, correcciones, previo)
     presupuesto, minimo, maximo = _horquilla(brief, idioma)
     nombre_idioma = _nombre_idioma(brief, idioma)
     por_bloque = int(brief.get("palabras_por_bloque") or 30)
@@ -620,6 +704,13 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "",
         "== BRIEF DEL USUARIO ==",
         brief.get("instrucciones") or "(sin brief)",
+        "",
+        "== PRIORIDAD DE LAS INDICACIONES EDITORIALES ==",
+        "La estructura y los cambios pedidos expresamente para ESTE video mandan. "
+        "La guia de tono del canal aporta su registro y sus preferencias narrativas; "
+        "las pautas generales de abajo completan lo que no este definido. "
+        "Ninguna pauta autoriza reescribir un guion propio ni ampliar una correccion "
+        "local. El rigor factual y los contratos tecnicos se conservan en todos los casos.",
     ])
 
     # LOS PERSONAJES DEL CANAL, detras del brief: son del canal, como el tono,
@@ -726,14 +817,16 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "Un video no es una lista de datos buenos: es UN RELATO con unas pocas "
         "paradas, y cada parada existe porque la anterior la pide.",
         "",
-        "  - POCOS TEMAS Y BIEN CONTADOS. Elige unas pocas paradas para todo el "
-        "video --cuatro o seis pueden bastar en uno largo; menos en uno corto-- "
-        "y quedate ahi. Cada una se lleva "
-        "varios bloques seguidos y se explica con calma: el dato, que significa "
-        "y por que importa. Un tema que se despacha en un bloque y no vuelve no "
-        "era un tema, era un dato suelto.",
+        "  - POCOS TEMAS, VARIOS DESCUBRIMIENTOS. Elige unas pocas preguntas "
+        "principales para todo el video, no un indice exhaustivo del material. "
+        "Cada parada responde una de ellas mediante varios movimientos: un "
+        "contraste observable, una explicacion, una evidencia o ejemplo y una "
+        "consecuencia nueva, segun lo que permita el material. No son casillas "
+        "obligatorias ni temas nuevos: cambian lo que el espectador entiende "
+        "dentro de la misma pregunta. No alargues una explicacion solo para "
+        "que una parada parezca importante.",
         "  - EL ORDEN ES UN ARGUMENTO. Cada parada se apoya en la anterior: la "
-        "primera deja una pregunta que contesta la segunda. Si puedes cambiar "
+        "primera puede dejar una pregunta que contesta la segunda. Si puedes cambiar "
         "dos paradas de sitio, revisa si hay una progresion mejor. Una "
         "comparacion puede alternar perfiles por ejes comunes sin fingir una "
         "cadena causal entre ellos.",
@@ -741,10 +834,10 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "es su trabajo: que puedas ELEGIR. Un hecho entra si empuja la parada en "
         "la que esta; si solo es curioso, se queda fuera. Vale mas un video con "
         "cinco temas explicados que uno con doce mencionados.",
-        "  - Y NO SE SALTA. Antes de cambiar de parada, cierrala con una frase "
-        "que remate lo que se acaba de contar. Cambiar de asunto a media idea es "
-        "lo que hace que un video se sienta desordenado aunque cada frase por "
-        "separado este bien.",
+        "  - Y NO SE SALTA. Antes de cambiar de parada, resuelve su pregunta "
+        "local. Cuando de la respuesta nace una duda o consecuencia que motiva "
+        "la siguiente parada, dejala planteada de forma concreta. No cortes una "
+        "explicacion por la mitad ni anadas anuncios vacios de lo que viene.",
         "",
         "Decide esas paradas y su orden ANTES de escribir. El guion que "
         "entregues tiene que poder resumirse en esa lista.",
@@ -758,10 +851,12 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "una lleva \"abre_seccion\": true (regla 11). Una parada larga puede "
         "partirse en dos secciones; lo que no puede pasar es cambiar de parada "
         "sin abrir seccion, porque ahi es donde el motor pone el silencio que "
-        "deja respirar el video.",
+        "deja respirar el video. Los movimientos dentro de una misma parada "
+        "no exigen otra seccion ni otra pausa: una seccion de audio puede contener "
+        "varios tramos del plan narrativo.",
     ])
     if not propio:
-        partes.extend(["", NARRATIVA_YOUTUBE])
+        partes.extend(["", NARRATIVA_YOUTUBE, "", INSTRUCCION_PLAN_NARRATIVO])
     partes.extend([
         "",
         "== INSTRUCCION DE ESTA ITERACION ==",
@@ -902,8 +997,11 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         "se llevaron, las consecuencias, el cierre. En un video de dos minutos "
         "salen cuatro o cinco; en uno de quince, ocho o diez COMO MUCHO. "
         "Pasarse es peor que quedarse corto. Y ESE CORTE SE OYE: el motor deja "
-        "un silencio al final del bloque anterior, asi que ese bloque tiene que "
-        "REMATAR el tema que cierra, no enlazar con el siguiente.",
+        "un silencio al final del bloque anterior. Resuelve la pregunta local "
+        "antes del corte; puedes dejar una duda o consecuencia concreta que "
+        "motive el siguiente tramo. No cortes a media explicacion ni uses "
+        "anuncios vacios como enlace. No abras otra seccion por cada ejemplo "
+        "o descubrimiento dentro de la misma pregunta principal.",
         # LA REGLA DEL RELATO QUE AVANZA. Nacio de un video real: pasado el
         # minuto dos, el guion volvia a presentar el caso --el numero de
         # afectados, quienes eran los atacantes-- con el mismo tono de
@@ -1016,6 +1114,22 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
             b["escenas_visuales"] = [dict(texto=b["texto"],
                 descripcion_visual=b["descripcion_visual"], personajes_visibles=b["personajes_visibles"])]
         ejemplo = json.dumps(ejemplo_stickman, ensure_ascii=False)
+    if not propio:
+        ejemplo_con_plan = json.loads(ejemplo)
+        ejemplo_con_plan["plan_narrativo"] = {
+            "pregunta_central": "La pregunta concreta del titulo.",
+            "respuesta_temprana": "La primera respuesta que da este guion.",
+            "promesa_final": "",
+            "tramos": [{
+                "pregunta": "La pregunta que resuelve este tramo.",
+                "aporte_nuevo": "Lo que estos bloques permiten entender.",
+                "recurso": "explicacion",
+                "bloques": [b["id"] for b in ejemplo_con_plan["bloques"]],
+                "puente": "",
+            }],
+            "recompensa_final": "La conclusion concreta del guion.",
+        }
+        ejemplo = json.dumps(ejemplo_con_plan, ensure_ascii=False)
     # LA CUENTA, OTRA VEZ Y AL FINAL. No es repetir la regla 3 por insistir: la
     # ULTIMA parte de un prompt es la que mas pesa --esta medido en este repo
     # con el feedback de un plano-- y la longitud es lo unico
@@ -1032,7 +1146,8 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
         f"{minimo} y {maximo}, en unos {bloques_previstos} bloques de unas "
         f"{por_bloque}. Si te has pasado, RECORTA antes de responder: quita "
         f"frases enteras que no aporten un hecho nuevo, no acortes todas un "
-        f"poco. Si te has quedado corto, desarrolla los hechos del material. "
+        f"poco. Si te has quedado corto, desarrolla aspectos documentados aun no "
+        f"explicados; no repitas la tesis ni alargues el cierre para llenar. "
         f"Esta cuenta manda sobre cualquier otra cosa que te apetezca contar.",
     ])
     if plan_animaciones:
@@ -1047,10 +1162,12 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
             'frase corta o las dos ideas contrapuestas con su conector. '
             'Copialo literalmente del bloque, sin inventar ni abreviar nombres.',
         ])
+    if not propio:
+        partes.extend(["", REPASO_EDITORIAL])
     partes.extend([
         "",
         "== FORMATO DE SALIDA ==",
-        "Responde UNICAMENTE con un objeto JSON valido, sin texto antes ni "
+        "Entrega UNICAMENTE un objeto JSON valido, sin texto antes ni "
         "despues y sin vallas de markdown, con esta forma exacta:",
         ejemplo,
     ])
@@ -1058,6 +1175,148 @@ def _instruccion(transcript, metadatos, brief, anterior, opciones, correcciones,
 
 
 # ------------------------------------------------------------------ CLI
+
+def _instruccion_con_escaleta(transcript, metadatos, brief, opciones, idioma,
+                              escaleta, correcciones, previo):
+    """Encargo de escritura: seleccion editorial ya decidida, sin dirigir planos."""
+    presupuesto, minimo, maximo = _horquilla(brief, idioma)
+    cantidad = int(brief.get("bloques_estimados") or max(1, round(presupuesto / 30)))
+    partes = [
+        "Escribe la narracion de un video de YouTube siguiendo esta escaleta ya "
+        "decidida. No vuelvas a organizar un dossier ni agregues capitulos de "
+        "historia para completar longitud. Desarrolla cada aporte una sola vez. "
+        "La voz figura en la escaleta; las indicaciones expresas del video mandan.",
+        "== ESCALETA EDITORIAL PREVIA ==", json.dumps(escaleta, ensure_ascii=False),
+        "== INDICACIONES DEL VIDEO ==", opciones["prompt_general"] or "Sin indicaciones adicionales.",
+        "== MATERIAL PARA CONTRASTAR LOS HECHOS ==",
+        _transcript_legible(transcript, opciones["max_caracteres_transcript"], con_tiempos=False),
+        "Conserva la certeza y los limites de los hechos. Si solo se aporta un tema, "
+        "explica conocimientos generales prudentes, sin fabricar citas, fechas, "
+        "porcentajes ni resultados de estudios no aportados. No presentes este "
+        "material como un dossier investigado. No deduzcas consejos de experimentos "
+        "que no los evaluaron. Un ejemplo hipotetico no es evidencia.",
+        "== CONTRATO DE LOCUCION ==",
+        f"Idioma: {_nombre_idioma(brief, idioma)}. Entre {minimo} y {maximo} palabras "
+        f"locutadas en unos {cantidad} bloques. Los presupuestos por tramo orientan "
+        "su espacio; el total manda. No rellenes repitiendo la tesis o el cierre.",
+        "Devuelve titulo y bloques B001, B002... Cada bloque lleva tramo (T01, T02...), "
+        "texto y abre_seccion. Recorre todos los tramos en orden. Una seccion de audio "
+        "puede abarcar varios tramos: no marques abre_seccion en cada frase. "
+        "Cada frase completa terminada en punto sera una escena. Formula preguntas "
+        "como afirmaciones; sin abreviaturas con puntos ni puntos suspensivos. "
+        "Solo palabras locutadas, sin titulos de capitulo ni acotaciones.",
+        "Ortografia completa con tildes. Cifras, fechas y simbolos escritos con letras "
+        "en el idioma de salida. Separa nombres compuestos (Alex Host). Deletrea con "
+        "<spell> solo inicialismos que se dicen letra a letra, no marcas ni siglas "
+        "pronunciables. Frases naturales para el oido, sin solemnidad ni muletillas.",
+    ]
+    modo = opciones.get("sistema_personajes") or {}
+    if modo.get("generar_personajes"):
+        partes.extend([
+            "== HABLANTES, SIN DIRECCION VISUAL ==",
+            json.dumps(personajes.activos(opciones), ensure_ascii=False),
+            "Cada bloque identifica UN personaje_id del reparto o cadena vacia para "
+            "narracion. No inventes voces. Si necesitas personajes adicionales, "
+            "declara personajes_automaticos con id auto_nombre, nombre, descripcion "
+            "y categoria personaje; no dupliques los personalizados.",
+            ("Solo dialogos de personajes personalizados con voz propia; no uses "
+             "narrador ni automaticos como hablantes." if personajes.solo_personajes(opciones)
+             else "Combina narracion y dialogos solo cuando aporten al relato."
+             if personajes.dialogos_habilitados(opciones)
+             else "SIN DIALOGOS: solo narracion general o del narrador personalizado."),
+            personajes.instruccion_pov(personajes.personaje_pov(opciones)),
+            "No escribas descripcion_visual, personajes_visibles ni escenas_visuales: "
+            "otra fase dirigira la narracion terminada sin cambiar sus palabras.",
+        ])
+    seccion_cta = cta.bloque_para_guion(opciones.get("cta"))
+    if seccion_cta:
+        partes.append(seccion_cta)
+    anim = animaciones.plan_de_huecos(opciones.get("animaciones"),
+        float(brief.get("duracion_objetivo_s") or 0), cantidad,
+        semilla=len(opciones["prompt_general"]))
+    if anim:
+        partes.append(animaciones.bloque_para_guion(anim, cantidad))
+        partes.append('Cada bloque animado lleva animacion y animacion_texto, '
+                      'un fragmento relevante copiado literalmente de su texto.')
+    if opciones["anotaciones_voz"]:
+        partes.append(marcas_tts.instrucciones(con_emocion=opciones["emocion_en_voz"]))
+    if correcciones:
+        partes.extend(["== TEXTO QUE SE CORRIGE ==",
+            json.dumps((previo or {}).get("_bloques") or [], ensure_ascii=False),
+            "Corrige SOLO estos defectos, conservando los otros bloques y sus IDs:",
+            *correcciones])
+    partes.extend([
+        "Antes de entregar comprueba palabras y avance: un aporte no puede repetirse "
+        "con otra metafora. Acerca la evidencia a su pregunta y termina al entregar "
+        "la recompensa, respetando las llamadas configuradas. No inventes hechos "
+        "para llenar. No devuelvas un plan retrospectivo ni descripciones visuales.",
+        'Devuelve SOLO JSON {"titulo":"...","personajes_automaticos":[],"bloques":'
+        '[{"id":"B001","tramo":"T01","texto":"Frase completa.",'
+        '"abre_seccion":true,"personaje_id":""}]}.',
+    ])
+    return "\n\n".join(p for p in partes if p)
+
+
+def _generar_escaleta(transcript, metadatos, brief, opciones, idioma, trabajo, avisar):
+    presupuesto = _horquilla(brief, idioma)[0]
+    prompt = editorial_guion.instruccion_escaleta(
+        _transcript_legible(transcript, opciones["max_caracteres_transcript"], con_tiempos=False),
+        brief.get("instrucciones") or "", opciones["prompt_general"], presupuesto,
+        _nombre_idioma(brief, idioma), escaso=sum(comun.contar_palabras(t.get("texto", ""))
+            for t in transcript) < fuentes.PALABRAS_MATERIAL_SUFICIENTE,
+        contexto=dict(cta=opciones.get("cta"), personajes=personajes.activos(opciones),
+                      solo_dialogos=personajes.solo_personajes(opciones)))
+
+    def comprobar(datos):
+        try:
+            datos["_escaleta"] = editorial_guion.validar_escaleta(datos, presupuesto)
+        except ValueError as fallo:
+            raise RuntimeError(str(fallo)) from fallo
+        return []
+
+    datos, sobre, intentos, _ = _pedir(
+        lambda correcciones, previo: prompt + ("\nCorrige el contrato: " + "; ".join(correcciones) if correcciones else ""),
+        opciones, trabajo, avisar, (.03, .18), "decidiendo la escaleta editorial",
+        estadisticas.estimar("escaleta_guion", presupuesto,
+            ajuste={k: opciones[k] for k in ("modelo", "esfuerzo")}),
+        "escaleta", comprobar, fase="escaleta_guion")
+    escaleta = datos["_escaleta"]
+    comun.escribir_json(os.path.join(trabajo, "escaleta.json"), escaleta)
+    return escaleta, sobre, intentos
+
+
+def _dirigir_narracion(datos, bloques, opciones, brief, trabajo, avisar):
+    """Direccion posterior: solo puede agregar metadatos a la narracion final."""
+    prompt = ("Dirige visualmente esta narracion TERMINADA. No escribas ni cambies "
+        "texto, orden, IDs o hablantes. Conserva las identidades del reparto ya definido; "
+        "puedes agregar personajes visuales necesarios. Devuelve SOLO JSON con "
+        "personajes_automaticos y bloques [{id, personajes_visibles, descripcion_visual, "
+        "escenas_visuales}]. No devuelvas el campo texto de bloque ni personaje_id.\n"
+        + personajes.instruccion(opciones) + "\n"
+        + json.dumps(dict(narracion=bloques,
+            personajes_automaticos=datos.get("personajes_automaticos") or [],
+            idioma=brief.get("idioma_salida") or "es", velocidad=brief.get("velocidad")), ensure_ascii=False)
+        + "\nEl contrato de ESTA entrega prevalece: solo metadatos visuales. "
+          "Cada escenas_visuales.texto es la frase literal sin etiquetas de voz.")
+
+    def comprobar(respuesta):
+        try:
+            nuevos, reparto = editorial_guion.aplicar_direccion(datos, bloques, respuesta)
+            personales = personajes.preparar_intervenciones(
+                dict(personajes_automaticos=reparto), nuevos, opciones)
+        except ValueError as fallo:
+            raise RuntimeError(str(fallo)) from fallo
+        respuesta["_bloques"] = nuevos
+        respuesta["_reparto"] = personales
+        return []
+
+    respuesta, sobre, intentos, _ = _pedir(
+        lambda correcciones, previo: prompt + ("\nCorrige el contrato: " + "; ".join(correcciones) if correcciones else ""),
+        opciones, trabajo, avisar, (.65, .95), "dirigiendo la narracion terminada",
+        estadisticas.estimar("direccion_guion", sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques),
+            ajuste={k: opciones[k] for k in ("modelo", "esfuerzo")}),
+        "direccion", comprobar, fase="direccion_guion")
+    return respuesta["_bloques"], respuesta["_reparto"], sobre, intentos
 
 def _localizar_claude():
     """Ruta del ejecutable del CLI de Claude."""
@@ -1090,17 +1349,16 @@ def _llamar_claude(instruccion, opciones, cwd, avance=None):
     porque el medidor de coste la engancha POR NOMBRE (nucleo/coste.py:724) y
     porque las pruebas sustituyen aqui el CLI por un doble.
     """
-    return cli_claude.ejecutar(
+    return cli_claude.escribiendo(
         instruccion,
         modelo=opciones["modelo"], esfuerzo=opciones["esfuerzo"],
-        cwd=cwd, tiempo_max_s=opciones.get("tiempo_max_s") or 0,
+        tiempo_max_s=opciones.get("tiempo_max_s") or 0,
         base_tiempo_s=TIEMPO_BASE_S,
-        sistema=SISTEMA, herramientas_vetadas=HERRAMIENTAS_VETADAS,
-        extra=["--no-session-persistence"], avance=avance,
+        herramientas_vetadas=tuple(h for h in HERRAMIENTAS_VETADAS
+                                   if h not in ("Read", "Write", "Edit")),
+        herramientas_permitidas=("Read", "Write", "Edit"), avance=avance,
         para="la redaccion del guion",
-        consejos_extra=[f"baja 'max_caracteres_transcript' (ahora "
-                        f"{opciones['max_caracteres_transcript']}) para mandar "
-                        f"menos material"])
+        que="el guion", entrega_cruda=True)
 
 
 def _extraer_json(texto):
@@ -1154,6 +1412,53 @@ def _primer_objeto(texto):
 
 # ------------------------------------------------------------------- bloques
 
+def _plan_narrativo(crudo, bloques):
+    """Mapa editorial opcional, validado contra los bloques de esta entrega.
+
+    No puntua calidad ni provoca otra llamada: un mapa roto se omite y se avisa.
+    Los guiones historicos sin mapa siguen siendo validos. Se conserva solo el
+    contrato conocido, nunca campos arbitrarios del modelo ni su razonamiento.
+    """
+    def invalido(motivo):
+        return None, [f"plan narrativo omitido: {motivo}; el guion se conserva"]
+
+    if crudo is None:
+        return invalido("la entrega no incluye el mapa editorial")
+    if not isinstance(crudo, dict):
+        return invalido("debe ser un objeto")
+
+    plan = {}
+    for campo in ("pregunta_central", "respuesta_temprana", "promesa_final",
+                  "recompensa_final"):
+        texto = crudo.get(campo)
+        if not isinstance(texto, str) or (campo != "promesa_final" and not texto.strip()):
+            return invalido(f"campo {campo} ausente o vacio")
+        plan[campo] = " ".join(texto.split())
+    tramos = crudo.get("tramos")
+    if not isinstance(tramos, list) or not tramos:
+        return invalido("faltan los tramos")
+    plan["tramos"] = []
+    referencias = []
+    for numero, crudo_tramo in enumerate(tramos, 1):
+        if not isinstance(crudo_tramo, dict):
+            return invalido(f"tramo {numero} no es un objeto")
+        tramo = {}
+        for campo in ("pregunta", "aporte_nuevo", "recurso", "puente"):
+            texto = crudo_tramo.get(campo)
+            if not isinstance(texto, str) or (campo != "puente" and not texto.strip()):
+                return invalido(f"tramo {numero}: campo {campo} ausente o vacio")
+            tramo[campo] = " ".join(texto.split())
+        ids = crudo_tramo.get("bloques")
+        if not isinstance(ids, list) or not ids or not all(isinstance(b, str) for b in ids):
+            return invalido(f"tramo {numero}: faltan los IDs de bloques")
+        tramo["bloques"] = [b.strip().upper() for b in ids]
+        referencias.extend(tramo["bloques"])
+        plan["tramos"].append(tramo)
+    if referencias != [b["id"] for b in bloques]:
+        return invalido("los tramos deben cubrir todos los bloques una sola vez y en orden")
+    return plan, []
+
+
 def problemas_de_frases(bloques):
     """Errores editoriales antes de locutar; no se inventa puntuacion al montar."""
     segmentador = medios.motor("guion/segmentar.py")
@@ -1184,6 +1489,7 @@ def _normalizar_bloques(datos):
             texto = elemento.get("texto") or elemento.get("text") or ""
             propuestos.append({"id": str(elemento.get("id") or "").strip().upper(),
                                "texto": " ".join(str(texto).split()),
+                               **({"tramo": str(elemento["tramo"])} if "tramo" in elemento else {}),
                                "abre_seccion": bool(elemento.get("abre_seccion")),
                                # SI EL PERSONAJE DEL CANAL DA LA CARA en este
                                # bloque (se presenta, cierra). Lo marca el
@@ -1476,7 +1782,7 @@ def _avisos(bloques, palabras, brief, idioma):
 # ------------------------------------------------------------------ redaccion
 
 def _pedir(instruccion, opciones, trabajo, avisar, tramo, mensaje, prevision,
-           nombre_fichero, comprobar):
+           nombre_fichero, comprobar, fase=FASE_REDACCION):
     """Una peticion al CLI con sus reintentos, su reloj y sus correcciones.
 
     'instruccion' recibe (correcciones, previo): las correcciones que hay que
@@ -1547,6 +1853,14 @@ def _pedir(instruccion, opciones, trabajo, avisar, tramo, mensaje, prevision,
 
         comun.escribir_json(
             os.path.join(trabajo, f"respuesta_{nombre_fichero}_{intento}.json"), sobre)
+        # El sobre ahora contiene el acuse LISTO; conserva tambien la entrega
+        # completa antes de analizarla, incluso si no pasa la validacion.
+        comun.escribir_texto(
+            os.path.join(trabajo, f"entrega_{nombre_fichero}_{intento}.txt"), texto)
+        estadisticas.anotar(fase, tardado,
+                            tamano=prevision.get("tamano", 0),
+                            ajuste={"modelo": opciones["modelo"],
+                                    "esfuerzo": opciones["esfuerzo"]})
         avisar(intento_hasta, "revisando lo que ha devuelto")
         try:
             datos = _extraer_json(texto)
@@ -1601,8 +1915,27 @@ def umbral_reintento_de(opciones):
     pedido = opciones.get("umbral_reintento_s") or 0
     if pedido > 0:
         return int(pedido)
-    return int(round(UMBRAL_REINTENTO_BASE_S
-                     * cli_claude.factor(opciones["modelo"], opciones["esfuerzo"])))
+    return min(UMBRAL_REINTENTO_MAX_S,
+               int(round(UMBRAL_REINTENTO_BASE_S
+                         * cli_claude.factor(opciones["modelo"], opciones["esfuerzo"]))))
+
+
+def prevision_de(palabras_material, brief, params):
+    """Prevision por encargo, separada del historial antiguo por transcript.
+
+    Una idea de 22 palabras puede pedir un guion de 2.261, mas su direccion
+    visual por frase. El tamano de la entrada sola no mide ese trabajo.
+    """
+    opciones = _normalizar(params, estricto=False)
+    objetivo = int((brief or {}).get("presupuesto_palabras") or 0)
+    if not objetivo:
+        segundos = float((brief or {}).get("duracion_objetivo_s") or 0)
+        objetivo = int(segundos * 2.5)
+    visual = bool((opciones.get("sistema_personajes") or {}).get("stickman"))
+    tamano = max(int(palabras_material or 0), objetivo * (3 if visual else 1))
+    return estadisticas.estimar(FASE_REDACCION, tamano,
+                                ajuste={"modelo": opciones["modelo"],
+                                        "esfuerzo": opciones["esfuerzo"]})
 
 
 def _puede_reintentar(intento, tardado, opciones):
@@ -1685,8 +2018,20 @@ def _redactar(proyecto, params, avisar):
     # La estimacion va por COMBINACION: mezclar 'sonnet/low' con 'opus/high' en
     # una sola mediana es sumar peras y manzanas, y la barra vuelve a mentir.
     ajuste = {"modelo": opciones["modelo"], "esfuerzo": opciones["esfuerzo"]}
-    prevision_llamada = estadisticas.estimar(PASO, palabras_material,
-                                             ajuste=ajuste)
+    prevision_llamada = prevision_de(palabras_material, brief_doc, opciones)
+    escaleta = None
+    sobres_fases = []
+    fases_guion = {}
+    nueva = opciones["escaleta_previa"] and not opciones["guion_propio"] and anterior is None
+    dirigir = nueva and bool((opciones.get("sistema_personajes") or {}).get("generar_personajes"))
+    if nueva:
+        escaleta, sobre_escaleta, intentos_escaleta = _generar_escaleta(
+            transcript, metadatos, brief_doc, opciones, idioma, trabajo, avisar)
+        sobres_fases.append(sobre_escaleta)
+        fases_guion["escaleta"] = intentos_escaleta
+    prevision_narracion = (estadisticas.estimar("narracion_guion",
+        max(palabras_material, _horquilla(brief_doc, idioma)[0]), ajuste=ajuste)
+        if nueva else prevision_llamada)
 
     # LOS AVISOS SON DEL INTENTO QUE SE ENTREGA, no de todos los que se pagaron.
     # Con una lista compartida, un intento descartado dejaba puestos los suyos
@@ -1700,7 +2045,17 @@ def _redactar(proyecto, params, avisar):
         datos["_bloques"] = bloques
         datos["_avisos"] = propios
         try:
-            datos["_personajes_automaticos"] = personajes.preparar_intervenciones(datos, bloques, opciones)
+            opciones_hablantes = opciones
+            if dirigir:
+                opciones_hablantes = copy.deepcopy(opciones)
+                opciones_hablantes["sistema_personajes"]["stickman"] = False
+                for b in bloques:
+                    b.setdefault("personaje_id", "")
+                    b.setdefault("personajes_visibles", [])
+                    b.setdefault("descripcion_visual", "")
+            datos["_personajes_automaticos"] = personajes.preparar_intervenciones(datos, bloques, opciones_hablantes)
+            if escaleta is not None:
+                datos["plan_narrativo"] = editorial_guion.plan_del_texto(escaleta, bloques)
         except ValueError as fallo:
             return [str(fallo)]
         palabras = sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques)
@@ -1710,21 +2065,42 @@ def _redactar(proyecto, params, avisar):
     datos, sobre, intentos, pendientes = _pedir(
         lambda correcciones, previo: _instruccion(transcript, metadatos,
                                                   brief_doc, anterior, opciones,
-                                                  correcciones, idioma, previo,
-                                                  origen),
-        opciones, trabajo, avisar, (0.05, 0.95),
+                                                   correcciones, idioma, previo,
+                                                   origen, escaleta),
+        opciones, trabajo, avisar, ((.18, .64 if dirigir else .95) if nueva else (.05, .95)),
         f"redactando el guion en {_nombre_idioma(brief_doc, idioma)} "
         f"con {opciones['modelo']}",
-        prevision_llamada, "instruccion", comprobar_principal)
+        prevision_narracion, "instruccion", comprobar_principal,
+        fase="narracion_guion" if nueva else FASE_REDACCION)
 
     avisos_marcas = list(datos.get("_avisos") or [])
     bloques = datos["_bloques"]
+    if escaleta is not None:
+        # _pedir conserva el mejor intento tecnico; no publiques una redaccion
+        # que no pueda asociarse a todos los tramos de la escaleta previa.
+        try:
+            datos["plan_narrativo"] = editorial_guion.plan_del_texto(escaleta, bloques)
+        except ValueError as fallo:
+            raise RuntimeError(str(fallo)) from fallo
+        fases_guion["narracion"] = intentos
+    plan_narrativo, avisos_plan = (None, []) if opciones["guion_propio"] else _plan_narrativo(
+        datos.get("plan_narrativo"), bloques)
     # Un contrato de hablantes incompleto no puede llegar a la voz ni al catálogo.
-    automaticos = personajes.preparar_intervenciones(datos, bloques, opciones)
+    automaticos = datos.get("_personajes_automaticos") or []
+    if dirigir:
+        datos["personajes_automaticos"] = automaticos
     # las ediciones a mano mandan sobre lo que acabe de escribir el modelo: el
     # humano ya vio ese bloque y lo corrigio, y perder su texto en la siguiente
     # pasada seria tirar su trabajo.
     editados = [b["id"] for b in bloques if b["id"] in opciones["bloques"]]
+    cambia_plan = any(
+        b["id"] in opciones["bloques"]
+        and marcas_tts.limpiar(b["texto"]) != marcas_tts.limpiar(opciones["bloques"][b["id"]])
+        for b in bloques)
+    if plan_narrativo is not None and cambia_plan:
+        plan_narrativo = None
+        avisos_plan.append("plan narrativo omitido: hay ediciones manuales posteriores "
+                           "a la redaccion; el mapa podria no describir el texto final")
     for bloque in bloques:
         if bloque["id"] in opciones["bloques"]:
             bloque["texto"] = opciones["bloques"][bloque["id"]]
@@ -1732,6 +2108,19 @@ def _redactar(proyecto, params, avisar):
     # texto, asi que una persona puede teclear una que no existe sin saberlo, y
     # lo que Cartesia no reconoce lo locuta
     bloques = _aplicar_marcas(bloques, opciones, avisos_marcas, idioma, intactos)
+    if nueva:
+        # Auditoria: las palabras existen antes de dirigir. No es una cache;
+        # preparar_trabajo limpia los intentos anteriores al lanzar otra tanda.
+        comun.escribir_json(os.path.join(trabajo, "narracion.json"), dict(
+            titulo=datos.get("titulo"), bloques=bloques,
+            personajes_automaticos=datos.get("personajes_automaticos") or []))
+    if dirigir:
+        bloques, automaticos, sobre_visual, intentos_visual = _dirigir_narracion(
+            datos, bloques, opciones, brief_doc, trabajo, avisar)
+        sobres_fases.append(sobre_visual)
+        fases_guion["direccion"] = intentos_visual
+    else:
+        automaticos = personajes.preparar_intervenciones(datos, bloques, opciones)
 
     palabras = sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques)
     titulo = str(datos.get("titulo") or metadatos.get("titulo") or "Sin titulo").strip()
@@ -1768,7 +2157,11 @@ def _redactar(proyecto, params, avisar):
     avisos.extend(pendientes)
     avisos.extend(problemas_de_frases(bloques))
     avisos.extend(avisos_animaciones)
+    avisos.extend(avisos_plan)
     tokens = comun.tokens_de_cli(sobre)
+    for sobre_fase in sobres_fases:
+        otros = comun.tokens_de_cli(sobre_fase)
+        tokens = {k: tokens.get(k, 0) + otros.get(k, 0) for k in ("entrada", "salida", "cache")}
 
     avisar(0.96, "guardando el guion")
     # Lo que hubo que corregir de las anotaciones sube a la interfaz. No es
@@ -1820,6 +2213,12 @@ def _redactar(proyecto, params, avisar):
     }
     if (opciones.get("sistema_personajes") or {}).get("generar_personajes"):
         documento["personajes_automaticos"] = automaticos
+    if plan_narrativo is not None:
+        documento["plan_narrativo"] = plan_narrativo
+    if escaleta is not None:
+        documento["escaleta_editorial"] = escaleta
+        documento["fases_guion"] = fases_guion
+        documento["flujo_redaccion"] = "escaleta-narracion-direccion-v1"
     comun.escribir_json(os.path.join(trabajo, "guion.json"), documento)
     comun.escribir_texto(
         os.path.join(trabajo, "guion.txt"),

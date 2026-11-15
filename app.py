@@ -7944,7 +7944,8 @@ def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
                 ultimo["valor"] = min(1.0, max(0.0, float(valor)))
             if valor is not None or unidades:
                 ultimo["frase"] = recetas.publico_de(tarea["id"], valor,
-                                                     unidades, stickman=es_stickman)
+                                                     unidades, stickman=es_stickman,
+                                                     mensaje=mensaje)
             # La incidencia no puede desaparecer cuando otra cadena de imagenes
             # resuelve un plano y manda fraccion/recuento junto a la espera.
             if (mensaje or "").startswith("Esperando al servicio de imágenes:"):
@@ -11501,6 +11502,22 @@ def _segundos_de_tarea(ctx, tarea, planos, palabras, reparto=None,
     """
     if tarea["id"] == "publicacion":
         return 150.0
+    if tarea["id"] == "guion":
+        # La misma prevision antes de pulsar y durante la llamada. Leer params
+        # no debe persistir los nuevos valores por defecto en videos existentes.
+        modulo = PASOS_MODULOS.p3_guion
+        material, metadatos, _ = PASOS_MODULOS.fuentes.material_de(ctx.proyecto)
+        entrada = int(metadatos.get("palabras_transcript") or
+                      sum(PASOS_MODULOS.comun.contar_palabras(t.get("texto", ""))
+                          for t in material))
+        brief = PASOS_MODULOS.comun.leer_salida(
+            ctx.proyecto, "brief", "brief.json", obligatorio=False) or {}
+        if not brief:
+            brief = ctx.estado.params("brief") or {}
+        params = dict(ctx.estado.params("guion") or {})
+        params["sistema_personajes"] = PASOS_MODULOS.personajes.contexto(
+            ctx.estado.params("assets") or {}, ctx.estado.params("voz") or {})
+        return float(modulo.prevision_de(entrada, brief, params)["segundos"])
     fase = tarea.get("fase")
     if fase:
         # UNA FASE NO SE ESCALA. Las tareas con fase propia --la guia de estilo,

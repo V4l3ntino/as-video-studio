@@ -1,5 +1,44 @@
 # AS Video Studio — lo que hay que saber antes de tocarlo
 
+## Entrega y espera del guion
+
+La redaccion usa **Opus/medium** por defecto; los params explicitos siguen
+mandando. El 15-11-2026, Opus/xhigh gasto 122.569 tokens de razonamiento y
+22 minutos antes de devolver un mensaje que empezaba a mitad del guion.
+`p3_guion._llamar_claude` conserva su firma para el medidor de coste, pero
+entrega mediante `cli_claude.escribiendo(entrega_cruda=True)`: el guion va al
+fichero temporal y el sobre conserva tokens/consumo antes de validar. No
+vuelvas a transportar guiones largos en el mensaje final del CLI.
+
+El umbral automatico de reintento tiene techo de cinco minutos; un fallo largo
+no debe desencadenar otros veinte minutos de generacion. La prevision usa
+`redaccion_guion`, separada del historial antiguo por palabras de transcript,
+y cuenta la longitud solicitada y la direccion visual Stickman. El mensaje
+publico del guion conserva intento y reloj: el porcentaje es estimado, no una
+observacion de que Claude este escribiendo el cierre. Contrato sin proveedores:
+`python pasos/prueba_p3.py` y `python pasos/prueba_ajustes.py`.
+
+## Escaleta y redaccion editorial
+
+Las redacciones nuevas pasan por escaleta, narracion y direccion visual posterior
+si hay personajes, dentro del MISMO paso `guion`. Los guiones propios y las
+correcciones locales siguen el camino anterior; `escaleta_previa:false` permite
+compararlo sin cambiar de modelo. `editorial_guion.py` valida reparto de palabras,
+cobertura de tramos y la inmutabilidad de texto, orden y hablantes al dirigir.
+El mapa de bloques sale de la escaleta previa, no de una justificacion posterior.
+No uses la direccion para corregir una narracion: debe fallar si intenta cambiarla.
+Las estadisticas de escaleta/narracion/direccion son distintas; conserva el
+enganche `_llamar_claude` del medidor de coste para todas las llamadas.
+
+Una auditoria real encontro 22 palabras de tema para 2.261 palabras de guion,
+sin dosier ni referencia inglesa, y una guia que exigia anunciar una revelacion
+y reservarla para el ultimo tercio. No atribuyas el resultado solo al modelo.
+Con material escaso el plan registra limites y evita fabricar estudios concretos.
+`escaleta.json` y `narracion.json` son auditoria, no cache para retomar: el paso
+limpia trabajo al empezar. Comparacion opt-in y aislada del original:
+`herramientas/evaluar_guion_editorial.py --help`. Contrato sin proveedores:
+`python pasos/prueba_editorial_guion.py`.
+
 ## Pronunciaciones de voz
 
 `voz.params.pronunciaciones` es texto editable «Nombre = lectura», una entrada

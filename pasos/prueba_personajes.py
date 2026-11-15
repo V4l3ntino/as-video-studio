@@ -421,7 +421,7 @@ class Personajes(unittest.TestCase):
         with patch.object(p3_guion.fuentes, "material_de", return_value=(
                 [{"texto": "Una exploradora sigue un camino del bosque."}], {"sin_tiempos": True}, "texto")), \
                 patch.object(p3_guion, "_llamar_claude", return_value=(json.dumps(datos), {})) as cli:
-            salida = p3_guion.ejecutar(self.proyecto, dict(self.opciones, reintentos=0), Mock())
+            salida = p3_guion.ejecutar(self.proyecto, dict(self.opciones, reintentos=0, escaleta_previa=False), Mock())
         self.assertIn("p_ana", cli.call_args.args[0])
         self.assertIn("personajes_visibles", cli.call_args.args[0])
         self.assertIn("PRIMERA PERSONA (POV)", cli.call_args.args[0])

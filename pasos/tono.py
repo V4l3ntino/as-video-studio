@@ -66,8 +66,12 @@ ningun idioma dentro. En segunda persona, entre 400 y 700 palabras, en parrafos
 cortos o con guiones. Denso y accionable: cada frase tiene que poder cumplirse o
 incumplirse al escribir una linea de guion. Nada de adjetivos vacios del tipo
 'tono profesional pero cercano' sin decir en que se nota. Tiene que cubrir las
-DOS mitades: como suena (registro, ritmo, persona) y que se hace con el material
-(estructura, storytelling, bloques, tratamiento de las fuentes). Si el canal
+DOS mitades, en apartados distintos y sin repetir reglas: COMO SUENA (registro,
+ritmo de frase, persona) y COMO PROGRESA EL RELATO (preguntas, descubrimientos,
+estructura, storytelling, enlaces y tratamiento de las fuentes). La estructura
+es una preferencia del canal, adaptable al material y a lo que pida cada video;
+no impongas una plantilla identica ni un caso inventado en todos. Las indicaciones
+expresas del video mandan sobre estas preferencias. Si el canal
 tiene un mundo propio, ese mundo entra tambien AQUI y no solo en su campo: es lo
 primero que el redactor necesita saber para escribir una linea.",
   "mundo": "El universo propio del canal, SI LO TIENE, y la cadena vacia si no.
@@ -99,7 +103,11 @@ acelera y donde se para",
   "estructura": "de tres a cinco frases: como se ordena un video de este canal de
 principio a fin. Con que se abre y en cuantos segundos, en que orden va lo que
 sigue, donde se coloca el contexto, como se cierra y si hay remate. Escrito de
-forma que se pueda seguir con cualquier material delante",
+forma que se pueda seguir con cualquier material delante. Distingue las pocas
+preguntas principales de los descubrimientos dentro de ellas; la recompensa
+final es una respuesta concreta, no un anuncio repetido de que algo llegara.
+Cambiar la escena para repetir la tesis no es avanzar. Acerca la evidencia a la
+pregunta que resuelve y termina al entregar la recompensa, sin cierres sucesivos",
   "storytelling": "dos o tres frases: que forma de contar usa --caso que se
 investiga, cronologia, tesis con sus pruebas, misterio que se resuelve, perfil de
 alguien, explicacion de un mecanismo-- y como se sostiene la atencion sin
@@ -112,7 +120,8 @@ con el material de partida. Que se conserva y que se tira (menus de navegacion,
 notas al pie, plantillas, listas de referencias, pies de foto, tablas sueltas);
 como se ordena cuando llegan VARIAS fuentes a la vez y se solapan o se
 contradicen; que se hace con un dato que no se puede confirmar; que nunca se
-inventa; y si la fuente trae opinion, como se separa del hecho",
+inventa; y si la fuente trae opinion, como se separa del hecho. No atribuyas a un
+experimento consejos que no evaluo ni conviertas una tendencia en regla al rematar",
   "evitar": "de tres a seis frases con lo que NO debe hacer nunca, concretas y en
 negativo",
   "resumen": "una linea corta para reconocer este tono en un desplegable"}}
@@ -291,17 +300,25 @@ Y LA MITAD QUE NO ES SONIDO, que tendras que decidir tu entera porque el no la
 ha descrito:
 
 - la ESTRUCTURA: con que abre un video de este canal, en que orden va lo que
-  sigue, donde entra el contexto, como cierra
+  sigue, donde entra el contexto, como cierra. Distingue las preguntas principales
+  de los descubrimientos dentro de ellas; evita varias explicaciones que hacen
+  el mismo trabajo, aunque cambien los personajes o la metafora. Acerca cada caso
+  a la pregunta que resuelve. La recompensa del cierre debe responder algo
+  concreto; termina al entregarla, sin acumular listas y recapitulaciones.
 - el STORYTELLING: caso que se investiga, cronologia, tesis con pruebas, misterio
   que se resuelve, perfil, explicacion de un mecanismo
 - los BLOQUES: si el relato va a trozos con corte entre ellos o seguido, y de que
-  tamano es cada trozo
+  forma se desarrolla cada trozo. Resuelve su pregunta local y, cuando nazca de
+  ella, deja una duda o consecuencia concreta que motive el siguiente; no exijas
+  recapitulaciones ni adelantos vacios al cerrar cada bloque
 - y el TRATAMIENTO DE LAS FUENTES. Los guiones de este canal no siempre saldran
   de un video: pueden salir de un articulo, de cinco articulos pegados de golpe
   con sus menus y sus notas al pie, o de cuatro parrafos sueltos. Escribe que se
   conserva y que se tira, como se ordena cuando llegan varias fuentes que se
   solapan o se contradicen, que se hace con un dato que no se puede confirmar, y
-  que no se inventa nunca.
+  que no se inventa nunca. Separa el resultado observado, la interpretacion y el
+  consejo: un experimento no respalda recomendaciones que no puso a prueba.
+  Conserva el grado de certeza tambien en analogias y remates.
 
 EN QUE IDIOMA ESCRIBES ESTO
 Los videos de este canal son en {idioma}, asi que ESCRIBE LAS INSTRUCCIONES EN
