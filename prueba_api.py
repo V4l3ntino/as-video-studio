@@ -671,6 +671,13 @@ def probar_voz(cliente, pid):
     ok(isinstance(datos.get("voces"), list) and datos["voces"],
        "el catalogo de voces no viene vacio")
     ok(all("id" in v for v in datos["voces"]), "cada voz trae su id")
+    ident = 'jtfxplhZxnBzQICVwoQn'
+    respuesta, datos = cliente.get(f'/api/voces/{ident}', params={'proveedor': 'elevenlabs'})
+    igual(respuesta.status_code, 200, 'la búsqueda por ID funciona sin generar audio en modo simulado')
+    igual(datos.get('voz', {}).get('id'), ident, 'la consulta devuelve el ID exacto solicitado')
+    igual(datos.get('proveedor'), 'elevenlabs', 'la consulta conserva el proveedor elegido')
+    respuesta, _ = cliente.get('/api/voces/id_invalido!', params={'proveedor': 'elevenlabs'})
+    igual(respuesta.status_code, 400, 'un ID inválido se rechaza antes de consultar al proveedor')
 
     respuesta, datos = cliente.post(f"/api/proyectos/{pid}/voz/previsualizar",
                                     {"params": {"preset": "documental_sobrio"},
@@ -1892,10 +1899,11 @@ def probar_claves(cliente):
     # esta pantalla existe para no tener que hacer.
     respuesta, ficha = cliente.put("/api/claves", {
         "cartesia": {"clave": "car-" + "x" * 20},
+        "elevenlabs": {"clave": "eleven-" + "w" * 20},
         "jamendo": {"clave": "jam-" + "y" * 12},
         "freesound": {"clave": "fso-" + "z" * 12}})
-    igual(respuesta.status_code, 200, "PUT guarda las tres claves sueltas")
-    for suelta in ("cartesia", "jamendo", "freesound"):
+    igual(respuesta.status_code, 200, "PUT guarda las claves sueltas, incluida ElevenLabs")
+    for suelta in ("cartesia", "elevenlabs", "jamendo", "freesound"):
         ok(ficha[suelta]["puesta"], f"{suelta} queda puesta")
         ok("clave" not in ficha[suelta],
            f"y la de {suelta} NO baja al navegador")
@@ -1905,6 +1913,7 @@ def probar_claves(cliente):
     respuesta, ficha = cliente.put("/api/claves",
                                    {"jamendo": {"clave": "jam-nueva-1234"}})
     ok(ficha["cartesia"]["puesta"], "cambiar Jamendo no borra Cartesia")
+    ok(ficha['elevenlabs']['puesta'], 'ni la clave de ElevenLabs')
     ok(ficha["freesound"]["puesta"], "ni Freesound")
     respuesta, ficha = cliente.put("/api/claves", {"jamendo": {"clave": ""}})
     ok(not ficha["jamendo"]["puesta"], "y una vacia la quita, que es como se quita")
@@ -2161,7 +2170,7 @@ def probar_salud_de_las_cuentas(cliente):
     respuesta, ficha = cliente.post("/api/claves/probar", {"claude": True})
     igual(respuesta.status_code, 200, f"probar todas las claves responde 200: {str(ficha)[:200]}")
     proveedores = [p["proveedor"] for p in ficha.get("pruebas") or []]
-    ok(proveedores[:5] == ["openai", "codex", "cartesia", "jamendo", "freesound"],
+    ok(proveedores[:6] == ["openai", "codex", "cartesia", "elevenlabs", "jamendo", "freesound"],
        f"con API y Codex comprobados por separado: {proveedores}")
     ok("claude" in proveedores, "y Claude cuando se pide")
     ok(isinstance(ficha.get("resumen"), str) and "todo_bien" in ficha,

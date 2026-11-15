@@ -158,7 +158,7 @@ TIPOS = {
         "nombre": "Voz",
         "que_fija": ("modelo, voz, idioma de locucion, velocidad, emociones y "
                      "aire entre bloques"),
-        "claves": ("modelo", "voz_id", "voz_nombre", "idioma", "velocidad",
+        "claves": ("proveedor", "modelo", "voz_id", "voz_nombre", "idioma", "velocidad",
                    "emociones", "hueco_minimo", "pronunciaciones"),
         "pasos": ("voz",),
     },
@@ -193,7 +193,7 @@ TIPOS = {
 #: `taller` es el id del proyecto oculto donde se genero: ahi siguen las
 #: imagenes que se adjuntaron, asi que rehacer la guia no las vuelve a pedir.
 CLAVES_ORIGEN = ("estilo_prompt", "estilo_imagenes", "tono_prompt",
-                  "voz_prompt", "voz_id", "idioma", "ritmo", "taller", "feedback",
+                  "voz_prompt", "voz_id", "proveedor_voz", "idioma", "ritmo", "taller", "feedback",
                   "montaje", "stickman",
                  # Descripciones cortas de lo que salio, para poder ENSENAR el
                  # estilo sin abrirlo entero. No son params: no se aplican a
@@ -238,6 +238,8 @@ def _limpiar_datos(tipo, datos):
             f"Lo que guarda es: {', '.join(permitidas)}")
     limpios = {c: copy.deepcopy(v) for c, v in datos.items()
                 if v is not None and v != ""}
+    if tipo == 'voz' and limpios.get('proveedor', 'cartesia') not in ('cartesia', 'elevenlabs'):
+        raise ErrorPreset('Proveedor de voz desconocido.')
     if tipo == 'voz' and 'pronunciaciones' in limpios:
         try:
             from pasos import pronunciaciones

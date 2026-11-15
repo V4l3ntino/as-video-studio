@@ -154,7 +154,8 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/voz/describir` | Describe como quieres que suene y devuelve voz y mandos propuestos. |
 | `POST` | `/api/proyectos/{pid}/voz/previsualizar` | Sintetiza unos segundos con estos mandos de voz para escucharlos. |
 | `POST` | `/api/proyectos/{pid}/voz/secciones/{seccion_id}/regrabar` | Regraba una seccion de la toma, con microcambio si se pide. |
-| `GET` | `/api/voces` | Catalogo de voces de Cartesia, sin atarlo a ningun proyecto. |
+| `GET` | `/api/voces` | Catálogo de voces del proveedor elegido (Cartesia por defecto). |
+| `GET` | `/api/voces/{voz_id}` | Consulta una voz por ID aunque no esté en el catálogo cargado; no sintetiza audio. |
 
 ## Catálogo, escenarios y piezas
 
@@ -337,4 +338,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**223 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**224 endpoints.** Escrito por `generar_api.py` desde `app.py`.

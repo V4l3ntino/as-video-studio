@@ -200,6 +200,42 @@ Contrato y mapa del kit: [docs/STICKMAN_EDITORIAL.md](docs/STICKMAN_EDITORIAL.md
 Prueba del catálogo completo, fuentes y 3D, sin proveedores:
 `python pasos/prueba_stickman_editorial.py --real`.
 
+## Elegir Cartesia o ElevenLabs para la voz
+
+En **Incorporar voz**, tanto en un estilo como en el encargo de un vídeo,
+las pestañas **Cartesia** y **ElevenLabs** eligen el proveedor de la locución.
+Cartesia es la opción predeterminada. Los vídeos existentes conservan su
+proveedor hasta que lo cambies; los nuevos heredan el del estilo.
+En crear y editar vídeo, el selector de locutor utiliza el mismo buscador y
+tarjetas que los estilos: filtra por nombre o descripción, escucha las voces
+sin seleccionarlas y pulsa una tarjeta para elegir. En un vídeo existente,
+la selección se guarda automáticamente.
+Si una voz no figura en el catálogo cargado, pega su ID en el buscador y pulsa
+**Enter** o **Buscar por ID en el proveedor**. Se consulta la ficha directamente
+en Cartesia o ElevenLabs; después puedes escucharla y elegirla como las demás.
+La consulta no genera audio ni consume créditos de síntesis.
+
+Para utilizar ElevenLabs, introduce su **API key** en **⚙ Configuración →
+ElevenLabs — voz**, pulsa **Guardar clave** y elige una voz de su catálogo.
+La clave necesita permisos de lectura de voces y de síntesis de texto a voz.
+También se admite la variable de entorno `ELEVENLABS_API_KEY`.
+
+ElevenLabs utiliza **Multilingual v2** para la escucha, la generación completa y
+la regrabación de tramos. Su alineación temporal se convierte en marcas por
+palabra para sincronizar escenas y subtítulos. Los textos largos se solicitan
+en tomas de hasta 9.000 caracteres con contexto anterior y posterior. La voz
+consume los créditos de tu cuenta de ElevenLabs; no se cambia automáticamente
+de proveedor si falla una solicitud. Las voces propias de personajes también
+deben seleccionarse en el catálogo del proveedor elegido.
+
+Las pronunciaciones escritas (`Shakespeare = shéikspir`) funcionan con ambos
+proveedores. El formato de fonemas `<< >>` es exclusivo de Cartesia. Los
+controles de emoción de Cartesia no se envían a ElevenLabs.
+
+Verificación sin consumir cuota: `python pasos/prueba_elevenlabs.py`.
+Con `--real` también comprueba las pestañas, el autoguardado y la configuración
+en Chromium, usando respuestas de prueba y sin llamar a los proveedores.
+
 ## Corregir la pronunciación de nombres ingleses
 
 En **Voz → Pronunciaciones**, dentro del encargo del vídeo, escribe una entrada

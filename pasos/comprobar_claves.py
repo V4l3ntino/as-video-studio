@@ -152,7 +152,19 @@ def probar_jamendo(clave):
         return _ficha("jamendo", "ok", "el Client ID vale: Jamendo devuelve pistas")
     motivo = cabecera.get("error_message") or _texto_corto(respuesta)
     return _ficha("jamendo", "mal", f"Jamendo no acepta el Client ID "
-                                    f"({respuesta.status_code}): {motivo}")
+                                     f"({respuesta.status_code}): {motivo}")
+
+
+def probar_elevenlabs(clave):
+    if not clave:
+        return _ficha('elevenlabs', 'sin_clave', 'no hay clave de ElevenLabs puesta')
+    respuesta, fallo = _pedir('GET', 'https://api.elevenlabs.io/v1/voices',
+                              headers={'xi-api-key': clave})
+    if respuesta is None:
+        return _ficha('elevenlabs', 'sin_red', f'no se ha podido hablar con ElevenLabs: {fallo}')
+    if respuesta.status_code == 200:
+        return _ficha('elevenlabs', 'ok', 'la clave autentica y el catálogo de voces contesta')
+    return _ficha('elevenlabs', 'mal', f'ElevenLabs HTTP {respuesta.status_code}: {_texto_corto(respuesta)}')
 
 
 def probar_freesound(clave):
@@ -203,6 +215,7 @@ def probar_todas(cuentas_claude=(), con_claude=True):
         for proveedor, puesta in (("openai", bool(almacen["openai"])),
                                   ("codex", False),
                                   ("cartesia", bool(almacen["cartesia"]["clave"])),
+                                  ("elevenlabs", bool(almacen["elevenlabs"]["clave"])),
                                   ("jamendo", bool(almacen["jamendo"]["clave"])),
                                   ("freesound", bool(almacen["freesound"]["clave"]))):
             fichas.append(_ficha(proveedor, "ok" if puesta else "sin_clave",
@@ -214,6 +227,7 @@ def probar_todas(cuentas_claude=(), con_claude=True):
         (probar_openai, (almacen["openai"][0]["clave"] if almacen["openai"] else "")),
         (probar_codex, ""),
         (probar_cartesia, almacen["cartesia"]["clave"]),
+        (probar_elevenlabs, almacen["elevenlabs"]["clave"]),
         (probar_jamendo, almacen["jamendo"]["clave"]),
         (probar_freesound, almacen["freesound"]["clave"]),
     )
@@ -248,6 +262,7 @@ def probar_codex(_clave=""):
 
 NOMBRES = {"openai": "OpenAI API Key (imágenes)", "codex": "ChatGPT / Codex CLI (imágenes)",
            "cartesia": "Cartesia (voz)",
+           "elevenlabs": "ElevenLabs (voz)",
            "jamendo": "Jamendo (música)", "freesound": "FreeSound (efectos)",
            "claude": "Claude"}
 

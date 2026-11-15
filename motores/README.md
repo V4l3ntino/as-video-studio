@@ -22,6 +22,7 @@ llamando a `pasos/claves.py`.
 |---|---|
 | `guion/` | Corta la narración en planos a partir de las marcas de palabra (`segmentar`) y mide la cadencia real de una toma (`medir_ritmo`). |
 | `voz_cartesia/` | Sintetiza la locución con Cartesia y devuelve las marcas de tiempo con las que se sincroniza todo lo demás (`voz`, `sincronizar`). |
+| `voz_elevenlabs/` | Sintetiza con ElevenLabs Multilingual v2 y convierte la alineación por carácter a marcas de palabra; entrega el mismo PCM mono de 44.100 Hz. |
 | `imagen_openai/` | Genera cada plano. Lleva dentro el freno del límite de la API, la cuenta del gasto y el reparto entre cuentas. |
 | `capa_vectorial/` | Lo que se dibuja ENCIMA del plano: cabeceras de capítulo (`cabecera`) y mapas encuadrados por región (`mapa`, con `datos/paises_110m.geojson`). |
 | `render_video/` | El recorrido de cámara de cada plano (`movimiento`): la ventana que se mueve por encima de una imagen quieta. |

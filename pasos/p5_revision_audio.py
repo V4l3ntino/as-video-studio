@@ -403,7 +403,7 @@ def _config_voz(proyecto, params):
     if estado is not None:
         base = estado.params("voz") or {}
     base = {k: v for k, v in base.items() if k != "unidades"}
-    for clave in ("preset", "modelo", "voz_id", "idioma", "velocidad",
+    for clave in ("proveedor", "preset", "modelo", "voz_id", "idioma", "velocidad",
                   "emociones", "hueco_minimo", "incorporar_voz", "pronunciaciones"):
         if params.get(clave) is not None:
             base[clave] = params[clave]
@@ -444,6 +444,8 @@ def _sellar_sin_cambios(proyecto, bloques, cfg, destino, avisa, sin_voz=False):
 
     controles = meta.get("controles")
     if not isinstance(controles, dict):
+        return None
+    if p4_voz.proveedor_de(controles) != p4_voz.proveedor_de(cfg):
         return None
     # Se comparan los controles RESUELTOS de las dos partes: cfg ya viene de
     # resolver_params, y 'controles' es el cfg con el que se grabo.

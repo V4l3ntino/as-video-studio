@@ -39,6 +39,21 @@ limpia trabajo al empezar. Comparacion opt-in y aislada del original:
 `herramientas/evaluar_guion_editorial.py --help`. Contrato sin proveedores:
 `python pasos/prueba_editorial_guion.py`.
 
+## Proveedores de voz
+
+`voz.params.proveedor` elige `cartesia` (ausencia = contrato histórico) o
+`elevenlabs`. No escribas ese defecto al abrir proyectos. El catálogo usa
+`/api/voces?proveedor=...`; la clave de ElevenLabs se conserva en secretos y
+se espeja como `ELEVENLABS_API_KEY`. `motores/voz_elevenlabs/voz.py` devuelve
+PCM mono a 44.100 Hz y marcas por palabra a partir de la alineación por carácter.
+Solicita PCM a 24 kHz y lo remuestrea con ffmpeg: 44,1 kHz directo requiere Pro.
+Multilingual v2 limita cada petición a 10.000 caracteres; las tomas usan 9.000
+y contexto anterior/posterior. No introduzcas fallback a Cartesia ni repitas
+automáticamente una síntesis pagada. Los fonemas `<< >>` son de Sonic, no de
+ElevenLabs: solo admite aquí aliases escritos. Los costes se distinguen por
+proveedor y no se les aplica la tarifa de Cartesia. Prueba aislada, incluida
+regrabación y navegador sin proveedores: `python pasos/prueba_elevenlabs.py --real`.
+
 ## Pronunciaciones de voz
 
 `voz.params.pronunciaciones` es texto editable «Nombre = lectura», una entrada

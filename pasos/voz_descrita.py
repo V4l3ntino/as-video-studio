@@ -103,7 +103,7 @@ DEVUELVE EXACTAMENTE ESTE JSON, sin nada alrededor:
 """
 
 
-def _voces_para_instruccion(idioma, voz_fija=""):
+def _voces_para_instruccion(idioma, voz_fija="", proveedor='cartesia'):
     """Catalogo recortado a lo que ayuda a decidir: propias y nativas primero.
 
     Las voces PROPIAS de la cuenta (clonadas) van las primeras y marcadas: si
@@ -111,7 +111,8 @@ def _voces_para_instruccion(idioma, voz_fija=""):
     quiere decir esa. Y `voz_fija` entra en la lista aunque cayera fuera del
     recorte, porque `_validar` la exige dentro.
     """
-    fichas = p4_voz.listar_voces(idioma or "es")
+    opciones = {'proveedor': proveedor} if proveedor != 'cartesia' else {}
+    fichas = p4_voz.listar_voces(idioma or "es", **opciones)
     recorte = list(fichas[:MAX_VOCES])
     if voz_fija and all(f["id"] != voz_fija for f in recorte):
         recorte = [f for f in fichas if f["id"] == voz_fija] + recorte
@@ -124,7 +125,7 @@ def _voces_para_instruccion(idioma, voz_fija=""):
                       + ("  [VOZ PROPIA DEL CANAL, clonada]" if propia else "")
                       + ("" if ficha.get("nativa", True) else "  [no nativa]"))
     if not lineas:
-        raise RuntimeError(f"no hay ninguna voz de Cartesia para el idioma "
+        raise RuntimeError(f"no hay ninguna voz de {proveedor} para el idioma "
                            f"{idioma!r}: no se puede elegir por descripcion")
     return "\n".join(lineas), {f["id"] for f in recorte}
 
@@ -165,7 +166,7 @@ def _validar(datos, ids):
 
 
 def proponer(encargo, idioma="es", ajuste=None, avisar=None, proyecto_id=None,
-             cwd=None, peticion="", ritmo="", voz_fija=""):
+             cwd=None, peticion="", ritmo="", voz_fija="", proveedor='cartesia'):
     """Describe como quieres que suene y devuelve voz y mandos.
 
     `ritmo` es una frase sobre el MONTAJE ("planos de unos 2 s de media"), no
@@ -180,10 +181,12 @@ def proponer(encargo, idioma="es", ajuste=None, avisar=None, proyecto_id=None,
 
     avisa(0.05, "leyendo el catalogo de voces")
     voz_fija = str(voz_fija or "").strip()
-    voces, ids = _voces_para_instruccion(idioma, voz_fija)
+    proveedor = p4_voz.proveedor_de({'proveedor': proveedor})
+    voces, ids = (_voces_para_instruccion(idioma, voz_fija, proveedor)
+                  if proveedor != 'cartesia' else _voces_para_instruccion(idioma, voz_fija))
     if voz_fija and voz_fija not in ids:
         raise RuntimeError(f"la voz elegida a mano ({voz_fija}) no esta en el "
-                           f"catalogo de esta cuenta de Cartesia para "
+                           f"catalogo de esta cuenta de {proveedor} para "
                            f"{idioma!r}: revisa la clave o el idioma")
     por_fase = cli_claude.por_defecto_de(PASO)
     ajuste = ajuste or {"modelo": por_fase["modelo"],
@@ -222,9 +225,12 @@ def proponer(encargo, idioma="es", ajuste=None, avisar=None, proyecto_id=None,
     if voz_fija:
         # por si el agente se despisto: la voz es la fija, con su nombre real
         elegido["voz_id"] = voz_fija
-        nombre = next((f.get("nombre") for f in p4_voz.listar_voces(idioma or "es")
+        opciones = {'proveedor': proveedor} if proveedor != 'cartesia' else {}
+        nombre = next((f.get("nombre") for f in p4_voz.listar_voces(idioma or "es", **opciones)
                        if f["id"] == voz_fija), "")
         elegido["voz_nombre"] = nombre or elegido.get("voz_nombre") or voz_fija
+    if proveedor == 'elevenlabs':
+        elegido.update(proveedor=proveedor, modelo='eleven_multilingual_v2', emociones=[])
     elegido["tokens"] = comun.tokens_de_cli(sobre)
     avisa(1.0, f"«{elegido['voz_nombre'] or elegido['voz_id']}» · "
                f"{elegido['velocidad']} · "

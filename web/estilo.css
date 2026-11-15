@@ -3182,3 +3182,25 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
   content: ' · Descripción actualizada';
   color: var(--acento);
 }
+.proveedores-voz {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--borde, #303541);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+}
+.proveedor-voz {
+  padding: 8px 18px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.proveedor-voz.activo {
+  background: #26304b;
+  border-color: #667fff;
+  color: #c5cfff;
+}
+.proveedor-voz:focus-visible { outline: 2px solid #91a3ff; outline-offset: 2px; }
+.consulta-voz-id:not(:empty) { margin: 8px 0; }

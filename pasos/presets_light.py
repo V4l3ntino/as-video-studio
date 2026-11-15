@@ -604,6 +604,11 @@ def validar_encargo(crudo):
     if voz_id and not re.match(r"^[A-Za-z0-9_-]{8,64}$", voz_id):
         raise ErrorEncargo("«voz_id» no parece un id de voz de Cartesia")
     limpio["voz_id"] = voz_id
+    if 'proveedor_voz' in datos:
+        proveedor = datos['proveedor_voz']
+        if proveedor not in ('cartesia', 'elevenlabs'):
+            raise ErrorEncargo('Proveedor de voz desconocido.')
+        limpio['proveedor_voz'] = proveedor
 
     # AQUI NO HAY PERSONAJES DEL CANAL NI LLAMADAS A LA ACCION, y las dos
     # ausencias son decisiones:

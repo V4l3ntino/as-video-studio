@@ -142,9 +142,19 @@ class _MotorVoz:
 
 
 motor = _MotorVoz()
-#: La frecuencia de muestreo de la API. Se resuelve UNA vez a proposito: no
-#: cambia entre versiones del motor y se usa en aritmetica en todo el fichero.
+# La frecuencia del contrato WAV común a ambos proveedores.
 SR = motor.SR
+
+
+def motor_elevenlabs():
+    return comun.cargar_motor('voz_elevenlabs', 'voz.py')
+
+
+def proveedor_de(params):
+    proveedor = str((params or {}).get('proveedor') or 'cartesia').strip().lower()
+    if proveedor not in ('cartesia', 'elevenlabs'):
+        raise ValueError(f'proveedor de voz desconocido: {proveedor!r}')
+    return proveedor
 
 
 # --------------------------------------------------------------------- utiles
@@ -319,7 +329,30 @@ def resolver_params(params):
     tocar la velocidad en la UI con un preset puesto tiene que ganar.
     """
     crudos = dict(params or {})
+    proveedor = proveedor_de(crudos)
+    if proveedor == 'elevenlabs':
+        diccionario = crudos.get('pronunciaciones', '')
+        entradas = pronunciaciones.normalizar(diccionario)
+        if any('<<' in lectura for _, lectura in entradas):
+            raise ValueError('ElevenLabs admite aquí pronunciaciones escritas (Nombre = lectura), '
+                             'no los fonemas << >> de Cartesia.')
+        voz_id = str(crudos.get('voz_id') or '').strip()
+        if voz_id and not re.fullmatch(r'[A-Za-z0-9_-]{8,64}', voz_id):
+            raise ValueError('El ID de voz de ElevenLabs no es válido.')
+        velocidad = normalizar_velocidad(crudos.get('velocidad'))
+        hueco = float(crudos.get('hueco_minimo', HUECO_POR_DEFECTO))
+        if not 0 <= hueco < float('inf'):
+            raise ValueError('hueco_minimo debe ser un número de segundos no negativo.')
+        return {'proveedor': proveedor, 'modelo': 'eleven_multilingual_v2',
+                'voz_id': voz_id, 'preset': None,
+                'idioma': str(crudos.get('idioma') or IDIOMA_POR_DEFECTO),
+                'velocidad': velocidad, 'emociones': [], 'hueco_minimo': round(hueco, 3),
+                'experimental_controls': {}, 'generation_config': {},
+                'controles_por': 'elevenlabs',
+                **({'pronunciaciones': diccionario} if entradas else {})}
     nombre_preset = crudos.get("preset") or ""
+    if crudos.get('modelo') == 'eleven_multilingual_v2':
+        crudos['modelo'] = MODELO_POR_DEFECTO  # cambio explícito de proveedor
     base = {}
     if nombre_preset:
         base = presets_voz.preset(nombre_preset)
@@ -763,12 +796,27 @@ def agrupar_secciones(bloques, umbral_ms=UMBRAL_SECCION_MS, maximo=MAX_SECCIONES
     return secciones
 
 
+def _toma_elevenlabs(texto, cfg, progreso):
+    if not cfg.get('voz_id'):
+        raise ValueError('Elige una voz de ElevenLabs antes de generar el audio.')
+    original = marcas_tts.limpiar(texto)
+    enviado = pronunciaciones.aplicar(original, cfg.get('pronunciaciones'))
+    velocidad = _speed_sonic3(cfg.get('velocidad')) or 1.0
+    pcm, duracion, palabras = motor_elevenlabs().sintetizar(enviado,
+        dict(cfg, speed=max(0.7, min(1.2, velocidad))), medios.ffmpeg(), progreso)
+    if enviado != original:
+        palabras = pronunciaciones.restaurar(original, palabras)
+    return motor.wav_desde_pcm(pcm), duracion, palabras
+
+
 def _toma_por_contexto(trozos, cfg, progreso):
     """Una toma en varias entradas del MISMO contexto. (wav, dur, palabras).
 
     Suena como la toma unica porque la prosodia se mantiene entre entradas; lo
     que se gana es saber donde empieza y acaba cada seccion dentro del audio.
     """
+    if proveedor_de(cfg) == 'elevenlabs':
+        return _toma_elevenlabs(' '.join(trozos), cfg, progreso)
     import websocket  # websocket-client; solo hace falta por este camino
 
     originales = trozos
@@ -839,6 +887,8 @@ def _toma_por_contexto(trozos, cfg, progreso):
 
 def _toma_real(texto, cfg, progreso):
     """Llamada SSE a Cartesia con __experimental_controls."""
+    if proveedor_de(cfg) == 'elevenlabs':
+        return _toma_elevenlabs(texto, cfg, progreso)
     # cargar_api_key aborta con SystemExit, que dentro de un hilo del gestor de
     # trabajos no lo recoge nadie
     original = texto
@@ -1090,6 +1140,8 @@ def sintetizar_bloques(bloques, destino, cfg, avisar=None,
         try:
             wav, duracion, palabras = _toma_por_contexto(trozos, cfg, progreso)
         except Exception as fallo:  # noqa: BLE001
+            if proveedor_de(cfg) == 'elevenlabs':
+                raise  # no repetir una síntesis pagada ni cambiar de proveedor
             # Que el camino nuevo falle no puede dejar sin voz al video: se cae
             # al de siempre, que es el mismo texto de una sola vez.
             avisa(0.06, f"el contexto no ha ido ({fallo}); se graba de una vez")
@@ -1315,7 +1367,8 @@ def previsualizar(proyecto, params, segundos=20):
 
     firma = hashlib.sha256(json.dumps(
         [texto, cfg["modelo"], cfg["voz_id"], cfg["idioma"],
-         cfg["experimental_controls"], cfg.get('pronunciaciones', ''), simulado()],
+         cfg["experimental_controls"], cfg.get('pronunciaciones', ''), simulado(),
+         *([cfg['proveedor'], cfg.get('velocidad')] if proveedor_de(cfg) == 'elevenlabs' else [])],
         sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
     carpeta = proyecto.ruta("previsualizaciones")
     os.makedirs(carpeta, exist_ok=True)
@@ -1472,7 +1525,31 @@ def _hay_clave():
         return False
 
 
-def listar_voces(idioma=None, refrescar=False, solo_nativas=False):
+def obtener_voz(voz_id, proveedor='cartesia'):
+    proveedor = proveedor_de({'proveedor': proveedor})
+    voz_id = str(voz_id or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_-]{8,64}', voz_id):
+        raise ValueError('El ID de voz debe tener entre 8 y 64 letras, números, guiones o guiones bajos.')
+    if simulado():
+        return {'id': voz_id, 'nombre': f'Voz simulada ({voz_id})',
+                'idioma': 'es', 'publica': True, 'nativa': True}
+    if proveedor == 'elevenlabs':
+        return motor_elevenlabs().obtener_voz(voz_id,
+            os.path.join(RUTA_CACHE, 'voces_elevenlabs.json'))
+    clave = comun.llamar_motor(motor.cargar_api_key)
+    with requests.get(f'{API_VOCES}{voz_id}', headers={
+            'X-API-Key': clave, 'Cartesia-Version': motor.API_VERSION}, timeout=30) as respuesta:
+        if respuesta.status_code == 404:
+            raise ValueError('Cartesia no encuentra esa voz o tu cuenta no tiene acceso a ella.')
+        if respuesta.status_code != 200:
+            raise RuntimeError(f'Cartesia /voices HTTP {respuesta.status_code}: {respuesta.text[:200]}')
+        datos = respuesta.json()
+    if datos.get('id') != voz_id:
+        raise RuntimeError('Cartesia devolvió un ID de voz distinto del solicitado.')
+    return _ficha_voz(datos)
+
+
+def listar_voces(idioma=None, refrescar=False, solo_nativas=False, proveedor='cartesia'):
     """Catalogo de voces de Cartesia, cacheado en disco.
 
     El catalogo cambia poco y son varias paginas de red: se guarda en
@@ -1489,6 +1566,11 @@ def listar_voces(idioma=None, refrescar=False, solo_nativas=False):
     Se guarda la HUELLA de la clave, no la clave. Un cache de antes de esta
     fecha no la lleva, asi que se refresca una vez y ya la tiene.
     """
+    if proveedor_de({'proveedor': proveedor}) == 'elevenlabs':
+        if simulado():
+            return []
+        return motor_elevenlabs().listar_voces(
+            os.path.join(RUTA_CACHE, 'voces_elevenlabs.json'), refrescar=refrescar)
     cache = None
     if os.path.exists(RUTA_CACHE_VOCES):
         try:

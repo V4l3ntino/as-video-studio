@@ -146,9 +146,10 @@ def tarifa_tokens():
             for clave in ("entrada_texto", "entrada_imagen", "salida")}
 
 
-def tarifa_caracter():
+def tarifa_caracter(proveedor='cartesia'):
     """USD por caracter sintetizado, o None mientras no se conozca el plan."""
-    return _numero((tarifas().get("tts") or {}).get("usd_por_caracter"))
+    bloque = 'tts' if proveedor == 'cartesia' else proveedor
+    return _numero((tarifas().get(bloque) or {}).get("usd_por_caracter"))
 
 
 def coste_openai(usage, tamano, calidad, imagenes=1):
@@ -612,7 +613,8 @@ def reportar_tts(caracteres, operacion="sintesis", unidad=None, tokens=None,
                  detalle=None):
     """Anota una sintesis con los caracteres que el motor de voz envio de verdad."""
     caracteres = int(caracteres or 0)
-    precio = tarifa_caracter()
+    proveedor = (detalle or {}).get('proveedor') or 'cartesia'
+    precio = tarifa_caracter(proveedor)
     return _anotar("tts", operacion, unidad=unidad,
                    tokens=tokens, cantidad={"caracteres": caracteres},
                    usd=None if precio is None else precio * caracteres,
@@ -703,6 +705,7 @@ def _medir_toma_real(original):
         cfg = cfg if isinstance(cfg, dict) else {}
         reportar_tts(len(texto or ""), operacion="toma",
                      detalle={"modelo": cfg.get("modelo"),
+                              "proveedor": cfg.get('proveedor') or 'cartesia',
                               "voz_id": cfg.get("voz_id"),
                               "idioma": cfg.get("idioma")})
         return resultado
@@ -729,6 +732,7 @@ def _medir_toma_por_contexto(original):
         piezas = list(trozos or [])
         reportar_tts(sum(len(str(t or "")) for t in piezas), operacion="toma",
                      detalle={"modelo": cfg.get("modelo"),
+                              "proveedor": cfg.get('proveedor') or 'cartesia',
                               "voz_id": cfg.get("voz_id"),
                               "idioma": cfg.get("idioma"),
                               "secciones": len(piezas)})

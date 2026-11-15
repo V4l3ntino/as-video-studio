@@ -1582,6 +1582,12 @@ def _validar_params(paso_id, nuevos, ctx=None):
         valor = nuevos[clave]
         if valor in (None, ""):
             continue
+        if clave == 'modelo' and paso_id in ('voz', 'revision_audio'):
+            # En estos pasos «modelo» es TTS, no el modelo del CLI de Claude.
+            if PASOS_MODULOS is not None and valor not in (
+                    *PASOS_MODULOS.p4_voz.MODELOS, 'eleven_multilingual_v2'):
+                raise ErrorApi(400, f'modelo de voz desconocido: {valor!r}')
+            continue
         try:
             if es_modelo:
                 CLI_CLAUDE.normalizar_modelo(valor)
@@ -1605,6 +1611,11 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if paso_id == 'voz' and 'proveedor' in nuevos:
+            try:
+                PASOS_MODULOS.p4_voz.proveedor_de(nuevos)
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if paso_id == 'assets' and (nuevos.get('estilo') or {}).get('stickman'):
             from pasos import stickman
             try:
@@ -2160,14 +2171,16 @@ def previsualizar_voz(pid: str, cuerpo: dict = Body(default=None)):
 def catalogo_voces_global(idioma: str = Query(default=None),
                           nativas: int = Query(default=0),
                           solo_nativas: int = Query(default=0),
-                          refrescar: int = Query(default=0)):
-    """Catalogo de voces de Cartesia, sin atarlo a ningun proyecto."""
+                          refrescar: int = Query(default=0),
+                          proveedor: str = Query(default='cartesia')):
+    """Catálogo de voces del proveedor elegido (Cartesia por defecto)."""
     if PASOS_MODULOS is None:
         raise ErrorApi(503, f"los pasos no se han podido cargar: {ERROR_PASOS}")
     try:
+        opciones = {'proveedor': proveedor} if proveedor != 'cartesia' else {}
         voces = PASOS_MODULOS.p4_voz.listar_voces(
             idioma=idioma, refrescar=bool(refrescar),
-            solo_nativas=bool(nativas or solo_nativas))
+            solo_nativas=bool(nativas or solo_nativas), **opciones)
     # BaseException Y NO Exception: los motores estan escritos como CLI y abortan
     # con SystemExit --«No encuentro CARTESIA_API_KEY»--, que no es un
     # `Exception`. Se colaba por debajo, subia entera y el navegador recibia un
@@ -2177,6 +2190,20 @@ def catalogo_voces_global(idioma: str = Query(default=None),
         raise ErrorApi(502, f"no se ha podido leer el catalogo de voces: {fallo}")
     return {"voces": voces, "total": len(voces), "idioma": idioma,
             "solo_nativas": bool(nativas or solo_nativas)}
+
+
+@app.get("/api/voces/{voz_id}")
+def consultar_voz_por_id(voz_id: str, proveedor: str = Query(default='cartesia')):
+    """Consulta una voz por ID aunque no esté en el catálogo cargado; no sintetiza audio."""
+    if PASOS_MODULOS is None:
+        raise ErrorApi(503, f'los pasos no se han podido cargar: {ERROR_PASOS}')
+    try:
+        voz = PASOS_MODULOS.p4_voz.obtener_voz(voz_id, proveedor)
+    except ValueError as fallo:
+        raise ErrorApi(400, str(fallo)) from fallo
+    except (Exception, SystemExit) as fallo:
+        raise ErrorApi(502, f'No se ha podido consultar la voz: {fallo}') from fallo
+    return {'voz': voz, 'proveedor': proveedor}
 
 
 # ------------------------------------------------------------ voz descrita
@@ -2192,7 +2219,9 @@ def _correr_voz_descrita(avisar, ctx, encargo, idioma, ajuste):
         raise RuntimeError(f"los pasos no se han podido cargar: {ERROR_PASOS}")
     elegido = PASOS_MODULOS.voz_descrita.proponer(
         encargo, idioma=idioma, ajuste=ajuste, avisar=avisar,
-        proyecto_id=ctx.id, cwd=ctx.proyecto.raiz)
+        proyecto_id=ctx.id, cwd=ctx.proyecto.raiz,
+        **({'proveedor': ctx.estado.params('voz')['proveedor']}
+           if ctx.estado.params('voz').get('proveedor') else {}))
     ctx.bitacora.anotar("voz_descrita", "voz", {
         "encargo": encargo[:200], "voz": elegido.get("voz_nombre"),
         "velocidad": elegido.get("velocidad"),
@@ -2644,7 +2673,7 @@ def estimar_video(cuerpo: dict = Body(default=None)):
 
     caracteres = int(round(horquilla["presupuesto_palabras"] * 6.1))
     tarifas = COSTE.tarifas()
-    usd_caracter = float(((tarifas.get("tts") or {}).get("usd_por_caracter")) or 0.0)
+    usd_caracter = float(COSTE.tarifa_caracter(datos.get('proveedor_voz') or 'cartesia') or 0.0)
     usd_tts = round(caracteres * usd_caracter, 4)
     usd_imagenes = round(imagenes * usd_imagen, 3)
 
@@ -9996,11 +10025,14 @@ def _correr_light_voz(avisar, ctx, encargo):
         ritmo=light.contexto_de_ritmo(encargo.get("ritmo")),
         # la voz elegida a mano (la clonada del canal): el agente solo pone
         # los mandos
-        voz_fija=encargo.get("voz_id") or "")
-    cambios = {c: elegido[c] for c in ("modelo", "voz_id", "voz_nombre",
+        voz_fija=encargo.get("voz_id") or "",
+        **({'proveedor': encargo['proveedor_voz']} if encargo.get('proveedor_voz') else {}))
+    cambios = {c: elegido[c] for c in ("proveedor", "modelo", "voz_id", "voz_nombre",
                                        "velocidad", "emociones", "hueco_minimo")
                if elegido.get(c) is not None}
     cambios["idioma"] = encargo["idioma"]
+    if encargo.get('proveedor_voz'):
+        cambios['proveedor'] = encargo['proveedor_voz']
     rellenada = not elegido.get("velocidad_pedida")
     if rellenada:
         cambios["velocidad"] = ficha_ritmo["velocidad"]
@@ -10465,7 +10497,7 @@ def _partes_cambiadas(antes, encargo, imagenes_nuevas):
     if (antes.get("tono_prompt") or "") != (encargo.get("tono_prompt") or ""):
         cambiadas.add("tono")
     if any((antes.get(c) or "") != (encargo.get(c) or "")
-           for c in ("voz_prompt", "voz_id", "idioma")) or (
+           for c in ("voz_prompt", "voz_id", "proveedor_voz", "idioma")) or (
            (antes.get("montaje") or {}).get("incorporar_voz") is False) != (
            (encargo.get("montaje") or {}).get("incorporar_voz") is False):
         cambiadas.add("voz")
@@ -10550,6 +10582,9 @@ def previsualizar_voz_light(preset_id: str, cuerpo: dict = Body(default=None)):
         raise ErrorApi(400, "esto no es un estilo")
     ctx = _taller_de(ficha)
     params = dict((ficha.get("datos") or {}).get("voz") or {})
+    if datos.get('proveedor'):
+        params['proveedor'] = datos['proveedor']
+        PASOS_MODULOS.p4_voz.proveedor_de(params)
     suelta = str(datos.get("voz_id") or "").strip()
     if suelta:
         params["voz_id"] = suelta
@@ -10942,7 +10977,7 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
     if voz_pedida:
         limpios = {c: voz_pedida[c] for c in presets.TIPOS["voz"]["claves"]
                    if c in voz_pedida and voz_pedida[c] is not None
-                   and (voz_pedida[c] != "" or c == 'pronunciaciones')}
+                   and (voz_pedida[c] != "" or c in ('pronunciaciones', 'voz_id', 'voz_nombre'))}
         sobran = [c for c in voz_pedida if c not in presets.TIPOS["voz"]["claves"]]
         if sobran:
             raise ErrorApi(400, "un preset de voz no guarda "
@@ -10954,6 +10989,9 @@ def editar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
             # una frase pone los mandos a ESTA, no vuelve a elegir otra
             if limpios.get("voz_id"):
                 contenido.setdefault("origen", {})["voz_id"] = limpios["voz_id"]
+            if 'proveedor' in limpios:
+                contenido.setdefault('origen', {})['proveedor_voz'] = limpios['proveedor']
+                contenido['origen']['voz_id'] = limpios.get('voz_id', contenido['voz'].get('voz_id', ''))
             try:
                 _sembrar_voz(_taller_de(ficha), limpios)
             except ErrorApi:
@@ -11397,7 +11435,8 @@ def _coste_previsto(ctx, pestanas):
     calidad = str(assets.get("calidad") or "low").lower()
     usd_imagen = light.usd_por_imagen(calidad)
     tarifas = COSTE.tarifas()
-    usd_caracter = float(((tarifas.get("tts") or {}).get("usd_por_caracter")) or 0.0)
+    proveedor_voz = (ctx.estado.params('voz') or {}).get('proveedor') or 'cartesia'
+    usd_caracter = float(COSTE.tarifa_caracter(proveedor_voz) or 0.0)
 
     es_stickman = bool((assets.get('estilo') or {}).get('stickman'))
     imagenes = planos["con_imagen"] if "video" in pestanas and not es_stickman else 0
@@ -12127,6 +12166,8 @@ def _sembrar_video_light(ctx, datos):
         _validar_params("assets", assets, ctx)
         ctx.estado.actualizar_params("assets", assets)
     voz = {k: datos[k] for k in ("incorporar_voz", "voz_id", "pronunciaciones") if k in datos}
+    if 'proveedor_voz' in datos:
+        voz['proveedor'] = datos['proveedor_voz']
     if voz:
         _validar_params("voz", voz, ctx)
         ctx.estado.actualizar_params("voz", voz)

@@ -367,7 +367,7 @@ const API = {
   bitacora: (pid, paso) => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/bitacora`
     + (paso ? `?paso=${paso}&limite=300` : '?limite=300'),
   previsualizar: pid => `${BASE}/api/proyectos/${encodeURIComponent(pid)}/voz/previsualizar`,
-  voces: (idioma, nativas) => `${BASE}/api/voces?idioma=${idioma || ''}&nativas=${nativas ? 1 : 0}`,
+  voces: (idioma, nativas, proveedor = 'cartesia') => `${BASE}/api/voces?idioma=${idioma || ''}&nativas=${nativas ? 1 : 0}&proveedor=${encodeURIComponent(proveedor)}`,
   presets: () => `${BASE}/api/presets`,
   trabajo: tid => `${BASE}/api/trabajos/${tid}`,
   eventos: tid => `${BASE}/api/trabajos/${tid}/eventos`,
@@ -2337,6 +2337,7 @@ function pintarConfig() {
   caja.appendChild(seccionOpenAI(ficha));
   caja.appendChild(seccionCalidadImagen());
   caja.appendChild(seccionCartesia(ficha));
+  caja.appendChild(seccionElevenLabs(ficha));
   caja.appendChild(seccionCLI());
   caja.appendChild(seccionOtrasClaves(ficha));
   caja.appendChild(seccionBoson(ficha));
@@ -2790,6 +2791,25 @@ function seccionCartesia(ficha) {
       }, 'Cambiar')));
 }
 
+function seccionElevenLabs(ficha) {
+  const datos = ficha.elevenlabs || {};
+  const campo = campoClaveConfig('elevenlabs', datos.puesta ? `Guardada (${datos.cola}); deja vacío para conservar` : 'API key de ElevenLabs');
+  return h('section', { clase: 'bloque-config' },
+    h('div', { clase: 'fila' }, h('h3', {}, 'ElevenLabs — voz'), h('span', { clase: 'crece' }),
+      pastillaEstado(datos.puesta ? 'ok' : 'vacio', datos.puesta ? datos.cola : 'sin poner')),
+    h('p', { clase: 'pista' }, 'Selecciona ElevenLabs en Incorporar voz para utilizar esta cuenta. La síntesis consume los créditos de tu plan de ElevenLabs.'),
+    h('a', { href: 'https://elevenlabs.io/app/settings/api-keys', target: '_blank', rel: 'noopener noreferrer' }, 'Obtener una API key de ElevenLabs'),
+    h('div', { clase: 'fila-clave' }, campo),
+    h('div', { clase: 'fila' },
+      h('button', { clase: 'mini', disabled: estadoConfig().guardandoClaves, onclick: () => {
+        if (!campo.value.trim()) { toast('Introduce la API key de ElevenLabs', true); return; }
+        guardarClaves({ elevenlabs: { clave: campo.value.trim() } });
+      } }, 'Guardar clave'),
+      datos.puesta ? h('button', { clase: 'mini fantasma', onclick: () => {
+        guardarClaves({ elevenlabs: { clave: '' } });
+      } }, 'Quitar clave') : null));
+}
+
 /* Las cuentas del CLI: una LISTA ORDENADA, y se entra desde aquí.
  *
  * Lo que había antes era un par fijo —«Principal» y «Respaldo»— con un campo
@@ -2980,7 +3000,7 @@ async function probarCuentaCLI(cid) {
    tarjeta de la guía. */
 const NOMBRES_PROVEEDOR = {
   openai: 'OpenAI API Key — imágenes', codex: 'ChatGPT / Codex CLI — imágenes',
-  cartesia: 'Cartesia — voz', jamendo: 'Jamendo — música',
+  cartesia: 'Cartesia — voz', elevenlabs: 'ElevenLabs — voz', jamendo: 'Jamendo — música',
   freesound: 'FreeSound — efectos', claude: 'Claude',
 };
 
@@ -3231,6 +3251,7 @@ function campoClaveConfig(proveedor, placeholder) {
   return h('input', {
     type: 'password', placeholder, autocomplete: 'new-password',
     'aria-label': `API key de ${proveedor === 'openai' ? 'OpenAI' : proveedor === 'cartesia' ? 'Cartesia'
+      : proveedor === 'elevenlabs' ? 'ElevenLabs'
       : proveedor === 'freesound' ? 'FreeSound' : proveedor === 'pexels' ? 'Pexels'
         : proveedor === 'pixabay' ? 'Pixabay' : proveedor === 'boson' ? 'Boson AI' : 'Jamendo'}`,
     value: vista.clavesBorrador[proveedor] || '',
@@ -3253,7 +3274,7 @@ async function guardarClaves(cambios, notificar = true) {
     const guardada = await pedir(API.claves(), {
       method: 'PUT', cuerpo: cambios,
     });
-    for (const proveedor of ['cartesia', 'jamendo', 'freesound', 'pixabay', 'pexels', 'boson']) {
+    for (const proveedor of ['cartesia', 'elevenlabs', 'jamendo', 'freesound', 'pixabay', 'pexels', 'boson']) {
       if (!(proveedor in cambios)) continue;
       const confirmacion = guardada[proveedor];
       if (!confirmacion || typeof confirmacion.puesta !== 'boolean') {
@@ -3266,6 +3287,7 @@ async function guardarClaves(cambios, notificar = true) {
       }
     }
     vista.ficha = guardada;
+    if ('cartesia' in cambios || 'elevenlabs' in cambios) APP.light.catalogosVoz = {};
     if ('openai' in cambios) {
       delete vista.clavesBorrador.openai;
       cargarAjustes();
@@ -5215,6 +5237,7 @@ function encargoParaServidor() {
     tono_prompt: e.tono_prompt,
     voz_prompt: e.voz_prompt,
     voz_id: e.voz_id || '',
+    ...(e.proveedor_voz ? { proveedor_voz: e.proveedor_voz } : {}),
     ritmo: e.ritmo || ritmoPorDefecto(),
     montaje: e.montaje,
     ...(e.modo_visual === 'stickman' && e.stickman ? { stickman: e.stickman } : {}),
@@ -5811,7 +5834,7 @@ function vistaGaleriaLight() {
 function retomarTallerLight(taller) {
   const guardado = taller.encargo || {};
   const actual = encargoLight();
-  ['nombre', 'idioma', 'estilo_prompt', 'tono_prompt', 'voz_prompt', 'voz_id',
+  ['nombre', 'idioma', 'estilo_prompt', 'tono_prompt', 'voz_prompt', 'voz_id', 'proveedor_voz',
     'ritmo', 'montaje'].forEach(clave => {
     if (guardado[clave] !== undefined && guardado[clave] !== null) {
       actual[clave] = guardado[clave];
@@ -6226,6 +6249,8 @@ function elegirEstiloLight(ficha) {
   localStorage.setItem('estudio.light.estilo', ficha.id);
   const encargo = encargoVideoLight();
   Object.assign(encargo, montajeDelEstiloLight(ficha), {
+    proveedor_voz: ficha.datos?.voz?.proveedor || 'cartesia',
+    voz_id: ficha.datos?.voz?.voz_id || '',
     // El encargo se reutiliza al cambiar de tarjeta: la modalidad debe ser la
     // de ESTA selección, también al volver a un estilo convencional.
     stickman: ficha.datos?.estilo?.stickman || null,
@@ -6362,6 +6387,8 @@ function encargoVideoLight() {
       // solo pedir un comentario.
       cta: ctaPorDefecto(),
       ...montajeDelEstiloLight(fichaLight(APP.light.abierto) || estiloElegido()),
+      proveedor_voz: (fichaLight(APP.light.abierto) || estiloElegido())?.datos?.voz?.proveedor || 'cartesia',
+      voz_id: (fichaLight(APP.light.abierto) || estiloElegido())?.datos?.voz?.voz_id || '',
       stickman: (fichaLight(APP.light.abierto) || estiloElegido())?.datos?.estilo?.stickman || null,
       personajes: leerBorradorPersonajesLight((fichaLight(APP.light.abierto) || estiloElegido())?.id)
         || { activo: false, items: [], incorporar_dialogos: false },
@@ -7056,7 +7083,7 @@ function abrirVocesPersonaje(ficha, actual, confirmar) {
     onclick: () => { confirmar(elegida); dialogo.close(); } }, 'Usar esta voz');
   const pintar = () => {
     vaciar(lista);
-    const voces = vocesLight(ficha.idioma || 'es') || [];
+    const voces = vocesLight(ficha.idioma || 'es', ficha.datos?.voz?.proveedor) || [];
     const filtro = busca.value.trim().toLocaleLowerCase();
     const visibles = voces.filter(v => `${v.nombre} ${v.descripcion || ''}`.toLocaleLowerCase().includes(filtro));
     visibles.forEach(v => lista.appendChild(h('label', { clase: 'personaje-voz-opcion' },
@@ -7099,13 +7126,15 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
     if (alCambiar) alCambiar();
     actualizarBloqueoVocesPersonajes(e);
   };
-  const fichaVoz = () => pid ? { id: `video:${pid}`, proyecto_id: pid, idioma: estilo?.idioma || 'es',
-    datos: { voz: { ...(APP.light.video.fichas.voz?.params || {}) } } } : estilo;
+  const fichaVoz = () => ({ id: pid ? `video:${pid}` : estilo?.id, proyecto_id: pid || undefined,
+    idioma: estilo?.idioma || 'es', datos: { voz: {
+      ...(pid ? APP.light.video.fichas.voz?.params : estilo?.datos?.voz),
+      proveedor: e.proveedor_voz || estilo?.datos?.voz?.proveedor || 'cartesia' } } });
   const vozGeneral = () => e.voz_id || estilo?.datos?.voz?.voz_id || (pid ? APP.light.video.fichas.voz?.params?.voz_id : '') || '';
   const vozDe = p => p.categoria === 'narrador' ? vozGeneral() : p.voz_id || '';
   const nombreVoz = p => {
     const id = vozDe(p);
-    return (vocesLight(estilo?.idioma || 'es') || []).find(v => v.id === id)?.nombre
+    return (vocesLight(estilo?.idioma || 'es', e.proveedor_voz) || []).find(v => v.id === id)?.nombre
       || (p.categoria === 'narrador' ? estilo?.datos?.voz?.voz_nombre || 'Voz general del vídeo' : p.voz_nombre || id);
   };
   const urlImagen = p => p.imagen && pid ? API.archivo(pid, p.imagen) : p.subida ? API.imagenLight(p.subida) : '';
@@ -7622,20 +7651,36 @@ function personajesDelEncargo(e, alCambiar, esEstilo = false) {
           : 'Desactívalo si no necesitas hojas de personajes como referencia para las imágenes con IA.'))));
 }
 
+function pestanasProveedorVoz(proveedor, cambiar) {
+  const actual = proveedor || 'cartesia';
+  return h('div', { clase: 'proveedores-voz', role: 'tablist', 'aria-label': 'Proveedor de voz' },
+    ...[{ id: 'cartesia', nombre: 'Cartesia' }, { id: 'elevenlabs', nombre: 'ElevenLabs' }].map(p =>
+      h('button', { type: 'button', role: 'tab', clase: 'proveedor-voz' + (actual === p.id ? ' activo' : ''),
+        'aria-selected': String(actual === p.id), onclick: () => { if (actual !== p.id) cambiar(p.id); } }, p.nombre)));
+}
+
 function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
   const contenidos = h('fieldset', { clase: 'campos-voz-opcional',
     disabled: e.incorporar_voz === false }, ...campos);
   if (!esEstilo) {
+    contenidos.prepend(pestanasProveedorVoz(e.proveedor_voz, proveedor => {
+      e.proveedor_voz = proveedor;
+      e.voz_id = '';
+      if (alCambiar) alCambiar();
+    }));
+    if (e.proveedor_voz === 'elevenlabs') contenidos.appendChild(h('p', { clase: 'pista' },
+      'ElevenLabs · Multilingual v2. Las voces de los personajes también deben elegirse en este proveedor.'));
     const pid = APP.light.video?.pid;
     const ficha = pid && APP.light.video.vista === 'encargo_video' ? {
       id: `pronunciaciones-${pid}`, proyecto_id: pid,
       datos: { get voz() { return { ...(APP.light.video.fichas.voz?.params || {}),
-        voz_id: e.voz_id || APP.light.video.fichas.voz?.params?.voz_id || '',
+        voz_id: e.voz_id || '',
+        proveedor: e.proveedor_voz || 'cartesia',
         pronunciaciones: e.pronunciaciones || '' }; } },
     } : null;
     contenidos.appendChild(campoPronunciaciones(e.pronunciaciones, valor => {
       e.pronunciaciones = valor;
-    }, ficha));
+    }, ficha, e.proveedor_voz));
   }
   return bloqueLight('🎙️ Voz', 'locución del vídeo',
     h('label', { clase: 'efecto-encargo' },
@@ -7655,14 +7700,16 @@ function incorporarVozDelEncargo(e, alCambiar, esEstilo = false, ...campos) {
     contenidos);
 }
 
-function campoPronunciaciones(valor, cambiar, ficha) {
+function campoPronunciaciones(valor, cambiar, ficha, proveedor) {
+  const eleven = (proveedor || ficha?.datos?.voz?.proveedor) === 'elevenlabs';
   const caja = h('div', { clase: 'campo pronunciaciones-voz' },
     h('label', {}, 'Pronunciaciones'),
     campoArea('', valor || '', cambiar,
-      'Shakespeare = shéikspir\nWilliam = <<ˈ|w|ɪ|l|j|ə|m>>', 'voz-pronunciaciones'),
+      eleven ? 'Shakespeare = shéikspir' : 'Shakespeare = shéikspir\nWilliam = <<ˈ|w|ɪ|l|j|ə|m>>', 'voz-pronunciaciones'),
     h('p', { clase: 'pista' }, 'Una entrada por línea: Nombre = cómo suena. '
-      + 'Para sonidos ingleses precisos puedes usar fonemas entre << >>, separados por |. '
-      + 'El guion y los subtítulos conservan el nombre original. Requiere Sonic 3 o 3.5. '
+      + (eleven ? 'ElevenLabs utiliza aquí lecturas escritas, sin fonemas << >>. '
+        : 'Para sonidos ingleses precisos puedes usar fonemas entre << >>, separados por | (Sonic 3 o 3.5). ')
+      + 'El guion y los subtítulos conservan el nombre original. '
       + 'Después de cambiarlo, regenera el audio para aplicarlo.'));
   if (ficha) caja.append(
     botonEscuchaVoz(ficha, { etiqueta: 'Escuchar pronunciaciones' }),
@@ -7674,18 +7721,31 @@ function campoPronunciaciones(valor, cambiar, ficha) {
 
 function vozParaVideoLight(e, estilo) {
   const delEstilo = (((estilo || {}).datos || {}).voz || {});
-  const catalogo = vocesLight((estilo || {}).idioma || 'es');
+  const proveedor = e.proveedor_voz || delEstilo.proveedor || 'cartesia';
+  const editando = APP.light.video.vista === 'encargo_video';
+  const pid = editando ? APP.light.video.pid : '';
+  const base = editando ? APP.light.video.fichas.voz?.params || {} : delEstilo;
+  const idioma = base.idioma || estilo?.idioma || 'es';
+  const catalogo = vocesLight(idioma, proveedor);
   if (!catalogo) return h('p', { clase: 'pista' }, 'Cargando voces…');
-  const opciones = [{ valor: '', nombre: `Voz del estilo: ${delEstilo.voz_nombre || 'la predeterminada'}` }];
-  for (const voz of catalogo) {
-    opciones.push({ valor: voz.id, nombre: voz.nombre || voz.id });
-  }
-  if (e.voz_id && !catalogo.some(v => v.id === e.voz_id)) {
-    opciones.push({ valor: e.voz_id, nombre: `Voz actual (${e.voz_id})` });
-  }
-  return campoSelect('Voz para este vídeo', e.voz_id || '', opciones,
-    valor => { e.voz_id = valor || (APP.light.vista === 'elegido'
-      ? '' : (delEstilo.voz_id || '')); PERSONALIZACION_PERSONAJES.get(e)?.repintar(); });
+  const error = errorCatalogoVoz(idioma, proveedor);
+  if (error) return error;
+  const mismo = proveedor === (delEstilo.proveedor || 'cartesia');
+  const caja = h('div', { clase: 'selector-voz-video' });
+  const ficha = { id: pid ? `video:${pid}` : estilo?.id || '', proyecto_id: pid || undefined,
+    selector_id: `video:${pid || estilo?.id || 'nuevo'}:${proveedor}`, idioma,
+    datos: { get voz() { return { ...base, proveedor,
+      voz_id: e.voz_id || (mismo ? delEstilo.voz_id || '' : ''),
+      pronunciaciones: e.pronunciaciones ?? base.pronunciaciones ?? '' }; } } };
+  const pintar = () => {
+    vaciar(caja).appendChild(selectorVozLight(ficha, ficha.datos.voz, catalogo, cambios => {
+      e.voz_id = cambios.voz_id;
+      PERSONALIZACION_PERSONAJES.get(e)?.repintar();
+      if (editando) programarGuardadoEncargo();
+    }, pintar));
+  };
+  pintar();
+  return caja;
 }
 
 /* El catálogo viene del motor: nombres, descripciones y las seis de fábrica.
@@ -7882,6 +7942,7 @@ async function refrescarEstimacionLight(e, nodo, estiloDado) {
       velocidad: voz.velocidad || 'normal',
       // la voz entra en la cuenta: la cadencia no es solo del idioma
       voz: voz.voz_id || '',
+      proveedor_voz: e.proveedor_voz || voz.proveedor || 'cartesia',
       hueco_minimo: voz.hueco_minimo,
       min_s: (datos.estilo || {}).min_s,
       max_s: (datos.estilo || {}).max_s,
@@ -7919,6 +7980,7 @@ async function pintarCosteDelEncargoLight(e, nodo) {
       idioma: estilo.idioma || 'es',
       velocidad: (datos.voz || {}).velocidad || 'normal',
       voz: (datos.voz || {}).voz_id || '',
+      proveedor_voz: e.proveedor_voz || (datos.voz || {}).proveedor || 'cartesia',
       hueco_minimo: (datos.voz || {}).hueco_minimo,
       min_s: (datos.estilo || {}).min_s,
       max_s: (datos.estilo || {}).max_s,
@@ -8045,6 +8107,7 @@ async function crearYGenerarLight(estilo) {
         generar_personajes: e.generar_personajes !== false,
         ...(e.personajes ? { personajes: e.personajes } : {}),
         incorporar_voz: e.incorporar_voz !== false,
+        ...(e.proveedor_voz ? { proveedor_voz: e.proveedor_voz } : {}),
         ...(e.pronunciaciones !== undefined ? { pronunciaciones: e.pronunciaciones } : {}),
         ...(e.voz_id ? { voz_id: e.voz_id } : {}),
         bibliotecas: e.bibliotecas,
@@ -8124,6 +8187,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'personajes', paso: 'guion', param: 'personajes' },
   { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
   { clave: 'voz_id', paso: 'voz', param: 'voz_id' },
+  { clave: 'proveedor_voz', paso: 'voz', param: 'proveedor' },
   { clave: 'pronunciaciones', paso: 'voz', param: 'pronunciaciones' },
 ];
 
@@ -8175,6 +8239,7 @@ function pedidoDelVideoLight() {
     stickman: params('assets').estilo?.stickman || null,
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
+    proveedor_voz: params('voz').proveedor || 'cartesia',
     pronunciaciones: params('voz').pronunciaciones || '',
     bibliotecas: bibliotecasPorDefectoLight(params('assets').bibliotecas),
   };
@@ -14564,6 +14629,9 @@ function vistaCrearLight() {
   cajas.appendChild(animacionesDelEncargo(e.montaje, tocarEncargoLight, true));
 
   cajas.appendChild(incorporarVozDelEncargo(e.montaje, tocarEncargoLight, true,
+    pestanasProveedorVoz(e.proveedor_voz, proveedor => {
+      e.proveedor_voz = proveedor; e.voz_id = ''; tocarEncargoLight(); pintarLight();
+    }),
     campoArea('', e.voz_prompt, v => { e.voz_prompt = v; tocarEncargoLight(); },
       'grave, pausada, sin sonar a locutor de anuncio'),
     selectorVozPropiaLight(e)));
@@ -15124,6 +15192,11 @@ function tiraDeImagenes(ficha, nombres) {
 function escuchaDeVoz(ficha) {
   const voz = (ficha.datos || {}).voz || {};
   const caja = h('div', { clase: 'bloque-voz' });
+  caja.appendChild(pestanasProveedorVoz(voz.proveedor, proveedor => {
+    apuntarVozLight(ficha, { proveedor, voz_id: '', voz_nombre: '', modelo: proveedor === 'elevenlabs'
+      ? 'eleven_multilingual_v2' : 'sonic-3.5', emociones: [] });
+    repintarBloqueVoz(ficha);
+  }));
   const nombre = voz.voz_nombre || voz.voz_id || '';
   caja.appendChild(h('div', { clase: 'resumen-voz' },
     h('b', {}, nombre || 'sin voz elegida'),
@@ -15165,12 +15238,12 @@ function mandosDeVozLight(ficha, voz) {
   const guardar = cambios => apuntarVozLight(ficha, cambios);
 
   const idioma = ficha.idioma || 'es';
-  const lista = vocesLight(idioma);
+  const lista = vocesLight(idioma, voz.proveedor);
   if (!lista) {
     dentro.appendChild(h('div', { clase: 'pista' },
       `cargando las voces de ${nombreIdiomaLight(idioma)}…`));
   } else {
-    dentro.appendChild(selectorVozLight(ficha, voz, lista, guardar));
+    dentro.appendChild(errorCatalogoVoz(idioma, voz.proveedor) || selectorVozLight(ficha, voz, lista, guardar));
   }
 
   dentro.appendChild(campoSelect('Velocidad', voz.velocidad || 'normal',
@@ -15194,7 +15267,7 @@ function mandosDeVozLight(ficha, voz) {
       },
     }, emocion));
   });
-  dentro.appendChild(h('div', { clase: 'campo' },
+  if (voz.proveedor !== 'elevenlabs') dentro.appendChild(h('div', { clase: 'campo' },
     h('label', {}, 'Color'), fila,
     h('div', { clase: 'pista' },
       'De cero a dos, y ninguna es una respuesta válida: el tono neutro deja '
@@ -15223,7 +15296,8 @@ function nombreIdiomaLight(codigo) {
 function apuntarVozLight(ficha, cambios) {
   ficha.datos = Object.assign({}, ficha.datos || {});
   ficha.datos.voz = Object.assign({}, ficha.datos.voz || {}, cambios);
-  guardarPresetLight(ficha.id, { voz: cambios }, false);
+  const pendientes = APP.light.pendiente?.id === ficha.id ? APP.light.pendiente.voz || {} : {};
+  guardarPresetLight(ficha.id, { voz: { ...pendientes, ...cambios } }, false);
 }
 
 /* Repinta SOLO el bloque de la voz, como `repintarPieDeEstilo` hace con el pie.
@@ -15255,20 +15329,32 @@ function repintarBloqueVoz(ficha) {
    está, y si no la pide y devuelve null: quien pinta enseña «cargando» y se
    repinta solo cuando llega. Lo comparten la ficha del estilo y el formulario
    de crear, que es lo que hace que la voz clonada aparezca en los dos. */
-function vocesLight(idioma) {
+function errorCatalogoVoz(idioma, proveedor = 'cartesia') {
+  const clave = `${proveedor || 'cartesia'}:${idioma || 'es'}`;
+  const error = APP.light.catalogosVoz?.[clave]?.error;
+  if (!error) return null;
+  return h('div', { clase: 'caja-error', role: 'alert' }, error,
+    h('button', { type: 'button', clase: 'mini', onclick: () => {
+      delete APP.light.catalogosVoz[clave]; pintarLight();
+    } }, 'Reintentar voces'));
+}
+
+function vocesLight(idioma, proveedor = 'cartesia') {
   idioma = idioma || 'es';
-  const catalogo = APP.light.voces || {};
-  if (catalogo.idioma === idioma) return catalogo.lista || [];
-  if (!catalogo.pidiendo || catalogo.pidiendo !== idioma) {
-    APP.light.voces = { idioma: catalogo.idioma, pidiendo: idioma,
-      lista: catalogo.lista || [] };
-    pedir(API.voces(idioma, true))
+  proveedor = proveedor || 'cartesia';
+  const clave = `${proveedor}:${idioma}`;
+  const catalogos = APP.light.catalogosVoz || (APP.light.catalogosVoz = {});
+  const catalogo = catalogos[clave];
+  if (catalogo?.lista) return catalogo.lista;
+  if (!catalogo?.pidiendo) {
+    catalogos[clave] = { pidiendo: true };
+    pedir(API.voces(idioma, true, proveedor))
       .then(datos => {
-        APP.light.voces = { idioma, lista: datos.voces || [], pidiendo: null };
+        catalogos[clave] = { lista: datos.voces || [] };
         if (['preset', 'crear', 'elegido'].includes(APP.light.vista)
-            || (APP.light.vista === 'video' && APP.light.video.vista === 'encargo')) pintarLight();
+             || (APP.light.vista === 'video' && ['encargo', 'encargo_video'].includes(APP.light.video.vista))) pintarLight();
       })
-      .catch(() => { APP.light.voces = { idioma, lista: [], pidiendo: null }; });
+      .catch(err => { catalogos[clave] = { lista: [], error: err.message }; pintarLight(); });
   }
   return null;
 }
@@ -15278,20 +15364,21 @@ function vocesLight(idioma) {
    color, pero la voz es esa. Sin ninguna en la cuenta se dice, en una línea,
    que no hay: es la forma de que nadie busque en el catálogo lo que no está. */
 function selectorVozPropiaLight(e) {
-  const lista = vocesLight(e.idioma);
+  const lista = vocesLight(e.idioma, e.proveedor_voz);
   const caja = h('div', { clase: 'campo' });
   if (!lista) {
     caja.appendChild(h('div', { clase: 'pista' }, 'cargando tus voces…'));
     return caja;
   }
-  const propias = lista.filter(v => v.publica === false);
+  const error = errorCatalogoVoz(e.idioma, e.proveedor_voz);
+  if (error) { caja.appendChild(error); return caja; }
+  const propias = e.proveedor_voz === 'elevenlabs' ? lista : lista.filter(v => v.publica === false);
   if (!propias.length) {
     caja.appendChild(h('div', { clase: 'pista' },
-      'No hay voces clonadas en esta cuenta de Cartesia: la voz se elige por la '
+      e.proveedor_voz === 'elevenlabs' ? 'Añade la API key de ElevenLabs en Configuración para cargar tus voces.' : 'No hay voces clonadas en esta cuenta de Cartesia: la voz se elige por la '
       + 'descripción de arriba. Si clonas una, aparecerá aquí.'));
     return caja;
   }
-  if (e.voz_id && !propias.some(v => v.id === e.voz_id)) e.voz_id = '';
   caja.appendChild(h('label', {}, 'Tus voces (clonadas)'));
   caja.appendChild(h('select', {
     onchange: ev => { e.voz_id = ev.target.value; tocarEncargoLight(); },
@@ -15306,10 +15393,11 @@ function selectorVozPropiaLight(e) {
   return caja;
 }
 
-function selectorVozLight(ficha, voz, voces, guardar) {
-  const estado = (APP.light.picker && APP.light.picker.preset === ficha.id)
+function selectorVozLight(ficha, voz, voces, guardar, alElegir) {
+  const clave = ficha.selector_id || ficha.id;
+  const estado = (APP.light.picker && APP.light.picker.preset === clave)
     ? APP.light.picker
-    : (APP.light.picker = { preset: ficha.id, abierto: false, busca: '' });
+    : (APP.light.picker = { preset: clave, abierto: false, busca: '' });
   const idioma = ficha.idioma || 'es';
 
   /* LA VOZ PUESTA, AUNQUE NO ESTÉ EN LA LISTA. Si el estilo cambió de idioma, la
@@ -15322,23 +15410,53 @@ function selectorVozLight(ficha, voz, voces, guardar) {
 
   const rejilla = h('div', { clase: 'rejilla-voces' });
   const cuenta = h('span', { clase: 'meta' });
+  let buscandoId = false;
+  let resultadoId = null;
+  let consultaId = '';
+  let errorId = '';
+  const consulta = h('div', { clase: 'consulta-voz-id', role: 'status', 'aria-live': 'polite' });
+  const buscarId = async () => {
+    const id = estado.busca.trim();
+    if (buscandoId || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) return;
+    buscandoId = true; consultaId = id; resultadoId = null; errorId = '';
+    pintarRejilla();
+    try {
+      const datos = await pedir(`${BASE}/api/voces/${encodeURIComponent(id)}?proveedor=${encodeURIComponent(voz.proveedor || 'cartesia')}`);
+      if (estado.busca.trim() !== id || !panel.isConnected) return;
+      if (!datos.voz || datos.voz.id !== id) throw new Error('El proveedor no ha devuelto la voz solicitada.');
+      resultadoId = datos.voz;
+      const previa = voces.findIndex(v => v.id === id);
+      if (previa >= 0) voces[previa] = resultadoId; else voces.push(resultadoId);
+    } catch (err) {
+      if (estado.busca.trim() === id) errorId = err.message;
+    } finally {
+      buscandoId = false;
+      if (panel.isConnected) pintarRejilla();
+    }
+  };
   const elegir = v => {
     estado.abierto = false;
     guardar({ voz_id: v.id, voz_nombre: v.nombre || '' });
     // el bloque entero y no la pantalla: el rótulo de arriba, la cuadrícula y
     // el botón de escuchar de abajo dicen los tres cuál es la voz puesta
-    repintarBloqueVoz(ficha);
+    if (alElegir) alElegir(); else repintarBloqueVoz(ficha);
   };
   const pintarRejilla = () => {
     vaciar(rejilla);
+    vaciar(consulta);
+    const id = estado.busca.trim();
     const filtro = estado.busca.trim().toLowerCase();
     const visibles = voces.filter(v => !filtro
       || `${v.nombre} ${v.descripcion || ''} ${v.id}`.toLowerCase().includes(filtro));
+    const porId = /^[A-Za-z0-9_-]{8,64}$/.test(id) && !voces.some(v => v.id === id);
+    if (porId) consulta.appendChild(h('button', { type: 'button', clase: 'mini',
+      disabled: buscandoId, onclick: buscarId }, buscandoId ? 'Consultando al proveedor…' : 'Buscar por ID en el proveedor'));
+    if (consultaId === id && errorId) consulta.appendChild(h('p', { clase: 'caja-error' }, errorId));
     const TOPE = 240;
     // Nada se recorta sin decir cuánto falta: una rejilla cortada en seco se lee
     // como «esto es lo que hay».
-    cuenta.textContent = `${visibles.length} de ${voces.length} nativas de `
-      + `${nombreIdiomaLight(idioma)}`
+    cuenta.textContent = `${visibles.length} de ${voces.length} `
+      + (voz.proveedor === 'elevenlabs' ? 'voces de ElevenLabs' : `nativas de ${nombreIdiomaLight(idioma)}`)
       + (visibles.length > TOPE ? ` · se pintan ${TOPE}, afina la búsqueda` : '');
     // la de otro idioma va la primera y solo sin filtro: es la que tienes
     // puesta, no un resultado de la búsqueda
@@ -15357,7 +15475,7 @@ function selectorVozLight(ficha, voz, voces, guardar) {
       rejilla.appendChild(h('div', { clase: 'grupo-voces' }, 'Tus voces (clonadas)'));
       propias.forEach(v => rejilla.appendChild(celdaVozLight(ficha, v, voz, elegir)));
       if (catalogo.length) {
-        rejilla.appendChild(h('div', { clase: 'grupo-voces' }, 'Catálogo de Cartesia'));
+        rejilla.appendChild(h('div', { clase: 'grupo-voces' }, voz.proveedor === 'elevenlabs' ? 'Catálogo de ElevenLabs' : 'Catálogo de Cartesia'));
       }
     }
     catalogo.slice(0, TOPE).forEach(v =>
@@ -15366,21 +15484,29 @@ function selectorVozLight(ficha, voz, voces, guardar) {
 
   const puesta = forastera || voces.find(v => v.id === voz.voz_id) || null;
   const flecha = h('span', { clase: 'flecha' });
-  const disparo = h('button', { clase: 'desplegable-voz' },
+  const panelId = `voces-${String(clave).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  const disparo = h('button', { type: 'button', clase: 'desplegable-voz',
+    'aria-label': 'Elegir locutor', 'aria-controls': panelId },
     h('span', { clase: 'nombre' },
       puesta ? (puesta.nombre || puesta.id) : 'sin voz elegida'),
     h('span', { clase: 'meta' }, puesta ? procedenciaDeVoz(puesta, idioma) : ''),
     flecha);
 
   const buscador = h('input', {
-    clase: 'buscar-voz', placeholder: 'buscar por nombre o descripción…',
+    clase: 'buscar-voz', placeholder: 'buscar por nombre, descripción o ID de voz…',
+    'aria-label': 'Buscar locutor',
     value: estado.busca,
     oninput: ev => { estado.busca = ev.target.value; pintarRejilla(); },
+    onkeydown: ev => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault(); buscarId();
+    },
   });
-  const panel = h('div', { clase: 'panel-voces' },
-    h('div', { clase: 'fila' }, buscador, cuenta), rejilla);
+  const panel = h('div', { clase: 'panel-voces', id: panelId },
+    h('div', { clase: 'fila' }, buscador, cuenta), consulta, rejilla);
   const pista = h('div', { clase: 'pista' },
-    `${voces.length} voces nativas de ${nombreIdiomaLight(idioma)}, `
+    (voz.proveedor === 'elevenlabs' ? `${voces.length} voces de ElevenLabs, `
+      : `${voces.length} voces nativas de ${nombreIdiomaLight(idioma)}, `)
     + 'cada una con su escucha');
 
   /* ABRIR NO REPINTA LA PANTALLA. Vaciar el panel para volver a pintarlo se
@@ -15388,6 +15514,7 @@ function selectorVozLight(ficha, voz, voces, guardar) {
      abrir la lista y aparecer arriba del todo hace inservible la lista. */
   const aplicar = () => {
     disparo.classList.toggle('abierto', estado.abierto);
+    disparo.setAttribute('aria-expanded', String(estado.abierto));
     vaciar(flecha).append(estado.abierto ? '▲' : '▼');
     panel.hidden = !estado.abierto;
     pista.hidden = estado.abierto;
@@ -15396,6 +15523,13 @@ function selectorVozLight(ficha, voz, voces, guardar) {
   disparo.addEventListener('click', () => {
     estado.abierto = !estado.abierto;
     aplicar();
+  });
+  panel.addEventListener('keydown', ev => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    estado.abierto = false;
+    aplicar();
+    disparo.focus();
   });
   const campo = h('div', { clase: 'campo campo-voz' },
     h('label', {}, 'Voz'), disparo, panel, pista);
@@ -15546,7 +15680,7 @@ function claveEscucha(ficha, vozId) {
   const v = (ficha.datos || {}).voz || {};
   return JSON.stringify([ficha.id, vozId || v.voz_id || '', v.velocidad || '',
     (v.emociones || []).join(','), v.hueco_minimo, v.pronunciaciones || '',
-    v.idioma || ficha.idioma || '']);
+     v.idioma || ficha.idioma || '', v.proveedor || 'cartesia']);
 }
 
 /* Doce segundos, en el taller. Con `voz_id` se escucha una voz SIN elegirla, que
@@ -15559,7 +15693,7 @@ async function pedirEscuchaVoz(ficha, vozId) {
   const url = ficha.proyecto_id ? `${API.proyecto(ficha.proyecto_id)}/voz/previsualizar`
     : `${API.presetLight(ficha.id)}/voz/previsualizar`;
   const datos = await pedir(url,
-    { method: 'POST', cuerpo: { segundos: 12, voz_id: vozId || '',
+    { method: 'POST', cuerpo: { segundos: 12, voz_id: vozId || '', proveedor: ficha.datos?.voz?.proveedor || 'cartesia',
       ...(ficha.proyecto_id ? { params: { ...(ficha.datos?.voz || {}), voz_id: vozId || ficha.datos?.voz?.voz_id || '' } } : {}) } });
   const tid = datos.trabajo_id || (datos.trabajo || {}).id;
   if (!tid) throw new Error('el servidor no ha devuelto ningún trabajo');
