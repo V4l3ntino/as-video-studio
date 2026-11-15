@@ -5292,6 +5292,65 @@ def guardar_editor_escena(pid: str, sid: str, datos: dict = Body(...)):
     return leer_previsualizacion(pid)
 
 
+def _contexto_edicion_stickman(pid, sid):
+    from pasos import edicion_stickman, stickman
+    ctx = contexto(pid)
+    if not stickman.activo(ctx.estado.params('assets') or {}):
+        raise ErrorApi(400, 'la edición de escena requiere Stickman Animation 2D')
+    try:
+        escena, contenido = edicion_stickman.fuente(ctx.proyecto, _plan_de_previsualizacion(ctx), sid)
+    except ValueError as exc:
+        raise ErrorApi(400, str(exc)) from exc
+    return ctx, escena, contenido
+
+
+@app.get("/api/proyectos/{pid}/escenas/{sid}/stickman/chat")
+def leer_chat_stickman(pid: str, sid: str):
+    """Recupera la conversación de retoque de una escena Stickman publicada."""
+    from pasos import edicion_stickman
+    ctx, escena, _ = _contexto_edicion_stickman(pid, sid)
+    return edicion_stickman.leer(ctx.proyecto, escena)
+
+
+@app.post("/api/proyectos/{pid}/escenas/{sid}/stickman/chat", status_code=202)
+def chat_stickman(pid: str, sid: str, datos: dict = Body(...)):
+    """Conversa con Claude o aplica un retoque IA únicamente a la escena elegida."""
+    from pasos import edicion_stickman
+    mensaje = datos.get('mensaje', '')
+    porcentaje = datos.get('porcentaje', 50)
+    if not isinstance(mensaje, str) or len(mensaje) > 12000:
+        raise ErrorApi(400, 'escribe una instrucción de hasta 12.000 caracteres')
+    mensaje = mensaje.strip()
+    if type(porcentaje) is not int or porcentaje not in range(0, 101, 10):
+        raise ErrorApi(400, 'el reparto debe estar entre 0 y 100 en pasos de 10')
+    with _LOCK:
+        ctx, escena, contenido = _contexto_edicion_stickman(pid, sid)
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        if datos.get('aplicar') is True:
+            try:
+                encargo = edicion_stickman.encargo(ctx.proyecto, escena, contenido, mensaje, porcentaje)
+            except ValueError as exc:
+                raise ErrorApi(400, str(exc)) from exc
+            uid = 'escena:' + sid
+            unidad = dict(((ctx.estado.params('assets') or {}).get('unidades') or {}).get(uid) or {})
+            unidad.pop('medio_usuario', None)
+            unidad['edicion_stickman'] = encargo
+            ctx.estado.actualizar_params('assets', {'unidades': {uid: unidad}})
+            tid = lanzar_paso(ctx, 'assets', [uid], opciones={'rehacer': True})
+            charla = edicion_stickman.leer(ctx.proyecto, escena)
+            charla['mensajes'] = encargo['mensajes']
+            medios = PASOS_MODULOS.medios
+            medios.escribir_json(edicion_stickman.ruta(ctx.proyecto, sid), charla)
+        else:
+            if not mensaje:
+                raise ErrorApi(400, 'escribe un mensaje para Claude')
+            tid = ctx.gestor.lanzar('stickman:chat', lambda avisar: edicion_stickman.conversar(
+                ctx.proyecto, escena, contenido, mensaje, avisar))
+            _registrar_trabajo(tid, pid)
+    return dict(trabajo_id=tid)
+
+
 @app.get("/api/remotion/plantillas")
 def plantillas_remotion():
     """Biblioteca de componentes React reutilizables y estado del motor local."""

@@ -498,7 +498,16 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
     if os.environ.get('ESTUDIO_SIMULAR') == '1':
         datos = ejemplo
     else:
-        datos = consultar('Dirige una escena narrativa Stickman cuya acción se entienda SIN escuchar la voz. Devuelve SOLO un objeto JSON de esta forma: '
+        edicion = (e.get('indicaciones_usuario') or {}).get('edicion_stickman')
+        if edicion and edicion.get('ancla') != e.get('narracion'):
+            raise ValueError('La edición ya no corresponde al texto de esta escena')
+        prefijo = ('EDITA la animación actual recibida en edicion_stickman.contenido. Es la base completa, no una referencia para recrear. '
+            'Aplica SOLO los cambios acordados en mensajes. Conserva personajes, objetos, utilería, actuación, sonidos, '
+            'colores y claves no afectados. Para alejar el zoom ajusta cámara/encuadre sin reinventar la escena. '
+            'El contenido actual es la fuente de verdad: los mensajes anteriores son contexto, no repitas cambios ya presentes. '
+            'La petición de retoque manda sobre la descripción visual histórica y la continuidad cuando haya conflicto. '
+            'Devuelve el plan completo editado con el mismo contrato.\n') if edicion else ''
+        datos = consultar(prefijo + 'Dirige una escena narrativa Stickman cuya acción se entienda SIN escuchar la voz. Devuelve SOLO un objeto JSON de esta forma: '
             + json.dumps(ejemplo) + '\nNo repitas una escena genérica: representa literalmente la acción y el contexto del guion. '
              'Prioriza la descripción visual (prompt) y la narración sobre la decoración. '
              'La descripción de ESTA escena manda sobre el estilo y la continuidad: respeta colores explícitos, '
@@ -694,7 +703,9 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                 contexto = dict(e, indicaciones_usuario=(params.get('unidades') or {}).get(uid) or {},
                     resolucion=plan['resolucion'], contexto_frase=contexto_frase, continuidad_bloque=continuidad,
                     escenarios_video=escenarios_video)
-                contenido = generar_escena(contexto, base, reparto, proyecto, avisar, 'Claude' if i < n_claude else 'ChatGPT')
+                edicion = contexto['indicaciones_usuario'].get('edicion_stickman') or {}
+                proveedor = edicion.get('proveedor') or ('Claude' if i < n_claude else 'ChatGPT')
+                contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
                 fuente.parent.mkdir(parents=True, exist_ok=True)
                 medios.escribir_json(str(fuente), dict(firma=firma, contenido=contenido))
             # Las definiciones viajan con la versión y se incorporan al catálogo

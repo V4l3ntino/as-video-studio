@@ -81,6 +81,19 @@ las voces y la música, sin duplicarlos dentro del clip visual. Puedes moverlos,
 recortarlos o eliminarlos como los demás sonidos. Los clips, definiciones y
 efectos viajan al duplicar o exportar el vídeo.
 
+Para retocar una animación existente, selecciona su escena y pulsa **✦ Editar
+escena**, encima del previsualizador, antes de **Sustituir imagen**. El panel
+derecho abre un chat con Claude para concretar cambios, por ejemplo alejar el
+zoom conservando la actuación. Enviar mensajes solo conversa; **Aplicar cambios**
+edita el plan de animación publicado y prepara de nuevo únicamente esa escena,
+manteniendo la narración y su duración. **Parar** cancela el trabajo.
+
+Los botones **Claude** y **ChatGPT** eligen qué IA aplica los cambios, con Claude
+seleccionado por defecto. Solo uno puede estar seleccionado. ChatGPT/Codex usa
+su sesión habitual. Claude lleva siempre la conversación. El historial se conserva por
+escena. Al terminar, comprueba el resultado en la previa y vuelve a montar para
+incorporarlo al MP4.
+
 La utilería no se limita a una lista fija. Si una escena necesita un elemento
 que falta —por ejemplo, un avión—, Claude o ChatGPT puede diseñarlo con formas
 vectoriales y piezas animables. La definición utilizada se valida y se guarda

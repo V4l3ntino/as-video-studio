@@ -10381,11 +10381,13 @@ async function sustituirMedioEscena(escena, archivo) {
   finally { PREVIA.sustituyendo = false; repintarVideo(); }
 }
 
-function botonSustituirEscena(escena) {
+function botonSustituirEscena(escena, editar) {
   const entrada = h('input', {type: 'file', hidden: true,
     accept: '.png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.m4v,.avi',
     onchange: ev => sustituirMedioEscena(escena, ev.target.files[0]) });
   return h('div', {clase: 'editor-previa-acciones'}, entrada,
+    editar ? h('button', {clase: 'mini', onclick: editar},
+      h('span', {'aria-hidden': 'true'}, '✦'), 'Editar escena') : null,
     h('button', {clase: 'mini', disabled: !!trabajoVideoLight() || !!PREVIA.sustituyendo,
       title: 'Elige una imagen o clip de al menos 2 s. Si supera 15 s, se recorta desde el inicio.',
       onclick: ev => { ev.stopPropagation(); entrada.click(); }},
@@ -10658,6 +10660,68 @@ const CACHE_EDITOR = {
     } catch (error) { return false; }
   },
 };
+
+function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alAplicar}) {
+  const base = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/stickman/chat`;
+  let enviando = false, cargado = false, proveedor = 'Claude';
+  const mensajes = h('div', {clase: 'remotion-chat-mensajes', role: 'log', 'aria-live': 'polite'});
+  const estado = h('p', {clase: 'meta', role: 'status', 'aria-live': 'polite'});
+  const entrada = h('textarea', {rows: 3, maxlength: 12000,
+    placeholder: 'Por ejemplo: aleja el zoom y conserva el resto de la escena.',
+    'aria-label': 'Cambios en la escena', onkeydown: ev => {
+      if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {ev.preventDefault(); enviar(false);}
+    }});
+  const proveedores = ['Claude', 'ChatGPT'].map(nombre => h('button', {
+    type: 'button', clase: 'remotion-boton', 'aria-pressed': String(nombre === proveedor),
+    onclick: () => {
+      if (enviando) return;
+      proveedor = nombre;
+      proveedores.forEach(b => b.setAttribute('aria-pressed', String(b.textContent === proveedor)));
+    }}, nombre));
+  const enviarBoton = h('button', {clase: 'remotion-boton primario', 'aria-label': 'Enviar mensaje',
+    title: 'Enviar mensaje (Enter). Shift+Enter añade una línea.', onclick: () => enviar(false)}, '➤');
+  const aplicar = h('button', {clase: 'remotion-boton primario', onclick: () => enviar(true)}, 'Aplicar cambios');
+  const parar = h('button', {clase: 'remotion-boton', hidden: true, onclick: cancelar}, 'Parar');
+  const panel = h('aside', {clase: 'remotion-taller stickman-edicion', hidden: true,
+    'aria-label': `Chat de edición de ${escena.id}`},
+    h('div', {clase: 'remotion-taller-cabecera'}, h('h3', {}, `✦ Editar escena · ${escena.id}`),
+      h('button', {clase: 'mini', onclick: alCerrar, 'aria-label': 'Cerrar edición de escena'}, '×')),
+    h('section', {clase: 'remotion-chat'},
+      h('p', {clase: 'meta'}, 'Habla con Claude para concretar los retoques. «Aplicar cambios» modifica únicamente esta animación.'),
+      mensajes, h('div', {clase: 'remotion-chat-entrada'}, entrada, enviarBoton),
+      h('section', {clase: 'remotion-chat-reparto'}, h('b', {}, 'IA para aplicar los cambios'),
+        h('div', {clase: 'stickman-proveedores', role: 'group', 'aria-label': 'IA para aplicar los cambios'}, ...proveedores)),
+      h('div', {clase: 'remotion-chat-acciones'}, aplicar, parar), estado));
+  function pintar(charla) {
+    mensajes.replaceChildren(...(charla.mensajes || []).map(m => h('p', {},
+      h('b', {}, m.autor === 'usuario' ? 'Tú: ' : 'Claude: '), m.texto)));
+    mensajes.scrollTop = mensajes.scrollHeight;
+  }
+  async function cargar() {
+    if (cargado || enviando) return;
+    try {pintar(await pedir(base)); cargado = true;}
+    catch (error) {estado.textContent = error.message;}
+  }
+  async function enviar(aplicando) {
+    if (enviando) return;
+    const texto = entrada.value.trim();
+    if (!aplicando && !texto) {entrada.focus(); return;}
+    enviando = true; panel.setAttribute('aria-busy', 'true');
+    [entrada, enviarBoton, aplicar, ...proveedores].forEach(n => {n.disabled = true;}); parar.hidden = false;
+    try {
+      const resultado = await trabajo(base, {mensaje: texto, porcentaje: proveedor === 'ChatGPT' ? 100 : 0, aplicar: aplicando}, estado);
+      entrada.value = ''; cargado = false;
+      pintar(aplicando ? await pedir(base) : resultado); cargado = true;
+      estado.textContent = aplicando ? 'Cambios aplicados. Monta el vídeo para actualizar el MP4.' : '';
+      if (aplicando) await alAplicar();
+    } catch (error) {estado.textContent = error.message; cargado = false;}
+    finally {
+      enviando = false; panel.setAttribute('aria-busy', 'false'); parar.hidden = true;
+      [entrada, enviarBoton, aplicar, ...proveedores].forEach(n => {n.disabled = false;});
+    }
+  }
+  return {panel, cargar};
+}
 
 /* Taller opcional: React vive dentro del Player aislado, no en la aplicación. */
 function crearTallerRemotion({pid, escena, trabajo, aplicar, ocupado, alElegir, cancelar, proyecto, tallerAbierto, alternarTaller, abrirResultado}) {
@@ -11577,6 +11641,13 @@ async function abrirEditorEscena(escena, estudio) {
     PREVIA.arrastrandoAvatar = false; PREVIA.repintadoAvatarPendiente = false;
     dialogo.remove(); timeline.remove();
   };
+  let edicionStickmanAbierta = false, chatStickman;
+  function abrirEdicionStickman() {
+    estudio.seleccionar(escena.id);
+    edicionStickmanAbierta = !edicionStickmanAbierta;
+    control.actualizarTaller();
+    if (edicionStickmanAbierta) chatStickman.cargar();
+  }
   const dialogo = h('section', { clase: 'editor-global-escena anim-editor',
     'aria-label': `Configuración de ${escena.id}`,
     onkeydown: ev => {
@@ -11586,7 +11657,8 @@ async function abrirEditorEscena(escena, estudio) {
     } },
     h('aside', { clase: 'editor-global-panel' }, tabs, avisoRecuperacion, panel,
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
-    h('div', { clase: 'editor-global-visual' }, botonSustituirEscena(escena), muestra), medios);
+    h('div', { clase: 'editor-global-visual' }, botonSustituirEscena(escena,
+      pedidoDelVideoLight().copia.stickman ? abrirEdicionStickman : null), muestra), medios);
   tallerRemotion = crearTallerRemotion({pid, escena, trabajo: trabajoRemotion, ocupado, alElegir: () => {indiceRemotion = -1;},
     abrirResultado: plantilla => estudio.abrirResultadoIA(plantilla),
     tallerAbierto: () => estudio.tallerRemotionAbierto,
@@ -11612,6 +11684,16 @@ async function abrirEditorEscena(escena, estudio) {
       cambio(false); pintarPanel();
     }});
   dialogo.appendChild(tallerRemotion.taller);
+  if (pedidoDelVideoLight().copia.stickman) {
+    chatStickman = crearChatEdicionStickman({pid, escena, trabajo: trabajoRemotion,
+      cancelar: () => {if (tid) pedir(API.cancelar(tid), {method: 'POST'}).catch(error => {estado.textContent = error.message;});},
+      alCerrar: () => {edicionStickmanAbierta = false; control.actualizarTaller();},
+      alAplicar: async () => {
+        PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+        repintarVideo();
+      }});
+    dialogo.appendChild(chatStickman.panel);
+  }
   const notasEscena = h('div', { clase: 'editor-global-notas' },
     escena.obsoleta ? avisoImagenObsoleta(escena) : null,
     escena.recurso_biblioteca ? h('p', { clase: 'meta' }, `${escena.recurso_biblioteca.tipo === 'video' ? 'Vídeo' : 'Imagen'} de ${escena.recurso_biblioteca.autor || 'autor'} · `,
@@ -11627,8 +11709,9 @@ async function abrirEditorEscena(escena, estudio) {
     moverRemotion,
     pintarRemotion: pintarReloj,
     actualizarTaller: () => {
-      if (estudio.esPanelActual(escena.id)) estudio.nodo.classList.toggle('con-remotion', pestaña === 'remotion' && estudio.tallerRemotionAbierto);
-      tallerRemotion.activar(pestaña === 'remotion');
+      if (estudio.esPanelActual(escena.id)) estudio.nodo.classList.toggle('con-remotion', edicionStickmanAbierta || (pestaña === 'remotion' && estudio.tallerRemotionAbierto));
+      tallerRemotion.activar(pestaña === 'remotion' && !edicionStickmanAbierta);
+      if (chatStickman) chatStickman.panel.hidden = !edicionStickmanAbierta;
     },
     liberarVisual: () => {
       if (!pintor && !pintorEnlace && !control.preparando) return;
@@ -11728,12 +11811,13 @@ async function abrirEditorEscena(escena, estudio) {
     if (ocupado()) throw new Error('Espera a que termine la operación actual.');
     remotionOcupado = true; pausar();
     dialogo.classList.add('remotion-trabajando');
-    mensaje.textContent = `${ruta.endsWith('/compilar') ? 'Compilando Remotion' : 'Renderizando Remotion'} · 0 %`;
+    const actividad = ruta.endsWith('/stickman/chat') ? 'Preparando edición Stickman' : ruta.endsWith('/compilar') ? 'Compilando Remotion' : 'Renderizando Remotion';
+    mensaje.textContent = `${actividad} · 0 %`;
     try {
       const r = await pedir(ruta, {method: 'POST', cuerpo: datos}); tid = r.trabajo_id;
       if (!dialogo.isConnected) {await pedir(API.cancelar(tid), {method: 'POST'}); throw new Error('Editor cerrado.');}
       while (dialogo.isConnected) {
-        const t = await pedir(API.trabajo(tid)); mensaje.textContent = `${t.mensaje || 'Preparando Remotion'} · ${Math.round(t.progreso * 100)} %`;
+        const t = await pedir(API.trabajo(tid)); mensaje.textContent = `${t.mensaje || actividad} · ${Math.round(t.progreso * 100)} %`;
         if (alProgresar) await alProgresar(t);
         if (t.estado === 'listo') return t.resultado;
         if (['error', 'cancelado'].includes(t.estado)) throw new Error(t.error || 'Trabajo detenido.');

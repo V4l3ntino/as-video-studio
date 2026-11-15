@@ -52,6 +52,8 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/parallax` | Guarda o quita el parallax de una imagen; solo afecta a su unidad de montaje. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/remotion/preparar` | Prepara superposiciones PNG o escenas completas MP4, sin guardar params. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/sonidos` | Prepara un efecto seleccionado; el bloque solo se persiste al guardar la escena. |
+| `GET` | `/api/proyectos/{pid}/escenas/{sid}/stickman/chat` | Recupera la conversación de retoque de una escena Stickman publicada. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/stickman/chat` | Conversa con Claude o aplica un retoque IA únicamente a la escena elegida. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Guarda el efecto y su intervalo opcional; actualiza los clips afectados y el montaje. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |
@@ -334,4 +336,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**220 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**222 endpoints.** Escrito por `generar_api.py` desde `app.py`.

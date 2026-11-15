@@ -81,6 +81,41 @@ class Stickman(unittest.TestCase):
         self.base = stickman.familias()[0]
         self.config = dict(seleccionada=0, variantes=stickman.familias())
 
+    def test_edicion_conserva_plan_publicado_y_conversacion_sin_generar(self):
+        from pasos import edicion_stickman as editor
+        p = Proyecto.crear(self.temp.name, 'Retoque')
+        estado = Estado(p)
+        e = dict(id='S001', narracion='El personaje saluda.', t_in=0, t_out=3)
+        contenido = stickman.escena(dict(personajes=[dict(id='ana', escala=2.6, y=.9,
+            claves=[dict(t=0, pose='stand'), dict(t=2, pose='wave')])]), 3, {'ana': self.base})
+        carpeta = Path(p.ruta_trabajo('assets')) / 'escenas'
+        medios.escribir_json(str(carpeta / 'S001.json'), dict(origen='stickman', narracion=e['narracion'], firma_stickman='original'))
+        medios.escribir_json(str(carpeta / 'S001.animacion.json'), dict(firma='original', contenido=contenido))
+        estado.completar('assets', {})
+        escena, original = editor.fuente(p, dict(escenas=[e]), 'S001')
+        with patch.object(stickman, '_consultar', return_value={'mensaje': 'Alejaré el zoom sin cambiar la actuación.'}), \
+                patch.object(stickman, 'renderizar') as render:
+            charla = editor.conversar(p, escena, original, 'Aleja el zoom', lambda *a: None)
+            render.assert_not_called()
+        self.assertEqual(len(charla['mensajes']), 2)
+        encargo = editor.encargo(p, escena, original, 'Conserva los colores', 50)
+        self.assertEqual(encargo['proveedor'], 'ChatGPT')
+        self.assertEqual(editor.encargo(p, escena, original, '', 40)['proveedor'], 'Claude')
+        self.assertEqual(encargo['contenido'], contenido)
+        self.assertEqual(encargo['mensajes'][-1]['texto'], 'Conserva los colores')
+        contexto = dict(e, indicaciones_usuario=dict(edicion_stickman=encargo))
+        with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), \
+                patch.object(stickman, '_consultar', return_value=contenido) as consultar:
+            stickman.generar_escena(contexto, self.base, {'ana': self.base}, p, lambda *a: None, 'ChatGPT')
+        self.assertTrue(consultar.call_args.args[0].startswith('EDITA'))
+        self.assertIn('Aleja el zoom', consultar.call_args.args[0])
+        self.assertIn('wave', consultar.call_args.args[0])
+        with self.assertRaisesRegex(ValueError, 'genera primero'):
+            editor.fuente(p, dict(escenas=[dict(e, narracion='Texto nuevo')]), 'S001')
+        self.assertEqual(editor.leer(p, dict(e, narracion='Texto nuevo'))['mensajes'], [])
+        copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia')
+        self.assertEqual(editor.leer(copia, e), charla)
+
     def test_tiempos_decimales_se_ajustan_al_limite_sin_admitir_excesos_reales(self):
         duracion=3.8029999999999973
         d=dict(personajes=[dict(id='ana',claves=[dict(t=0,pose='stand'),dict(t=3.803,pose='wave')])],

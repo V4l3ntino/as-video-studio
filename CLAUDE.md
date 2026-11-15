@@ -18,6 +18,15 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+`pasos/edicion_stickman.py` conversa sin generar y prepara retoques de una sola
+escena desde su `.animacion.json` publicado, comprobando firma y narración del
+recibo. El encargo completo vive en `assets.params.unidades[uid].edicion_stickman`;
+solo «Aplicar cambios» lo guarda y ejecuta assets con esa unidad y `rehacer`.
+El contenido anterior es la base, no una referencia para recrearla. Dos botones
+excluyentes eligen Claude (por defecto) o ChatGPT para aplicar los cambios;
+el cliente envía respectivamente 0 o 100 en el contrato `porcentaje` existente.
+Los chats viven en `stickman/chats` del proyecto y viajan también al duplicar.
+
 En entregas nuevas, `dividido` completa los `panel` omitidos solo si hay exactamente
 dos protagonistas, cada uno permanece en una mitad distinta (base y claves x) y
 ninguna etiqueta explícita contradice su posición. No mueve actores ni inventa

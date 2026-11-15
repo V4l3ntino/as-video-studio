@@ -2618,7 +2618,7 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .previa-marco .previa-avatar { z-index: 3; }
 .previa-marco .previa-avatar.avatar-arrastrando { cursor: grabbing; outline: 2px solid var(--acento, #8294ff); }
 .avatar-editor-tiempos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.editor-previa-acciones { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.editor-previa-acciones { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .editor-previa-acciones button { display: inline-flex; align-items: center; gap: 7px; }
 
 /* -------------------------------- Motion animation y Efectos (dos recuadros)
@@ -2764,6 +2764,11 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-chat { display: flex; flex: 1; flex-direction: column; padding: 0 12px 12px; overflow: auto; min-height: 200px; }
 .remotion-chat > * { flex-shrink: 0; }
 .remotion-chat[hidden] { display: none; }
+.stickman-edicion .remotion-chat { min-height: 450px; }
+.stickman-edicion .remotion-taller-cabecera > button { margin-right: 10px; }
+.stickman-proveedores { display: flex; gap: 8px; margin-top: 12px; }
+.stickman-proveedores button { flex: 1; }
+.stickman-proveedores button[aria-pressed="true"] { border-color: #a4b0ff; background: #252c46; box-shadow: inset 0 0 0 1px #8192ff; }
 .remotion-chat h4 { margin: 10px 0; font-size: 15px; }
 .remotion-chat .meta { font-size: 11px; }
 .remotion-chat-escenas { padding: 10px 0; font-size: 11px; }
