@@ -194,7 +194,8 @@ class Editorial(unittest.TestCase):
             navegador.evaluar('window.STICKMAN.escena='+json.dumps(rotulos))
             img=imagen(2)
             img.save(muestras/'fidelidad_rotulos.png')
-            for caja in ((30,75,440,140),(520,75,930,140)):
+            # El texto del mundo se coloca bajo la franja reservada al rótulo de pantalla.
+            for caja in ((30,140,440,230),(520,75,930,140)):
                 colores=list(img.crop(caja).getdata())
                 self.assertGreater(sum(min(c)>230 for c in colores),50)
                 self.assertIn((16,38,30),colores)
@@ -259,6 +260,7 @@ class Editorial(unittest.TestCase):
             self.assertEqual(primer_tramo,original(navegador))
             # El texto de pantalla queda fuera de la cámara; el del mundo la sigue.
             capas=self.validar(narrativa(self.base));capas['camara']=[dict(t=0,escala=1.5)]
+            capas['personajes']=[]  # Aísla la capa: aquí no hay sujetos que deba encajar la cámara.
             capas['graficos']=[dict(tipo='badge',inicio=0,fin=4,capa=c,opciones=dict(str=c))
                 for c in ('fondo','pantalla')]
             navegador.evaluar('window.STICKMAN.escena='+json.dumps(capas))
@@ -274,6 +276,60 @@ class Editorial(unittest.TestCase):
         inicial['palabras']=[dict(word='Una',start=0,end=1),dict(word='idea',start=1,end=2),dict(word='clara',start=2,end=4)]
         with patch.object(p8_render.Navegador,'capturar',comprobar):
             stickman.renderizar(self.base,inicial,4,str(muestras/'catalogo.png'),salida=(960,540))
+
+    @unittest.skipUnless(REAL,'usa --real para encuadres detalle y bordes seguros')
+    def test_detalles_encajan_ficha_lista_y_dial_durante_toda_la_animacion(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def texto(str,x,y,w=700):
+            return dict(tipo='texto',texto=str,x=x,y=y,w=w,h=100,fuente=80,color='#302820')
+        escenarios={
+            'ficha':[dict(tipo='tarjeta',x=.5,y=.43,w=1380,h=600,color='#f3e9d5'),
+                texto('1930',.5,.25,260),texto('George Partridge',.5,.37,1100),texto('Sociopatía',.5,.54,768)],
+            'lista':[dict(tipo='tarjeta',x=.5,y=.5,w=760,h=920,color='#f3e9d5'),
+                *[texto(s,.5,.13+i*.145) for i,s in enumerate(['Delirios','Simpático','Inteligente','Tranquilo','Miente','Sin culpa'])]],
+            'dial':[dict(tipo='circulo',x=.5,y=.52,w=1200,h=700,color='#f3e9d5'),
+                dict(tipo='linea',x=.5,y=.7,w=500,h=-200,color='#302820',claves=[dict(t=0,rot=0),dict(t=3,rot=-.4)]),
+                texto('0',.2,.65,120),texto('10',.28,.35,120),texto('20',.5,.25,120),
+                texto('30',.72,.35,120),texto('40',.8,.65,120)]}
+        escenas={nombre:stickman.escena(dict(personajes=[],decorado='vacio',objetos=objetos,
+            realizacion=dict(encuadre='detalle',foco=[.5,.43],color_fiel=True,grano=0,vineta=0),
+            camara=[dict(t=0,escala=1),dict(t=2,escala=1.5,x=.1,rot=.08)]),4,{})
+            for nombre,objetos in escenarios.items()}
+        escenas['dial']['graficos']=[dict(tipo='badge',capa='pantalla',inicio=0,fin=4,
+            opciones=dict(str='Escala',x=960,y=110,size=42))]
+        muestras=Path(os.environ.get('ESTUDIO_PRUEBA_STICKMAN_MUESTRAS',TEMP.name))
+        muestras.mkdir(parents=True,exist_ok=True)
+        def comprobar(navegador,destino=None):
+            for nombre,d in escenas.items():
+                navegador.evaluar('window.STICKMAN.escena='+json.dumps(d))
+                for t in (0,.5,1,2,3.9):
+                    cajas=navegador.evaluar('''(() => {
+                        const ctx=document.querySelector('canvas').getContext('2d'),orig=ctx.fillText,out=[];
+                        ctx.fillText=function(str,x,y,...args){
+                            const m=this.measureText(str),a=this.getTransform();
+                            const pts=[[-m.actualBoundingBoxLeft,-m.actualBoundingBoxAscent],
+                                [m.actualBoundingBoxRight,-m.actualBoundingBoxAscent],
+                                [m.actualBoundingBoxRight,m.actualBoundingBoxDescent],
+                                [-m.actualBoundingBoxLeft,m.actualBoundingBoxDescent]];
+                            out.push({str,pts:pts.map(([dx,dy])=>({x:a.a*(x+dx)+a.c*(y+dy)+a.e,y:a.b*(x+dx)+a.d*(y+dy)+a.f}))});
+                            return orig.call(this,str,x,y,...args);
+                        };
+                        try{pintar('''+str(t)+''');return out;}finally{ctx.fillText=orig;}
+                    })()''')
+                    self.assertEqual(len(cajas),sum(o['tipo']=='texto' for o in d['objetos'])+len(d.get('graficos',[])))
+                    for caja in cajas:
+                        for p in caja['pts']:
+                            self.assertTrue(960*.039<=p['x']<=960*.961,(nombre,t,caja))
+                            self.assertTrue(540*.039<=p['y']<=540*.961,(nombre,t,caja))
+                    if nombre=='dial':
+                        titulo=next(c for c in cajas if c['str']=='Escala')
+                        marca=next(c for c in cajas if c['str']=='20')
+                        self.assertGreater(min(p['y'] for p in marca['pts']),max(p['y'] for p in titulo['pts'])+4)
+                original(navegador,str(muestras/('encuadre_'+nombre+'.png')))
+            return original(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,escenas['ficha'],4,str(muestras/'encuadre.png'),salida=(960,540))
 
     @unittest.skipUnless(REAL,'usa --real para Three.js, órbita y recorrido')
     def test_render_3d_completo_con_sombras_materiales_y_camara(self):

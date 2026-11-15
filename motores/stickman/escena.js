@@ -6,6 +6,7 @@ import { cargarFuentes } from './fuentes.js';
 import { pintarEditorial } from './editorial.js';
 import { aplicarEstilo } from './estilo.js';
 import { protegerTexto } from './texto.js';
+import { esquinas } from './encuadre.js';
 
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
@@ -123,6 +124,16 @@ function rostro(c,t) {
       blink:t%3.3>3.15,look:c.actuacion?.mirada,rimColor:v.contorno,
       face:a.exp==='neutral'?{eyes:v.ojos,mouth:v.boca}:undefined});
 }
+function estadoParte(p,o,t) {
+  const anim=p.animacion,reloj=anim?Math.max(0,t-o.inicio)%anim.duracion:0;
+  const ks=o.partes?.find(a=>a.id===p.id)?.claves||[];
+  return (campo,defecto)=>{
+    const base=anim?valor(anim.claves,reloj,campo,defecto,ease.linear):defecto;
+    if(!ks.some(k=>k[campo]!==undefined))return base;
+    const inicial=anim?valor(anim.claves,0,campo,defecto,ease.linear):defecto;
+    return valor(ks,t,campo,inicial);
+  };
+}
 function vector(o, t) {
   const d = D.escena.utileria[o.recurso];
   const paleta = {principal: D.variante.color, secundario: D.variante.secundario,
@@ -133,15 +144,7 @@ function vector(o, t) {
   g.scale(ajuste, ajuste);
   g.translate(-d.ancho/2, -d.alto/2);
   for (const p of d.partes) {
-    const anim = p.animacion;
-    const reloj = anim ? Math.max(0, t-o.inicio) % anim.duracion : 0;
-    const ks = o.partes?.find(a => a.id === p.id)?.claves || [];
-    const v = (campo, defecto) => {
-      const base = anim ? valor(anim.claves, reloj, campo, defecto, ease.linear) : defecto;
-      if (!ks.some(k => k[campo] !== undefined)) return base;
-      const inicial = anim ? valor(anim.claves, 0, campo, defecto, ease.linear) : defecto;
-      return valor(ks, t, campo, inicial);
-    };
+    const v=estadoParte(p,o,t);
     const [px, py] = p.pivote;
     g.save(); g.translate(px + v('x', 0), py + v('y', 0));
     g.rotate(v('rot', 0)); const s = v('escala', 1); g.scale(s, s); g.translate(-px, -py);
@@ -164,7 +167,7 @@ function vector(o, t) {
   }
   g.restore();
 }
-function objeto(o, t) {
+function posicionObjeto(o,t) {
   let x = valor(o.claves, t, 'x', o.x) * E.W, y = valor(o.claves, t, 'y', o.y) * E.H;
   if (o.ancla) {
     const c = D.escena.personajes.find(c => c.id === o.ancla.personaje);
@@ -178,10 +181,77 @@ function objeto(o, t) {
     x += a.x + dx * Math.cos(a.rot) - dy * Math.sin(a.rot);
     y += a.y + dx * Math.sin(a.rot) + dy * Math.cos(a.rot);
   }
-  const s = valor(o.claves, t, 'escala', o.escala);
+  return {x,y,s:valor(o.claves,t,'escala',o.escala),rot:valor(o.claves,t,'rot',0)};
+}
+
+// Una caja estable para toda la escena evita que el encuadre salte al aparecer
+// una fila o un rótulo. Se muestrean trayectorias y claves, incluidos los rebotes.
+const limitesPorEscena=new WeakMap();
+function limites() {
+  const escena=D.escena;
+  if(limitesPorEscena.has(escena))return limitesPorEscena.get(escena);
+  const tiempos=new Set([0,D.duracion]);
+  const elementos=[...escena.objetos,...escena.personajes];
+  for(const o of elementos){
+    for(const k of o.claves)tiempos.add(k.t);
+    for(const p of o.partes||[])for(const k of p.claves)tiempos.add(k.t);
+    if(o.inicio!==undefined){tiempos.add(o.inicio);tiempos.add(o.fin);}
+  }
+  const cortes=[...tiempos].sort((a,b)=>a-b);
+  for(let i=1;i<cortes.length;i++)for(let n=1;n<8;n++)tiempos.add(cortes[i-1]+(cortes[i]-cortes[i-1])*n/8);
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  const agregar=puntos=>{for(const [x,y] of puntos){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}};
+  const hayFrente=escena.objetos.some(o=>o.capa!=='fondo')||escena.personajes.length;
+  for(const t of tiempos){
+    for(const o of escena.objetos){
+      if((hayFrente&&o.capa==='fondo'&&o.tipo!=='texto')||t<o.inicio||t>o.fin||valor(o.claves,t,'opacidad',o.opacidad??1)<=.001)continue;
+      const {x,y,s,rot}=posicionObjeto(o,t),margen=o.tipo==='texto'?16:Math.max(8,o.grosor||0);
+      if(o.tipo==='linea'){
+        const dx=o.w*s/2,dy=o.h*s/2;
+        agregar(esquinas(x+dx*Math.cos(rot)-dy*Math.sin(rot),y+dx*Math.sin(rot)+dy*Math.cos(rot),Math.abs(o.w*s)+margen,Math.abs(o.h*s)+margen,rot));
+      }else{
+        agregar(esquinas(x,y,(o.w+2*margen)*s,(o.h+2*margen)*s,rot));
+      }
+      if(o.tipo==='vector'){
+        const d=escena.utileria[o.recurso],ajuste=Math.min(o.w/d.ancho,o.h/d.alto);
+        for(const p of d.partes){
+          const v=estadoParte(p,o,t),[px,py]=p.pivote,r=v('rot',0),escala=v('escala',1);
+          if(v('opacidad',1)<=.001)continue;
+          for(const f of p.formas){
+            const coords=f.tipo==='trazo'?f.comandos.flatMap(cmd=>{
+              const puntos=[];for(let i=1;i<cmd.length;i+=2)puntos.push([cmd[i],cmd[i+1]]);return puntos;
+            }):esquinas(f.x+f.w/2,f.y+f.h/2,f.w,f.h);
+            for(const [fx,fy] of coords){
+              const dx=(fx-px)*escala,dy=(fy-py)*escala;
+              const vx=(px+v('x',0)+dx*Math.cos(r)-dy*Math.sin(r)-d.ancho/2)*ajuste*s;
+              const vy=(py+v('y',0)+dx*Math.sin(r)+dy*Math.cos(r)-d.alto/2)*ajuste*s;
+              agregar(esquinas(x+vx*Math.cos(rot)-vy*Math.sin(rot),y+vx*Math.sin(rot)+vy*Math.cos(rot),margen*2,margen*2));
+            }
+          }
+        }
+      }
+    }
+    for(const c of escena.personajes){
+      if(valor(c.claves,t,'opacidad',1)<=.001)continue;
+      const a=estado(c,t),v=c.diseno;
+      // Poses comparten las mismas articulaciones en todas las familias.
+      const articulaciones=Object.values(a.pose).filter(p=>Array.isArray(p)&&p.length===2);
+      for(const [px,py] of articulaciones){
+        const dx=px*a.s*v.altura*v.ancho*a.mirar,dy=py*a.s*v.altura*v.cuerpo;
+        agregar(esquinas(a.x+dx*Math.cos(a.rot)-dy*Math.sin(a.rot),
+          a.y+dx*Math.sin(a.rot)+dy*Math.cos(a.rot),70*a.s*v.altura*v.cabeza,70*a.s*v.altura*v.cabeza));
+      }
+    }
+  }
+  const puntos=Number.isFinite(x0)?esquinas((x0+x1)/2,(y0+y1)/2,x1-x0,y1-y0):[];
+  limitesPorEscena.set(escena,puntos);return puntos;
+}
+
+function objeto(o, t) {
+  const {x,y,s,rot}=posicionObjeto(o,t);
   const progreso = valor(o.claves, t, 'progreso', o.progreso ?? 1);
   const w = o.w, h = o.h;
-  g.save(); g.translate(x, y); g.rotate(valor(o.claves, t, 'rot', 0)); g.scale(s, s);
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s);
   g.globalAlpha *= valor(o.claves, t, 'opacidad', o.opacidad ?? 1);
   g.fillStyle = o.color; g.strokeStyle = o.color; g.lineWidth = o.grosor ?? 6;
   g.lineJoin = g.lineCap = 'round';
@@ -256,7 +326,7 @@ function objeto(o, t) {
 }
 window.pintar = t => {
   if (D.escena.realizacion) return pintarEditorial(g,t,D,{
-    valor, estado, cabeza, figura:(_g,c,time)=>figura(c,time), rostro:(_g,c,time)=>rostro(c,time), objeto:(_g,o,time)=>objeto(o,time),
+    valor, estado, cabeza, limites, figura:(_g,c,time)=>figura(c,time), rostro:(_g,c,time)=>rostro(c,time), objeto:(_g,o,time)=>objeto(o,time),
     reparto:Object.fromEntries(D.escena.personajes.map(c=>[c.id,c.diseno])),
   });
   const S = D.escena, M = mood(S.ambiente);

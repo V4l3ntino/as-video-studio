@@ -44,6 +44,20 @@ dibujan después del acabado, conservando sus anclas y cámara; los rótulos de
 pantalla deben utilizar `graficos` con `capa:pantalla`. El resplandor no tapa el
 contorno. Estas correcciones requieren regenerar los clips existentes.
 
+Los encuadres generales, gráficos y detalles
+ajustan zoom y posición para que el conjunto explicativo quepa dentro del lienzo,
+con un 4% de margen. Los límites incluyen las trayectorias, poses, textos y partes
+vectoriales animadas; se calculan para toda la escena para evitar saltos al
+aparecer una fila. Los encabezados/pies de pantalla tienen espacio reservado.
+Los planos medios y primeros planos mantienen su encuadre narrativo del sujeto.
+El factor de detalle de 2,6 queda limitado por el espacio que ocupa el contenido.
+
+Los tiempos locales toleran diferencias de hasta un microsegundo y se ajustan
+al límite exacto: `3.803` debe ser válido frente a `3.8029999999999973`.
+Un exceso real sigue rechazándose; el diagnóstico indica campo, valor e intervalo.
+Estas correcciones de render y validación conservan la versión de firmas para
+reutilizar los planes existentes al continuar una tanda.
+
 Instalar `npm ci --prefix motores/stickman` además de Remotion: fija Three.js y
 las fuentes originales. El bundle contiene las fuentes sin depender de la red.
 Python espera `window.STICKMAN_READY` antes de capturar. Los planes históricos

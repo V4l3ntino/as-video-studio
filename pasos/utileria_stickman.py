@@ -62,13 +62,14 @@ def _color(v):
 
 
 def claves(datos, duracion):
+    from pasos.tiempos_stickman import tiempo
     if not isinstance(datos, list) or len(datos) > 80:
         raise ValueError('claves de parte no válidas')
     salida = []
-    for k in datos:
+    for indice, k in enumerate(datos):
         if not isinstance(k, dict) or set(k) - {'t', 'x', 'y', 'rot', 'escala', 'opacidad'}:
             raise ValueError('una parte solo anima t,x,y,rot,escala,opacidad')
-        f = dict(t=_numero(k.get('t'), 0, duracion))
+        f = dict(t=tiempo(k.get('t'), 0, duracion, f'parte.claves[{indice}].t'))
         for campo, limites in dict(x=(-2000, 2000), y=(-2000, 2000), rot=(-1000, 1000), escala=(.01, 10), opacidad=(0, 1)).items():
             if campo in k:
                 f[campo] = _numero(k[campo], *limites)

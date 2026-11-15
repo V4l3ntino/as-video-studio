@@ -6,6 +6,7 @@ los nombres de componentes corresponden a las funciones originales del kit.
 import json
 import math
 import re
+from pasos.tiempos_stickman import tiempo
 
 ENCUADRES = ('general', 'conjunto', 'medio', 'primer_plano', 'detalle', 'grafico', 'dividido', 'cierre')
 ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'parque', 'cocina', 'teatro', 'aula')
@@ -116,7 +117,9 @@ TIPOS3D = {
 
 def validar(v, regla, ruta):
     tipo, *args = regla
-    if tipo == 'numero':
+    if tipo == 'tiempo':
+        return tiempo(v, *args, ruta)
+    elif tipo == 'numero':
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not args[0] <= v <= args[1]:
             raise ValueError(f'{ruta}: número fuera de {args[0]}–{args[1]}')
     elif tipo == 'texto':
@@ -151,8 +154,9 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
     for d in datos:
         if not isinstance(d, dict) or not isinstance(d.get('tipo'), str) or d['tipo'] not in catalogo or set(d) - {'tipo', 'inicio', 'fin', 'opciones', 'capa', 'desfase', 'duracion_total'}:
             raise ValueError(f'{nombre}: componente desconocido')
-        inicio = validar(d.get('inicio', 0), ('numero', 0, duracion), nombre + '.inicio')
-        fin = validar(d.get('fin', duracion), ('numero', inicio + .001, duracion), nombre + '.fin')
+        ruta = f'{nombre}[{len(resultado)}]'
+        inicio = tiempo(d.get('inicio', 0), 0, duracion, ruta + '.inicio')
+        fin = tiempo(d.get('fin', duracion), inicio + .001, duracion, ruta + '.fin')
         ops = validar(d.get('opciones', {}), opciones(**catalogo[d['tipo']]), nombre + '.' + d['tipo'])
         for k in ('count', 'rows', 'cols', 'doors', 'ticks', 'branches', 'blinds', 'max', 'total', 'destacados', 'destacar', 'decimals', 'perRow', 'columnas'):
             if k in ops and isinstance(ops[k], (int, float)) and int(ops[k]) != ops[k]:

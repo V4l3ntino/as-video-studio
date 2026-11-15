@@ -4,6 +4,7 @@ import { decorado } from './decorados.js';
 import { efecto, grafico } from './kit.js';
 import { acabado } from './acabado.js';
 import { pintar3D } from './espacio3d.js';
+import { encuadrar } from './encuadre.js';
 
 export function pintarEditorial(g,t,D,draw) {
   const S0=D.escena,R=S0.realizacion||{},W=E.W,H=E.H;
@@ -16,6 +17,18 @@ export function pintarEditorial(g,t,D,draw) {
     cam.x+=head.x-W/2;cam.y+=head.y+(close?H*.035:H*.14)-H/2;
   }else if(R.encuadre==='detalle'&&R.foco){
     cam.z*=2.6;cam.x+=R.foco[0]*W-W/2;cam.y+=R.foco[1]*H-H/2;
+  }
+  if(!S0.espacio3d&&!['medio','primer_plano','dividido'].includes(R.encuadre)){
+    const zona={arriba:H*(.04+(R.bandas||0)),abajo:H*(.96-(R.bandas||0))};
+    // Los títulos de pantalla no siguen a la cámara: reservarles su franja evita
+    // que un gráfico completo encajado termine debajo de su propio encabezado.
+    for(const item of S0.graficos||[]){
+      if(item.capa!=='pantalla'||!['badge','readout','bigLine'].includes(item.tipo))continue;
+      const o=item.opciones,y=o.y??(item.tipo==='badge'?110:item.tipo==='readout'?200:H/2),size=o.size??(item.tipo==='bigLine'?84:46);
+      if(y<H*.25)zona.arriba=Math.max(zona.arriba,y+size*1.2);
+      else if(y>H*.75)zona.abajo=Math.min(zona.abajo,y-size*1.2);
+    }
+    if(zona.abajo>zona.arriba)encuadrar(cam,draw.limites(),W,H,zona);
   }
   g.setTransform(E.PX,0,0,E.PX,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';
   g.clearRect(0,0,W,H);

@@ -18,6 +18,19 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+El encuadre seguro limita el zoom y recoloca la cámara contra los límites
+de los objetos y articulaciones de toda la escena, con un margen del 4% y espacio
+para encabezados/pies de pantalla. `detalle` multiplicaba por 2,6 sin comprobar
+el contenido y cortaba fichas, diales y últimas filas. `encuadre.js` ajusta el
+conjunto; `escena.js` cachea sus límites muestreando claves, poses y partes
+vectoriales. Medio/primer plano conservan su recorte narrativo y 3D su cámara.
+Los tiempos se validan con `tiempos_stickman.tiempo`: tolera solo 1 microsegundo
+y ajusta al límite exacto, sin relajar coordenadas ni excedentes reales. Un fin
+3.803 era rechazado contra una duración 3.8029999999999973. Los errores incluyen
+campo y valor. Pruebas offline y renders en ambas suites Stickman.
+La corrección es de render/validación: no cambia VERSION para invalidar planes
+ya pagados al continuar una tanda. Los clips existentes se renuevan al regenerarlos.
+
 `stickman-5-editorial-2` da prioridad a colores, cantidades, posiciones y cambios
 de escenario explícitos sobre estilo/continuidad. `realizacion.color_fiel:true`
 omite la gradación cromática; no neutraliza los colores propios del decorado.

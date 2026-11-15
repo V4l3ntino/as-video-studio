@@ -44,7 +44,7 @@ def huella(datos):
 
 def numero(v, minimo, maximo):
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not minimo <= v <= maximo:
-        raise ValueError(f'valor fuera del intervalo {minimo}–{maximo}')
+        raise ValueError(f'valor {v!r} fuera del intervalo {minimo}–{maximo}')
     return v
 
 
@@ -183,14 +183,15 @@ def generar_personaje(descripcion, base, proyecto=None, avisar=None):
     return diseno
 
 
-def claves(datos, duracion):
+def claves(datos, duracion, ruta='claves'):
+    from pasos.tiempos_stickman import tiempo
     if not isinstance(datos, list) or len(datos) > 80:
         raise ValueError('lista de claves de animación no válida')
     salida = []
-    for k in datos:
+    for indice, k in enumerate(datos):
         if not isinstance(k, dict):
             raise ValueError('clave de animación no válida')
-        f = {'t': numero(k.get('t'), 0, duracion)}
+        f = {'t': tiempo(k.get('t'), 0, duracion, f'{ruta}[{indice}].t')}
         for c, limites in {'x': (-.5, 1.5), 'y': (-.5, 1.5), 'escala': (.1, 6), 'rot': (-7, 7),
                            'opacidad': (0, 1), 'progreso': (0, 1)}.items():
             if c in k:
@@ -210,6 +211,7 @@ def claves(datos, duracion):
 
 
 def escena(datos, duracion, reparto, catalogo_utileria=None):
+    from pasos.tiempos_stickman import tiempo
     if not isinstance(datos, dict):
         raise ValueError('escena Stickman no válida')
     recursos, alias = utileria_stickman.preparar(datos.get('utileria', {}), catalogo_utileria or {})
@@ -217,7 +219,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
         ('day', 'golden', 'dusk', 'night', 'storm', 'interiorWarm', 'interiorCool', 'void')),
         decorado=elegir(datos.get('decorado', 'interior'), ('interior', 'ciudad', 'naturaleza', 'vacio')),
         atmosfera=elegir(datos.get('atmosfera', 'ninguna'), ('polvo', 'lluvia', 'nieve', 'ninguna')),
-        camara=claves(datos.get('camara', []), duracion), personajes=[], objetos=[], sfx=[], utileria={})
+        camara=claves(datos.get('camara', []), duracion, 'camara'), personajes=[], objetos=[], sfx=[], utileria={})
     actores = datos.get('personajes', [])
     objetos = datos.get('objetos', [])
     efectos = datos.get('sfx', [])
@@ -227,7 +229,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
         if not isinstance(c, dict) or isinstance(c.get('mirar', 1), bool) or c.get('mirar', 1) not in (-1, 1):
             raise ValueError('el actor debe ser un objeto y mirar debe ser -1 o 1')
         ident = elegir(c.get('id'), reparto)
-        ks = claves(c.get('claves', [{'t': 0, 'pose': 'stand'}]), duracion)
+        ks = claves(c.get('claves', [{'t': 0, 'pose': 'stand'}]), duracion, f'personajes[{ident}].claves')
         if not ks or ks[0]['t'] != 0 or not any(k.get('pose') and k['t'] == 0 for k in ks):
             ks.insert(0, {'t': 0, 'pose': 'stand'})
         resultado['personajes'].append(dict(id=ident, diseno=reparto[ident],
@@ -256,11 +258,11 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
     ids = [c['id'] for c in resultado['personajes']]
     if len(set(ids)) != len(ids):
         raise ValueError('cada personaje solo puede aparecer una vez en la escena')
-    for o in objetos:
+    for indice, o in enumerate(objetos):
         if not isinstance(o, dict):
             raise ValueError('el objeto de escena no es válido')
-        ini = numero(o.get('inicio', 0), 0, duracion)
-        fin = numero(o.get('fin', duracion), ini, duracion)
+        ini = tiempo(o.get('inicio', 0), 0, duracion, f'objetos[{indice}].inicio')
+        fin = tiempo(o.get('fin', duracion), ini, duracion, f'objetos[{indice}].fin')
         ancla = o.get('ancla')
         if ancla is not None:
             if not isinstance(ancla, dict):
@@ -272,7 +274,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             x=numero(o.get('x', 0 if ancla else .5), -.5, 1.5), y=numero(o.get('y', 0 if ancla else .5), -.5, 1.5),
             escala=numero(o.get('escala', 1), .1, 6), w=numero(o.get('w', 80), -2000 if o.get('tipo') == 'linea' else 1, 2000),
             h=numero(o.get('h', 80), -2000 if o.get('tipo') == 'linea' else 1, 2000), inicio=ini, fin=fin,
-            capa=elegir(o.get('capa', 'frente'), ('fondo', 'frente')), claves=claves(o.get('claves', []), duracion),
+            capa=elegir(o.get('capa', 'frente'), ('fondo', 'frente')), claves=claves(o.get('claves', []), duracion, f'objetos[{indice}].claves'),
             ancla=ancla, fuente=numero(o.get('fuente', 48), 16, 96), grosor=numero(o.get('grosor', 6), 1, 24),
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if o.get('tipo') == 'vector':
@@ -295,12 +297,12 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
                 raise ValueError('no repitas partes del objeto vectorial')
             resultado['objetos'][-1].update(recurso=ident, partes=animadas, paleta={k: color(v) for k, v in paleta.items()})
             resultado['utileria'][ident] = recurso
-    for s in efectos:
+    for indice, s in enumerate(efectos):
         if not isinstance(s, dict):
             raise ValueError('el efecto de sonido no es válido')
-        at = numero(s.get('at', 0), 0, max(0, duracion - .001))
+        at = tiempo(s.get('at', 0), 0, max(0, duracion - .001), f'sfx[{indice}].at')
         resultado['sfx'].append(dict(name=elegir(s.get('name'), EFECTOS), at=at,
-            dur=numero(s.get('dur', min(.6, duracion - at)), .001, duracion - at),
+            dur=tiempo(s.get('dur', min(.6, duracion - at)), .001, duracion - at, f'sfx[{indice}].dur'),
             gain=numero(s.get('gain', -12), -40, 0), seed=numero(s.get('seed', 1), 0, 100000),
             pitch=numero(s.get('pitch', 1), .5, 2)))
     resultado.update(realizacion_stickman.normalizar(datos, duracion, reparto))
@@ -315,7 +317,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             raise ValueError('figure3D: su actor debe estar presente en personajes')
     if 'palabras' in datos:
         resultado['palabras'] = realizacion_stickman.validar(datos['palabras'], ('lista',
-            realizacion_stickman.opciones(word=('texto', 120), start=('numero', 0, duracion), end=('numero', 0, duracion)), 0, 1000), 'palabras')
+            realizacion_stickman.opciones(word=('texto', 120), start=('tiempo', 0, duracion), end=('tiempo', 0, duracion)), 0, 1000), 'palabras')
         if any(set(p) != {'word', 'start', 'end'} or p['end'] < p['start'] for p in resultado['palabras']):
             raise ValueError('palabras necesita word/start/end e intervalos ordenados')
     return resultado
@@ -499,6 +501,9 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'retira el gráfico anterior con fin, anima su salida o desvanece sus objetos con claves de opacidad. '
              'No arrastres una matriz, cuadrícula o decorado sobre el nuevo personaje por continuidad. '
              'Muestra el estado final pedido (personaje, vestuario y lugar), no solo un zoom o una sonrisa. '
+             'Todo el contenido explicativo debe caber con un margen del 4%: fichas, diales completos, '
+             'rótulos y última fila de las listas. detalle no autoriza cortar información. '
+             'El motor limita el zoom a los límites de los objetos; compón el conjunto antes de pedir acercamientos. '
             'Cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
             'No sustituyas conductas por iconos pequeños: muestra distancia con desplazamiento y defensa con postura. '
             'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta a una acción corporal o a UNA metáfora simple '

@@ -81,6 +81,25 @@ class Stickman(unittest.TestCase):
         self.base = stickman.familias()[0]
         self.config = dict(seleccionada=0, variantes=stickman.familias())
 
+    def test_tiempos_decimales_se_ajustan_al_limite_sin_admitir_excesos_reales(self):
+        duracion=3.8029999999999973
+        d=dict(personajes=[dict(id='ana',claves=[dict(t=0,pose='stand'),dict(t=3.803,pose='wave')])],
+            camara=[dict(t=3.803,escala=1)],
+            objetos=[dict(tipo='texto',texto='Final',fin=3.803,claves=[dict(t=3.803,opacidad=0)])],
+            sfx=[dict(name='pop',at=0,dur=3.803)],
+            graficos=[dict(tipo='badge',inicio=0,fin=3.803)],
+            palabras=[dict(word='Final',start=0,end=3.803)])
+        r=stickman.escena(d,duracion,{'ana':self.base})
+        for fin in (r['personajes'][0]['claves'][-1]['t'],r['camara'][0]['t'],
+                r['objetos'][0]['fin'],r['objetos'][0]['claves'][0]['t'],r['sfx'][0]['dur'],
+                r['graficos'][0]['fin'],r['palabras'][0]['end']):
+            self.assertEqual(fin,duracion)
+        self.assertEqual(utileria_stickman.claves([dict(t=3.803,rot=1)],duracion)[0]['t'],duracion)
+        for valor in (3.804,-.001,float('nan'),float('inf'),True):
+            d['objetos'][0]['fin']=valor
+            with self.subTest(valor=valor),self.assertRaisesRegex(ValueError,r'objetos\[0\]\.fin: tiempo'):
+                stickman.escena(d,duracion,{'ana':self.base})
+
     def test_estilo_viaja_por_preset_y_no_modifica_historicos(self):
         cambios = presets_canal.cambios_para(dict(tipo='estilo', datos=dict(stickman=self.config)))
         self.assertEqual(cambios['assets']['estilo']['stickman'], self.config)
