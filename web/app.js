@@ -11862,7 +11862,8 @@ async function abrirEditorEscena(escena, estudio) {
         porcentaje: estudio.modeloStickman.elegido() === 'ChatGPT' ? 100 : 0,
       }, estado);
       if (estudio.cerrado() || videoAbierto().pid !== pid) return;
-      PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+      if (await refrescarLoDibujado() === false) throw new Error('No se pudo cargar la escena actualizada.');
+      if (estudio.cerrado() || videoAbierto().pid !== pid) return;
       repintarVideo();
       toast('Escena regenerada. Monta el vídeo para actualizar el MP4.');
     } catch (error) {
@@ -11917,7 +11918,9 @@ async function abrirEditorEscena(escena, estudio) {
       cancelar: () => {if (tid) pedir(API.cancelar(tid), {method: 'POST'}).catch(error => {estado.textContent = error.message;});},
       alCerrar: () => {edicionStickmanAbierta = false; control.actualizarTaller();},
       alAplicar: async () => {
-        PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+        if (estudio.cerrado() || videoAbierto().pid !== pid) return;
+        if (await refrescarLoDibujado() === false) throw new Error('No se pudo cargar la escena actualizada.');
+        if (estudio.cerrado() || videoAbierto().pid !== pid) return;
         repintarVideo();
       }});
     dialogo.appendChild(chatStickman.panel);

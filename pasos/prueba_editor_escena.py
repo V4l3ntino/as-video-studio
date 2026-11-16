@@ -31,6 +31,36 @@ import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    def test_publicar_assets_conserva_cache_de_escenas_copiadas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto, estado = juguete.construir(tmp)
+            ctx = SimpleNamespace(proyecto=proyecto, estado=estado)
+            plan = {'resolucion': [1920, 1080], 'escenas': []}
+            for i in range(1, 4):
+                sid = f'S{i:03}'
+                clip = proyecto.ruta('pasos', 'assets', 'v1', 'escenas', sid + '.mp4')
+                Path(clip).write_bytes(b'clip original')
+                plan['escenas'].append(dict(id=sid, t_in=(i - 1) * 6, t_out=i * 6,
+                    narracion=f'Frase {i}.', stickman={'clip': clip, 'firma': sid}))
+
+            def revisar():
+                escenas = [dict(e, imagen=f"pasos/assets/{version}/escenas/{e['id']}.png",
+                                clip=e['stickman']['clip']) for e in plan['escenas']]
+                servidor._revisiones_editor(ctx, plan, escenas, None)
+                return [e['editor_revision'] for e in escenas]
+
+            version = 'v1'
+            inicial = revisar()
+            shutil.copytree(proyecto.ruta('pasos', 'assets', 'v1'), proyecto.ruta('pasos', 'assets', 'v2'))
+            version = 'v2'
+            for e in plan['escenas']:
+                e['stickman']['clip'] = proyecto.ruta('pasos', 'assets', version, 'escenas', e['id'] + '.mp4')
+            self.assertEqual(inicial, revisar(), 'Copiar una versión no cambia el contenido del editor')
+            Path(plan['escenas'][0]['stickman']['clip']).write_bytes(b'clip editado con IA')
+            editadas = revisar()
+            self.assertNotEqual(inicial[0], editadas[0])
+            self.assertEqual(inicial[1:], editadas[1:], 'Editar S001 no invalida las otras escenas')
+
     def test_revisiones_cache_estables_y_por_escena(self):
         with tempfile.TemporaryDirectory() as tmp:
             proyecto, estado = juguete.construir(tmp)

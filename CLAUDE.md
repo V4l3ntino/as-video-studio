@@ -1184,6 +1184,13 @@ no debe aplicar un borrador antiguo automáticamente: conserva la recuperación
 separada, y exige el mismo texto, tiempos y resolución para restaurarlo.
 La carga se detiene al salir de Imágenes y se reanuda al volver, priorizando las
 escenas que ya están en la caché. Los fallos de IndexedDB no bloquean el editor.
+Publicar assets copia los recursos intactos a otra `v<N>`: esa ruta nueva no
+es un cambio de contenido. `_revisiones_editor` normaliza las rutas de recursos
+existentes de assets/callouts a paso, nombre relativo y sello de fichero (copy2
+conserva mtime/tamaño). No elimines las dependencias reales de medios ni de la
+escena siguiente, necesarias para las transiciones. El chat y la regeneración
+Stickman usan `refrescarLoDibujado` para conservar la previa y actualizar assets;
+el editor reutiliza sus controladores y revalida solo las revisiones distintas.
 
 **Contrato del editor de escena**: `abrirEditorEscena` reúne las pestañas y
 el reloj de la narración. GET/PUT `escenas/<sid>/editor` validan todas las ediciones

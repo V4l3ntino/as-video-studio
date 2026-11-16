@@ -307,6 +307,8 @@ class EditorGlobal(unittest.TestCase):
                     }''', arg=proyecto.id)
                     # IndexedDB denegado o sin espacio: las peticiones normales siguen funcionando.
                     pagina.evaluate('''() => {
+                        window.cacheProyectoOriginal = CACHE_EDITOR.proyecto;
+                        window.cacheGuardarOriginal = CACHE_EDITOR.guardar;
                         CACHE_EDITOR.proyecto = async () => { throw new Error('Almacenamiento denegado'); };
                         CACHE_EDITOR.guardar = async () => { throw new Error('Sin espacio'); };
                         EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null;
@@ -319,7 +321,20 @@ class EditorGlobal(unittest.TestCase):
                     self.assertTrue(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
                     # El selector Stickman es común al editor y gobierna chat y aplicación.
                     pagina.route('**/stickman/chat', lambda ruta: ruta.fulfill(json={'mensajes': []}))
+                    def revision_stickman(ruta):
+                        respuesta = ruta.fetch()
+                        ficha = respuesta.json()
+                        revisiones = pagina.evaluate('window.revisionesStickman || {}')
+                        for escena in ficha['escenas']:
+                            if escena['id'] in revisiones:
+                                escena['editor_revision'] += ':' + str(revisiones[escena['id']])
+                        ruta.fulfill(response=respuesta, json=ficha)
+                    pagina.route('**/previsualizacion', revision_stickman)
                     pagina.evaluate('''() => {
+                        CACHE_EDITOR.proyecto = window.cacheProyectoOriginal;
+                        CACHE_EDITOR.guardar = window.cacheGuardarOriginal;
+                        window.revisionesStickman = {};
+                        repintarVideo = () => document.querySelector('#panel').replaceChildren(editorGlobalImagenes(PREVIA.ficha.escenas));
                         const pedidoOriginal = pedidoDelVideoLight;
                         pedidoDelVideoLight = () => {
                             const p = pedidoOriginal();
@@ -328,9 +343,9 @@ class EditorGlobal(unittest.TestCase):
                         window.turnosStickman = [];
                         const crearOriginal = crearChatEdicionStickman;
                         crearChatEdicionStickman = opciones => crearOriginal({...opciones,
-                            alAplicar: async () => {},
                             trabajo: async (ruta, datos) => {
                                 window.turnosStickman.push(datos);
+                                if (datos.aplicar) window.revisionesStickman[opciones.escena.id] = window.turnosStickman.length;
                                 return {mensajes: [{autor: 'usuario', texto: datos.mensaje, imagen: datos.imagen},
                                     {autor: datos.porcentaje ? 'chatgpt' : 'claude', texto: 'Entendido.'}]};
                             }});
@@ -370,9 +385,40 @@ class EditorGlobal(unittest.TestCase):
                     self.assertTrue(referencia.startswith('medios_usuario/animaciones/'))
                     self.assertTrue(chat.locator('.remotion-chat-mensajes .stickman-chat-imagen').is_visible())
                     self.assertTrue(chat.locator('.stickman-chat-adjunto').is_hidden())
+                    pagina.evaluate('''() => {
+                        window.timelineAnterior = document.querySelector('.editor-global-timeline');
+                        window.columnasAnteriores = [...document.querySelectorAll('.editor-global-columna')];
+                        window.editorAnterior = EDITOR_GLOBAL;
+                    }''')
+                    peticiones_aplicar = []
+                    def contar_editor(solicitud):
+                        if solicitud.url.endswith('/editor') and solicitud.method == 'GET':
+                            peticiones_aplicar.append(solicitud.url)
+                    pagina.on('request', contar_editor)
                     chat.get_by_role('button', name='Aplicar cambios', exact=True).click()
                     pagina.wait_for_function('turnosStickman.length === 2')
-                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S002", "imagenes", 0)')
+                    pagina.wait_for_function('PREVIA.ficha.escenas[0].editor_revision.endsWith(":2")')
+                    pagina.wait_for_function('!document.querySelector(".stickman-proveedores button").disabled')
+                    def esperar_cache_stickman(sid, turno):
+                        for _ in range(100):
+                            if pagina.evaluate('''async ([pid, sid, turno]) => {
+                                const fila = await CACHE_EDITOR.leer(pid, sid);
+                                return fila.revision.endsWith(':' + turno) && fila.revision === PREVIA.ficha.escenas.find(e => e.id === sid).editor_revision;
+                            }''', [proyecto.id, sid, turno]):
+                                return
+                            pagina.wait_for_timeout(100)
+                        self.fail('No se actualizó la caché de ' + sid)
+                    esperar_cache_stickman('S001', 2)
+                    self.assertTrue(pagina.evaluate('''() => EDITOR_GLOBAL === window.editorAnterior
+                        && document.querySelector('.editor-global-timeline') === window.timelineAnterior
+                        && [...document.querySelectorAll('.editor-global-columna')].every((n, i) => n === window.columnasAnteriores[i])'''))
+                    self.assertEqual(peticiones_aplicar,
+                        [url + f'/api/proyectos/{proyecto.id}/escenas/S001/editor'])
+                    pagina.remove_listener('request', contar_editor)
+                    pagina.wait_for_function('''() => {
+                        EDITOR_GLOBAL.seleccionar('S002', 'imagenes', 0);
+                        return document.querySelector('.editor-global-escena[data-panel-activo="true"]')?.getAttribute('aria-label').includes('S002');
+                    }''')
                     self.assertEqual(chatgpt.get_attribute('aria-pressed'), 'true')
                     activo.get_by_role('button', name='Editar escena', exact=True).click()
                     claude.click()
@@ -383,6 +429,8 @@ class EditorGlobal(unittest.TestCase):
                     chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
                     chat.get_by_role('button', name='Aplicar cambios', exact=True).click()
                     pagina.wait_for_function('turnosStickman.length === 4')
+                    pagina.wait_for_function('PREVIA.ficha.escenas[1].editor_revision.endsWith(":4")')
+                    esperar_cache_stickman('S002', 4)
                     self.assertEqual(pagina.evaluate('turnosStickman.map(t => [t.porcentaje, t.aplicar])'),
                         [[100, False], [100, True], [0, False], [0, True]])
                     self.assertTrue(pagina.evaluate('!!turnosStickman[3].imagen'))

@@ -6178,6 +6178,27 @@ def leer_previsualizacion(pid: str):
 def _revisiones_editor(ctx, plan, escenas, audio):
     """Sellos de lectura para la caché local; nunca entran en params ni firmas."""
     from pasos import avatar
+    raiz = ctx.proyecto.ruta().replace('\\', '/').rstrip('/') + '/'
+
+    def recursos_estables(valor):
+        # Publicar assets copia también los medios intactos a v<N+1>. La ruta
+        # física cambia, pero copy2 conserva el sello del fichero. Incluir ambos
+        # invalidaba todas las fichas del timeline tras editar una sola escena.
+        if isinstance(valor, dict):
+            return {k: recursos_estables(v) for k, v in valor.items()}
+        if isinstance(valor, (list, tuple)):
+            return [recursos_estables(v) for v in valor]
+        if isinstance(valor, str):
+            relativa = valor.replace('\\', '/')
+            if relativa.startswith(raiz):
+                relativa = relativa[len(raiz):]
+            recurso = re.fullmatch(r'pasos/(assets|callouts)/(?:v\d+|trabajo)/(.+)', relativa)
+            if recurso:
+                sello = _sello_fichero(ctx.proyecto.ruta(relativa))
+                if sello is not None:
+                    return ['recurso', recurso[1], recurso[2], sello]
+        return valor
+
     render = ctx.estado.params('render') or {}
     unidades = render.get('unidades') or {}
     opciones_avatar = avatar.normalizar(render.get('avatar') or {})
@@ -6194,7 +6215,7 @@ def _revisiones_editor(ctx, plan, escenas, audio):
                       ('app.py', 'pasos/editor_escena.py', 'pasos/animaciones.py', 'pasos/remotion.py',
                       'pasos/avatar.py', 'pasos/parallax.py', 'pasos/sonido.py', 'pasos/transiciones.py')],
     }
-    base = json.dumps(comunes, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    base = json.dumps(recursos_estables(comunes), sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     originales = {e['id']: e for e in plan['escenas']}
     for i, escena in enumerate(escenas):
         siguiente = escenas[i + 1] if i + 1 < len(escenas) else None
@@ -6202,7 +6223,7 @@ def _revisiones_editor(ctx, plan, escenas, audio):
                  {k: siguiente.get(k) for k in ('id', 'narracion', 't_in', 't_out', 'imagen', 'clip')}
                  if siguiente else None]
         # No se incluyen las unidades vecinas: editar un avatar no invalida el resto.
-        crudo = base + json.dumps(datos, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        crudo = base + json.dumps(recursos_estables(datos), sort_keys=True, ensure_ascii=False, separators=(',', ':'))
         escena['editor_revision'] = hashlib.sha256(crudo.encode('utf-8')).hexdigest()
 
 

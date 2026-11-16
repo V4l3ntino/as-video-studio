@@ -137,6 +137,8 @@ derecho abre un chat con la IA seleccionada para concretar cambios, por ejemplo 
 zoom conservando la actuación. Enviar mensajes solo conversa; **Aplicar cambios**
 edita el plan de animación publicado y prepara de nuevo únicamente esa escena,
 manteniendo la narración y su duración. **Parar** cancela el trabajo.
+Al terminar, el timeline conserva sus pistas y actualiza la caché de la escena
+afectada, sin volver a cargar desde cero las demás escenas.
 
 En ese chat, **Adjuntar imagen** permite añadir una referencia visual opcional
 (PNG, JPG o WebP, hasta 20 MiB). Puedes comprobar su miniatura y quitarla antes
