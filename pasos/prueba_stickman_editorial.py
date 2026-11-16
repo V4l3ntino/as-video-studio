@@ -46,7 +46,19 @@ def referencia_poblacion():
         paleta='arctic',particulas=True,malla=True,desfase_ambiente=12,color_fiel=True,grano=0,vineta=0,
         escenario=dict(id='poblacion',tipo='vacio',semilla=23)),graficos=[dict(tipo='poblacion',opciones=dict(
             titulo='EJEMPLO ILUSTRATIVO',total=100,filas=5,columnas=20,color_base='#46617c',color='#76ccff',
-            indices_destacados=[23,65,94],neon_destacados=.35))])
+             indices_destacados=[23,65,94],neon_destacados=.35))])
+
+
+def referencia_tipografia():
+    return dict(ambiente='void',decorado='vacio',personajes=[],realizacion=dict(encuadre='grafico',
+        tipografia='redondeada',fondo='#080e1c',particulas=True,color_fiel=True,grano=0,vineta=.2),
+        objetos=[dict(tipo='texto',texto=texto,color=color,x=x,y=.49,w=820,h=200,fuente=150,neon=.4,
+            claves=[dict(t=0,x=x),dict(t=2,x=x),dict(t=3,x=.5,opacidad=0)])
+            for texto,color,x in [('PSICÓPATA','#83d9f7',.25),('SOCIÓPATA','#ffad42',.75)]]+
+        [dict(tipo='texto',texto='PSICÓPATASOCIÓPATA',color='#fff3d6',x=.5,y=.49,w=1650,h=210,
+            fuente=150,neon=.4,inicio=2.5,opacidad=0,claves=[dict(t=3,opacidad=1)]),
+         *[dict(tipo='redondeado',color='#ffcd42',x=.5,y=y,w=150,h=28,neon=.4)
+            for y in (.24,.30)]])
 
 
 def referencia_rostro(base,modo='dialogo'):
@@ -274,6 +286,145 @@ class Editorial(unittest.TestCase):
         for d in invalidos:
             with self.subTest(d=d),self.assertRaises(ValueError):
                 stickman.escena(d,4,self.reparto)
+
+    def test_expresiones_nuevas_necesitan_motivo_actual_sin_contagiar_emociones(self):
+        from pasos import expresiones_stickman as faciales
+        casos=[('El vecino gesticula con los brazos y un halo naranja lo envuelve.', 'angry'),
+            ('La compañera sigue tecleando sin levantar la vista mientras pasa el jefe.', 'determined')]
+        for descripcion,expresion in casos:
+            entrega=narrativa(self.base)
+            entrega['personajes']=entrega['personajes'][:1]
+            entrega['personajes'][0]['expresion']=expresion
+            # La lectura de planes pagados no exige un campo nuevo ni los neutraliza.
+            antigua=stickman.escena(entrega,4,self.reparto)
+            self.assertEqual(antigua['personajes'][0]['expresion'],expresion)
+            neutral=copy.deepcopy(entrega)
+            neutral['personajes'][0]['expresion']='neutral'
+            e=dict(t_in=0,t_out=4,narracion='Una acción.',descripcion_visual=descripcion,continuidad_bloque=dict(anterior=dict(contenido=antigua)))
+            with self.subTest(expresion=expresion),patch.dict(os.environ,ESTUDIO_SIMULAR='0'), \
+                    patch.object(stickman,'_consultar',side_effect=[entrega,neutral]) as consulta:
+                nueva=stickman.generar_escena(e,self.base,self.reparto,None,lambda *a:None)
+            self.assertEqual(consulta.call_count,2)
+            self.assertIn('motivo_expresion',consulta.call_args.args[0])
+            self.assertIn('DIRECCIÓN FACIAL POR PERSONAJE',consulta.call_args_list[0].args[0])
+            self.assertEqual(nueva['personajes'][0]['expresion'],'neutral')
+            self.assertTrue(nueva['realizacion']['expresiones_fieles'])
+            # Una edición histórica conserva las expresiones y las bocas, pero
+            # recibe siempre el dibujo corregido de cejas.
+            e['indicaciones_usuario']=dict(edicion_stickman=dict(ancla=e['narracion'],contenido=antigua))
+            with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=entrega):
+                retoque=stickman.generar_escena(e,self.base,self.reparto,None,lambda *a:None)
+            self.assertEqual(retoque['personajes'][0]['expresion'],expresion)
+            self.assertNotIn('expresiones_fieles',retoque['realizacion'])
+            self.assertTrue(retoque['realizacion']['cejas_fieles'])
+        descripcion='Ana frunce el ceño enfadada; Bruno sonríe tranquilo.'
+        entrega=narrativa(self.base)
+        entrega['personajes'][0].update(expresion='angry',motivo_expresion='Ana frunce el ceño enfadada',
+            claves=[dict(t=0,pose='stand'),dict(t=1,pose='point',expresion='angry'),
+                dict(t=2,expresion='neutral'),dict(t=3,expresion='angry',motivo_expresion='Ana frunce el ceño enfadada')])
+        entrega['personajes'][1].update(expresion='smile',motivo_expresion='Bruno sonríe tranquilo')
+        nueva=stickman.escena(entrega,4,self.reparto)
+        faciales.validar(nueva,descripcion)
+        self.assertEqual(stickman.escena(nueva,4,self.reparto)['personajes'],nueva['personajes'])
+        for campo in (nueva['personajes'][0],nueva['personajes'][0]['claves'][-1]):
+            motivo=campo['motivo_expresion']
+            campo['motivo_expresion']='Ana está preocupada'
+            with self.assertRaisesRegex(ValueError,'cita literal'):
+                faciales.validar(nueva,descripcion)
+            campo['motivo_expresion']=motivo
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=entrega):
+            generada=stickman.generar_escena(dict(t_in=0,t_out=4,descripcion_visual=descripcion),
+                self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual([c['expresion'] for c in generada['personajes']],['angry','smile'])
+        tardia=copy.deepcopy(nueva)
+        tardia['personajes'][1]['claves'].append(dict(t=3,expresion='worried'))
+        with self.assertRaisesRegex(ValueError,'bruno, clave.*worried'):
+            faciales.validar(tardia,descripcion)
+        quieta=copy.deepcopy(entrega)
+        quieta['personajes']=quieta['personajes'][:1]
+        quieta['personajes'][0]['claves']=[dict(t=0,pose='stand'),dict(t=2,motivo_expresion=descripcion)]
+        with self.assertRaisesRegex(ValueError,'estática'):
+            stickman.validar_puesta_en_escena(quieta,4,self.reparto,[1920,1080])
+
+    def test_editar_enfado_heredado_activa_cejas_sin_depender_del_proveedor(self):
+        original=narrativa(self.base)
+        original['personajes'][0]['claves']=[dict(t=t,pose=pose,expresion='neutral')
+            for t,pose in [(0,'explain'),(.7,'pointUp'),(1.4,'explain'),(4,'point')]]
+        original['personajes'][0]['expresion']='neutral'
+        entrega=copy.deepcopy(original)
+        entrega['personajes'][0]['expresion']='angry'
+        for k in entrega['personajes'][0]['claves']:
+            k['expresion']='angry'
+        e=dict(t_in=0,t_out=4,narracion='Una acción.',descripcion_visual='Ana gesticula; Bruno observa.',
+            indicaciones_usuario=dict(edicion_stickman=dict(ancla='Una acción.',contenido=original,
+                mensajes=[dict(autor='usuario',texto='Modifica el rostro naranja para que esté enfadado.')])) )
+        antes=copy.deepcopy(original)
+        for valor in (None,False):
+            respuesta=copy.deepcopy(entrega)
+            if valor is not None:
+                respuesta['realizacion']['cejas_fieles']=valor
+            with self.subTest(marca_proveedor=valor),patch.dict(os.environ,ESTUDIO_SIMULAR='0'), \
+                    patch.object(stickman,'_consultar',return_value=respuesta) as consulta:
+                resultado=stickman.generar_escena(e,self.base,self.reparto,None,lambda *a:None)
+            self.assertEqual(consulta.call_count,1)
+            self.assertTrue(resultado['realizacion']['cejas_fieles'])
+            self.assertNotIn('expresiones_fieles',resultado['realizacion'])
+            self.assertEqual(resultado['personajes'][0]['expresion'],'angry')
+            self.assertTrue(all(k['expresion']=='angry' for k in resultado['personajes'][0]['claves']))
+            self.assertEqual(resultado['personajes'][1],stickman.escena(original,4,self.reparto)['personajes'][1])
+            self.assertEqual(resultado['personajes'][0]['claves'],entrega['personajes'][0]['claves'])
+            self.assertEqual(resultado['realizacion']['escenario'],original['realizacion']['escenario'])
+            self.assertEqual(stickman.escena(resultado,4,self.reparto)['realizacion'],resultado['realizacion'])
+            self.assertEqual(original,antes)
+
+    @unittest.skipUnless(REAL,'usa --real para pendientes de cejas en rig, familias y primeros planos')
+    def test_cejas_fieles_neutral_enfado_y_preocupacion_en_todas_las_rutas(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            resultado=nav.evaluar('''(() => {
+                const ctx=document.querySelector('canvas').getContext('2d');
+                const begin=ctx.beginPath,move=ctx.moveTo,line=ctx.lineTo,stroke=ctx.stroke;
+                let puntos=[],cejas=[],bocas=0;
+                ctx.beginPath=function(){puntos=[];return begin.call(this);};
+                ctx.moveTo=function(x,y){puntos=[[x,y]];return move.call(this,x,y);};
+                ctx.lineTo=function(x,y){puntos.push([x,y]);return line.call(this,x,y);};
+                ctx.stroke=function(...args){
+                    if(puntos.length===2){
+                        const dx=puntos[1][0]-puntos[0][0],dy=puntos[1][1]-puntos[0][1];
+                        if(dx>0&&Math.abs(this.lineWidth/dx-.25)<.001&&
+                            [.4,.16/.3].some(p=>Math.abs(Math.abs(dy/dx)-p)<.001))cejas.push(dy/dx);
+                        if(dx>0&&Math.abs(dy)<.001&&Math.abs(this.lineWidth/dx-.085/.24)<.001)bocas++;
+                    }
+                    return stroke.apply(this,args);
+                };
+                const actor=window.STICKMAN.escena.personajes[0],r=window.STICKMAN.escena.realizacion;
+                const pintar=exp=>{actor.expresion=exp;cejas=[];bocas=0;window.pintar(.5);return [...cejas];};
+                try {
+                    const neutral=pintar('neutral'),bocasNeutras=bocas;
+                    const angry=pintar('angry'),worried=pintar('worried'),sad=pintar('sad');
+                    r.expresiones_fieles=false;const antigua=pintar('angry');
+                    r.cejas_fieles=true;const editada=pintar('angry'),neutralEditado=pintar('neutral'),bocasEditadas=bocas;
+                    r.expresiones_fieles=true;delete r.cejas_fieles;actor.expresion='neutral';window.pintar(.5);
+                    return {neutral,bocasNeutras,angry,worried,sad,antigua,editada,neutralEditado,bocasEditadas};
+                } finally {ctx.beginPath=begin;ctx.moveTo=move;ctx.lineTo=line;ctx.stroke=stroke;}
+            })()''')
+            self.assertEqual(resultado['neutral'],[])
+            self.assertEqual(resultado['bocasNeutras'],1)
+            self.assertEqual(resultado['neutralEditado'],[])
+            self.assertEqual(resultado['bocasEditadas'],0)  # Conserva smallSmile histórico, no lo convierte en smallFlat.
+            for expresion,signos in [('angry',[1,-1]),('worried',[-1,1]),('sad',[-1,1]),('antigua',[-1,1]),('editada',[1,-1])]:
+                self.assertEqual(len(resultado[expresion]),2,resultado)
+                self.assertEqual([1 if v>0 else -1 for v in resultado[expresion]],signos)
+            return original(nav,destino)
+        for nombre,diseno,encuadre in [('rig',self.base,'general'),('familia',dict(self.base,familia='geometric'),'general'),
+                ('rostro',self.base,'primer_plano')]:
+            datos=dict(ambiente='void',decorado='vacio',realizacion=dict(encuadre=encuadre,sujeto='ana',
+                expresiones_fieles=True,color_fiel=True,grano=0,vineta=0),
+                personajes=[dict(id='ana',x=.5,y=.9,escala=2.8,claves=[dict(t=0,pose='stand')])])
+            with self.subTest(ruta=nombre),patch.object(p8_render.Navegador,'capturar',comprobar):
+                stickman.renderizar(diseno,stickman.escena(datos,4,{'ana':diseno}),4,
+                    str(Path(TEMP.name)/f'expresiones-{nombre}.png'),salida=(960,540))
 
     def test_escenografia_detallada_nueva_respeta_historial_y_pide_no_taparla(self):
         entrega=referencia_escenario_detallado(self.base)
@@ -511,6 +662,52 @@ class Editorial(unittest.TestCase):
         termometros=stickman.escena(referencia_termometros(),4,{})
         self.assertEqual(termometros['personajes'],[])
         self.assertEqual([o['panel'] for o in termometros['objetos']],['izquierda','derecha'])
+
+    def test_tipografia_nueva_y_retoque_historico(self):
+        datos=referencia_tipografia()
+        contenido=stickman.escena(datos,4,{})
+        self.assertEqual(contenido['objetos'][0]['fuente'],150)
+        self.assertEqual(contenido['realizacion']['tipografia'],'redondeada')
+        datos['realizacion'].pop('tipografia')
+        self.assertNotIn('tipografia',stickman.escena(datos,4,{})['realizacion'])
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=datos):
+            nueva=stickman.generar_escena(dict(t_in=0,t_out=4),self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(nueva['realizacion']['tipografia'],'redondeada')
+        e=dict(t_in=0,t_out=4,narracion='Un contraste.',indicaciones_usuario=dict(
+            edicion_stickman=dict(ancla='Un contraste.',contenido=datos)))
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',return_value=datos):
+            retoque=stickman.generar_escena(e,self.base,self.reparto,None,lambda *a:None)
+        self.assertNotIn('tipografia',retoque['realizacion'])
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar Fredoka, halo y fusión animada')
+    def test_rotulos_redondeados_reales(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            resultado=nav.evaluar('''(() => {
+                const ctx=document.querySelector('canvas').getContext('2d'),proto=CanvasRenderingContext2D.prototype;
+                const medir=proto.measureText,fuentes=[];
+                proto.measureText=function(...args){fuentes.push(this.font);return medir.apply(this,args);};
+                const pintar=t=>{window.pintar(t);return ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height).data;};
+                const a=pintar(1),b=pintar(2.7),c=pintar(3.5),d=pintar(1);
+                proto.measureText=medir;
+                let cambio=0,estable=true,tinta=0;
+                for(let i=0;i<a.length;i+=4){
+                    if(a[i]!==b[i]||b[i]!==c[i])cambio++;
+                    if(a[i]!==d[i]||a[i+1]!==d[i+1]||a[i+2]!==d[i+2])estable=false;
+                    if(a[i]>100&&a[i+1]>100&&a[i+2]>100)tinta++;
+                }
+                return {fuentes,cambio,estable,tinta};
+            })()''')
+            self.assertTrue(resultado['fuentes'])
+            self.assertTrue(all('Fredoka' in f for f in resultado['fuentes']))
+            self.assertGreater(resultado['cambio'],3000)
+            self.assertGreater(resultado['tinta'],5000)
+            self.assertTrue(resultado['estable'])
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(referencia_tipografia(),4,{}),4,
+                str(Path(TEMP.name)/'tipografia.png'),salida=(1280,720))
 
     @unittest.skipUnless(REAL,'usa --real para luz fría/cálida, tipografía y recorte luminoso')
     def test_comparaciones_reales_profundidad_particulas_y_paneles_tras_camara(self):

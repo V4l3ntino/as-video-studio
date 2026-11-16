@@ -229,6 +229,8 @@ def normalizar(datos, duracion, reparto):
                 atril=BOOL, publico=BOOL, atril_x=('numero', .15, .85), luz=COLOR),
             fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
             particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400), escenografia_detallada=BOOL,
+            tipografia=('elegir', 'redondeada', 'clasica'),
+            expresiones_fieles=BOOL, cejas_fieles=BOOL,
             comparacion=opciones(color_izquierdo=COLOR,color_derecho=COLOR,color_separador=COLOR,
                 corte=('elegir', 'quebrado', 'diagonal', 'vertical')),
             acabado=BOOL, color_fiel=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
@@ -379,7 +381,16 @@ el resultado legible. Metáforas simples con transformación clara, nunca símbo
 Incluye realizacion:{encuadre:general|conjunto|medio|primer_plano|detalle|grafico|dividido|cierre,
  sujeto:ID opcional,objetivo:"qué se entiende",escenario:{id:"lugar estable",tipo,semilla:7},
  desenfoque:0–20,profundidad:.1–1,acabado:true,color_fiel:true,grano:0–.08,vineta:0–.7,bandas:0–.12,fondo:"#RRGGBB" opcional,
- paleta:ember|arctic|sakura|retro,particulas:true,malla:true|false,desfase_ambiente:segundos,escenografia_detallada:true}.
+  paleta:ember|arctic|sakura|retro,particulas:true,malla:true|false,desfase_ambiente:segundos,escenografia_detallada:true,tipografia:redondeada,expresiones_fieles:true}.
+TIPOGRAFÍA DE REFERENCIA: todos los rótulos usan Fredoka 700, muy gruesa y redondeada,
+con volumen suave y núcleo nítido. Usa objetos texto con fuente:110–160 para palabras protagonistas,
+cajas w,h suficientes y neon:.25–.4 selectivo en azul hielo, naranja o blanco cálido.
+El motor aplica realizacion.tipografia:redondeada; no imites letras con vectores ni uses sans-serif.
+No reduzcas un título a una etiqueta pequeña: reserva ancho, alto y margen para sus acentos.
+Si dos palabras se deslizan y se funden, anima sus claves x/opacidad con curvas suaves, retira las
+originales al aparecer el rótulo final y mantenlo legible al cierre. Conserva el texto literal pedido.
+El signo igual puede ser dos barras redondeadas doradas con halo, no un carácter fino de sistema.
+En retoques locales conserva la tipografía anterior salvo petición de mejorar los rótulos.
 ESCENARIOS CONSTRUIDOS: escenografia_detallada:true separa arquitectura de fondo, suelo y mobiliario
 en el plano de los actores, y primer término. Describe materiales, volumen, luz y escala reconocibles,
 no una etiqueta del lugar ni rectángulos genéricos. El suelo comparte cámara con los pies: coloca

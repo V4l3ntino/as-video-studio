@@ -5348,6 +5348,28 @@ def _contexto_edicion_stickman(pid, sid):
     return ctx, escena, contenido
 
 
+@app.post("/api/proyectos/{pid}/escenas/{sid}/stickman/regenerar", status_code=202)
+def regenerar_escena_stickman(pid: str, sid: str):
+    """Genera de nuevo una animación Stickman, sin reutilizar su plan ni retoques."""
+    from pasos import stickman
+    with _LOCK:
+        ctx = contexto(pid)
+        if not stickman.activo(ctx.estado.params('assets') or {}):
+            raise ErrorApi(400, 'la regeneración de escena requiere Stickman Animation 2D')
+        if ctx.gestor.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        plan = _plan_de_previsualizacion(ctx)
+        if not any(e['id'] == sid for e in plan.get('escenas', [])):
+            raise ErrorApi(404, 'la escena no existe en la previsualización actual')
+        uid = 'escena:' + sid
+        unidad = dict(((ctx.estado.params('assets') or {}).get('unidades') or {}).get(uid) or {})
+        unidad.pop('edicion_stickman', None)
+        unidad.pop('medio_usuario', None)
+        ctx.estado.actualizar_params('assets', {'unidades': {uid: unidad}})
+        tid = lanzar_paso(ctx, 'assets', [uid], opciones={'rehacer': True})
+    return dict(trabajo_id=tid)
+
+
 @app.get("/api/proyectos/{pid}/escenas/{sid}/stickman/chat")
 def leer_chat_stickman(pid: str, sid: str):
     """Recupera la conversación de retoque de una escena Stickman publicada."""

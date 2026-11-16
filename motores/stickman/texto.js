@@ -2,6 +2,22 @@
 // Se conserva el color solicitado: el respaldo es claro para tinta oscura y viceversa.
 import { rgb } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 
+// Tinta con relieve suave: el degradado queda dentro del glifo, nunca borroso.
+export function rotuloRedondeado(g, texto, size, color) {
+  const [r,v,b] = rgb(color);
+  const mezclar = (destino, cantidad) => `rgb(${[r,v,b].map(c=>Math.round(c+(destino-c)*cantidad)).join(',')})`;
+  const tinta = g.createLinearGradient(0,-size*.5,0,size*.5);
+  tinta.addColorStop(0,mezclar(255,.52));
+  tinta.addColorStop(.48,color);
+  tinta.addColorStop(1,mezclar(0,.12));
+  g.save();
+  g.lineJoin='round';g.lineWidth=Math.max(1,size*.018);
+  g.strokeStyle=mezclar(0,.55);g.strokeText(texto,0,0);
+  // fillStyle degradado evita el contorno grueso del texto auxiliar.
+  g.fillStyle=tinta;g.fillText(texto,0,0);
+  g.restore();
+}
+
 export function protegerTexto(g, activo, grosor=.12) {
   const original = g.fillText;
   g.fillText = function(str, x, y, ...args) {

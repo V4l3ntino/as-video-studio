@@ -14,7 +14,7 @@ import re
 import subprocess
 import tempfile
 
-from pasos import medios, utileria_stickman, realizacion_stickman
+from pasos import medios, utileria_stickman, realizacion_stickman, expresiones_stickman
 
 RAIZ = Path(__file__).resolve().parents[1]
 KIT = RAIZ / 'GrowKaz_Stickman/skills/make-2d-video/kit'
@@ -214,6 +214,8 @@ def claves(datos, duracion, ruta='claves'):
             f['pose'] = elegir(k['pose'], POSES)
         if 'expresion' in k:
             f['expresion'] = elegir(k['expresion'], EXPRESIONES)
+        if 'motivo_expresion' in k:
+            f['motivo_expresion'] = texto(k['motivo_expresion'], 500)
         if 'movimiento' in k:
             f['movimiento'] = elegir(k['movimiento'], ('gesto', 'caminar', 'correr'))
         if 'mirar' in k:
@@ -254,6 +256,8 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             expresion=elegir(c.get('expresion', 'neutral'), EXPRESIONES),
             movimiento=elegir(c.get('movimiento', 'gesto'), ('gesto', 'caminar', 'correr')),
             claves=ks, habla=[]))
+        if 'motivo_expresion' in c:
+            resultado['personajes'][-1]['motivo_expresion'] = texto(c['motivo_expresion'], 500)
         if 'rol' in c:
             resultado['personajes'][-1]['rol'] = elegir(c['rol'], ('principal', 'figurante'))
         if 'panel' in c:
@@ -295,7 +299,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             escala=numero(o.get('escala', 1), .1, 6), w=numero(o.get('w', 80), -2000 if o.get('tipo') == 'linea' else 1, 2000),
             h=numero(o.get('h', 80), -2000 if o.get('tipo') == 'linea' else 1, 2000), inicio=ini, fin=fin,
             capa=elegir(o.get('capa', 'frente'), ('fondo', 'frente')), claves=claves(o.get('claves', []), duracion, f'objetos[{indice}].claves'),
-            ancla=ancla, fuente=numero(o.get('fuente', 48), 16, 96), grosor=numero(o.get('grosor', 6), 1, 24),
+            ancla=ancla, fuente=numero(o.get('fuente', 48), 16, 160), grosor=numero(o.get('grosor', 6), 1, 24),
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if 'neon' in o:
             resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
@@ -496,7 +500,7 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
         for c in resultado['personajes']:
             anterior = dict(x=c['x'], y=c['y'], escala=c['escala'], expresion=c['expresion'], pose='stand', rot=0, opacidad=1, mirar=c['mirar'])
             for k in c['claves']:
-                cambios |= k['t'] > 0 and any(v != anterior.get(campo) for campo, v in k.items() if campo not in ('t', 'movimiento'))
+                cambios |= k['t'] > 0 and any(v != anterior.get(campo) for campo, v in k.items() if campo not in ('t', 'movimiento', 'motivo_expresion'))
                 anterior.update(k)
         cambios |= any(o['inicio'] > 0 or o['fin'] < duracion or o['claves'] for o in resultado['objetos'])
         cambios |= any(p['claves'] for o in resultado['objetos'] for p in o.get('partes', []))
@@ -541,6 +545,14 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         def validar_entrega(d):
             resolucion = e.get('resolucion', [1920, 1080])
             contenido = validar_puesta_en_escena(d, dur, reparto, resolucion, catalogo_utileria)
+            if not edicion:
+                contenido.setdefault('realizacion', {}).setdefault('tipografia', 'redondeada')
+                contenido['realizacion']['expresiones_fieles'] = True
+                expresiones_stickman.validar(contenido, e.get('descripcion_visual'))
+            else:
+                # La corrección del dibujo no depende de que la IA recuerde una
+                # marca nueva. No cambia las bocas neutras de un retoque histórico.
+                contenido.setdefault('realizacion', {})['cejas_fieles'] = True
             if not edicion or (contenido.get('realizacion') or {}).get('escenografia_detallada'):
                 realizacion_stickman.heredar_escenografia(contenido, e.get('continuidad_bloque'),
                     renovar=bool(e.get('renovar_escenografia')))
@@ -573,7 +585,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'Todo el contenido explicativo debe caber con un margen del 4%: fichas, diales completos, '
              'rótulos y última fila de las listas. detalle no autoriza cortar información. '
              'El motor limita el zoom a los límites de los objetos; compón el conjunto antes de pedir acercamientos. '
-            'Cada objeto importante debe ser reconocible y cada cambio emocional verse también en la postura/expresión. No sustituyas acciones por rótulos. '
+             'Cada objeto importante debe ser reconocible. Solo los cambios emocionales pedidos para ese actor se ven en postura/expresión; no inventes emociones para dar movimiento. No sustituyas acciones por rótulos. '
             'No sustituyas conductas por iconos pequeños: muestra distancia con desplazamiento y defensa con postura. '
             'Si una descripción antigua pide metáforas anidadas dentro del pecho, adapta a una acción corporal o a UNA metáfora simple '
             'con transformación legible. No añadas relojes ni móviles salvo que intervengan en el relato. '
@@ -588,7 +600,8 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'es una copia local, no cambia su diseño ni proporciones. Conserva ese vestuario mientras continúe la acción. '
              'Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1,movimiento?:gesto|caminar|correr}. '
             'mirar cambia de orientación en ese instante; usa -1 hacia la izquierda y 1 hacia la derecha, también para dar la espalda a una petición. '
-            'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
+             'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
+             + expresiones_stickman.INSTRUCCIONES +
              'movimiento: gesto,caminar,correr. decorado: interior,ciudad,naturaleza,vacio. atmosfera: polvo,lluvia,nieve,ninguna. '
              'La caminata/carrera solo se dibuja durante tramos con desplazamiento x/y; al llegar al destino se detiene. '
              'Para un encuentro: mueve los pies hasta el punto de reunión, añade allí movimiento:"gesto" y la pose de espera/conversación; '
@@ -604,7 +617,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'objetos: [{tipo:' + '|'.join(OBJETOS) + ',texto:"",color:"#RRGGBB",x:.5,y:.5,w:160,h:100,escala:1,inicio:0,fin:duracion,capa:fondo|frente,claves:[],fuente:48,grosor:6,opacidad:1,progreso:1}]. '
             'Todos los objetos salvo linea están centrados en x,y; w,h son ancho y alto, NO tamaño de letra ni radio. '
             'linea va de x,y a x+w/1920,y+h/alto; grosor es su trazo, h puede ser 0. '
-            'texto se ajusta a la caja w,h con fuente 16–96. Evita texto salvo si lo pide el guion; no copies palabras sueltas de la voz como títulos. '
+            'texto se ajusta a la caja w,h con fuente 16–160; usa 110–160 para rótulos protagonistas redondeados Fredoka. Evita texto salvo si lo pide el guion; no copies palabras sueltas de la voz como títulos. '
             'Utilería nativa: movil (pantalla y carcasa, w~54 h~90), mensaje (burbuja con cola y líneas legibles, w~200 h~95), '
             'calendario (cabecera, cuadrícula y fechas marcadas, w~260 h~230; progreso 0–1 revela las marcas), '
             'nube (silueta con lóbulos, w~150 h~90), corazon (w~70 h~65). Usa estos tipos en lugar de rectángulos que pretendan representarlos. '
@@ -637,11 +650,14 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         if apertura:
             datos['graficos'].append(capitulos_guion.componente(apertura))
     realizacion = datos['realizacion']
+    if editando:
+        realizacion['cejas_fieles'] = True
     if not (e.get('indicaciones_usuario') or {}).get('edicion_stickman'):
         if diseno.get('acabado') in realizacion_stickman.PALETAS:
             realizacion.setdefault('paleta', diseno['acabado'])
         realizacion.setdefault('particulas', True)
         realizacion.setdefault('escenografia_detallada', True)
+        realizacion['expresiones_fieles'] = True
         realizacion.setdefault('malla', realizacion.get('paleta') == 'arctic'
             and realizacion.get('encuadre') == 'grafico' and 'comparacion' not in realizacion and not datos.get('espacio3d'))
         realizacion.setdefault('desfase_ambiente', float(e.get('t_in', 0)))

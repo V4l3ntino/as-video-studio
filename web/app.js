@@ -10531,13 +10531,16 @@ async function sustituirMedioEscena(escena, archivo) {
   finally { PREVIA.sustituyendo = false; repintarVideo(); }
 }
 
-function botonSustituirEscena(escena, editar) {
+function botonSustituirEscena(escena, editar, regenerar) {
   const entrada = h('input', {type: 'file', hidden: true,
     accept: '.png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.m4v,.avi',
     onchange: ev => sustituirMedioEscena(escena, ev.target.files[0]) });
   return h('div', {clase: 'editor-previa-acciones'}, entrada,
     editar ? h('button', {clase: 'mini', onclick: editar},
       h('span', {'aria-hidden': 'true'}, '✦'), 'Editar escena') : null,
+    regenerar ? h('button', {clase: 'mini', disabled: !!trabajoVideoLight(), onclick: regenerar,
+      title: 'Generar de nuevo toda la animación de esta escena desde su descripción.'},
+      h('span', {'aria-hidden': 'true'}, '↻'), 'Regenerar escena') : null,
     h('button', {clase: 'mini', disabled: !!trabajoVideoLight() || !!PREVIA.sustituyendo,
       title: 'Elige una imagen o clip de al menos 2 s. Si supera 15 s, se recorta desde el inicio.',
       onclick: ev => { ev.stopPropagation(); entrada.click(); }},
@@ -11726,6 +11729,13 @@ async function abrirEditorEscena(escena, estudio) {
   const panel = h('div', { clase: 'escena-editor-panel', role: 'tabpanel', id: `escena-configuracion-${escena.id}` });
   const avisoRecuperacion = h('div', { clase: 'editor-recuperacion', hidden: true, role: 'status' });
   const muestra = h('div', { clase: `previa-marco anim-editor-previa escena-editor-previa con-avatar ${formatoDelVideo()}` });
+  const cargaStickman = h('div', {clase: 'stickman-regenerando', hidden: true, role: 'status', 'aria-live': 'polite'},
+    h('span', {clase: 'stickman-regenerando-indicador', 'aria-hidden': 'true'}),
+    h('span', {}, 'Regenerando animación…'),
+    h('button', {clase: 'mini', onclick: () => {
+      if (tid) pedir(API.cancelar(tid), {method: 'POST'}).catch(error => {estado.textContent = error.message;});
+    }}, 'Parar'));
+  muestra.appendChild(cargaStickman);
   engancharSwipePrevia(muestra);
   muestra.addEventListener('dragstart', ev => ev.preventDefault());
   const capa = h('div', { clase: 'previa-anim' });
@@ -11798,6 +11808,28 @@ async function abrirEditorEscena(escena, estudio) {
     control.actualizarTaller();
     if (edicionStickmanAbierta) chatStickman.cargar();
   }
+  async function regenerarStickman() {
+    if (ocupado() || PREVIA.sustituyendo || !control.listo) return;
+    estudio.pausar();
+    cargaStickman.hidden = false;
+    muestra.setAttribute('aria-busy', 'true');
+    const botones = [...dialogo.querySelectorAll('.editor-previa-acciones button')];
+    botones.forEach(b => {b.disabled = true;});
+    try {
+      await trabajoRemotion(`${base}/stickman/regenerar`, {}, estado);
+      if (estudio.cerrado() || videoAbierto().pid !== pid) return;
+      PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+      repintarVideo();
+      toast('Escena regenerada. Monta el vídeo para actualizar el MP4.');
+    } catch (error) {
+      estado.textContent = error.message;
+      toast(`No se ha podido regenerar la escena: ${error.message}`, true);
+    } finally {
+      cargaStickman.hidden = true;
+      muestra.setAttribute('aria-busy', 'false');
+      botones.forEach(b => {b.disabled = !!trabajoVideoLight() || !!PREVIA.sustituyendo;});
+    }
+  }
   const dialogo = h('section', { clase: 'editor-global-escena anim-editor',
     'aria-label': `Configuración de ${escena.id}`,
     onkeydown: ev => {
@@ -11808,7 +11840,8 @@ async function abrirEditorEscena(escena, estudio) {
     h('aside', { clase: 'editor-global-panel' }, tabs, avisoRecuperacion, panel,
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
     h('div', { clase: 'editor-global-visual' }, botonSustituirEscena(escena,
-      pedidoDelVideoLight().copia.stickman ? abrirEdicionStickman : null), muestra), medios);
+      pedidoDelVideoLight().copia.stickman ? abrirEdicionStickman : null,
+      pedidoDelVideoLight().copia.stickman ? regenerarStickman : null), muestra), medios);
   tallerRemotion = crearTallerRemotion({pid, escena, trabajo: trabajoRemotion, ocupado, alElegir: () => {indiceRemotion = -1;},
     abrirResultado: plantilla => estudio.abrirResultadoIA(plantilla),
     tallerAbierto: () => estudio.tallerRemotionAbierto,
@@ -11962,7 +11995,7 @@ async function abrirEditorEscena(escena, estudio) {
     if (ocupado()) throw new Error('Espera a que termine la operación actual.');
     remotionOcupado = true; pausar();
     dialogo.classList.add('remotion-trabajando');
-    const actividad = ruta.endsWith('/stickman/chat') ? 'Preparando edición Stickman' : ruta.endsWith('/compilar') ? 'Compilando Remotion' : 'Renderizando Remotion';
+    const actividad = ruta.endsWith('/stickman/regenerar') ? 'Regenerando animación' : ruta.endsWith('/stickman/chat') ? 'Preparando edición Stickman' : ruta.endsWith('/compilar') ? 'Compilando Remotion' : 'Renderizando Remotion';
     mensaje.textContent = `${actividad} · 0 %`;
     try {
       const r = await pedir(ruta, {method: 'POST', cuerpo: datos}); tid = r.trabajo_id;

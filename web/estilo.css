@@ -2659,6 +2659,10 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .avatar-editor-tiempos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .editor-previa-acciones { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .editor-previa-acciones button { display: inline-flex; align-items: center; gap: 7px; }
+.stickman-regenerando { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #0d1018ed; color: #f4f5fa; font-size: 16px; }
+.stickman-regenerando-indicador { width: 32px; height: 32px; border: 3px solid #ffffff26; border-top-color: #aebaff; border-radius: 50%; animation: stickman-regenerando-giro 1s linear infinite; }
+@keyframes stickman-regenerando-giro { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .stickman-regenerando-indicador { animation: none; } }
 
 /* -------------------------------- Motion animation y Efectos (dos recuadros)
    Izquierda: lo que hay. Derecha: lo que entra al montar. Pulsar una tarjeta la

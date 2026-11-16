@@ -138,6 +138,12 @@ zoom conservando la actuación. Enviar mensajes solo conversa; **Aplicar cambios
 edita el plan de animación publicado y prepara de nuevo únicamente esa escena,
 manteniendo la narración y su duración. **Parar** cancela el trabajo.
 
+Junto a **Editar escena**, **Regenerar escena** crea de nuevo toda la animación
+de la escena situada bajo el cursor, desde su descripción actual y sin reutilizar
+su plan ni los retoques anteriores. El previsualizador muestra **Regenerando
+animación…** y permite parar; al terminar carga el nuevo clip. Después vuelve a
+montar para incorporar el cambio al MP4.
+
 Los botones **Claude** y **ChatGPT** eligen qué IA aplica los cambios, con Claude
 seleccionado por defecto. Solo uno puede estar seleccionado. ChatGPT/Codex usa
 su sesión habitual. Claude lleva siempre la conversación. El historial se conserva por
@@ -205,6 +211,24 @@ pantalla dividida y motion graphics explicativos** según la idea del guion.
 El director puede utilizar listas progresivas, documentos con resaltado,
 barras, matrices de población, cronologías, diales e interruptores, además de
 los títulos, llamadas, medidores y pantallas finales del kit original.
+
+Los rótulos de las animaciones nuevas utilizan **Fredoka gruesa y redondeada**,
+con volumen suave, letras nítidas y halo selectivo. Las palabras protagonistas
+pueden ocupar hasta 160 px en el lienzo de 1920 px y se ajustan a su caja sin
+deformarse. La dirección anima sus entradas, desplazamientos y fusiones con
+claves suaves. Para actualizar el acabado de un clip ya generado, pide mejorar
+su tipografía desde **Editar escena** o regenera esa animación.
+
+Las expresiones se deciden **por personaje y a partir de la descripción visual
+actual**. Si no se pide una emoción o un gesto facial, la cara queda neutra,
+sin cejas de preocupación ni sonrisa impuesta. Gesticular, caminar o teclear
+no añade por sí solo enfado, tensión ni nerviosismo. Cada expresión no neutra
+de una entrega nueva debe citar el fragmento de la descripción que la motiva;
+no se hereda automáticamente de otra frase ni del perfil del personaje.
+Las cejas de enfado y preocupación tienen pendientes diferenciadas también
+en primeros planos. **Aplicar cambios** activa automáticamente la corrección
+de cejas al editar un clip anterior, conservando las bocas de sus personajes
+neutros. Para rehacer la dirección completa, usa **Regenerar escena**.
 
 Los escenarios —fiesta, salón, oficina, laboratorio, barrio, parque, cocina,
 teatro y aula— tienen identidad estable para volver a ellos en distintas partes

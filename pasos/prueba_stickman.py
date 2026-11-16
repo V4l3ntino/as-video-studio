@@ -136,6 +136,37 @@ class Stickman(unittest.TestCase):
         copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia')
         self.assertEqual(editor.leer(copia, e), charla)
 
+    def test_regenerar_escena_descarta_retoque_y_medio_solo_en_la_unidad_elegida(self):
+        import app
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        p = Proyecto.crear(self.temp.name, 'Regeneración')
+        estado = Estado(p)
+        anterior = dict(edicion_stickman=dict(contenido={'anterior': True}), medio_usuario={'id': 'clip'},
+            descripcion_escena={'descripcion_visual': 'Dos palabras se funden.'})
+        otra = dict(edicion_stickman={'otro': True}, medio_usuario={'id': 'otro'})
+        estado.actualizar_params('assets', dict(estilo=dict(stickman=self.config),
+            unidades={'escena:S001': anterior, 'escena:S002': otra}))
+        gestor = Mock()
+        gestor.listar.return_value = []
+        ctx = SimpleNamespace(estado=estado, proyecto=p, gestor=gestor)
+        with patch.object(app, 'contexto', return_value=ctx), \
+                patch.object(app, '_plan_de_previsualizacion', return_value=dict(escenas=[{'id': 'S001'}])), \
+                patch.object(app, 'lanzar_paso', return_value='regeneracion') as lanzar:
+            self.assertEqual(app.regenerar_escena_stickman(p.id, 'S001'), {'trabajo_id': 'regeneracion'})
+            lanzar.assert_called_once_with(ctx, 'assets', ['escena:S001'], opciones={'rehacer': True})
+            unidades = estado.params('assets')['unidades']
+            self.assertEqual(unidades['escena:S001'], {'descripcion_escena': anterior['descripcion_escena']})
+            self.assertEqual(unidades['escena:S002'], otra)
+            antes = Path(p.ruta('estado.json')).read_bytes()
+            for sid, trabajos, codigo in [('ausente', [], 404), ('S001', ['activo'], 409)]:
+                gestor.listar.return_value = trabajos
+                with self.subTest(sid=sid, trabajos=trabajos), self.assertRaises(app.ErrorApi) as error:
+                    app.regenerar_escena_stickman(p.id, sid)
+                self.assertEqual(error.exception.codigo, codigo)
+                self.assertEqual(Path(p.ruta('estado.json')).read_bytes(), antes)
+            self.assertEqual(lanzar.call_count, 1)
+
     def test_tiempos_decimales_se_ajustan_al_limite_sin_admitir_excesos_reales(self):
         duracion=3.8029999999999973
         d=dict(personajes=[dict(id='ana',claves=[dict(t=0,pose='stand'),dict(t=3.803,pose='wave')])],

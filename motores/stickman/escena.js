@@ -6,9 +6,10 @@ import { cargarFuentes } from './fuentes.js';
 import { pintarEditorial } from './editorial.js';
 import { aplicarEstilo, aplicarPaleta } from './estilo.js';
 import { conNeon } from './neon.js';
-import { protegerTexto } from './texto.js';
+import { protegerTexto, rotuloRedondeado } from './texto.js';
 import { esquinas } from './encuadre.js';
 import { movimientoEn } from './movimiento.js';
+import { rasgosExpresion } from './expresiones.js';
 
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
@@ -60,6 +61,7 @@ function figura(c, t, estela=false) {
       outfit: {top: v.ropa, color: v.color, color2: v.secundario, head: v.accesorio, headColor: v.secundario},
       rim: {color: v.contorno, dir: [-1, -.5], w: v.trazo}, blink: (t % 3.3) > 3.15,
       look:c.actuacion?.mirada,
+      face:rasgosExpresion(exp,v,D.escena.realizacion?.expresiones_fieles,D.escena.realizacion?.cejas_fieles),
       prop:c.actuacion?.atrezzo?{type:c.actuacion.atrezzo,hand:c.actuacion.mano||'F'}:undefined,
       ...(c.actuacion?{outfit:{top:v.ropa,color:v.color,color2:v.secundario,head:v.accesorio,headColor:v.secundario,
         face:c.actuacion.gafas,gloves:c.actuacion.guantes,legs:c.actuacion.pantalon}}:{})});
@@ -99,7 +101,7 @@ function figura(c, t, estela=false) {
     else g.ellipse(0, 0, 29, 29, 0, 0, Math.PI * 2); g.fill(); g.stroke();
   }
   face(g, 0, 0, 26, {expr: exp, talk: habla, front: true,
-    override: exp === 'neutral' ? {eyes: v.ojos, mouth: v.boca} : {},
+    override: rasgosExpresion(exp,v,D.escena.realizacion?.expresiones_fieles,D.escena.realizacion?.cejas_fieles),
     look:c.actuacion?.mirada,
     color: ['rubber', 'bean'].includes(v.familia) ? '#11251c' : '#fff', blink: (t % 3.3) > 3.15});
   g.fillStyle = v.secundario;
@@ -126,7 +128,7 @@ function rostro(c,t) {
   bigFace(g,hx,hy,r,{outfit:{top:v.ropa,color:v.color,head:v.accesorio,headColor:v.secundario,face:c.actuacion?.gafas},
       expr:a.exp,talk:c.habla.some(([a,b])=>t>=a&&t<b)? .4+.5*Math.abs(Math.sin(t*14)):0,
       blink:t%3.3>3.15,look:c.actuacion?.mirada,rimColor:v.contorno,
-      face:a.exp==='neutral'?{eyes:v.ojos,mouth:v.boca}:undefined});
+      face:rasgosExpresion(a.exp,v,D.escena.realizacion?.expresiones_fieles,D.escena.realizacion?.cejas_fieles)});
 }
 function estadoParte(p,o,t) {
   const anim=p.animacion,reloj=anim?Math.max(0,t-o.inicio)%anim.duracion:0;
@@ -272,12 +274,14 @@ function objeto(o, t, ctx=g) {
   else if (o.tipo === 'circulo') {g.beginPath(); g.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI * 2); g.fill();}
   else if (o.tipo === 'linea') {trazo(0, 0, w * progreso, h * progreso);}
   else if (o.tipo === 'texto') {
+    const redondeada=D.escena.realizacion?.tipografia==='redondeada';
     let size = Math.min(o.fuente ?? 48, h * .8);
-    const familia=D.escena.realizacion?.comparacion?`700 ${size}px "${FONTS.title}"`:`800 ${size}px sans-serif`;
+    const familia=redondeada||D.escena.realizacion?.comparacion?`700 ${size}px "${FONTS.title}"`:`800 ${size}px sans-serif`;
     g.font = familia;
     size *= Math.min(1, w / Math.max(1, g.measureText(o.texto).width));
     g.font = familia.replace(/[\d.]+px/,`${size}px`); g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(o.texto, 0, 0);
+    if(redondeada)rotuloRedondeado(g,o.texto,size,o.color);
+    else g.fillText(o.texto, 0, 0);
   }
   else if (o.tipo === 'pizarra') {
     const marco = Math.min(14, w*.04, h*.07);

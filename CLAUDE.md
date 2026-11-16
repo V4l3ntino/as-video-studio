@@ -72,6 +72,36 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+El vecino tenía angry y la oficinista pasaba a determined sin que su descripción
+pidiera esas caras. Además, rig2d dibuja las pendientes angry/worried invertidas:
+angry parecía preocupado. Las entregas nuevas usan expresiones_fieles:true;
+`motores/stickman/expresiones.js` corrige localmente cejas y hace neutral sin
+sonrisa impuesta en Classic, familias y bustos. No mutes EXPR ni el kit original.
+`pasos/expresiones_stickman.py` pide neutral si la descripción actual no motiva
+otra cara, con motivo_expresion literal por actor/cambio no neutro; valida las
+citas solo al generar con descripcion_visual. No infieras emoción del perfil,
+los colores o teclear/gesticular ni la contagies entre actores por continuidad.
+La cita no cuenta como cambio temporal. La lectura histórica conserva su ruta;
+no cambies VERSION. Regresión offline y pendientes Canvas en
+`prueba_stickman_editorial.py --real`, sin proveedores.
+
+S004 editada quedó con angry en base y cuatro claves, pero sin expresiones_fieles:
+la corrección anterior solo se activaba al generar desde cero y la IA omitió la
+marca al editar. `validar_entrega` y el cierre de `generar_escena` fuerzan ahora
+`realizacion.cejas_fieles:true` en toda edición, aunque el proveedor lo omita o
+envíe false. Corrige las cejas en las tres rutas del renderer sin convertir las
+bocas neutras históricas a smallFlat ni activar otros acabados. No dependas de
+que el prompt/modelo recuerde esta corrección del motor ni cambies EXPR original.
+
+Los textos normales usaban sans-serif aunque Fredoka estuviera cargada: describir
+letras redondeadas no cambiaba ese render. Las entregas nuevas reciben
+`realizacion.tipografia:redondeada` en `validar_entrega`; `escena.js` aplica
+Fredoka 700 con volumen interior (`texto.js`) y admite fuente hasta 160.
+El halo sigue siendo local/selectivo mediante neon; no desenfoques los glifos.
+No inyectes el campo al abrir ni en retoques históricos de cámara/actuación;
+`clasica` o ausencia conserva su ruta. No cambies VERSION ni invalides recibos.
+Contrato y fusión animada sin proveedores: `prueba_stickman_editorial.py --real`.
+
 El teatro antiguo era franjas verticales, suelo genérico y `FX.crowd` diminuto:
 el fallo era construcción/escala del decorado, no solo falta de partículas.
 `escenografia_detallada:true` activa `escenografia.js` en entregas nuevas:
@@ -188,6 +218,13 @@ El contenido anterior es la base, no una referencia para recrearla. Dos botones
 excluyentes eligen Claude (por defecto) o ChatGPT para aplicar los cambios;
 el cliente envía respectivamente 0 o 100 en el contrato `porcentaje` existente.
 Los chats viven en `stickman/chats` del proyecto y viajan también al duplicar.
+
+`POST /escenas/{sid}/stickman/regenerar` valida el id contra la previsualización
+actual y lanza assets con SOLO esa unidad y `rehacer:true`. Quita antes su
+`edicion_stickman` y `medio_usuario`: si queda el encargo de edición, rehacer
+vuelve a retocar el plan previo en lugar de dirigirlo desde cero. Conserva la
+descripción y los params de las demás escenas. La UI pone «Regenerando
+animación…» en la previa y recarga el clip al terminar; Parar cancela el trabajo.
 
 En entregas nuevas, `dividido` completa los `panel` omitidos solo si hay exactamente
 dos protagonistas, cada uno permanece en una mitad distinta (base y claves x) y

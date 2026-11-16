@@ -84,7 +84,30 @@ Además de las primitivas, hay tipos reconocibles `movil`, `mensaje`,
 (papel con borde). Su contenido se compone dentro de su caja, con otros objetos.
 Los objetos usan `w,h` como dimensiones, también
 el círculo (elipse); `texto` ajusta su letra a esa caja con `fuente` independiente
-(16–96). `linea` usa `w,h` como vector desde su origen, admite cero y valores
+(16–160). Las generaciones nuevas llevan `realizacion.tipografia:"redondeada"`:
+Fredoka 700 para todos los objetos de texto, con degradado interior suave y borde
+fino. Usa 110–160 para palabras protagonistas, cajas amplias y `neon:.25–.4`
+selectivo para un halo detrás de la letra nítida. El ajuste a `w,h` conserva las
+proporciones, los acentos y las claves de movimiento. `tipografia:"clasica"`
+conserva la ruta anterior; los planes históricos sin campo también la conservan.
+El campo se añade al generar, no al leer ni al retocar solo cámara/actuación.
+
+Las generaciones nuevas usan `realizacion.expresiones_fieles:true`: neutral
+significa cejas en reposo y boca neutra; hablar y parpadear siguen su reloj.
+El adaptador `expresiones.js` corrige localmente las pendientes invertidas de
+enfado/preocupación del kit, sin mutar sus tablas originales. Se aplica a Classic,
+familias personalizadas y bustos. Sin campo se conserva el aspecto histórico.
+Al aplicar una edición, el servidor fuerza `realizacion.cejas_fieles:true`:
+activa la corrección de cejas incluso si el plan previo no llevaba
+`expresiones_fieles` y la IA no añade el campo. Esta marca independiente conserva
+las bocas neutras históricas y no activa otros acabados; la lectura no la inyecta.
+`motivo_expresion` en actor/claves guarda una cita de la descripción visual
+actual para cada expresión no neutra; una clave que repite la expresión puede
+heredar su motivo anterior. `pasos/expresiones_stickman.py` valida las citas en
+entregas nuevas y pide corregirlas si faltan o proceden de otra escena. Son
+metadatos de dirección: cambiar una cita no cuenta como movimiento animado.
+
+`linea` usa `w,h` como vector desde su origen, admite cero y valores
 negativos, y tiene `grosor` independiente. Las claves admiten `opacidad` y
 `progreso` (0–1); progreso dibuja la línea o revela las marcas del calendario.
 
