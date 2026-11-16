@@ -5057,7 +5057,7 @@ MOTOR_CAMBIOS = {
        "misma imagen, de principio a fin",
 }
 
-OPCIONES_EJECUCION = ("solo_assets", "replantear", "rehacer", "tipos")
+OPCIONES_EJECUCION = ("solo_assets", "replantear", "rehacer", "tipos", "proveedor_stickman")
 
 
 def _anotar_tiempo(paso, arranque, hechas, detalle=None, proyecto=None):
@@ -5092,7 +5092,7 @@ def _anotar_tiempo(paso, arranque, hechas, detalle=None, proyecto=None):
 
 
 def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
-             replantear=False, rehacer=False, tipos=None, previo=None):
+             replantear=False, rehacer=False, tipos=None, previo=None, proveedor_stickman=None):
     """Construye assets y escenas. Si unidades no es None, solo esas.
 
     Con solo_assets se para despues de los assets (sets, reparto, mapas y
@@ -5120,7 +5120,8 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
     if (p.get('estilo') or {}).get('stickman'):
         from pasos import stickman
         return stickman.ejecutar(proyecto, p, avisar or (lambda *args: None), unidades=unidades,
-            solo_assets=solo_assets or bool(tipos), rehacer=rehacer, previo=previo)
+            solo_assets=solo_assets or bool(tipos), rehacer=rehacer, previo=previo,
+            proveedor_stickman=proveedor_stickman)
     if bibliotecas.activa(p):
         p["bibliotecas"] = bibliotecas.normalizar(p["bibliotecas"])
     avisar = estadisticas.avisador(avisar)

@@ -109,6 +109,20 @@ class PruebaCodex(unittest.TestCase):
         self.assertEqual(inicio.args[1]["sandbox"], "read-only")
         self.conexion.pedir.assert_any_call("thread/unsubscribe", {"threadId": "hilo"})
 
+    def test_texto_agrupa_referencias_del_historial_sin_pedir_una_ilustracion(self):
+        self.conexion.recibir.side_effect = [{'method': 'turn/completed', 'params': {
+            'threadId': 'hilo', 'turn': {'id': 'turno', 'status': 'completed',
+                'items': [{'id': 'respuesta', 'type': 'agentMessage', 'text': '{"mensaje":"Entendido"}'}]}}}]
+        with mock.patch.object(codex, 'Conexion', return_value=self.conexion):
+            self.assertEqual(codex.texto('Conversa sobre estas imágenes', [self.png] * 7),
+                '{"mensaje":"Entendido"}')
+        turno = next(c for c in self.conexion.pedir.call_args_list if c.args[0] == 'turn/start')
+        entradas = turno.args[1]['input']
+        self.assertEqual(len([e for e in entradas if e['type'] == 'localImage']), 5)
+        self.assertIn('REF 7', entradas[0]['text'])
+        self.assertIn('no generes imágenes', entradas[0]['text'])
+        self.assertNotIn('UNA sola ilustración', entradas[0]['text'])
+
     def test_selector_texto_no_abre_turno_sin_cuota_o_sesion(self):
         for cuenta, limites in (({"type": "apiKey"}, True), ({"type": "chatgpt"}, False)):
             with self.subTest(cuenta=cuenta, limites=limites):

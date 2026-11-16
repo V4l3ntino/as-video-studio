@@ -136,6 +136,88 @@ class Stickman(unittest.TestCase):
         copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia')
         self.assertEqual(editor.leer(copia, e), charla)
 
+    def test_chat_usa_la_ia_elegida_y_conserva_autores_al_cambiar(self):
+        from pasos import edicion_stickman as editor
+        p = Proyecto.crear(self.temp.name, 'Chat con ambas IA')
+        e = dict(id='S001', narracion='El personaje saluda.')
+        with patch.object(stickman, '_consultar', return_value={'mensaje': 'Entendido.'}) as consultar, \
+                patch.object(stickman, 'renderizar') as render:
+            for porcentaje, proveedor in [(0, 'Claude'), (100, 'ChatGPT'), (0, 'Claude')]:
+                charla = editor.conversar(p, e, {}, 'Conserva la actuación', lambda *a: None, porcentaje)
+                self.assertEqual(consultar.call_args.args[4], proveedor)
+                contexto = json.loads(consultar.call_args.args[0].split('Datos de contexto:\n')[1])
+                self.assertEqual(contexto['mensajes'], charla['mensajes'][:-1])
+            render.assert_not_called()
+        self.assertEqual([m['autor'] for m in charla['mensajes']],
+            ['usuario', 'claude', 'usuario', 'chatgpt', 'usuario', 'claude'])
+        self.assertEqual(editor.encargo(p, e, {}, '', 100)['proveedor'], 'ChatGPT')
+        self.assertEqual(editor.encargo(p, e, {}, '', 0)['proveedor'], 'Claude')
+
+    def test_imagenes_chat_viajan_a_ambas_ia_y_a_la_edicion_y_copia(self):
+        import io
+        from PIL import Image
+        from pasos import edicion_stickman as editor, imagenes_animacion
+        p = Proyecto.crear(self.temp.name, 'Retoque con imágenes')
+        e = dict(id='S001', narracion='El personaje saluda.', t_in=0, t_out=3)
+        contenido = stickman.escena(dict(personajes=[dict(id='ana', escala=2.6, y=.9,
+            claves=[dict(t=0, pose='stand'), dict(t=2, pose='wave')])]), 3, {'ana': self.base})
+        png = io.BytesIO()
+        Image.new('RGB', (80, 60), '#882222').save(png, 'PNG')
+        imagen = imagenes_animacion.guardar(p, png.getvalue(), 'referencia.png')
+        for porcentaje, proveedor in ((0, 'Claude'), (100, 'ChatGPT')):
+            with patch.object(stickman, '_consultar', return_value={'mensaje': 'Usaré esa referencia.'}) as consultar:
+                charla = editor.conversar(p, e, contenido, 'Usa este encuadre', lambda *a: None, porcentaje, imagen)
+            self.assertEqual(consultar.call_args.args[2], [p.ruta(imagen)])
+            self.assertEqual(consultar.call_args.args[4], proveedor)
+            self.assertEqual(charla['mensajes'][-2]['imagen'], imagen)
+            encargo = editor.encargo(p, e, contenido, '', porcentaje)
+            self.assertEqual(encargo['mensajes'], charla['mensajes'])
+            with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), \
+                    patch.object(stickman, '_consultar', return_value=contenido) as consultar:
+                stickman.generar_escena(dict(e, indicaciones_usuario=dict(edicion_stickman=encargo)),
+                    self.base, {'ana': self.base}, p, lambda *a: None, proveedor)
+            self.assertEqual(consultar.call_args.args[2], [p.ruta(imagen)])
+            self.assertEqual(consultar.call_args.args[4], proveedor)
+        directo = editor.encargo(p, e, contenido, 'Aplica esta referencia', 100, imagen)
+        self.assertEqual(directo['mensajes'][-1]['imagen'], imagen)
+        copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia con imágenes')
+        self.assertEqual(editor.leer(copia, e), charla)
+        self.assertEqual(editor.referencias(copia, charla['mensajes']), [copia.ruta(imagen)])
+        self.assertTrue(Path(copia.ruta(imagen)).is_file())
+        with patch.object(stickman, '_consultar') as consultar:
+            for invalida in ('../../ajustes.json', imagen.replace('.png', '.jpg'), 123,
+                             'medios_usuario/animaciones/' + '0' * 32 + '.png'):
+                with self.subTest(imagen=invalida), self.assertRaises(ValueError):
+                    editor.conversar(p, e, contenido, 'Usa esta imagen', lambda *a: None, 100, invalida)
+            consultar.assert_not_called()
+        self.assertEqual(editor.leer(p, e), charla)
+
+        import app
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        estado = Estado(p)
+        gestor = Mock()
+        gestor.listar.return_value = []
+        gestor.lanzar.side_effect = lambda nombre, funcion: (funcion(lambda *a: None), 'chat-imagen')[1]
+        ctx = SimpleNamespace(proyecto=p, estado=estado, gestor=gestor)
+        with patch.object(app, '_contexto_edicion_stickman', return_value=(ctx, e, contenido)), \
+                patch.object(app, '_registrar_trabajo'), \
+                patch.object(app, 'PASOS_MODULOS', SimpleNamespace(medios=medios)), \
+                patch.object(stickman, '_consultar', return_value={'mensaje': 'Entendido.'}) as consultar, \
+                patch.object(app, 'lanzar_paso', return_value='aplicar-imagen'):
+            for aplicando in (False, True):
+                respuesta = app.chat_stickman(p.id, 'S001', dict(mensaje='Usa esta referencia',
+                    porcentaje=100, imagen=imagen, aplicar=aplicando))
+                self.assertIn('trabajo_id', respuesta)
+            self.assertEqual(consultar.call_args.args[2], [p.ruta(imagen)])
+            self.assertEqual(consultar.call_args.args[4], 'ChatGPT')
+            self.assertEqual(estado.params('assets')['unidades']['escena:S001']['edicion_stickman']['mensajes'][-1]['imagen'], imagen)
+            antes = Path(p.ruta('estado.json')).read_bytes()
+            with self.assertRaises(app.ErrorApi) as error:
+                app.chat_stickman(p.id, 'S001', dict(mensaje='Prueba', imagen='../ajustes.json', aplicar=True))
+            self.assertEqual(error.exception.codigo, 400)
+            self.assertEqual(Path(p.ruta('estado.json')).read_bytes(), antes)
+
     def test_regenerar_escena_descarta_retoque_y_medio_solo_en_la_unidad_elegida(self):
         import app
         from types import SimpleNamespace
@@ -153,8 +235,13 @@ class Stickman(unittest.TestCase):
         with patch.object(app, 'contexto', return_value=ctx), \
                 patch.object(app, '_plan_de_previsualizacion', return_value=dict(escenas=[{'id': 'S001'}])), \
                 patch.object(app, 'lanzar_paso', return_value='regeneracion') as lanzar:
-            self.assertEqual(app.regenerar_escena_stickman(p.id, 'S001'), {'trabajo_id': 'regeneracion'})
-            lanzar.assert_called_once_with(ctx, 'assets', ['escena:S001'], opciones={'rehacer': True})
+            self.assertEqual(app.regenerar_escena_stickman(p.id, 'S001', None), {'trabajo_id': 'regeneracion'})
+            lanzar.assert_called_once_with(ctx, 'assets', ['escena:S001'],
+                opciones={'rehacer': True, 'proveedor_stickman': 'Claude'})
+            self.assertEqual(app.regenerar_escena_stickman(p.id, 'S001', {'porcentaje': 100}),
+                {'trabajo_id': 'regeneracion'})
+            self.assertEqual(lanzar.call_args.kwargs['opciones'],
+                {'rehacer': True, 'proveedor_stickman': 'ChatGPT'})
             unidades = estado.params('assets')['unidades']
             self.assertEqual(unidades['escena:S001'], {'descripcion_escena': anterior['descripcion_escena']})
             self.assertEqual(unidades['escena:S002'], otra)
@@ -162,10 +249,15 @@ class Stickman(unittest.TestCase):
             for sid, trabajos, codigo in [('ausente', [], 404), ('S001', ['activo'], 409)]:
                 gestor.listar.return_value = trabajos
                 with self.subTest(sid=sid, trabajos=trabajos), self.assertRaises(app.ErrorApi) as error:
-                    app.regenerar_escena_stickman(p.id, sid)
+                    app.regenerar_escena_stickman(p.id, sid, {})
                 self.assertEqual(error.exception.codigo, codigo)
                 self.assertEqual(Path(p.ruta('estado.json')).read_bytes(), antes)
-            self.assertEqual(lanzar.call_count, 1)
+            for valor in (50, '100', True, -1):
+                with self.subTest(porcentaje=valor), self.assertRaises(app.ErrorApi) as error:
+                    app.regenerar_escena_stickman(p.id, 'S001', {'porcentaje': valor})
+                self.assertEqual(error.exception.codigo, 400)
+                self.assertEqual(Path(p.ruta('estado.json')).read_bytes(), antes)
+            self.assertEqual(lanzar.call_count, 2)
 
     def test_continuar_animaciones_usa_solo_las_unidades_que_faltan(self):
         import app
@@ -325,10 +417,14 @@ class Stickman(unittest.TestCase):
             self.assertEqual(generar.call_args_list[2].args[0]['escenarios_video'],
                 [dict(id='telon_rojo',tipo='teatro',semilla=9)])
             # Regenerar solo la tercera también recupera raíz y anterior.
-            with patch.object(stickman, 'generar_escena', return_value=segunda) as generar:
-                stickman.ejecutar(p, params, lambda *a: None, unidades=['escena:S003'], rehacer=True)
-            self.assertEqual(generar.call_count, 1)
-            self.assertEqual(generar.call_args.args[0]['continuidad_bloque'], contexto3)
+            for proveedor in ('Claude', 'ChatGPT'):
+                with patch.object(stickman, 'generar_escena', return_value=segunda) as generar:
+                    p6_assets.ejecutar(p, params, lambda *a: None, unidades=['escena:S003'],
+                        rehacer=True, proveedor_stickman=proveedor)
+                self.assertEqual(generar.call_count, 1)
+                self.assertEqual(generar.call_args.args[-1], proveedor)
+                self.assertEqual(generar.call_args.args[0]['continuidad_bloque'], contexto3)
+            self.assertIn('proveedor_stickman', p6_assets.OPCIONES_EJECUCION)
         # El contexto llega al prompt del adaptador común a ambos proveedores.
         e = dict(escenas[2], continuidad_bloque=contexto3)
         with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), \

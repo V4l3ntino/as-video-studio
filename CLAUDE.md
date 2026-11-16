@@ -239,12 +239,21 @@ escena desde su `.animacion.json` publicado, comprobando firma y narración del
 recibo. El encargo completo vive en `assets.params.unidades[uid].edicion_stickman`;
 solo «Aplicar cambios» lo guarda y ejecuta assets con esa unidad y `rehacer`.
 El contenido anterior es la base, no una referencia para recrearla. Dos botones
-excluyentes eligen Claude (por defecto) o ChatGPT para aplicar los cambios;
+excluyentes bajo «Editor del vídeo» eligen Claude (por defecto) o ChatGPT tanto
+para conversar como para aplicar los cambios; la elección se comparte entre escenas y
 el cliente envía respectivamente 0 o 100 en el contrato `porcentaje` existente.
 Los chats viven en `stickman/chats` del proyecto y viajan también al duplicar.
+Las imágenes opcionales del chat usan la subida normalizada de `imagenes_animacion`
+y rutas relativas `medios_usuario/animaciones` en `mensajes[].imagen`. Valida su
+existencia antes de lanzar; conversa y aplica con esas mismas referencias, resueltas
+contra el proyecto actual (también tras duplicar/importar). No guardes rutas absolutas
+en el encargo. El adaptador de texto Codex agrupa más de cinco imágenes conservando
+su numeración, sin pedir una ilustración como respuesta.
 
 `POST /escenas/{sid}/stickman/regenerar` valida el id contra la previsualización
-actual y lanza assets con SOLO esa unidad y `rehacer:true`. Quita antes su
+actual y lanza assets con SOLO esa unidad y `rehacer:true`. La IA seleccionada
+en la cabecera viaja como opción de ejecución `proveedor_stickman`, admitida por
+`p6_assets` y transmitida al motor, sin cambiar el reparto global del vídeo. Quita antes su
 `edicion_stickman` y `medio_usuario`: si queda el encargo de edición, rehacer
 vuelve a retocar el plan previo en lugar de dirigirlo desde cero. Conserva la
 descripción y los params de las demás escenas. La UI pone «Regenerando

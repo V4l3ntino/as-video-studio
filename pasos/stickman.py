@@ -554,12 +554,17 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         edicion = (e.get('indicaciones_usuario') or {}).get('edicion_stickman')
         if edicion and edicion.get('ancla') != e.get('narracion'):
             raise ValueError('La edición ya no corresponde al texto de esta escena')
+        referencias_edicion = []
+        if edicion:
+            from pasos import edicion_stickman
+            referencias_edicion = edicion_stickman.referencias(proyecto, edicion.get('mensajes') or [])
         prefijo = ('EDITA la animación actual recibida en edicion_stickman.contenido. Es la base completa, no una referencia para recrear. '
             'Aplica SOLO los cambios acordados en mensajes. Conserva personajes, objetos, utilería, actuación, sonidos, '
             'colores y claves no afectados. Para alejar el zoom ajusta cámara/encuadre sin reinventar la escena. '
             'El contenido actual es la fuente de verdad: los mensajes anteriores son contexto, no repitas cambios ya presentes. '
             'La petición de retoque manda sobre la descripción visual histórica y la continuidad cuando haya conflicto. '
-             'Devuelve el plan completo editado con el mismo contrato.\n') if edicion else ''
+              + edicion_stickman.CONTEXTO_IMAGENES
+              + 'Devuelve el plan completo editado con el mismo contrato.\n') if edicion else ''
         def validar_entrega(d):
             resolucion = e.get('resolucion', [1920, 1080])
             contenido = validar_puesta_en_escena(d, dur, reparto, resolucion, catalogo_utileria)
@@ -696,7 +701,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             + utileria_stickman.CONTRATO
             + json.dumps(dict(escena=e, duracion=dur, estilo=diseno, reparto=reparto,
                 catalogo_utileria=utileria_stickman.indice(catalogo_utileria, e)), ensure_ascii=False),
-            proyecto, avisar=avisar, proveedor=proveedor,
+            proyecto, referencias=referencias_edicion, avisar=avisar, proveedor=proveedor,
             validar=validar_entrega)
     datos.setdefault('realizacion', dict(encuadre='general', acabado=True))
     if not editando and 'capitulo' in e:
@@ -761,6 +766,9 @@ def memoria_visual(e, contenido):
 
 def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer=False, previo=None, **opciones):
     from pasos import p6_assets, personajes
+    proveedor_elegido = opciones.get('proveedor_stickman')
+    if proveedor_elegido is not None and proveedor_elegido not in ('Claude', 'ChatGPT'):
+        raise ValueError('proveedor Stickman desconocido')
     trabajo = medios.sembrar_trabajo(proyecto, 'assets')
     plan = p6_assets.planificar(proyecto, params, previo=previo)
     base = seleccion(params['estilo']['stickman'])
@@ -844,7 +852,7 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                 edicion = contexto['indicaciones_usuario'].get('edicion_stickman') or {}
                 if rehacer and not edicion:
                     contexto['renovar_escenografia'] = True
-                proveedor = edicion.get('proveedor') or ('Claude' if i < n_claude else 'ChatGPT')
+                proveedor = proveedor_elegido or edicion.get('proveedor') or ('Claude' if i < n_claude else 'ChatGPT')
                 try:
                     contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
                 except ErrorValidacion as fallo:

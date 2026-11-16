@@ -398,7 +398,7 @@ def _disponible(item):
         bool(item.get("result")) or os.path.isfile(item.get("savedPath") or "")))
 
 
-def _preparar_referencias(referencias, carpeta):
+def _preparar_referencias(referencias, carpeta, ilustracion=True):
     """Como máximo cinco adjuntos, sin descartar ninguna referencia lógica."""
     rutas = []
     individuales = min(len(referencias), MAX_REFERENCIAS if len(referencias) <= MAX_REFERENCIAS else MAX_REFERENCIAS - 1)
@@ -434,7 +434,8 @@ def _preparar_referencias(referencias, carpeta):
             f"El adjunto {len(rutas)} es una lámina que contiene las restantes: " + "; ".join(posiciones) + ". "
             "Todos los números de referencia del encargo conservan esta numeración ORIGINAL. "
             "Usa cada recuadro para el papel que le asigna el encargo. No copies la cuadrícula, las etiquetas REF ni los márgenes: "
-            "la salida debe ser UNA sola ilustración sin paneles.\n\n")
+            + ("la salida debe ser UNA sola ilustración sin paneles.\n\n" if ilustracion
+               else "Responde con el formato de texto o JSON solicitado, no generes imágenes.\n\n"))
     return rutas, mapa
 
 
@@ -456,8 +457,9 @@ def texto(instruccion, referencias=(), avance=None, segundos=180):
                            "features.image_generation": False},
                 "developerInstructions": "Responde solo con el JSON solicitado. No uses herramientas, "
                     "no generes imágenes ni accedas a archivos o a la red."})["thread"]["id"]
-            entradas = [{"type": "text", "text": instruccion}]
-            entradas.extend({"type": "localImage", "path": os.path.realpath(r)} for r in referencias)
+            adjuntas, mapa = _preparar_referencias(list(referencias), carpeta, ilustracion=False)
+            entradas = [{"type": "text", "text": mapa + instruccion}]
+            entradas.extend({"type": "localImage", "path": os.path.realpath(r)} for r in adjuntas)
             respuesta = conexion.pedir("turn/start", {"threadId": hilo, "input": entradas})
             turno_id = (respuesta.get("turn") or {}).get("id")
             mensajes = {}

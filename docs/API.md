@@ -38,7 +38,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/duplicar` | Copia un proyecto entero con lo que tiene puesto HOY. -> el nuevo. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Contenido editable y catálogo completo de animaciones para una escena. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/animacion` | Edita una animación; reserva una imagen propia adicional si el tipo la necesita. |
-| `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes` | Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes` | Prepara una imagen PNG, JPG o WebP de hasta 20 MiB para animación o contexto del chat de edición. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/animacion/previsualizar` | Dibuja el borrador de una animación sin guardar cambios en el proyecto. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/avatar` | Incorpora y prepara el avatar hablando en la escena elegida, también para el MP4. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/avatar/editor` | Editor de posición, entrada, salida e intervalo del avatar; lectura sin generación. |
@@ -53,8 +53,8 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/remotion/preparar` | Prepara superposiciones PNG o escenas completas MP4, sin guardar params. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/sonidos` | Prepara un efecto seleccionado; el bloque solo se persiste al guardar la escena. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/stickman/chat` | Recupera la conversación de retoque de una escena Stickman publicada. |
-| `POST` | `/api/proyectos/{pid}/escenas/{sid}/stickman/chat` | Conversa con Claude o aplica un retoque IA únicamente a la escena elegida. |
-| `POST` | `/api/proyectos/{pid}/escenas/{sid}/stickman/regenerar` | Genera de nuevo una animación Stickman, sin reutilizar su plan ni retoques. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/stickman/chat` | Conversa o aplica un retoque con la IA elegida únicamente a la escena seleccionada. |
+| `POST` | `/api/proyectos/{pid}/escenas/{sid}/stickman/regenerar` | Genera de nuevo una animación Stickman con la IA elegida, sin reutilizar su plan ni retoques. |
 | `GET` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Transición de esta escena a la siguiente, con shaders y medios para probarla sin guardar. |
 | `PUT` | `/api/proyectos/{pid}/escenas/{sid}/transicion` | Guarda el efecto y su intervalo opcional; actualiza los clips afectados y el montaje. |
 | `POST` | `/api/proyectos/{pid}/escenas/{sid}/vale` | «Este dibujo me vale para lo que dice ahora». -> {ok} |

@@ -133,20 +133,28 @@ efectos viajan al duplicar o exportar el vídeo.
 
 Para retocar una animación existente, selecciona su escena y pulsa **✦ Editar
 escena**, encima del previsualizador, antes de **Sustituir imagen**. El panel
-derecho abre un chat con Claude para concretar cambios, por ejemplo alejar el
+derecho abre un chat con la IA seleccionada para concretar cambios, por ejemplo alejar el
 zoom conservando la actuación. Enviar mensajes solo conversa; **Aplicar cambios**
 edita el plan de animación publicado y prepara de nuevo únicamente esa escena,
 manteniendo la narración y su duración. **Parar** cancela el trabajo.
 
+En ese chat, **Adjuntar imagen** permite añadir una referencia visual opcional
+(PNG, JPG o WebP, hasta 20 MiB). Puedes comprobar su miniatura y quitarla antes
+de enviar. La imagen queda asociada al mensaje y sirve de contexto tanto para
+la conversación como para **Aplicar cambios**, con Claude o ChatGPT. También
+puedes adjuntarla y aplicar directamente con tus indicaciones. Las referencias
+se conservan en el historial de la escena y viajan al duplicar o exportar el vídeo.
+
 Junto a **Editar escena**, **Regenerar escena** crea de nuevo toda la animación
-de la escena situada bajo el cursor, desde su descripción actual y sin reutilizar
+de la escena situada bajo el cursor con la IA seleccionada en la cabecera, desde su descripción actual y sin reutilizar
 su plan ni los retoques anteriores. El previsualizador muestra **Regenerando
 animación…** y permite parar; al terminar carga el nuevo clip. Después vuelve a
 montar para incorporar el cambio al MP4.
 
-Los botones **Claude** y **ChatGPT** eligen qué IA aplica los cambios, con Claude
-seleccionado por defecto. Solo uno puede estar seleccionado. ChatGPT/Codex usa
-su sesión habitual. Claude lleva siempre la conversación. El historial se conserva por
+Los botones **Claude** y **ChatGPT**, debajo de **Editor del vídeo**, eligen qué IA
+responde al chat y aplica los cambios, con Claude seleccionado por defecto.
+Solo uno puede estar seleccionado y la elección se mantiene al cambiar de escena.
+ChatGPT/Codex usa su sesión habitual. El historial se conserva por
 escena. Al terminar, comprueba el resultado en la previa y vuelve a montar para
 incorporarlo al MP4.
 

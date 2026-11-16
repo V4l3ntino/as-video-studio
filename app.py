@@ -5349,9 +5349,13 @@ def _contexto_edicion_stickman(pid, sid):
 
 
 @app.post("/api/proyectos/{pid}/escenas/{sid}/stickman/regenerar", status_code=202)
-def regenerar_escena_stickman(pid: str, sid: str):
-    """Genera de nuevo una animación Stickman, sin reutilizar su plan ni retoques."""
+def regenerar_escena_stickman(pid: str, sid: str, datos: dict = Body(default=None)):
+    """Genera de nuevo una animación Stickman con la IA elegida, sin reutilizar su plan ni retoques."""
     from pasos import stickman
+    porcentaje = (datos or {}).get('porcentaje', 0)
+    if type(porcentaje) is not int or porcentaje not in (0, 100):
+        raise ErrorApi(400, 'elige Claude (0) o ChatGPT (100) para regenerar la escena')
+    proveedor = 'ChatGPT' if porcentaje == 100 else 'Claude'
     with _LOCK:
         ctx = contexto(pid)
         if not stickman.activo(ctx.estado.params('assets') or {}):
@@ -5366,7 +5370,7 @@ def regenerar_escena_stickman(pid: str, sid: str):
         unidad.pop('edicion_stickman', None)
         unidad.pop('medio_usuario', None)
         ctx.estado.actualizar_params('assets', {'unidades': {uid: unidad}})
-        tid = lanzar_paso(ctx, 'assets', [uid], opciones={'rehacer': True})
+        tid = lanzar_paso(ctx, 'assets', [uid], opciones={'rehacer': True, 'proveedor_stickman': proveedor})
     return dict(trabajo_id=tid)
 
 
@@ -5380,10 +5384,10 @@ def leer_chat_stickman(pid: str, sid: str):
 
 @app.post("/api/proyectos/{pid}/escenas/{sid}/stickman/chat", status_code=202)
 def chat_stickman(pid: str, sid: str, datos: dict = Body(...)):
-    """Conversa con Claude o aplica un retoque IA únicamente a la escena elegida."""
+    """Conversa o aplica un retoque con la IA elegida únicamente a la escena seleccionada."""
     from pasos import edicion_stickman
     mensaje = datos.get('mensaje', '')
-    porcentaje = datos.get('porcentaje', 50)
+    porcentaje = datos.get('porcentaje', 0)
     if not isinstance(mensaje, str) or len(mensaje) > 12000:
         raise ErrorApi(400, 'escribe una instrucción de hasta 12.000 caracteres')
     mensaje = mensaje.strip()
@@ -5393,9 +5397,13 @@ def chat_stickman(pid: str, sid: str, datos: dict = Body(...)):
         ctx, escena, contenido = _contexto_edicion_stickman(pid, sid)
         if ctx.gestor.listar(activos=True):
             raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
+        try:
+            imagen = edicion_stickman.validar_imagen(ctx.proyecto, datos.get('imagen'))
+        except ValueError as exc:
+            raise ErrorApi(400, str(exc)) from exc
         if datos.get('aplicar') is True:
             try:
-                encargo = edicion_stickman.encargo(ctx.proyecto, escena, contenido, mensaje, porcentaje)
+                encargo = edicion_stickman.encargo(ctx.proyecto, escena, contenido, mensaje, porcentaje, imagen)
             except ValueError as exc:
                 raise ErrorApi(400, str(exc)) from exc
             uid = 'escena:' + sid
@@ -5409,10 +5417,10 @@ def chat_stickman(pid: str, sid: str, datos: dict = Body(...)):
             medios = PASOS_MODULOS.medios
             medios.escribir_json(edicion_stickman.ruta(ctx.proyecto, sid), charla)
         else:
-            if not mensaje:
-                raise ErrorApi(400, 'escribe un mensaje para Claude')
+            if not mensaje and imagen is None:
+                raise ErrorApi(400, 'escribe un mensaje para la IA seleccionada')
             tid = ctx.gestor.lanzar('stickman:chat', lambda avisar: edicion_stickman.conversar(
-                ctx.proyecto, escena, contenido, mensaje, avisar))
+                ctx.proyecto, escena, contenido, mensaje, avisar, porcentaje, imagen))
             _registrar_trabajo(tid, pid)
     return dict(trabajo_id=tid)
 
@@ -5648,7 +5656,7 @@ def leer_animacion_escena(pid: str, sid: str):
 
 @app.post("/api/proyectos/{pid}/escenas/{sid}/animacion/imagenes", status_code=201)
 def subir_imagen_animacion(pid: str, sid: str, archivo: UploadFile = File(...)):
-    """Prepara una imagen PNG, JPG o WebP de hasta 20 MiB; se asigna al pulsar Guardar."""
+    """Prepara una imagen PNG, JPG o WebP de hasta 20 MiB para animación o contexto del chat de edición."""
     from pasos import imagenes_animacion
     ctx = contexto(pid)
     with _LOCK:

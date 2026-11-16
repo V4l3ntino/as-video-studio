@@ -2809,7 +2809,12 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 .remotion-chat[hidden] { display: none; }
 .stickman-edicion .remotion-chat { min-height: 450px; }
 .stickman-edicion .remotion-taller-cabecera > button { margin-right: 10px; }
-.stickman-proveedores { display: flex; gap: 8px; margin-top: 12px; }
+.stickman-chat-subida { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.stickman-chat-adjunto { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.stickman-chat-adjunto[hidden] { display: none; }
+.stickman-chat-imagen { display: block; max-width: 100%; width: 120px; height: 90px; object-fit: contain; margin-top: 6px; border: 1px solid #394253; border-radius: 5px; }
+.editor-global-titulo { flex-shrink: 0; }
+.stickman-proveedores { display: flex; gap: 8px; margin-top: 12px; width: 240px; max-width: 100%; }
 .stickman-proveedores button { flex: 1; }
 .stickman-proveedores button[aria-pressed="true"] { border-color: #a4b0ff; background: #252c46; box-shadow: inset 0 0 0 1px #8192ff; }
 .remotion-chat h4 { margin: 10px 0; font-size: 15px; }

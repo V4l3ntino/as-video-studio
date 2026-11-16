@@ -317,6 +317,97 @@ class EditorGlobal(unittest.TestCase):
                     pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "animacion", 0)')
                     activo.get_by_role('button', name='+ Añadir bloque').click()
                     self.assertTrue(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                    # El selector Stickman es común al editor y gobierna chat y aplicación.
+                    pagina.route('**/stickman/chat', lambda ruta: ruta.fulfill(json={'mensajes': []}))
+                    pagina.evaluate('''() => {
+                        const pedidoOriginal = pedidoDelVideoLight;
+                        pedidoDelVideoLight = () => {
+                            const p = pedidoOriginal();
+                            return {...p, copia: {...p.copia, stickman: {}}};
+                        };
+                        window.turnosStickman = [];
+                        const crearOriginal = crearChatEdicionStickman;
+                        crearChatEdicionStickman = opciones => crearOriginal({...opciones,
+                            alAplicar: async () => {},
+                            trabajo: async (ruta, datos) => {
+                                window.turnosStickman.push(datos);
+                                return {mensajes: [{autor: 'usuario', texto: datos.mensaje, imagen: datos.imagen},
+                                    {autor: datos.porcentaje ? 'chatgpt' : 'claude', texto: 'Entendido.'}]};
+                            }});
+                        EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null;
+                        document.querySelector('#panel').replaceChildren(editorGlobalImagenes(PREVIA.ficha.escenas));
+                    }''')
+                    pagina.wait_for_timeout(500)
+                    self.assertFalse(errores, errores)
+                    pagina.wait_for_selector('.stickman-edicion', state='attached')
+                    selector = pagina.get_by_role('group', name='IA para el chat y los cambios de escena')
+                    claude = selector.get_by_role('button', name='Claude', exact=True)
+                    chatgpt = selector.get_by_role('button', name='ChatGPT', exact=True)
+                    self.assertEqual(claude.get_attribute('aria-pressed'), 'true')
+                    self.assertEqual(pagina.locator('.stickman-edicion .stickman-proveedores').count(), 0)
+                    titulo = cabecera.get_by_role('heading', name='Editor del vídeo').bounding_box()
+                    botones = selector.bounding_box()
+                    self.assertGreater(botones['y'], titulo['y'] + titulo['height'])
+                    self.assertAlmostEqual(botones['x'], titulo['x'], delta=1)
+                    chatgpt.click()
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 0)')
+                    activo.get_by_role('button', name='Editar escena', exact=True).click()
+                    chat = activo.locator('.stickman-edicion')
+                    chat.get_by_role('textbox').fill('Aleja el zoom')
+                    imagen_contexto = proyecto.ruta('pasos', 'assets', 'v1', 'escenas', 'S001.png')
+                    estado_antes_subida = Path(proyecto.ruta('estado.json')).read_bytes()
+                    chat.locator('input[type=file]').set_input_files(imagen_contexto)
+                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    self.assertEqual(estado_antes_subida, Path(proyecto.ruta('estado.json')).read_bytes())
+                    chat.get_by_role('button', name='Quitar imagen', exact=True).click()
+                    self.assertTrue(chat.locator('.stickman-chat-adjunto').is_hidden())
+                    chat.locator('input[type=file]').set_input_files(imagen_contexto)
+                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    self.assertTrue(chat.locator('.stickman-chat-imagen').evaluate('n => n.complete && n.naturalWidth > 0'))
+                    chat.get_by_role('button', name='Enviar mensaje', exact=True).click()
+                    chat.get_by_text('ChatGPT: ', exact=True).wait_for()
+                    referencia = pagina.evaluate('turnosStickman[0].imagen')
+                    self.assertTrue(referencia.startswith('medios_usuario/animaciones/'))
+                    self.assertTrue(chat.locator('.remotion-chat-mensajes .stickman-chat-imagen').is_visible())
+                    self.assertTrue(chat.locator('.stickman-chat-adjunto').is_hidden())
+                    chat.get_by_role('button', name='Aplicar cambios', exact=True).click()
+                    pagina.wait_for_function('turnosStickman.length === 2')
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S002", "imagenes", 0)')
+                    self.assertEqual(chatgpt.get_attribute('aria-pressed'), 'true')
+                    activo.get_by_role('button', name='Editar escena', exact=True).click()
+                    claude.click()
+                    chat.get_by_role('textbox').fill('Conserva los colores')
+                    chat.get_by_role('button', name='Enviar mensaje', exact=True).click()
+                    chat.get_by_text('Claude: ', exact=True).wait_for()
+                    chat.locator('input[type=file]').set_input_files(imagen_contexto)
+                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    chat.get_by_role('button', name='Aplicar cambios', exact=True).click()
+                    pagina.wait_for_function('turnosStickman.length === 4')
+                    self.assertEqual(pagina.evaluate('turnosStickman.map(t => [t.porcentaje, t.aplicar])'),
+                        [[100, False], [100, True], [0, False], [0, True]])
+                    self.assertTrue(pagina.evaluate('!!turnosStickman[3].imagen'))
+                    pagina.wait_for_function('!document.querySelector(".stickman-proveedores button").disabled')
+                    regeneraciones = []
+                    def regenerar_sin_proveedor(ruta):
+                        regeneraciones.append(ruta.request.post_data_json)
+                        ruta.fulfill(json={'trabajo_id': 'regeneracion-prueba'})
+                    pagina.route('**/stickman/regenerar', regenerar_sin_proveedor)
+                    pagina.route('**/api/trabajos/regeneracion-prueba', lambda ruta: ruta.fulfill(
+                        json={'estado': 'listo', 'progreso': 1, 'resultado': {}}))
+                    # Conserva el editor de prueba tras refrescar la previa simulada.
+                    pagina.evaluate('repintarVideo = () => {}')
+                    for boton, porcentaje in ((chatgpt, 100), (claude, 0)):
+                        boton.click()
+                        activo.get_by_role('button', name='Regenerar escena', exact=True).click()
+                        pagina.wait_for_function('!document.querySelector(".stickman-proveedores button").disabled')
+                        self.assertEqual(regeneraciones[-1], {'porcentaje': porcentaje})
+                    pagina.set_viewport_size({'width': 390, 'height': 844})
+                    self.assertTrue(pagina.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+                    pagina.set_viewport_size({'width': 1440, 'height': 1000})
+                    chat.locator('input[type=file]').set_input_files(imagen_contexto)
+                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    if os.environ.get('ESTUDIO_CAPTURA_EDITOR'):
+                        pagina.screenshot(path=os.environ['ESTUDIO_CAPTURA_EDITOR'], full_page=True)
                     self.assertFalse(errores, errores)
                     pagina.unroute_all(behavior='wait')
                     navegador.close()

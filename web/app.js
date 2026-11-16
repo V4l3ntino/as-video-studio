@@ -10814,9 +10814,9 @@ const CACHE_EDITOR = {
   },
 };
 
-function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alAplicar}) {
+function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alAplicar, modelo}) {
   const base = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/stickman/chat`;
-  let enviando = false, cargado = false, proveedor = 'Claude';
+  let enviando = false, cargado = false, subiendo = false, imagen = null;
   const mensajes = h('div', {clase: 'remotion-chat-mensajes', role: 'log', 'aria-live': 'polite'});
   const estado = h('p', {clase: 'meta', role: 'status', 'aria-live': 'polite'});
   const entrada = h('textarea', {rows: 3, maxlength: 12000,
@@ -10824,53 +10824,81 @@ function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alA
     'aria-label': 'Cambios en la escena', onkeydown: ev => {
       if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {ev.preventDefault(); enviar(false);}
     }});
-  const proveedores = ['Claude', 'ChatGPT'].map(nombre => h('button', {
-    type: 'button', clase: 'remotion-boton', 'aria-pressed': String(nombre === proveedor),
-    onclick: () => {
-      if (enviando) return;
-      proveedor = nombre;
-      proveedores.forEach(b => b.setAttribute('aria-pressed', String(b.textContent === proveedor)));
-    }}, nombre));
   const enviarBoton = h('button', {clase: 'remotion-boton primario', 'aria-label': 'Enviar mensaje',
     title: 'Enviar mensaje (Enter). Shift+Enter añade una línea.', onclick: () => enviar(false)}, '➤');
   const aplicar = h('button', {clase: 'remotion-boton primario', onclick: () => enviar(true)}, 'Aplicar cambios');
   const parar = h('button', {clase: 'remotion-boton', hidden: true, onclick: cancelar}, 'Parar');
+  const archivo = h('input', {type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true,
+    'aria-label': 'Imagen de contexto', onchange: async () => {
+      const foto = archivo.files[0];
+      if (!foto || enviando || subiendo) return;
+      if (foto.size > 20 * 1024 * 1024) {
+        estado.textContent = 'La imagen supera el límite de 20 MiB.'; archivo.value = ''; return;
+      }
+      subiendo = true; bloquearControles(true); estado.textContent = 'Subiendo imagen de contexto…';
+      try {
+        const cuerpo = new FormData(); cuerpo.append('archivo', foto);
+        const subida = await pedir(`${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/animacion/imagenes`,
+          {method: 'POST', cuerpo});
+        imagen = subida.ruta; pintarAdjunto(); estado.textContent = '';
+      } catch (error) {estado.textContent = error.message;}
+      finally {subiendo = false; bloquearControles(false); archivo.value = '';}
+    }});
+  const adjuntar = h('button', {type: 'button', clase: 'remotion-boton', onclick: () => archivo.click()}, '📎 Adjuntar imagen');
+  const quitarImagen = h('button', {type: 'button', clase: 'mini', onclick: () => {imagen = null; pintarAdjunto();}}, 'Quitar imagen');
+  const adjunto = h('div', {clase: 'stickman-chat-adjunto', hidden: true});
   const panel = h('aside', {clase: 'remotion-taller stickman-edicion', hidden: true,
     'aria-label': `Chat de edición de ${escena.id}`},
     h('div', {clase: 'remotion-taller-cabecera'}, h('h3', {}, `✦ Editar escena · ${escena.id}`),
       h('button', {clase: 'mini', onclick: alCerrar, 'aria-label': 'Cerrar edición de escena'}, '×')),
     h('section', {clase: 'remotion-chat'},
-      h('p', {clase: 'meta'}, 'Habla con Claude para concretar los retoques. «Aplicar cambios» modifica únicamente esta animación.'),
-      mensajes, h('div', {clase: 'remotion-chat-entrada'}, entrada, enviarBoton),
-      h('section', {clase: 'remotion-chat-reparto'}, h('b', {}, 'IA para aplicar los cambios'),
-        h('div', {clase: 'stickman-proveedores', role: 'group', 'aria-label': 'IA para aplicar los cambios'}, ...proveedores)),
+      h('p', {clase: 'meta'}, 'Habla con la IA seleccionada para concretar los retoques. «Aplicar cambios» usa esa misma IA y modifica únicamente esta animación.'),
+      mensajes, adjunto,
+      h('div', {clase: 'stickman-chat-subida'}, adjuntar, archivo, h('span', {clase: 'meta'}, 'Opcional · PNG, JPG o WebP · hasta 20 MiB')),
+      h('div', {clase: 'remotion-chat-entrada'}, entrada, enviarBoton),
       h('div', {clase: 'remotion-chat-acciones'}, aplicar, parar), estado));
   function pintar(charla) {
     mensajes.replaceChildren(...(charla.mensajes || []).map(m => h('p', {},
-      h('b', {}, m.autor === 'usuario' ? 'Tú: ' : 'Claude: '), m.texto)));
+      h('b', {}, m.autor === 'usuario' ? 'Tú: ' : m.autor === 'chatgpt' ? 'ChatGPT: ' : 'Claude: '), m.texto,
+      m.imagen ? miniatura(m.imagen) : null)));
     mensajes.scrollTop = mensajes.scrollHeight;
   }
+  function miniatura(ruta) {
+    const url = API.archivo(pid, ruta);
+    return h('a', {href: url, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Abrir imagen de contexto'},
+      h('img', {clase: 'stickman-chat-imagen', src: url, alt: 'Imagen de contexto adjunta'}));
+  }
+  function pintarAdjunto() {
+    adjunto.hidden = !imagen;
+    adjunto.replaceChildren(...(imagen ? [miniatura(imagen), quitarImagen] : []));
+  }
+  function bloquearControles(ocupado) {
+    [entrada, enviarBoton, aplicar, archivo, adjuntar, quitarImagen].forEach(n => {n.disabled = ocupado;});
+  }
   async function cargar() {
-    if (cargado || enviando) return;
+    if (cargado || enviando || subiendo) return;
     try {pintar(await pedir(base)); cargado = true;}
     catch (error) {estado.textContent = error.message;}
   }
   async function enviar(aplicando) {
-    if (enviando) return;
+    if (enviando || subiendo) return;
     const texto = entrada.value.trim();
-    if (!aplicando && !texto) {entrada.focus(); return;}
+    if (!aplicando && !texto && !imagen) {entrada.focus(); return;}
     enviando = true; panel.setAttribute('aria-busy', 'true');
-    [entrada, enviarBoton, aplicar, ...proveedores].forEach(n => {n.disabled = true;}); parar.hidden = false;
+    modelo.bloquear(true);
+    bloquearControles(true); parar.hidden = false;
     try {
-      const resultado = await trabajo(base, {mensaje: texto, porcentaje: proveedor === 'ChatGPT' ? 100 : 0, aplicar: aplicando}, estado);
-      entrada.value = ''; cargado = false;
+      const resultado = await trabajo(base, {mensaje: texto, porcentaje: modelo.elegido() === 'ChatGPT' ? 100 : 0,
+        aplicar: aplicando, ...(imagen ? {imagen} : {})}, estado);
+      entrada.value = ''; imagen = null; pintarAdjunto(); cargado = false;
       pintar(aplicando ? await pedir(base) : resultado); cargado = true;
       estado.textContent = aplicando ? 'Cambios aplicados. Monta el vídeo para actualizar el MP4.' : '';
       if (aplicando) await alAplicar();
     } catch (error) {estado.textContent = error.message; cargado = false;}
     finally {
       enviando = false; panel.setAttribute('aria-busy', 'false'); parar.hidden = true;
-      [entrada, enviarBoton, aplicar, ...proveedores].forEach(n => {n.disabled = false;});
+      modelo.bloquear(false);
+      bloquearControles(false);
     }
   }
   return {panel, cargar};
@@ -11372,6 +11400,17 @@ function editorGlobalImagenes(escenas) {
   let seleccionada = actual;
   let ultimaEdicion = [], ondaPromesa, galeriaCompartida, aplicandoPosicion = false;
   let cargandoPistas = false;
+  let proveedorStickman = 'Claude';
+  const proveedoresStickman = ['Claude', 'ChatGPT'].map(nombre => h('button', {
+    type: 'button', clase: 'remotion-boton', 'aria-pressed': String(nombre === proveedorStickman),
+    onclick: () => {
+      proveedorStickman = nombre;
+      proveedoresStickman.forEach(b => b.setAttribute('aria-pressed', String(b.textContent === nombre)));
+    }}, nombre));
+  const modeloStickman = {
+    elegido: () => proveedorStickman,
+    bloquear: ocupado => proveedoresStickman.forEach(b => {b.disabled = ocupado;}),
+  };
   // Una sola toma y un solo reloj: cambiar de plano nunca busca ni pausa la voz.
   const narracion = new Audio();
   narracion.preload = 'auto';
@@ -11467,14 +11506,16 @@ function editorGlobalImagenes(escenas) {
       if (ev.key.toLowerCase() === 's') { ev.preventDefault(); guardar.click(); }
       if (ev.key.toLowerCase() === 'z' && !ev.target.closest('input, textarea')) { ev.preventDefault(); deshacer.click(); }
     } },
-    h('div', { clase: 'light-cab' }, h('h2', {}, 'Editor del vídeo'),
+    h('div', { clase: 'light-cab' }, h('div', {clase: 'editor-global-titulo'}, h('h2', {}, 'Editor del vídeo'),
+      pedidoDelVideoLight().copia.stickman ? h('div', {clase: 'stickman-proveedores', role: 'group',
+        'aria-label': 'IA para el chat y los cambios de escena'}, ...proveedoresStickman) : null),
       obsoletasEnLaCabecera(escenas), animacionesEnLaCabecera(PREVIA.ficha?.animaciones),
       h('span', { clase: 'crece' }), descartar, deshacer,
       h('div', { clase: 'editor-global-acciones' }, guardar, h('div', { clase: 'editor-global-montar' }))),
     preparacion, configuraciones, timeline, notas, h('div', { clase: 'editor-global-estados' }, estado, avisoLocal),
     h('div', { clase: 'editor-global-lista-notas' }, notasDeAhora().length ? [botonAplicarRepaso(), listaDeNotas()] : null));
   const estudio = {
-    clave, nodo, duracion, tallerRemotionAbierto: false, esActual: id => actual === id,
+    clave, nodo, duracion, modeloStickman, tallerRemotionAbierto: false, esActual: id => actual === id,
     esPanelActual: id => seleccionada === id,
     papelera: (ev, activo) => {
       const r = papelera.getBoundingClientRect();
@@ -11816,7 +11857,10 @@ async function abrirEditorEscena(escena, estudio) {
     const botones = [...dialogo.querySelectorAll('.editor-previa-acciones button')];
     botones.forEach(b => {b.disabled = true;});
     try {
-      await trabajoRemotion(`${base}/stickman/regenerar`, {}, estado);
+      estudio.modeloStickman.bloquear(true);
+      await trabajoRemotion(`${base}/stickman/regenerar`, {
+        porcentaje: estudio.modeloStickman.elegido() === 'ChatGPT' ? 100 : 0,
+      }, estado);
       if (estudio.cerrado() || videoAbierto().pid !== pid) return;
       PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
       repintarVideo();
@@ -11825,6 +11869,7 @@ async function abrirEditorEscena(escena, estudio) {
       estado.textContent = error.message;
       toast(`No se ha podido regenerar la escena: ${error.message}`, true);
     } finally {
+      estudio.modeloStickman.bloquear(false);
       cargaStickman.hidden = true;
       muestra.setAttribute('aria-busy', 'false');
       botones.forEach(b => {b.disabled = !!trabajoVideoLight() || !!PREVIA.sustituyendo;});
@@ -11868,7 +11913,7 @@ async function abrirEditorEscena(escena, estudio) {
     }});
   dialogo.appendChild(tallerRemotion.taller);
   if (pedidoDelVideoLight().copia.stickman) {
-    chatStickman = crearChatEdicionStickman({pid, escena, trabajo: trabajoRemotion,
+    chatStickman = crearChatEdicionStickman({pid, escena, trabajo: trabajoRemotion, modelo: estudio.modeloStickman,
       cancelar: () => {if (tid) pedir(API.cancelar(tid), {method: 'POST'}).catch(error => {estado.textContent = error.message;});},
       alCerrar: () => {edicionStickmanAbierta = false; control.actualizarTaller();},
       alAplicar: async () => {
