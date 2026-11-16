@@ -233,6 +233,13 @@ incluyen marco redondeado, hasta tres líneas y halo local; su caja y texto se
 desplazan juntos. Si la dirección pide que una etiqueta salga del cuadro, el
 encuadre puede dejarla salir sin alejar a los personajes para mantenerla visible.
 
+Las nuevas animaciones pueden destacar sorpresa, sobresalto, descubrimiento,
+enfado, confusión o un golpe mediante **líneas de énfasis ámbar** junto a la
+cabeza, la boca o el punto de contacto. Aparecen en el instante de la reacción,
+crecen ligeramente y se desvanecen en 0,2–0,4 segundos. Siguen al personaje y
+al encuadre; no quedan visibles de forma permanente. Para incorporarlas a un
+clip anterior, pide ese cambio desde **Editar escena** o regenera su animación.
+
 En planos medios y primeros planos, los rótulos sin ancla mantienen su tamaño
 de pantalla y su entrada animada. El rostro deja espacio para su posición de
 lectura, de modo que acercarse al personaje no oculte la información de la escena.

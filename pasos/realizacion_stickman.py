@@ -31,6 +31,8 @@ def opciones(**campos):
 
 FILA = opciones(label=TEXTO, v=U, color=COLOR)
 GRAFICOS = {
+    'enfasis': dict(modo=('elegir', 'sorpresa', 'sobresalto', 'descubrimiento', 'enfado', 'confusion', 'impacto'),
+        personaje=('texto', 120), punto=('lista', U, 2, 2), color=COLOR, escala=('numero', .5, 2)),
     'capitulo': dict(numero=('numero', 1, 99), titulo=('texto', 120),
         estilo=('elegir', *ESTILOS_CAPITULO), color=COLOR, particulas=BOOL),
     'titleCard': dict(lines=('lista', TEXTO, 1, 3), sub=TEXTO, y=N),
@@ -168,7 +170,7 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
             raise ValueError(f'{nombre}: componente desconocido')
         ruta = f'{nombre}[{len(resultado)}]'
         inicio = tiempo(d.get('inicio', 0), 0, duracion, ruta + '.inicio')
-        fin = tiempo(d.get('fin', duracion), inicio + .001, duracion, ruta + '.fin')
+        fin = tiempo(d.get('fin', min(duracion, inicio + .3) if d['tipo'] == 'enfasis' else duracion), inicio + .001, duracion, ruta + '.fin')
         ops = validar(d.get('opciones', {}), opciones(**catalogo[d['tipo']]), nombre + '.' + d['tipo'])
         if 'neon' in d and nombre != 'graficos':
             raise ValueError('neon se aplica a graficos u objetos, no a efectos_visuales')
@@ -205,6 +207,15 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
         componente = dict(tipo=d['tipo'], inicio=inicio, fin=fin, opciones=ops,
             capa=validar(d.get('capa', 'pantalla' if nombre == 'graficos' else 'fondo'),
                 ('elegir', 'fondo', 'frente', 'pantalla'), nombre + '.capa'))
+        if d['tipo'] == 'enfasis':
+            if not .2 - 1e-6 <= fin - inicio <= .4 + 1e-6:
+                raise ValueError('enfasis dura .2–.4 segundos, solo en el instante de la reacción')
+            if componente['capa'] != 'pantalla' or any(k in d for k in ('desfase', 'duracion_total')):
+                raise ValueError('enfasis usa capa pantalla sin ciclo ni desfase')
+            if 'modo' not in ops or (ops['modo'] == 'impacto' and ('punto' not in ops or 'personaje' in ops)):
+                raise ValueError('enfasis de impacto necesita modo y punto de contacto, sin personaje')
+            if ops['modo'] != 'impacto' and (not ops.get('personaje') or 'punto' in ops):
+                raise ValueError('enfasis de reacción necesita personaje, sin punto')
         if d['tipo'] == 'bocadillo':
             if not ops.get('personaje') or not ops.get('texto', '').strip():
                 raise ValueError('bocadillo necesita personaje y texto no vacío')
@@ -549,7 +560,8 @@ los objetos texto conservan cámara/anclas, pero se dibujan después del acabado
 Las cantidades, escalas y etiquetas deben proceder del relato: no inventes cifras como evidencia.
 efectos_visuales:[{tipo,inicio,fin,capa:fondo|frente|pantalla,opciones:{...}}] da acceso a TODO fx2d:
 atmósfera, luces, mobiliario, ventanas, público y decorados. Usa solo efectos con función visual.
-Opciones gráficas y efectos están en unidades LÓGICAS (ancho 1920, alto indicado), NO normalizadas.
+Opciones gráficas y efectos están en unidades LÓGICAS (ancho 1920, alto indicado), NO normalizadas,
+salvo enfasis.punto:[x,y], que identifica un contacto normalizado en el mundo y sigue la cámara.
 Los intervalos siempre son segundos locales de esta escena. Las opciones omitidas usan el kit.
 Al continuar un mismo componente en otra frase, conserva opciones/geometría y añade desfase:segundos
 ya transcurridos y duracion_total:duración de toda la secuencia; así no reinicia entradas, trazos ni ciclos.

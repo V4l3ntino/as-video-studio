@@ -12,6 +12,7 @@ import { protegerTexto, rotuloRedondeado } from './texto.js';
 import { esquinas } from './encuadre.js';
 import { movimientoEn } from './movimiento.js';
 import { rasgosExpresion } from './expresiones.js';
+import { pintarPuerta } from './puerta.js';
 
 const D = window.STICKMAN;
 const canvas = document.querySelector('canvas'), g = canvas.getContext('2d');
@@ -37,7 +38,7 @@ function estado(c, t) {
   const fase = t * Math.PI * (movimiento === 'correr' ? 3.2 : 1.8);
   const act=c.actuacion||{};
   const pose = ['caminar', 'correr'].includes(movimiento) ? walkPose(fase, {run: movimiento === 'correr'})
-    : breathe(poseActuada(t, keys.filter(k => k.pose),act.mezcla_pose??.35), t,act.respiracion??1);
+    : breathe(poseActuada(t, keys.filter(k => k.pose),act.mezcla_pose??.35,v.cabeza,v.cuerpo), t,act.respiracion??1);
   const exp = keys.filter(k => k.t <= t && k.expresion).at(-1)?.expresion || c.expresion;
   const mirar = keys.filter(k => k.t <= t && k.mirar !== undefined).at(-1)?.mirar ?? c.mirar;
   return {x, y, s, rot, pose, exp, mirar};
@@ -218,7 +219,7 @@ function limites() {
     for(const o of escena.objetos){
       if(o.transito)continue;
       if(o.ancla&&escena.personajes.some(c=>c.id===o.ancla.personaje&&c.transito))continue;
-      if((hayFrente&&o.capa==='fondo'&&o.tipo!=='texto')||t<o.inicio||t>o.fin||valor(o.claves,t,'opacidad',o.opacidad??1)<=.001)continue;
+      if((hayFrente&&o.capa==='fondo'&&!['texto','puerta'].includes(o.tipo))||t<o.inicio||t>o.fin||valor(o.claves,t,'opacidad',o.opacidad??1)<=.001)continue;
       const {x,y,s,rot}=posicionObjeto(o,t),margen=o.tipo==='texto'?16:Math.max(8,o.grosor||0);
       if(o.tipo==='linea'){
         const dx=o.w*s/2,dy=o.h*s/2;
@@ -276,6 +277,7 @@ function objeto(o, t, ctx=g) {
   const caja = (x, y, w, h, r=8) => {g.beginPath(); g.roundRect(x, y, w, h, Math.min(r, w/2, h/2)); g.fill();};
   const trazo = (x, y, xx, yy) => {g.beginPath(); g.moveTo(x, y); g.lineTo(xx, yy); g.stroke();};
   if (o.tipo === 'vector') vector(o, t, g);
+  else if(o.tipo === 'puerta')pintarPuerta(g,o,t);
   else if(o.tipo === 'etiqueta')pintarEtiqueta(g,o);
   else if(o.tipo === 'balon')soccerBall(g,0,0,Math.min(w,h)/2,0,o.color);
   else if (o.tipo === 'circulo') {g.beginPath(); g.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI * 2); g.fill();}

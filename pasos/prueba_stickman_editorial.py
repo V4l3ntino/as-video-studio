@@ -38,7 +38,7 @@ def grafica(tipo, opciones):
     return dict(ambiente='void', decorado='vacio', personajes=[dict(id='ana',x=.5,y=.88,escala=2.4)]
         if tipo=='bocadillo' else [], realizacion=dict(encuadre='grafico',
         escenario=dict(id='esquemas', tipo='vacio'), acabado=True),
-        graficos=[dict(tipo='blueprint',capa='fondo'), dict(tipo=tipo,opciones=opciones,inicio=.1,fin=4)])
+        graficos=[dict(tipo='blueprint',capa='fondo'), dict(tipo=tipo,opciones=opciones,inicio=.1,fin=.4 if tipo=='enfasis' else 4)])
 
 
 def referencia_poblacion():
@@ -189,6 +189,7 @@ def escena_neon(paleta='arctic'):
 
 
 CASOS_GRAFICOS = {
+    'enfasis': dict(modo='impacto',punto=[.5,.5]),
     'capitulo': dict(numero=1,titulo='Una pregunta importante',estilo='arctic'),
     'titleCard': dict(lines=['UNA DIFERENCIA', 'QUE IMPORTA'],sub='Conocer y sentir'),
     'bigLine': dict(str='¿Qué cambia realmente?'),
@@ -216,6 +217,40 @@ CASOS_GRAFICOS = {
 }
 
 
+def referencia_enfasis(modo='sorpresa',encuadre='conjunto'):
+    opciones=dict(modo=modo,color='#ffcc44')
+    if modo=='impacto':opciones['punto']=[.7,.54]
+    else:opciones['personaje']='bruno'
+    return dict(ambiente='void',decorado='vacio',atmosfera='ninguna',
+        realizacion=dict(encuadre=encuadre,sujeto='bruno',fondo='#22252b',color_fiel=True,
+            expresiones_fieles=True,grano=0,vineta=0,desenfoque=0),
+        personajes=[dict(id='bruno',x=.6,y=.9,escala=2.6,expresion='neutral',
+            actuacion=dict(respiracion=0),claves=[dict(t=0,pose='stand')])],
+        graficos=[dict(tipo='enfasis',inicio=.8,fin=1.1,opciones=opciones)])
+
+
+def referencia_rascado():
+    return dict(ambiente='void',decorado='vacio',atmosfera='ninguna',
+        realizacion=dict(encuadre='conjunto',fondo='#22252b',color_fiel=True,
+            expresiones_fieles=True,tipografia='redondeada',grano=0,vineta=0),
+        personajes=[dict(id='bruno',x=.70,y=.9,escala=3,expresion='neutral',
+            actuacion=dict(mirada=[-1,0],respiracion=0,mezcla_pose=.2),
+            claves=[dict(t=0,pose='relaxed'),dict(t=.4,pose='scratchHead'),dict(t=2.8,pose='relaxed')])],
+        objetos=[dict(tipo='texto',texto=s,x=.29,y=y,w=800,h=100,fuente=size,color=color)
+            for s,y,size,color in [('CONDUCTA',.23,100,'#ffc052'),('Impulsividad',.4,65,'#86d8f7'),
+                ('Irresponsabilidad',.53,65,'#86d8f7'),('Sin metas a largo plazo',.66,65,'#86d8f7')]])
+
+
+def referencia_portazo():
+    return dict(ambiente='void',decorado='vacio',atmosfera='ninguna',
+        realizacion=dict(encuadre='conjunto',fondo='#22252b',color_fiel=True,grano=0,vineta=0),
+        personajes=[dict(id='bruno',x=.38,y=.86,escala=2.2,mirar=-1,actuacion=dict(respiracion=0,mezcla_pose=.08),
+            claves=[dict(t=0,pose='pushReady'),dict(t=.55,pose='push'),dict(t=.9,pose='relaxed'),
+                dict(t=1.2,x=.38,mirar=1,movimiento='caminar'),dict(t=3.5,x=.85)])],
+        objetos=[dict(tipo='puerta',x=.32,y=.53,w=290,h=710,color='#795538',marco='#a18f73',
+            bisagra='derecha',apertura=.8,cierre=dict(inicio=.4,fin=.65))])
+
+
 class Editorial(unittest.TestCase):
     def setUp(self):
         self.base=stickman.familias()[0]
@@ -223,6 +258,170 @@ class Editorial(unittest.TestCase):
 
     def validar(self,d):
         return stickman.validar_puesta_en_escena(d,4,self.reparto,[1920,1080])
+
+    def test_enfasis_breve_anclado_y_sin_convertir_historicos(self):
+        for modo in ('sorpresa','sobresalto','descubrimiento','enfado','confusion','impacto'):
+            d=self.validar(referencia_enfasis(modo))
+            self.assertEqual(stickman.escena(d,4,self.reparto),d)
+            self.assertEqual(d['personajes'][0]['expresion'],'neutral')
+        self.assertNotIn('graficos',stickman.escena(dict(personajes=[dict(id='bruno')]),4,self.reparto))
+        for cambio in (dict(fin=2),dict(fin=.9),dict(desfase=1),dict(duracion_total=4),dict(capa='frente'),
+                dict(opciones=dict(modo='sorpresa',personaje='nadie')),
+                dict(opciones=dict(modo='impacto',personaje='bruno')),
+                dict(opciones=dict(modo='impacto',punto=[2,.5])),dict(opciones=dict(personaje='bruno')),
+                dict(opciones=dict(modo='confusion',punto=[.5,.5])),
+                dict(opciones=dict(modo='sorpresa',personaje='bruno',punto=[.5,.5]))):
+            d=referencia_enfasis();d['graficos'][0].update(cambio)
+            with self.subTest(cambio=cambio),self.assertRaises(ValueError):self.validar(d)
+        d=referencia_enfasis();del d['graficos'][0]['fin']
+        self.assertAlmostEqual(self.validar(d)['graficos'][0]['fin'],1.1)
+
+    def test_enfasis_pulso_no_se_repite_y_refuerza_tamano(self):
+        import subprocess
+        programa='''
+            import assert from 'node:assert';
+            const {pulsoEnfasis:p}=await import(process.argv[1]);
+            for(const fps of [24,30,60])for(const dur of [.2,.3,.4]){
+                for(const t of [-1,0,dur,dur+1,20])assert.equal(p(t,dur,fps).alpha,0);
+                const medio=p(dur/2,dur,fps);
+                assert.equal(medio.alpha,1);assert.ok(medio.escala>1);
+                assert.ok(p(.01,dur,fps).alpha<medio.alpha);
+                assert.ok(p(dur-.01,dur,fps).alpha<medio.alpha);
+                assert.ok(p(.01,dur,fps,true).alpha>=p(.01,dur,fps).alpha);
+            }
+        '''
+        subprocess.run(['node','--input-type=module','-e',programa,
+            (stickman.RAIZ/'motores/stickman/enfasis.js').as_uri()],check=True,capture_output=True,text=True)
+
+    @unittest.skipUnless(REAL,'usa --real para los seis acentos y su pulso en cámara general/corta')
+    def test_enfasis_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const P=CanvasRenderingContext2D.prototype,stroke=P.stroke;
+                const frames=[];let trazos;
+                P.stroke=function(...a){
+                    if(this.strokeStyle==='#ffcc44'&&this.globalAlpha>0)trazos.push(this.globalAlpha);
+                    return stroke.apply(this,a);
+                };
+                try{for(const t of [.79,.83,.94,1.06,1.11,2]){
+                    trazos=[];window.pintar(t);frames.push([...trazos]);
+                }}finally{P.stroke=stroke;}
+                window.pintar(.94);return frames;
+            })()''')
+            self.assertEqual([len(f) for f in r],[0,cuenta,cuenta,cuenta,0,0])
+            self.assertLess(r[1][0],r[2][0])
+            self.assertLess(r[3][0],r[2][0])
+            return original(nav,destino)
+        for modo,cuenta in [('sorpresa',3),('sobresalto',3),('descubrimiento',5),('enfado',3),('confusion',2),('impacto',6)]:
+            for plano in ('conjunto','primer_plano'):
+                with self.subTest(modo=modo,plano=plano),patch.object(p8_render.Navegador,'capturar',comprobar):
+                    stickman.renderizar(self.base,self.validar(referencia_enfasis(modo,plano)),4,
+                        str(Path(TEMP.name)/f'enfasis-{modo}-{plano}.png'),salida=(960,540))
+
+    def test_rascar_cabeza_contacto_ciclo_y_fin_sin_mutar_kit(self):
+        import subprocess
+        d=self.validar(referencia_rascado())
+        self.assertEqual(stickman.escena(d,4,self.reparto),d)
+        programa='''
+            import assert from 'node:assert/strict';
+            const {poseActuada,POSES_ACTUACION}=await import(process.argv[1]);
+            const {POSES}=await import(process.argv[2]);
+            const original=JSON.stringify(POSES_ACTUACION),kit=JSON.stringify(POSES);
+            const keys=[{t:0,pose:'relaxed'},{t:.4,pose:'scratchHead'},{t:2.8,pose:'relaxed'}];
+            for(const [cabeza,cuerpo] of [[1,1],[1.4,.8],[.8,1.3]]){
+                const muestras=[.8,.87,.94,1.01].map(t=>poseActuada(t,keys,.2,cabeza,cuerpo));
+                for(const p of muestras){
+                    const dx=(p.hF[0]-p.head[0])/cabeza,dy=(p.hF[1]-p.head[1])*cuerpo/cabeza;
+                    assert.ok(Math.abs(Math.hypot(dx,dy)-28)<1e-9);
+                    assert.ok(p.hB[1]>p.sh[1]);
+                    assert.deepEqual(p.fF,muestras[0].fF);
+                    assert.deepEqual(p.hB,muestras[0].hB);
+                }
+                assert.notDeepEqual(muestras[0].hF,muestras[1].hF);
+                assert.ok(Math.hypot(...muestras[0].hF.map((v,i)=>v-muestras[1].hF[i]))<8);
+                assert.deepEqual(poseActuada(3.5,keys,.2,cabeza,cuerpo),POSES.relaxed);
+            }
+            assert.equal(JSON.stringify(POSES_ACTUACION),original);
+            assert.equal(JSON.stringify(POSES),kit);
+        '''
+        subprocess.run(['node','--input-type=module','-e',programa,
+            (stickman.RAIZ/'motores/stickman/actuacion.js').as_uri(),
+            (stickman.KIT/'engine/rig2d.js').as_uri()],check=True,capture_output=True,text=True)
+
+    @unittest.skipUnless(REAL,'usa --real para rascado visible en Classic y familias')
+    def test_rascado_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d');
+                const frame=t=>{window.pintar(t);return g.getImageData(0,0,c.width,c.height).data;};
+                const a=frame(.8),b=frame(.87);let cambios=0,piernas=0;
+                for(let i=0;i<a.length;i+=4)if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]){
+                    cambios++;if(Math.floor(i/4/c.width)>c.height*.7)piernas++;
+                }
+                window.pintar(1);return {cambios,piernas};
+            })()''')
+            self.assertGreater(r['cambios'],20)
+            self.assertEqual(r['piernas'],0)
+            return original(nav,destino)
+        for familia in ('classic','rubber','bean','geometric'):
+            diseno=dict(self.reparto['bruno'],familia=familia,ropa='hoodie',accesorio='spiky')
+            if familia!='classic':diseno.update(cabeza=1.2,cuerpo=.9)
+            with self.subTest(familia=familia),patch.object(p8_render.Navegador,'capturar',comprobar):
+                stickman.renderizar(diseno,stickman.escena(referencia_rascado(),4,{'bruno':diseno}),4,
+                    str(Path(TEMP.name)/f'rascado-{familia}.png'),salida=(960,540))
+
+    def test_portazo_contrato_y_tiempos(self):
+        d=self.validar(referencia_portazo())
+        self.assertEqual(stickman.escena(d,4,self.reparto),d)
+        for cierre in (dict(inicio=.5,fin=.5),dict(inicio=.7,fin=.6),dict(inicio=0,fin=5),dict(inicio=0)):
+            malo=referencia_portazo();malo['objetos'][0]['cierre']=cierre
+            with self.subTest(cierre=cierre),self.assertRaises(ValueError):
+                self.validar(malo)
+        malo=referencia_portazo();malo['objetos'][0]['apertura']=float('nan')
+        with self.assertRaises(ValueError):self.validar(malo)
+
+    @unittest.skipUnless(REAL,'usa --real para giro de puerta, impacto y estabilización en Canvas')
+    def test_portazo_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const P=CanvasRenderingContext2D.prototype,fill=P.fill,rect=P.fillRect,stroke=P.stroke;
+                const frames=[];let hoja,marcos,puntos,rayos=0;
+                const move=P.moveTo,line=P.lineTo;
+                P.moveTo=function(x,y){puntos=[[x,y]];return move.call(this,x,y);};
+                P.lineTo=function(x,y){puntos?.push([x,y]);return line.call(this,x,y);};
+                P.fill=function(...a){if(this.fillStyle==='#795538')hoja=puntos?.map(p=>[...p]);return fill.apply(this,a);};
+                P.fillRect=function(...a){if(this.fillStyle==='#a18f73')marcos=a;return rect.apply(this,a);};
+                P.stroke=function(...a){if(this.strokeStyle==='#ffc052')rayos++;return stroke.apply(this,a);};
+                try{for(const t of [0,.6,.65,.67,.71,1.3,3]){
+                    rayos=0;window.pintar(t);frames.push({t,hoja,marcos,rayos});
+                }}finally{Object.assign(P,{fill,fillRect:rect,moveTo:move,lineTo:line,stroke});}
+                return frames;
+            })()''')
+            abierta,cerrando,impacto,vibra1,vibra2,estable,final=r
+            self.assertEqual(abierta['marcos'],estable['marcos'])
+            for f in r:
+                self.assertAlmostEqual(f['hoja'][0][0],abierta['hoja'][0][0])
+                self.assertEqual(f['hoja'][0][1],abierta['hoja'][0][1])
+            ancho=lambda f:abs(f['hoja'][1][0]-f['hoja'][0][0])
+            self.assertLess(ancho(abierta),ancho(cerrando))
+            self.assertLess(ancho(cerrando),ancho(impacto))
+            self.assertNotEqual(abierta['hoja'][0][1],abierta['hoja'][1][1])
+            self.assertEqual(impacto['hoja'][0][1],impacto['hoja'][1][1])
+            self.assertNotEqual(vibra1['hoja'],vibra2['hoja'])
+            self.assertEqual(estable['hoja'],final['hoja'])
+            self.assertEqual([f['rayos'] for f in r],[0,0,6,6,6,0,0])
+            return original(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            for bisagra in ('izquierda','derecha'):
+                d=referencia_portazo();d['objetos'][0]['bisagra']=bisagra
+                stickman.renderizar(self.base,self.validar(d),4,
+                    str(Path(TEMP.name)/f'portazo-{bisagra}.png'),salida=(960,540))
 
     def test_documentos_nuevos_y_aura_tienen_contrato_sin_mutar_historicos(self):
         d=stickman.escena(referencia_documento_luminoso(),4,{})

@@ -72,6 +72,34 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+Las líneas de reacción son `graficos[].tipo:enfasis`, no objetos permanentes ni
+un efecto inferido de la expresión base. `enfasis.js` dibuja sorpresa/sobresalto/
+descubrimiento/enfado/confusion/impacto con pulso de .2–.4 s, subida rápida,
+crecimiento leve y salida amortiguada. Se valida capa pantalla sin desfase/ciclo:
+personaje presente para reacciones, punto normalizado de mundo para impacto.
+`editorial.js` proyecta el ancla con la cámara, también en planos cortos; si no
+cabe encima del rostro, usa el lateral. La dirección los pide solo ante una
+reacción/acción concreta y evita duplicar el impacto de puerta nativa. No se
+inyectan al leer planes, ni se cambia VERSION. Contratos y doce renders en
+`prueba_stickman_editorial.py [--real]`.
+
+Rascarse la cabeza no es `handsOnHead` ni alternar saludos: `scratchHead` en
+`actuacion.js` mueve solo una mano tangencialmente sobre la sien, compensando
+cabeza/cuerpo, con el otro brazo en la cadera. Las claves se resuelven antes de
+mezclar y respirar, también para anclas y límites. El ciclo acaba al cambiar de
+pose; no muta POSES del kit ni añade expresiones. La mirada usa actuacion.mirada.
+Contrato geométrico y renders de las cuatro familias en `prueba_stickman_editorial.py`.
+
+Los portazos no deben encoger/agrandar un vector. `puerta.js` implementa el objeto
+nativo `puerta` con marco fijo, bisagra izquierda/derecha y proyección de la hoja,
+paneles y pomo. `cierre:{inicio,fin}` acelera el giro, marca el impacto y amortigua
+la vibración del borde libre en .55 s; la amplitud se convierte a píxeles de salida.
+`pushReady`/`push` son poses locales: la dirección debe colocar la mano y coordinar
+soltar/bajar el brazo y caminar después. La puerta se pinta por defecto en fondo
+al mismo plano de los actores, para no ocultarlos, y cuenta en el encuadre seguro.
+No conviertas utilería ni planes históricos al leer, ni cambies VERSION. Regresión
+offline y Canvas de ambas bisagras: `prueba_stickman_editorial.py [--real]`.
+
 S012 tapaba psicópata/sociópata: el gráfico documento opaco de pantalla se pintaba
 después de los objetos, y sus renglones eran guiones de texto. El documento nuevo
 usa opciones.estilo:neon y excluidos:[...], hasta dos términos: `documento.js`

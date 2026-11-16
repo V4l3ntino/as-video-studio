@@ -144,6 +144,77 @@ está entre hombros y cadera; no sobre el cuello.
 Las claves de actor admiten `mirar: -1|1`: el giro se aplica en ese instante,
 sin interpolar un reflejo a través de cero, y las anclas siguen su orientación.
 
+### Líneas de énfasis
+
+`graficos[].tipo:enfasis` añade un pulso, sin bucle, de **.2–.4 segundos**
+(por defecto .3 si se omite `fin`). Siempre usa `capa:pantalla`: las reacciones
+siguen la cabeza proyectada con su cámara; el impacto sigue un punto del mundo.
+`opciones.modo` elige `sorpresa`, `sobresalto`, `descubrimiento`, `enfado`,
+`confusion` o `impacto`. La dirección los sincroniza con una reacción/acción
+concreta, nunca con una emoción persistida ni con todos los gestos de la escena.
+
+```json
+{"tipo":"enfasis","inicio":1.2,"fin":1.5,"capa":"pantalla",
+ "opciones":{"modo":"sorpresa","personaje":"vecino","color":"#ffc052"}}
+```
+
+Para `impacto`, sustituye `personaje` por `punto:[x,y]`, **normalizado en el
+mundo** (a diferencia de las posiciones lógicas de otros gráficos). `escala:.5–2`
+ajusta el tamaño. El color por defecto es ámbar. Los modos distinguen abanico
+de tres líneas, rayos de descubrimiento, trazos angulares junto a la boca,
+rayitas de confusión y rayos radiales de contacto. Cuando falta aire por encima
+de un primer plano, el acento se coloca al lateral libre.
+
+La entrada dura hasta tres fotogramas (dos en sobresalto), crece levemente
+durante el énfasis y se desvanece en hasta cinco fotogramas; los tramos se acortan
+para respetar el intervalo total. No admite `desfase` ni `duracion_total`.
+La puerta nativa ya marca su impacto: no se duplica con otro pulso.
+Leer planes antiguos no añade líneas. Se incorporan al generar o editar escenas.
+
+Verificación de los seis tipos en plano general y primer plano:
+`python pasos/prueba_stickman_editorial.py --real Editorial.test_enfasis_render_real`.
+
+### Rascarse la cabeza
+
+`pose:scratchHead` mantiene una mano en la sien y la mueve tangencialmente con
+recorridos cortos, mientras el otro brazo descansa en la cadera y los pies quedan
+quietos. El contacto se adapta al tamaño de cabeza y cuerpo. Una sola clave
+mantiene el ciclo hasta pasar a otra pose; `relaxed → scratchHead → relaxed`
+prepara el gesto y baja el brazo al terminar, con la mezcla de poses habitual.
+Se comparte entre Classic y las familias personalizadas, anclas y encuadre.
+Para mirar a otro lado se utiliza `actuacion.mirada:[x,y]` (valores -1–1 en
+coordenadas locales, reflejadas por `mirar`). El gesto no impone una emoción.
+
+Pruebas de contacto, ciclo y cuatro familias:
+`python pasos/prueba_stickman_editorial.py --real Editorial.test_rascar_cabeza_contacto_ciclo_y_fin_sin_mutar_kit Editorial.test_rascado_render_real`.
+
+### Puertas y portazos
+
+El objeto nativo `puerta` mantiene el marco fijo y proyecta la hoja rígida al
+girar sobre una bisagra vertical. `color` define la madera; `marco`, el marco.
+`bisagra:izquierda|derecha` elige el eje; `apertura` es el ángulo inicial en
+radianes (0 cerrada, hasta 1.45). `cierre:{inicio,fin}` usa segundos locales:
+acelera la hoja hacia el marco, dibuja líneas ámbar en el impacto y hace vibrar
+el borde libre hasta 2.5 píxeles de salida, con amortiguación y parada en .55 s.
+El pomo y los paneles comparten la proyección; la altura de la bisagra no cambia.
+Sin `cierre` permanece en su apertura inicial, también si esta es cero.
+
+```json
+{"tipo":"puerta","x":0.32,"y":0.53,"w":290,"h":710,
+ "color":"#795538","marco":"#a18f73","bisagra":"derecha",
+ "apertura":0.8,"cierre":{"inicio":0.4,"fin":0.65},"capa":"fondo"}
+```
+
+La puerta usa `capa:fondo` por defecto, en el mismo plano que los pies y antes
+del actor, para dejar visible el brazo. Se incluye en el encuadre seguro.
+El director coordina `pushReady` → `push` → `relaxed`, el sonido en `cierre.fin`
+y después `movimiento:caminar` con desplazamiento real. Hay que colocar la mano
+contra el borde libre según escala y orientación del actor; no hay IK automático.
+No se anima la escala del objeto para cerrar. Los planes y clips publicados
+conservan su contenido: regenerar o editar esa escena permite adoptar la puerta.
+
+Prueba sin proveedores: `python pasos/prueba_stickman_editorial.py --real Editorial.test_portazo_render_real`.
+
 ### Desplazamiento, paradas y salidas
 
 `movimiento: caminar|correr` anima las piernas solo en los tramos donde cambian

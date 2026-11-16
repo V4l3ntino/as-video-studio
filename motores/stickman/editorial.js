@@ -11,6 +11,7 @@ import { ambienteVisual } from './ambiente.js';
 import { bocadillo, proyectarRostro } from './bocadillos.js';
 import { fondoComparacion, recortarComparacion, separadorComparacion } from './comparacion.js';
 import { pintarCapitulo } from './capitulo.js';
+import { pintarEnfasis } from './enfasis.js';
 import { rotuloDePlanoCorto, reservarRotulos } from './planos_cortos.js';
 import { usaEscenografia, luzEscenografia, fondoEscenografia, sueloEscenografia, frenteEscenografia } from './escenografia.js';
 
@@ -57,6 +58,13 @@ export function pintarEditorial(g,t,D,draw) {
   function graficos(capa,filtro=()=>true){
     for(const item of S0.graficos||[])if(item.capa===capa&&activo(item)&&filtro(item)){
       g.save();
+      if(item.tipo==='enfasis'){
+        const actor=S0.personajes.find(c=>c.id===item.opciones.personaje);
+        const p=item.opciones.punto;
+        const ancla=proyectarRostro(p?{x:p[0]*W,y:p[1]*H,r:60}:draw.cabeza(actor,t),cam);
+        pintarEnfasis(g,item,t,ancla,actor?draw.estado(actor,t).mirar:1);
+        g.restore();continue;
+      }
       if(item.tipo==='capitulo'){
         pintarCapitulo(g,item,t,R);g.restore();continue;
       }

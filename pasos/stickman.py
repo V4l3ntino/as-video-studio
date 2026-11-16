@@ -20,12 +20,12 @@ RAIZ = Path(__file__).resolve().parents[1]
 KIT = RAIZ / 'GrowKaz_Stickman/skills/make-2d-video/kit'
 VERSION = 'stickman-5-editorial-2'
 OBJETOS = ('circulo', 'rectangulo', 'redondeado', 'linea', 'texto',
-           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector', 'balon', 'etiqueta')
+           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector', 'balon', 'etiqueta', 'puerta')
 FAMILIAS = {'classic': 'Classic Stick', 'bean': 'Bean Body', 'rubber': 'Rubber Hose', 'geometric': 'Geometric'}
 ACABADOS = ('editorial', 'emerald', 'ember', 'arctic', 'sakura', 'retro')
 POSES = ('stand', 'relaxed', 'talk', 'explain', 'point', 'pointUp', 'wave', 'cheer', 'handsOnHead',
          'crossArms', 'think', 'shrug', 'holdFront', 'phone', 'reach', 'sad', 'facepalm', 'ready',
-         'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall', 'shout', 'recoil')
+         'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall', 'shout', 'recoil', 'pushReady', 'push', 'scratchHead')
 EXPRESIONES = ('neutral', 'smile', 'happy', 'joy', 'surprised', 'shocked', 'scared', 'worried',
                'nervous', 'angry', 'determined', 'sad', 'cry', 'smirk', 'sleepy', 'thinking', 'confused', 'awe')
 EFECTOS = ('whoosh', 'swish', 'impact', 'hit', 'riser', 'slowmo', 'freeze', 'tick', 'clock',
@@ -302,11 +302,24 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             x=numero(o.get('x', 0 if ancla else .5), -.5, 1.5), y=numero(o.get('y', 0 if ancla else .5), -.5, 1.5),
             escala=numero(o.get('escala', 1), .1, 6), w=numero(o.get('w', 80), -2000 if o.get('tipo') == 'linea' else 1, 2000),
             h=numero(o.get('h', 80), -2000 if o.get('tipo') == 'linea' else 1, 2000), inicio=ini, fin=fin,
-            capa=elegir(o.get('capa', 'frente'), ('fondo', 'frente')), claves=claves(o.get('claves', []), duracion, f'objetos[{indice}].claves'),
+            capa=elegir(o.get('capa', 'fondo' if o.get('tipo') == 'puerta' else 'frente'), ('fondo', 'frente')), claves=claves(o.get('claves', []), duracion, f'objetos[{indice}].claves'),
             ancla=ancla, fuente=numero(o.get('fuente', 48), 16, 160), grosor=numero(o.get('grosor', 6), 1, 24),
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if 'neon' in o:
             resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
+        if o.get('tipo') == 'puerta':
+            puerta = resultado['objetos'][-1]
+            puerta.update(bisagra=elegir(o.get('bisagra', 'izquierda'), ('izquierda', 'derecha')),
+                apertura=numero(o.get('apertura', 1.1), 0, 1.45), marco=color(o.get('marco', '#96856b')))
+            if o.get('cierre') is not None:
+                cierre = o['cierre']
+                if not isinstance(cierre, dict) or set(cierre) != {'inicio', 'fin'}:
+                    raise ValueError('puerta.cierre necesita inicio y fin')
+                a = tiempo(cierre['inicio'], ini, fin, 'puerta.cierre.inicio')
+                b = tiempo(cierre['fin'], a, fin, 'puerta.cierre.fin')
+                if b - a < .05:
+                    raise ValueError('el cierre de puerta necesita al menos .05 s')
+                puerta['cierre'] = dict(inicio=a, fin=b)
         if o.get('tipo') == 'etiqueta':
             for campo in ('tinta', 'fondo'):
                 if campo in o:
@@ -351,6 +364,9 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
     if sujeto and sujeto not in ids:
         raise ValueError('el sujeto del encuadre debe estar presente en personajes')
     for grafico in resultado.get('graficos', []):
+        if (grafico['tipo'] == 'enfasis' and 'personaje' in grafico['opciones']
+                and grafico['opciones']['personaje'] not in ids):
+            raise ValueError('enfasis: el personaje debe estar presente en la escena')
         if any(ident not in ids for ident in grafico['opciones'].get('personajes', [])):
             raise ValueError('endScreen: su reparto debe estar presente en personajes')
     for objeto in (resultado.get('espacio3d') or {}).get('objetos', []):
@@ -631,7 +647,24 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
              'Actuación legible: shout es gritar/señalar con torso inclinado y piernas separadas; recoil es encogerse, '
              'retroceder y protegerse con ambos brazos elevados. Úsalas solo si la descripción pide esas acciones. '
-             'No sustituyas gritar por talk/explain ni defensa por stand/holdFront. Orienta a los actores uno hacia otro. '
+              'No sustituyas gritar por talk/explain ni defensa por stand/holdFront. Orienta a los actores uno hacia otro. '
+              'Rascarse la cabeza usa pose:scratchHead: una sola mano toca la sien y frota con movimientos cortos repetidos; '
+              'el otro brazo queda apoyado en la cadera. Mantén esa pose durante el rascado (no alternes wave/handsOnHead/shrug). '
+              'Para preparar y terminar el gesto usa stand/relaxed antes y después. Si mira hacia otro lado, '
+              'define actuacion.mirada:[-1,0] o [1,0] según el lado (coordenadas locales, reflejadas por mirar), '
+              'sin girar repetidamente todo el cuerpo. Rascarse no implica por sí solo cara preocupada/confusa: '
+              'conserva neutral salvo emoción explícita de esa descripción. '
+              'Añade líneas de énfasis PUNTUALES cuando la descripción requiera destacar una reacción o acción: '
+              'graficos:[{tipo:"enfasis",capa:"pantalla",inicio:instante,fin:instante+.3,opciones:{modo:"sorpresa",personaje:"ID",color:"#ffc052"}}]. '
+              'Modos: sorpresa (2–3 rayas sobre la cabeza), sobresalto (aparición brusca al ruido), '
+              'descubrimiento (rayos alrededor de la cabeza), enfado (trazos angulares junto a la boca al gritar/perder el control), '
+              'confusion (rayitas pequeñas junto a la cabeza), impacto (rayos en el contacto). '
+              'Para impacto sustituye personaje por punto:[x,y] normalizado del mundo, por ejemplo donde la mano golpea el objeto. '
+              'Duración obligatoria .2–.4 s; el motor hace entrada rápida de 2–3 fotogramas, pequeño refuerzo y salida suave de hasta 5 fotogramas. '
+              'Sin ciclos ni desfase. Sincroniza inicio con el instante REAL de la reacción/descubrimiento/golpe, no con toda la escena. '
+              'No dejes las líneas permanentes, no repitas pulsos sin otra reacción y no las añadas a todos los gestos: '
+              'rascarse no implica confusión ni hablar implica enfado. Respeta el motivo narrativo y no cambies la cara para justificar las líneas. '
+              'La puerta nativa ya incluye el impacto en cierre.fin: no dupliques allí otro enfasis. '
              'En una interacción de dos actores reserva aproximadamente 45–65% de altura para sus siluetas, '
              'incluidas cabezas y manos, y deja aire para el rótulo; reparte el ancho entre reacción, acción y grafismo. '
              + expresiones_stickman.INSTRUCCIONES +
@@ -649,6 +682,18 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'ambiente: day,golden,dusk,night,storm,interiorWarm,interiorCool,void. '
             'objetos: [{tipo:' + '|'.join(OBJETOS) + ',texto:"",color:"#RRGGBB",x:.5,y:.5,w:160,h:100,escala:1,inicio:0,fin:duracion,capa:fondo|frente,claves:[],fuente:48,grosor:6,opacidad:1,progreso:1}]. '
              'Todos los objetos salvo linea están centrados en x,y; w,h son ancho y alto, NO tamaño de letra ni radio. '
+             'Para una puerta o PORTAZO usa tipo:puerta: color madera, marco:"#96856b", bisagra:izquierda|derecha, '
+             'apertura:1.1 (radianes; 0 cerrada), cierre:{inicio:.5,fin:.75} en segundos locales. '
+             'El motor gira la hoja en perspectiva desde su bisagra, mantiene fijo el marco y añade líneas ámbar de impacto '
+             'en cierre.fin, vibración lateral de 2–3 píxeles y estabilización en .55 s. No simules el cierre con escala '
+             'ni superpongas otra puerta del catálogo/FX. Mantén escala y posición del objeto constantes durante el portazo. '
+             'Usa capa:fondo para que el actor y su brazo se vean delante de la puerta (mismo plano de apoyo). '
+             'Coordina al actor: pushReady durante preparación, push al impulsar la hoja hacia el marco; coloca su mano '
+             'en el borde libre al empezar (hF de pushReady=[58,-165], push=[103,-162], multiplicados por escala y mirar). '
+             'Orienta mirar hacia la puerta; al soltar, baja el brazo con stand/relaxed y después desplaza x con movimiento:caminar '
+             'y mirar en dirección de alejamiento. Repite x/y en la clave de partida para no deslizarlo durante el empuje. '
+             'Sincroniza sfx impact/hit con cierre.fin. Reserva tiempo para preparación, cierre rápido .15–.3 s, '
+             'impacto, estabilización y alejamiento; la marcha puede comenzar mientras la puerta termina de vibrar. '
              'etiqueta dibuja un rótulo Fredoka dentro de un marco redondeado: color es el marco/halo; '
              'tinta es el color de la letra y fondo es el relleno. Sin tinta se elige contraste legible con el fondo. Usa neon:.4–.7 '
              'para halo local nítido. Admite saltos de línea \\n (hasta tres); fuente 80–130, caja protagonista w~650 h~150 '
