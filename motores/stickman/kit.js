@@ -3,6 +3,7 @@ import { E, S, text, ease, prog, alpha, glow, ring, circle, seg, rr, linGrad, cl
 import * as UI from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/ui2d.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { documentoNeon } from './documento.js';
+import { rotuloRedondeado } from './texto.js';
 
 export function efecto(g, tipo, o, t) {
   const {x=E.W/2, y=E.H*.8, w=400, h=300, r=70, s=1, color=S().ui.gold} = o;
@@ -81,6 +82,23 @@ export function grafico(g, item, t, reparto, contraste=null) {
     }
     case 'lista': {
       const x=o.x??W*.16,y=o.y??H*.3,w=Math.min(o.w??W*.68,W*.86);
+      if(o.estilo==='texto'){
+        const size=o.size??80,gap=size*1.75,step=o.intervalo??Math.min(1,dur/(o.filas.length+1));
+        if(o.titulo)rotulo(g,o.titulo,x+w/2,y-gap,w,size,color);
+        o.filas.forEach((fila,i)=>{
+          const a=ease.out(prog(local,i*step,i*step+.35)),numero=o.numerada?`${i+1}. `:'',tinta=o.color||'#fff1dc';
+          g.save();g.globalAlpha*=a;g.translate(x+(1-a)*25,y+i*gap);
+          g.font=`700 ${size}px "${FONTS.title}"`;
+          const ajuste=Math.min(1,w/Math.max(1,g.measureText(numero+fila).width)),tam=size*ajuste;
+          g.font=`700 ${tam}px "${FONTS.title}"`;g.textAlign='left';g.textBaseline='middle';
+          const palabra=(str,x,color)=>{
+            g.save();g.translate(x,0);g.fillStyle=color;rotuloRedondeado(g,str,tam,color);g.restore();
+          };
+          palabra(numero,0,o.colores_numeros?.[i]||tinta);
+          palabra(fila,g.measureText(numero).width,tinta);
+          g.restore();
+        });return;
+      }
       if(o.titulo) rotulo(g,o.titulo,x+w/2,y-H*.13,w,48);
       const filas=o.filas, gap=Math.min(110,H*.58/filas.length), step=o.intervalo??Math.min(1,dur/(filas.length+1));
       filas.forEach((fila,i)=>{

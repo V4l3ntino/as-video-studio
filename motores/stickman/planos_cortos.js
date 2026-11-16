@@ -12,6 +12,13 @@ export function rotuloDePlanoCorto(o, realizacion) {
 export function reservarRotulos(cam, escena, head, W, H) {
   const r=proyectarRostro(head,cam), margen=W*.04;
   let izquierda=margen,derecha=W-margen,reserva=false;
+  function reservar(puntos,x){
+    const xs=puntos.map(p=>p[0]),ys=puntos.map(p=>p[1]);
+    if(Math.max(...ys)<r.y-r.r||Math.min(...ys)>r.y+r.r)return;
+    reserva=true;
+    if(x<W/2)izquierda=Math.max(izquierda,Math.max(...xs)+margen);
+    else derecha=Math.min(derecha,Math.min(...xs)-margen);
+  }
   for(const o of escena.objetos){
     if(!rotuloDePlanoCorto(o,escena.realizacion)||o.transito)continue;
     // Reservar la posición de lectura, no perseguir la entrada con la cámara.
@@ -19,11 +26,14 @@ export function reservarRotulos(cam, escena, head, W, H) {
     if(ultimo('opacidad')<=.001)continue;
     const x=ultimo('x')*W,y=ultimo('y')*H,s=ultimo('escala');
     const puntos=esquinas(x,y,(o.w+24)*s,(o.h+24)*s,ultimo('rot')||0);
-    const xs=puntos.map(p=>p[0]),ys=puntos.map(p=>p[1]);
-    if(Math.max(...ys)<r.y-r.r||Math.min(...ys)>r.y+r.r)continue;
-    reserva=true;
-    if(x<W/2)izquierda=Math.max(izquierda,Math.max(...xs)+margen);
-    else derecha=Math.min(derecha,Math.min(...xs)-margen);
+    reservar(puntos,x);
+  }
+  for(const grafico of escena.graficos||[]){
+    if(grafico.tipo!=='lista'||grafico.capa!=='pantalla'||grafico.opciones.estilo!=='texto')continue;
+    const o=grafico.opciones,size=o.size??80,gap=size*1.75;
+    const x=o.x??W*.16,y=o.y??H*.3,w=Math.min(o.w??W*.68,W*.86);
+    const arriba=y-(o.titulo?gap:0)-size*.65,abajo=y+(o.filas.length-1)*gap+size*.65;
+    reservar(esquinas(x+w/2,(arriba+abajo)/2,w,abajo-arriba),x+w/2);
   }
   if(!reserva||derecha<=izquierda)return;
   // Si hay poco hueco, reducir solo lo necesario sin encuadrar piernas/pies.

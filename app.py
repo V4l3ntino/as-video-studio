@@ -7728,9 +7728,11 @@ def _un_paso(ctx, paso_id, modo, extra=None):
                      renumera, y entonces las imagenes ya generadas dejan de
                      corresponder con sus planos.
     """
-    cuerpo = {"todo": True} if modo == "todo" else {}
-    unidades = _plan_de_ejecucion(ctx, paso_id, cuerpo)
     opciones = dict(extra or {})
+    cuerpo = {"todo": True} if modo == "todo" else {}
+    if opciones.pop('retomar', False):
+        cuerpo['retomar'] = True
+    unidades = _plan_de_ejecucion(ctx, paso_id, cuerpo)
     if modo == "todo" and paso_id == "assets":
         # EL CORTE LO HACE LA TAREA `corte`, UNA VEZ POR TANDA, y por eso las
         # tareas de `assets` de una receta pasan `replantear: False` (gana sobre
@@ -7743,7 +7745,7 @@ def _un_paso(ctx, paso_id, modo, extra=None):
     return _correr_paso, (ctx, paso_id, unidades, opciones)
 
 
-def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False):
+def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False, retomar_animaciones=False):
     """(funcion, args) de una tarea. Levanta si la tarea no se sabe hacer.
 
     `solo_montar` solo lo entiende la tarea del MP4, y es la diferencia entre
@@ -7787,6 +7789,8 @@ def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False):
                         {"tipos": ["reparto", "mapa", "grafico", "cabecera"],
                          "replantear": False})
     if tarea_id == "assets":
+        if retomar_animaciones and modo == 'pendientes' and ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
+            return _un_paso(ctx, 'assets', modo, {'replantear': False, 'avisar_tanda_imagenes': True, 'retomar': True})
         return _un_paso(ctx, "assets", modo, {"replantear": False, "avisar_tanda_imagenes": True})
     if tarea_id == "callouts":
         return _un_paso(ctx, "callouts", modo)
@@ -7928,7 +7932,7 @@ def _tramos_por_tiempo(ctx, tandas, modo):
 
 
 def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
-                   solo_montar=False, hechas_antes=0, total_global=0):
+                   solo_montar=False, hechas_antes=0, total_global=0, retomar_animaciones=False):
     """Recorre la receta: tanda a tanda, y dentro de una tanda a la vez.
 
     El progreso es por TAREA y no por tanda: lo que se lee en pantalla es
@@ -8009,7 +8013,10 @@ def _correr_receta(avisar, ctx, pestana, receta, tareas, modo,
                    f" · {ultimo['frase']}")
 
         avisar_tarea(0.0, "")
-        funcion, args = _que_hace(tarea["id"], ctx, receta, modo, solo_montar)
+        if retomar_animaciones:
+            funcion, args = _que_hace(tarea["id"], ctx, receta, modo, solo_montar, retomar_animaciones=True)
+        else:
+            funcion, args = _que_hace(tarea["id"], ctx, receta, modo, solo_montar)
         arranque = time.time()
         resultado = funcion(avisar_tarea, *args)
         ficha = {"tarea": tarea["id"], "nombre": tarea["nombre"],
@@ -11729,9 +11736,10 @@ def _correr_cadena(avisar, ctx, pestanas, modo, datos, plan):
         if not recetas.orden_de(pestana, puestas):
             continue
         hecho = _correr_receta(avisar_fase, ctx, pestana, receta, puestas,
-                               _modo_de_la_pestana(pestana, modo, datos),
-                               hechas_antes=hechas_antes,
-                               total_global=total_publico)
+                                _modo_de_la_pestana(pestana, modo, datos),
+                                hechas_antes=hechas_antes,
+                                total_global=total_publico,
+                                retomar_animaciones=(datos or {}).get('retomar_animaciones') is True)
         # LAS QUE DE VERDAD HAN CORRIDO, no las que el plan preveia: entre
         # planificar y correr una tarea puede haber dejado de estar al dia, y
         # entonces el contador de la pestana siguiente arrancaria por debajo.

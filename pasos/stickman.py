@@ -307,6 +307,10 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if 'neon' in o:
             resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
+        if o.get('tipo') == 'etiqueta':
+            for campo in ('tinta', 'fondo'):
+                if campo in o:
+                    resultado['objetos'][-1][campo] = color(o[campo])
         if 'transito' in o:
             resultado['objetos'][-1]['transito'] = realizacion_stickman.validar(o['transito'], ('booleano',), 'objeto.transito')
         if o.get('tipo') == 'etiqueta' and (not o.get('texto', '').strip() or len(o['texto'].split('\n')) > 3
@@ -421,11 +425,16 @@ def aplicar_recursos(proyecto, plan):
                 continue
             def ruta(rel):
                 p = (base / rel).resolve()
-                if not p.is_relative_to(base.resolve()) or not p.is_file():
-                    raise ValueError('falta un recurso de la animación Stickman')
+                if not p.is_relative_to(base.resolve()):
+                    raise ValueError('recurso fuera de la animación Stickman')
+                if not p.is_file():
+                    raise FileNotFoundError('falta un recurso de la animación Stickman')
                 return str(p)
-            clip = ruta(ficha['clip'])
-            sonidos = [dict(s, archivo=ruta(s['archivo'])) for s in ficha.get('sonidos_stickman', [])]
+            try:
+                clip = ruta(ficha['clip'])
+                sonidos = [dict(s, archivo=ruta(s['archivo'])) for s in ficha.get('sonidos_stickman', [])]
+            except (KeyError, FileNotFoundError):
+                continue
             e['stickman'] = dict(clip=clip, firma=ficha.get('huella_animacion') or ficha['firma_stickman'])
             e['sonidos_stickman'] = sonidos
     return plan
@@ -559,6 +568,9 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
                 contenido['realizacion']['expresiones_fieles'] = True
                 contenido['realizacion'].setdefault('resplandor', True)
                 realizacion_stickman.preparar_documentos_nuevos(contenido, resolucion)
+                for grafico in contenido.get('graficos', []):
+                    if grafico['tipo'] == 'lista':
+                        grafico['opciones'].setdefault('estilo', 'texto')
                 expresiones_stickman.validar(contenido, e.get('descripcion_visual'))
             else:
                 # La corrección del dibujo no depende de que la IA recuerde una
@@ -632,7 +644,8 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'ambiente: day,golden,dusk,night,storm,interiorWarm,interiorCool,void. '
             'objetos: [{tipo:' + '|'.join(OBJETOS) + ',texto:"",color:"#RRGGBB",x:.5,y:.5,w:160,h:100,escala:1,inicio:0,fin:duracion,capa:fondo|frente,claves:[],fuente:48,grosor:6,opacidad:1,progreso:1}]. '
              'Todos los objetos salvo linea están centrados en x,y; w,h son ancho y alto, NO tamaño de letra ni radio. '
-             'etiqueta dibuja un rótulo Fredoka dentro de un marco redondeado oscuro del color indicado, con neon:.4–.7 '
+             'etiqueta dibuja un rótulo Fredoka dentro de un marco redondeado: color es el marco/halo; '
+             'tinta es el color de la letra y fondo es el relleno. Sin tinta se elige contraste legible con el fondo. Usa neon:.4–.7 '
              'para halo local nítido. Admite saltos de línea \\n (hasta tres); fuente 80–130, caja protagonista w~650 h~150 '
              'o w~500 h~200 para dos líneas. Úsala para etiquetas luminosas pedidas; no texto diminuto flotante. '
              'Si una etiqueta se despega, anima la MISMA etiqueta con claves x/y/rot: primero legible junto al actor, '
@@ -655,6 +668,11 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Apila mensajes en posiciones distintas y con inicios escalonados. Haz coincidir gestos de señalar con la posición del objeto. '
             'Un vínculo es linea fina, nunca una barra gruesa. Al enfriarse una relación muestra una reacción corporal y reduce la opacidad del vínculo; una nube sola es ambigua. '
              'No tapes caras con objetos ni textos. Elige un escenario reconocible si hay actuación contextual. '
+             'Una lista de preguntas es texto limpio, no una colección de etiquetas en cajas: usa graficos lista, capa pantalla, '
+             'opciones:{estilo:"texto",numerada:true,filas:["¿En qué se diferencian?","¿Qué pregunta te protege?"],'
+             'color:"#fff1dc",colores_numeros:["#fff1dc","#ffcb52"],size:80,x:100,y:330,w:1100,intervalo:2.3}. '
+             'Cada fila aparece progresivamente; número y frase comparten línea. Conserva las palabras y colores pedidos. '
+             'Coloca al actor a la derecha, sin tapar el texto. No añadas recuadros/fondos si no se piden. '
              'Acabado luminoso: realizacion.resplandor:true activa halo local en rótulos, acentos de color y gráficos; '
              'neon:0 permite dejar un elemento sin luz y neon:.6–.9 enfatizarlo. No ilumines paredes, papel o muebles enteros. '
              'Para un aura pedida alrededor de un actor usa actuacion:{aura:{color:"#ffad32",intensidad:.85}}. '
@@ -802,14 +820,17 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
             fuente = ruta.with_suffix('.animacion.json')
             guardada = medios.leer_json(str(fuente), {}) or {}
             solicitada = unidades is None or uid in unidades
-            valida = anterior.get('firma_stickman') == firma and all((Path(trabajo) / anterior.get(k, '_ausente')).is_file() for k in ('clip', 'png'))
+            completa = anterior.get('origen') == 'stickman' and anterior.get('narracion') == e.get('narracion') and all(
+                (Path(trabajo) / anterior.get(k, '_ausente')).is_file() for k in ('clip', 'png')) and all(
+                (Path(trabajo) / s['archivo']).is_file() for s in anterior.get('sonidos_stickman', []))
+            valida = anterior.get('firma_stickman') == firma and completa
             if not solicitada or (valida and not rehacer):
                 # Una regeneración parcial continúa lo que se ve, incluso si el
                 # recibo usa una firma histórica. No usar planes sin publicar.
                 if (anterior.get('origen') == 'stickman' and anterior.get('narracion') == e.get('narracion')
                         and guardada.get('firma') == anterior.get('firma_stickman') and guardada.get('contenido')):
                     animaciones[e['id']] = memoria_visual(e, guardada['contenido'])
-                if valida:
+                if valida or (not solicitada and completa):
                     resultados[uid] = anterior
                     if solicitada:
                         rehechas[uid] = anterior

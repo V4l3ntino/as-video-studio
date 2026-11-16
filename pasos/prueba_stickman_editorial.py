@@ -108,6 +108,16 @@ def referencia_documento_luminoso():
     return d
 
 
+def referencia_lista_limpia(base):
+    d=referencia_rostro_rotulado(base,'medio')
+    d['objetos']=[]
+    d['realizacion'].update(fondo='#120b09',escenario=dict(id='preguntas',tipo='vacio'))
+    d['graficos']=[dict(tipo='lista',capa='pantalla',opciones=dict(estilo='texto',numerada=True,
+        filas=['¿En qué se diferencian?','¿Qué pregunta te protege?'],color='#fff1dc',
+        colores_numeros=['#fff1dc','#ffcb52'],size=80,x=100,y=330,w=1100,intervalo=1.6))]
+    return d
+
+
 def referencia_comparacion(base):
     d=narrativa(base)
     d['realizacion'].update(encuadre='dividido',comparacion={},particulas=True,malla=False,
@@ -325,6 +335,70 @@ class Editorial(unittest.TestCase):
             roto=copy.deepcopy(d);roto['objetos'][1][campo]=valor
             with self.subTest(campo=campo,valor=valor),self.assertRaises(ValueError):
                 stickman.escena(roto,4,self.reparto)
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar texto legible en marcos oscuros')
+    def test_etiqueta_oscura_elige_tinta_legible_y_admite_colores_independientes(self):
+        from pasos import p8_render
+        d=grafica('badge',{})
+        d['graficos']=[]
+        d['realizacion'].update(tipografia='redondeada',color_fiel=True,grano=0,vineta=0)
+        d['objetos']=[dict(tipo='etiqueta',texto='¿En qué se\ndiferencian?',color='#12263f',
+            x=.5,y=.5,w=800,h=240,fuente=100)]
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const s=window.STICKMAN.escena,o=s.objetos[0],c=document.querySelector('canvas');
+                const imagen=()=>{window.pintar(2);return c.toDataURL();};
+                const automatico=imagen();o.tinta='#fff1dc';const claro=imagen();
+                o.fondo='#fff1dc';o.tinta='#12263f';const inverso=imagen();
+                return {legible:automatico===claro,separados:inverso!==claro};
+            })()''')
+            self.assertEqual(r,dict(legible=True,separados=True))
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(d,4,{}),4,
+                str(Path(TEMP.name)/'contraste-etiqueta.png'),salida=(960,540))
+        d['objetos'][0].update(tinta='#fff1dc',fondo='#12263f')
+        escena=stickman.escena(d,4,{})
+        self.assertEqual(stickman.escena(escena,4,{}),escena)
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar lista progresiva limpia y colores')
+    def test_lista_numerada_limpia_conserva_colores_y_espacio_para_el_actor(self):
+        from pasos import p8_render
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const c=document.querySelector('canvas'),P=CanvasRenderingContext2D.prototype;
+                const original=P.strokeText,arc=P.arc;let textos=[],caras=[];
+                P.strokeText=function(str,x,y,...a){
+                    const m=this.getTransform(),p=m.transformPoint({x,y});
+                    if(this.globalAlpha>.1)textos.push({str,x:p.x,y:p.y,w:this.measureText(str).width*Math.hypot(m.a,m.b),color:this.fillStyle});
+                    return original.call(this,str,x,y,...a);
+                };
+                P.arc=function(x,y,r,a,b,...rest){
+                    const m=this.getTransform(),radio=r*Math.hypot(m.a,m.b);
+                    if(this.canvas===c&&radio>30&&b-a>6){const p=m.transformPoint({x,y});caras.push({x:p.x,r:radio});}
+                    return arc.call(this,x,y,r,a,b,...rest);
+                };
+                try{
+                    window.pintar(.7);const primera=textos.map(t=>t.str);textos=[];caras=[];
+                    window.pintar(2.5);return {primera,textos,cara:caras.sort((a,b)=>b.r-a.r)[0]};
+                }finally{P.strokeText=original;P.arc=arc;}
+            })()''')
+            self.assertIn('¿En qué se diferencian?',r['primera'])
+            self.assertNotIn('¿Qué pregunta te protege?',r['primera'])
+            textos={t['str']:t for t in r['textos']}
+            self.assertEqual(textos['1. ']['color'],'#fff1dc')
+            self.assertEqual(textos['2. ']['color'],'#ffcb52')
+            for numero,frase in [('1. ','¿En qué se diferencian?'),('2. ','¿Qué pregunta te protege?')]:
+                self.assertEqual(textos[frase]['color'],'#fff1dc')
+                self.assertAlmostEqual(textos[numero]['y'],textos[frase]['y'])
+                self.assertGreater(textos[frase]['x'],textos[numero]['x'])
+                self.assertLess(textos[frase]['x']+textos[frase]['w'],r['cara']['x']-r['cara']['r'])
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(referencia_lista_limpia(self.base),4,self.reparto),4,
+                str(Path(TEMP.name)/'lista-limpia.png'),salida=(960,540))
 
     @unittest.skipUnless(REAL,'usa --real para comprobar rótulos junto al primer plano')
     def test_rotulos_entran_y_caben_junto_al_rostro_sin_perder_primer_plano(self):

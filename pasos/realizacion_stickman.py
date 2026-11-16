@@ -54,7 +54,8 @@ GRAFICOS = {
     'captions': dict(y=N, size=('numero', 28, 100), max=('numero', 1, 8), color=COLOR, hi=COLOR),
     # Componentes semánticos del adaptador, construidos con el dibujo del kit.
     'lista': dict(titulo=TEXTO, filas=('lista', TEXTO, 1, 6), intervalo=('numero', .15, 10),
-                  color=COLOR, x=N, y=N, w=POS),
+                  color=COLOR, x=N, y=N, w=POS, estilo=('elegir', 'tarjetas', 'texto'),
+                  numerada=BOOL, colores_numeros=('lista', COLOR, 0, 6), size=('numero', 24, 120)),
     'barras': dict(titulo=TEXTO, filas=('lista', FILA, 1, 5), color=COLOR),
     'poblacion': dict(titulo=TEXTO, total=('numero', 1, 300), destacados=('numero', 0, 300), color=COLOR,
         filas=('numero', 1, 300), columnas=('numero', 1, 300), color_base=COLOR,

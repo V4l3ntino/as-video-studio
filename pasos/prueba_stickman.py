@@ -167,6 +167,21 @@ class Stickman(unittest.TestCase):
                 self.assertEqual(Path(p.ruta('estado.json')).read_bytes(), antes)
             self.assertEqual(lanzar.call_count, 1)
 
+    def test_continuar_animaciones_usa_solo_las_unidades_que_faltan(self):
+        import app
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        ctx=SimpleNamespace(estado=Mock(),proyecto=Mock())
+        ctx.estado.params.return_value=dict(estilo=dict(stickman=self.config))
+        with patch.object(app,'_unidades_que_faltan',return_value=['escena:S011']) as faltan:
+            funcion,args=app._que_hace('assets',ctx,{},'pendientes',retomar_animaciones=True)
+        faltan.assert_called_once()
+        self.assertIs(funcion,app._correr_paso)
+        self.assertEqual(args[2],['escena:S011'])
+        self.assertFalse(args[3]['replantear'])
+        self.assertNotIn('rehacer',args[3])
+        self.assertNotIn('retomar',args[3])
+
     def test_tiempos_decimales_se_ajustan_al_limite_sin_admitir_excesos_reales(self):
         duracion=3.8029999999999973
         d=dict(personajes=[dict(id='ana',claves=[dict(t=0,pose='stand'),dict(t=3.803,pose='wave')])],
@@ -330,7 +345,7 @@ class Stickman(unittest.TestCase):
         params = dict(estilo=dict(stickman=self.config))
         escenas = [dict(id=f'S00{i+1}', narracion=f'Frase {i+1}.', prompt='Saluda.',
             origen=dict(bloque='B001'), t_in=i*3, t_out=(i+1)*3) for i in range(4)]
-        plan = dict(escenas=escenas, assets={}, dependencias={}, resolucion=[1920, 1080],
+        plan = dict(escenas=escenas, estilo=params['estilo'], assets={}, dependencias={}, resolucion=[1920, 1080],
             conservacion=dict(retirados=[]), duracion_total=12)
         contenido = stickman.escena(dict(personajes=[dict(id='protagonista',
             claves=[dict(t=0, pose='stand'), dict(t=2, pose='wave')])]), 3, {'protagonista': self.base})
@@ -361,12 +376,16 @@ class Stickman(unittest.TestCase):
             self.assertEqual([e['id'] for e in previa['escenas'] if e.get('stickman')], ['S001', 'S004'])
             self.assertTrue(any('S002' in msg and 'Continuando' in msg for msg in avisos))
             publicados = {sid: (trabajo / f'escenas/{sid}.json').read_bytes() for sid in ('S001', 'S004')}
+            pendientes = p6_assets.unidades_pendientes(p, params)
+            self.assertEqual(pendientes, ['escena:S002', 'escena:S003'])
             # Reintentar los huecos conserva incluso las escenas posteriores.
             with patch.object(stickman, 'generar_escena', return_value=contenido) as generar:
                 resultado = stickman.ejecutar(p, params, lambda *a: None,
-                    unidades=['escena:S002', 'escena:S003'])
+                    unidades=pendientes)
             self.assertEqual([c.args[0]['id'] for c in generar.call_args_list], ['S002', 'S003'])
             self.assertEqual(set(resultado['unidades']), {'escena:S002', 'escena:S003'})
+            self.assertEqual(set(resultado['todas']), {f'escena:{e["id"]}' for e in escenas})
+            self.assertEqual(set(resultado['conservadas']), {'escena:S001','escena:S004'})
             for sid, recibo in publicados.items():
                 self.assertEqual((trabajo / f'escenas/{sid}.json').read_bytes(), recibo)
             # Los errores globales y Parar no se convierten en fallos locales.

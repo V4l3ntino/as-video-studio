@@ -8476,7 +8476,7 @@ async function refrescarFichasLight() {
    (`POST /api/proyectos/{pid}/generar`), no encadenada desde aquí: encadenar en
    el navegador se rompe al recargar la página, justo en un flujo pensado para
    dejarlo generando y mirarlo desde el móvil. */
-async function lanzarTandaLight(tanda, modo) {
+async function lanzarTandaLight(tanda, modo, opciones = {}) {
   const v = APP.light.video;
   if (!v.pid) return;
   const errorVoces = errorVocesPersonajes(v.pedido?.copia || pedidoDelVideoLight().copia);
@@ -8491,7 +8491,7 @@ async function lanzarTandaLight(tanda, modo) {
     if (v.pedido) await volcarEncargoLight(v.pedido);
     const datos = await pedir(`${API.proyecto(v.pid)}/generar`, {
       method: 'POST',
-      cuerpo: { tanda, modo: modo || 'pendientes' },
+      cuerpo: { ...opciones, tanda, modo: modo || 'pendientes' },
     });
     v.plan = datos.plan || null;
     const tid = datos.trabajo_id || (datos.trabajo || {}).id;
@@ -13158,7 +13158,7 @@ function botonRenderizarLight() {
         pararPrevia();
         videoAbierto().vista = 'video';
         repintarVideo();
-        lanzarTandaLight('video', 'pendientes');
+        lanzarTandaLight('video', 'pendientes', esStickman ? { retomar_animaciones: true } : {});
       },
     }, `Continuar ${esStickman ? 'animaciones' : 'imágenes'} (${pendientes} pendientes)`));
   }
