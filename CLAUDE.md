@@ -72,6 +72,30 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+S012 tapaba psicópata/sociópata: el gráfico documento opaco de pantalla se pintaba
+después de los objetos, y sus renglones eran guiones de texto. El documento nuevo
+usa opciones.estilo:neon y excluidos:[...], hasta dos términos: `documento.js`
+compone hoja, título, trazos y términos/cruces exteriores juntos. La generación
+asigna el estilo y rechaza rótulos independientes que invaden la hoja mediante
+`preparar_documentos_nuevos`; no conviertas planes históricos al leerlos.
+`realizacion.resplandor:true` se activa en entregas nuevas: neón selectivo en
+rótulos, gráficos y acentos pequeños, respetando neon:0. `neon.js` combina halo
+local y núcleo, sin ampliar el blur hasta contaminar los colores de elementos
+vecinos. Las auras explícitas usan actuacion.aura:{color,intensidad}; `conAura`
+genera la máscara de la figura en su pose/cámara actuales. Figura y busto deben
+usar el contexto recibido, no el canvas global, para aislar bien esa máscara.
+No infieras auras a partir de cualquier círculo ni cambies VERSION. Contrato,
+composición, colores interiores y resplandor: `prueba_stickman_editorial.py --real`.
+
+Una interacción de grito/defensa salía erguida con gestos de explicación y dos
+textos pequeños apilados. Las poses locales `shout` y `recoil` viven en
+`motores/stickman/actuacion.js`, sin mutar POSES del kit; se usan también al
+calcular los límites de cámara. `etiqueta` dibuja marco y Fredoka multilínea
+como un único objeto animable con halo opcional. `objetos[].transito:true`
+excluye su trayectoria del encuadre seguro para permitir salidas reales, igual
+que en actores. No lo inyectes al abrir planes ni cambies VERSION. Contrato,
+actuación y salida comprobados en `prueba_stickman_editorial.py --real`.
+
 El vecino tenía angry y la oficinista pasaba a determined sin que su descripción
 pidiera esas caras. Además, rig2d dibuja las pendientes angry/worried invertidas:
 angry parecía preocupado. Las entregas nuevas usan expresiones_fieles:true;
@@ -240,6 +264,15 @@ para encabezados/pies de pantalla. `detalle` multiplicaba por 2,6 sin comprobar
 el contenido y cortaba fichas, diales y últimas filas. `encuadre.js` ajusta el
 conjunto; `escena.js` cachea sus límites muestreando claves, poses y partes
 vectoriales. Medio/primer plano conservan su recorte narrativo y 3D su cámara.
+En S008, DIFÍCIL sí estaba animado, pero el zoom a la cara dejaba su caja fuera.
+`planos_cortos.js` trata texto/etiqueta SIN ancla como rótulos de pantalla en
+medio/primer_plano, conservando tamaño, claves y halo sin multiplicarlos por el
+zoom. Reserva su posición final de lectura al lado de la cara, no la trayectoria
+de entrada: la cámara no debe perseguir el texto ni convertir el plano en uno
+de cuerpo entero. Las anclas y los demás objetos conservan sus coordenadas de
+mundo; los planos sin rótulos conservan su cámara. No cambies VERSION ni planes
+publicados al leerlos. Regresión de entrada, legibilidad, separación y tamaño
+del rostro para texto/etiqueta en ambos encuadres: `prueba_stickman_editorial.py --real`.
 Los tiempos se validan con `tiempos_stickman.tiempo`: tolera solo 1 microsegundo
 y ajusta al límite exacto, sin relajar coordenadas ni excedentes reales. Un fin
 3.803 era rechazado contra una duración 3.8029999999999973. Los errores incluyen

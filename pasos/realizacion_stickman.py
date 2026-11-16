@@ -61,7 +61,8 @@ GRAFICOS = {
         indices_destacados=('lista', ('numero', 0, 299), 0, 300), atenuacion=U,
         inicio_destacado=('numero', 0, 120), duracion_destacado=('numero', .01, 120), neon_destacados=U),
     'cronologia': dict(titulo=TEXTO, etiquetas=('lista', ('texto', 60), 2, 8), color=COLOR),
-    'documento': dict(titulo=TEXTO, filas=('lista', TEXTO, 1, 8), destacar=('numero', 0, 7), sello=('texto', 40)),
+    'documento': dict(titulo=TEXTO, filas=('lista', TEXTO, 1, 8), destacar=('numero', 0, 7), sello=('texto', 40),
+        estilo=('elegir', 'papel', 'neon'), excluidos=('lista', ('texto', 40), 0, 2), color=COLOR),
     'comparacion': dict(titulo=('texto', 120), izquierda=TEXTO, derecha=TEXTO,
         detalle_izquierdo=TEXTO, detalle_derecho=TEXTO,
         rasgos_izquierdos=('lista', ('texto', 60), 0, 3), rasgos_derechos=('lista', ('texto', 60), 0, 3)),
@@ -175,6 +176,9 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
                 raise ValueError(f'{nombre}.{k}: entero requerido')
         if d['tipo'] in ('lista', 'barras', 'documento') and not ops.get('filas'):
             raise ValueError(f'{nombre}: {d["tipo"]} necesita filas')
+        if d['tipo'] == 'documento' and ops.get('excluidos'):
+            if ops.get('estilo') != 'neon' or any(not s.strip() for s in ops['excluidos']):
+                raise ValueError('documento.excluidos necesita estilo neon y términos no vacíos')
         if d['tipo'] == 'comparacion' and not all(ops.get(k) for k in ('izquierda', 'derecha')):
             raise ValueError('comparacion necesita izquierda y derecha')
         if d['tipo'] == 'poblacion' and ops.get('destacados', 0) > ops.get('total', 100):
@@ -219,6 +223,34 @@ def lista_componentes(datos, catalogo, duracion, nombre, maximo):
     return resultado
 
 
+def preparar_documentos_nuevos(datos, resolucion):
+    """Composición óptica nueva; jamás se ejecuta al abrir planes históricos."""
+    alto = 1920 * resolucion[1] / resolucion[0]
+    for g in datos.get('graficos', []):
+        if g['tipo'] != 'documento':
+            continue
+        o = g['opciones']
+        o.setdefault('estilo', 'neon')
+        if o['estilo'] != 'neon' or g['capa'] != 'pantalla':
+            continue
+        izquierda, derecha = (.32, .68) if o.get('excluidos') else (.23, .77)
+        for objeto in datos.get('objetos', []):
+            if objeto['tipo'] not in ('texto', 'etiqueta') or objeto.get('ancla'):
+                continue
+            if objeto['fin'] <= g['inicio'] or objeto['inicio'] >= g['fin']:
+                continue
+            actual = dict(objeto)
+            for k in objeto['claves']:
+                actual.update(k)
+            x, y, s = actual['x'], actual['y'], actual['escala']
+            if actual['opacidad'] <= .001:
+                continue
+            if (x+objeto['w']*s/3840 > izquierda and x-objeto['w']*s/3840 < derecha
+                    and y+objeto['h']*s/(2*alto) > .12 and y-objeto['h']*s/(2*alto) < .88):
+                raise ValueError(f'documento: el rótulo «{objeto["texto"]}» invade la hoja; '
+                    'usa opciones.excluidos para términos fuera del documento, o colócalo fuera de sus márgenes')
+
+
 def normalizar(datos, duracion, reparto):
     """Devuelve solo los campos nuevos presentes; ausencia conserva el dibujo antiguo."""
     resultado = {}
@@ -230,7 +262,7 @@ def normalizar(datos, duracion, reparto):
             fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
             particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400), escenografia_detallada=BOOL,
             tipografia=('elegir', 'redondeada', 'clasica'),
-            expresiones_fieles=BOOL, cejas_fieles=BOOL,
+            expresiones_fieles=BOOL, cejas_fieles=BOOL, resplandor=BOOL,
             comparacion=opciones(color_izquierdo=COLOR,color_derecho=COLOR,color_separador=COLOR,
                 corte=('elegir', 'quebrado', 'diagonal', 'vertical')),
             acabado=BOOL, color_fiel=BOOL, grano=('numero', 0, .08), vineta=('numero', 0, .7), bandas=('numero', 0, .12),
@@ -461,8 +493,10 @@ etiquetas, umbrales o el elemento que explica la conclusión. Mantén ejes, estr
 de contexto en azul/turquesa sobre fondo azul oscuro, y el texto auxiliar blanco hielo.
 El amarillo puede tener neon:.2–.4 en el foco; no conviertas todo el diagrama en amarillo.
 La malla tenue forma parte del fondo de las explicaciones azuladas; no la extiendas a escenas cotidianas.
-NEÓN SELECTIVO: añade neon:.2–.4 a un gráfico o a un objeto destacado (texto, vector o silueta).
-Ejemplo {tipo:"bigLine",inicio:0,fin:duracion,capa:"pantalla",neon:.3,
+NEÓN SELECTIVO: realizacion.resplandor:true ilumina rótulos, gráficos y acentos de color nuevos.
+Para focos luminosos visibles añade neon:.6–.85 a un gráfico o a un objeto destacado (texto, vector o silueta).
+Reserva neon:.2–.4 para un efecto deliberadamente sutil, no para una luz protagonista.
+Ejemplo {tipo:"bigLine",inicio:0,fin:duracion,capa:"pantalla",neon:.65,
 opciones:{str:"GENES",color:"#76ccff",size:120}}. Para siluetas sirve lineFigure o un objeto vector.
 El halo es una copia suavemente desenfocada detrás del dibujo nítido, no un desenfoque del elemento.
 Úsalo en una palabra clave o silueta focal, no en párrafos, todos los objetos, piel ni mobiliario.

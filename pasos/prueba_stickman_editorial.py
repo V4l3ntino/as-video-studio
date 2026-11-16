@@ -61,6 +61,21 @@ def referencia_tipografia():
             for y in (.24,.30)]])
 
 
+def referencia_interaccion(base):
+    d=narrativa(base)
+    d['realizacion']=dict(encuadre='conjunto',tipografia='redondeada',paleta='ember',
+        fondo='#120b09',particulas=True,color_fiel=True,expresiones_fieles=True,grano=0,vineta=.2)
+    d['personajes']=[dict(id='ana',x=.16,y=.83,escala=2.2,expresion='scared',
+        claves=[dict(t=0,pose='recoil')]),dict(id='bruno',x=.48,y=.83,escala=2.2,mirar=-1,
+        expresion='angry',claves=[dict(t=0,pose='shout')])]
+    d['objetos']=[dict(tipo='etiqueta',texto='DA MÁS MIEDO',x=.47,y=.2,w=650,h=140,
+        fuente=100,color='#ffad31',neon=.55),dict(tipo='etiqueta',texto='MÁS DIFÍCIL\nDE DETECTAR',
+        x=.48,y=.36,w=490,h=180,fuente=70,color='#ffb638',neon=.45,transito=True,
+        claves=[dict(t=0,x=.48,y=.36,opacidad=0),dict(t=.5,opacidad=1),
+            dict(t=1.5,x=.79,y=.57,rot=.08),dict(t=2.5,x=.79,y=.57),dict(t=3.5,x=1.5)])]
+    return d
+
+
 def referencia_rostro(base,modo='dialogo'):
     d=narrativa(base)
     d['personajes']=d['personajes'][:1]
@@ -69,6 +84,27 @@ def referencia_rostro(base,modo='dialogo'):
         particulas=True,malla=False,color_fiel=True,grano=0,vineta=.18)
     d['graficos']=[dict(tipo='bocadillo',opciones=dict(personaje='ana',modo=modo,
         texto='No te mentiría.' if modo=='dialogo' else '¿Puedo confiar?'))]
+    return d
+
+
+def referencia_rostro_rotulado(base, encuadre='primer_plano', tipo='texto'):
+    d=referencia_rostro(base)
+    d['graficos']=[]
+    d['personajes'][0].update(x=.6,y=.86,escala=2.4,expresion='smile',
+        claves=[dict(t=0,pose='stand'),dict(t=.9,pose='relaxed')])
+    d['realizacion'].update(encuadre=encuadre,tipografia='redondeada',expresiones_fieles=True,
+        escenario=dict(id='oficina',tipo='oficina',semilla=7))
+    d['objetos']=[dict(tipo=tipo,texto='DIFÍCIL',color='#ffcb52',x=.29,y=.4,w=600,h=150,
+        fuente=120,neon=.35,claves=[dict(t=0,x=.05,opacidad=0),
+            dict(t=.2,x=.1,opacidad=1,curva='out'),dict(t=.75,x=.29,curva='outBack')])]
+    return d
+
+
+def referencia_documento_luminoso():
+    d=grafica('documento',dict(titulo='DIAGNÓSTICOS OFICIALES',estilo='neon',
+        filas=['——','——','——'],color='#5bd8da',excluidos=['PSICÓPATA','SOCIÓPATA']))
+    d['graficos']=d['graficos'][1:]
+    d['realizacion'].update(fondo='#08121f',resplandor=True,color_fiel=True,grano=0,vineta=0)
     return d
 
 
@@ -177,6 +213,182 @@ class Editorial(unittest.TestCase):
 
     def validar(self,d):
         return stickman.validar_puesta_en_escena(d,4,self.reparto,[1920,1080])
+
+    def test_documentos_nuevos_y_aura_tienen_contrato_sin_mutar_historicos(self):
+        d=stickman.escena(referencia_documento_luminoso(),4,{})
+        self.assertEqual(stickman.escena(d,4,{}),d)
+        antiguo=stickman.escena(grafica('documento',dict(titulo='INFORME',filas=['Dato'])),4,{})
+        self.assertNotIn('estilo',antiguo['graficos'][-1]['opciones'])
+        self.assertNotIn('resplandor',antiguo['realizacion'])
+        nuevo=copy.deepcopy(antiguo)
+        editorial.preparar_documentos_nuevos(nuevo,[1920,1080])
+        self.assertEqual(nuevo['graficos'][-1]['opciones']['estilo'],'neon')
+        nuevo['objetos']=[dict(tipo='texto',texto='EXCLUIDO',x=.7,y=.5,w=400,h=100)]
+        with self.assertRaisesRegex(ValueError,'invade la hoja'):
+            editorial.preparar_documentos_nuevos(stickman.escena(nuevo,4,{}),[1920,1080])
+        for aura in (dict(color='#ffad32',intensidad=1.1),dict(color='#ffad32'),dict(intensidad=.8)):
+            d=narrativa(self.base);d['personajes'][0]['actuacion']=dict(aura=aura)
+            with self.subTest(aura=aura),self.assertRaises(ValueError):
+                stickman.escena(d,4,self.reparto)
+        d=narrativa(self.base);d['personajes'][0]['actuacion']=dict(aura=dict(color='#ffad32',intensidad=.85))
+        d=stickman.escena(d,4,self.reparto)
+        self.assertEqual(stickman.escena(d,4,self.reparto),d)
+
+    @unittest.skipUnless(REAL,'usa --real para documento luminoso sin superposiciones')
+    def test_documento_luminoso_render_real(self):
+        from pasos import p8_render
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const P=CanvasRenderingContext2D.prototype,original=P.strokeText,rotulos={};
+                P.strokeText=function(s,x,y,...a){
+                    if(['PSICÓPATA','SOCIÓPATA'].includes(s)){
+                        const m=this.getTransform(),p=m.transformPoint({x,y});
+                        rotulos[s]={x:p.x,w:this.measureText(s).width*Math.hypot(m.a,m.b)};
+                    }return original.call(this,s,x,y,...a);
+                };
+                try{window.pintar(3);}finally{P.strokeText=original;}
+                const c=document.querySelector('canvas'),g=c.getContext('2d'),d=g.getImageData(0,0,c.width,c.height).data;
+                let turquesa=0,amarillo=0;
+                for(let i=0;i<d.length;i+=4){
+                    if(d[i]<150&&d[i+1]>150&&d[i+2]>150)turquesa++;
+                    if(d[i]>200&&d[i+1]>130&&d[i+2]<100)amarillo++;
+                }return {rotulos,w:c.width,turquesa,amarillo};
+            })()''')
+            izq=r['rotulos']['PSICÓPATA'];der=r['rotulos']['SOCIÓPATA']
+            self.assertGreater(izq['x']-izq['w']/2,0)
+            self.assertLess(izq['x']+izq['w']/2,r['w']*.32)
+            self.assertGreater(der['x']-der['w']/2,r['w']*.68)
+            self.assertLess(der['x']+der['w']/2,r['w'])
+            self.assertGreater(r['turquesa'],1500)
+            self.assertGreater(r['amarillo'],1000)
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(referencia_documento_luminoso(),4,{}),4,
+                str(Path(TEMP.name)/'documento-luminoso.png'),salida=(960,540))
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar aura local y fidelidad de la figura')
+    def test_aura_sigue_silueta_sin_recolorear_personaje(self):
+        from pasos import p8_render
+        capturar=p8_render.Navegador.capturar
+        d=narrativa(self.base);d['realizacion'].update(color_fiel=True,grano=0,vineta=0)
+        d['personajes']=d['personajes'][:1]
+        d['personajes'][0].update(x=.5,actuacion=dict(aura=dict(color='#ffad32',intensidad=.9)))
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d'),actor=window.STICKMAN.escena.personajes[0];
+                const imagen=()=>{window.pintar(.5);return g.getImageData(0,0,c.width,c.height).data;};
+                const aura=actor.actuacion.aura,con=imagen();actor.actuacion.aura=null;const sin=imagen();actor.actuacion.aura=aura;
+                let iluminados=0,lejanos=0,interior=0;
+                for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){
+                    const i=(y*c.width+x)*4,d=Math.abs(con[i]-sin[i])+Math.abs(con[i+1]-sin[i+1])+Math.abs(con[i+2]-sin[i+2]);
+                    if(d>20)iluminados++;
+                    if((x<c.width*.1||x>c.width*.9)&&d>3)lejanos++;
+                    if(x>c.width*.495&&x<c.width*.505&&y>c.height*.54&&y<c.height*.58&&d>3)interior++;
+                }window.pintar(.5);return {iluminados,lejanos,interior};
+            })()''')
+            self.assertGreater(r['iluminados'],1500)
+            self.assertEqual(r['lejanos'],0)
+            self.assertEqual(r['interior'],0)
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(d,4,self.reparto),4,
+                str(Path(TEMP.name)/'aura-silueta.png'),salida=(960,540))
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar resplandor por defecto y apagado explícito')
+    def test_resplandor_selectivo_por_defecto_respeta_neon_cero(self):
+        from pasos import p8_render
+        d=grafica('badge',dict(str='ACENTO',x=960,y=220,color='#ffbc32'))
+        d['graficos']=d['graficos'][1:]
+        d['realizacion'].update(resplandor=True,color_fiel=True,grano=0,vineta=0)
+        d['objetos']=[dict(tipo='texto',texto='RÓTULO',x=.3,y=.5,w=600,h=160,fuente=120,color='#ffbf32'),
+            dict(tipo='redondeado',x=.7,y=.5,w=280,h=30,color='#62dede')]
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const s=window.STICKMAN.escena,c=document.querySelector('canvas');
+                const imagen=()=>{window.pintar(2);return c.toDataURL();};
+                const con=imagen();s.realizacion.resplandor=false;const sin=imagen();
+                s.realizacion.resplandor=true;[...s.objetos,...s.graficos].forEach(o=>o.neon=0);const apagado=imagen();
+                return {visible:con!==sin,apagado:apagado===sin};
+            })()''')
+            self.assertEqual(r,dict(visible=True,apagado=True))
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(d,4,{}),4,
+                str(Path(TEMP.name)/'resplandor-por-defecto.png'),salida=(960,540))
+
+    def test_actuacion_y_etiquetas_con_salida(self):
+        d=stickman.escena(referencia_interaccion(self.base),4,self.reparto)
+        self.assertEqual(stickman.escena(d,4,self.reparto),d)
+        for campo,valor in [('transito',1),('texto',''),('texto','a\nb\nc\nd'),('h',20)]:
+            roto=copy.deepcopy(d);roto['objetos'][1][campo]=valor
+            with self.subTest(campo=campo,valor=valor),self.assertRaises(ValueError):
+                stickman.escena(roto,4,self.reparto)
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar rótulos junto al primer plano')
+    def test_rotulos_entran_y_caben_junto_al_rostro_sin_perder_primer_plano(self):
+        from pasos import p8_render
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const canvas=document.querySelector('canvas'),P=CanvasRenderingContext2D.prototype;
+                const arc=P.arc,strokeText=P.strokeText;let letras=[],caras=[];
+                P.arc=function(x,y,r,a,b,...rest){
+                    const m=this.getTransform(),radio=r*Math.hypot(m.a,m.b);
+                    if(this.canvas===canvas&&radio>30&&b-a>=Math.PI*1.99){
+                        const p=m.transformPoint({x,y});
+                        caras.push({x:p.x,y:p.y,r:radio});
+                    }return arc.call(this,x,y,r,a,b,...rest);
+                };
+                P.strokeText=function(s,x,y,...rest){
+                    if(s==='DIFÍCIL'){
+                        const m=this.getTransform(),p=m.transformPoint({x,y}),w=this.measureText(s).width*Math.hypot(m.a,m.b);
+                        letras.push({x:p.x,y:p.y,w});
+                    }return strokeText.call(this,s,x,y,...rest);
+                };
+                try{
+                    const toma=t=>{letras=[];caras=[];window.pintar(t);
+                        return {texto:letras.at(-1),cara:caras.sort((a,b)=>b.r-a.r)[0]};};
+                    const entrada=toma(.25),lectura=toma(1.1),despues=toma(2);
+                    return {entrada,lectura,despues,w:canvas.width,h:canvas.height};
+                }finally{P.arc=arc;P.strokeText=strokeText;}
+            })()''')
+            texto=r['lectura']['texto'];cara=r['lectura']['cara']
+            self.assertGreater(texto['x']-texto['w']/2,0)
+            self.assertLess(texto['x']+texto['w']/2,r['w'])
+            self.assertLess(texto['x']+texto['w']/2,cara['x']-cara['r'])
+            self.assertGreater(cara['r'],r['h']*(.18 if encuadre=='primer_plano' else .1))
+            self.assertLess(r['entrada']['texto']['x'],texto['x'])
+            self.assertAlmostEqual(r['entrada']['cara']['x'],cara['x'],delta=3)
+            self.assertAlmostEqual(r['despues']['cara']['x'],cara['x'],delta=3)
+            return capturar(navegador,destino)
+        for encuadre in ('primer_plano','medio'):
+            for tipo in ('texto','etiqueta'):
+                with self.subTest(encuadre=encuadre,tipo=tipo),patch.object(p8_render.Navegador,'capturar',comprobar):
+                    d=stickman.escena(referencia_rostro_rotulado(self.base,encuadre,tipo),4,self.reparto)
+                    stickman.renderizar(self.base,d,4,str(Path(TEMP.name)/f'rostro-{encuadre}-{tipo}.png'),salida=(960,540))
+
+    @unittest.skipUnless(REAL,'usa --real para comprobar actuación y salida en Canvas')
+    def test_interaccion_render_real(self):
+        from pasos import p8_render
+        capturar=p8_render.Navegador.capturar
+        def comprobar(navegador,destino=None):
+            r=navegador.evaluar('''(() => {
+                const s=window.STICKMAN.escena,canvas=document.querySelector('canvas');
+                const imagen=t=>{window.pintar(t);return canvas.toDataURL();};
+                const visible=imagen(1.8),salida=imagen(3.8),etiqueta=s.objetos.pop();
+                const sinEtiqueta=imagen(1.8),fuera=imagen(3.8);s.objetos.push(etiqueta);
+                const actuando=imagen(1.8),poses=s.personajes.map(c=>c.claves[0].pose);
+                s.personajes.forEach(c=>c.claves[0].pose='stand');const rigido=imagen(1.8);
+                s.personajes.forEach((c,i)=>c.claves[0].pose=poses[i]);window.pintar(1.8);
+                return {visible:visible!==sinEtiqueta,sale:salida===fuera,actua:actuando!==rigido};
+            })()''')
+            self.assertEqual(r,dict(visible=True,sale=True,actua=True))
+            return capturar(navegador,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(referencia_interaccion(self.base),4,self.reparto),
+                4,str(Path(TEMP.name)/'interaccion.png'),salida=(960,540))
 
     def test_todos_los_componentes_tienen_contrato_y_conservan_sus_opciones(self):
         self.assertEqual(set(CASOS_GRAFICOS),set(editorial.GRAFICOS))

@@ -20,12 +20,12 @@ RAIZ = Path(__file__).resolve().parents[1]
 KIT = RAIZ / 'GrowKaz_Stickman/skills/make-2d-video/kit'
 VERSION = 'stickman-5-editorial-2'
 OBJETOS = ('circulo', 'rectangulo', 'redondeado', 'linea', 'texto',
-           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector', 'balon')
+           'movil', 'mensaje', 'calendario', 'nube', 'corazon', 'pizarra', 'tarjeta', 'vector', 'balon', 'etiqueta')
 FAMILIAS = {'classic': 'Classic Stick', 'bean': 'Bean Body', 'rubber': 'Rubber Hose', 'geometric': 'Geometric'}
 ACABADOS = ('editorial', 'emerald', 'ember', 'arctic', 'sakura', 'retro')
 POSES = ('stand', 'relaxed', 'talk', 'explain', 'point', 'pointUp', 'wave', 'cheer', 'handsOnHead',
          'crossArms', 'think', 'shrug', 'holdFront', 'phone', 'reach', 'sad', 'facepalm', 'ready',
-         'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall')
+         'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall', 'shout', 'recoil')
 EXPRESIONES = ('neutral', 'smile', 'happy', 'joy', 'surprised', 'shocked', 'scared', 'worried',
                'nervous', 'angry', 'determined', 'sad', 'cry', 'smirk', 'sleepy', 'thinking', 'confused', 'awe')
 EFECTOS = ('whoosh', 'swish', 'impact', 'hit', 'riser', 'slowmo', 'freeze', 'tick', 'clock',
@@ -278,7 +278,11 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
                     atrezzo=('elegir', 'phone', 'ball', 'paper', 'cup', 'paddle', 'pointer', 'tablet', 'flashlight'),
                     mano=('elegir', 'F', 'B'), gafas=('elegir', 'none', 'glasses', 'sunglasses'),
                     guantes=realizacion_stickman.COLOR, pantalon=realizacion_stickman.COLOR,
-                    rastro=('numero', 0, 5)), 'personaje.actuacion')
+                    rastro=('numero', 0, 5), aura=realizacion_stickman.opciones(
+                        color=realizacion_stickman.COLOR, intensidad=('numero', 0, 1))), 'personaje.actuacion')
+            aura = resultado['personajes'][-1]['actuacion'].get('aura')
+            if aura is not None and set(aura) != {'color', 'intensidad'}:
+                raise ValueError('actuacion.aura necesita color e intensidad')
     ids = [c['id'] for c in resultado['personajes']]
     if len(set(ids)) != len(ids):
         raise ValueError('cada personaje solo puede aparecer una vez en la escena')
@@ -303,6 +307,11 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if 'neon' in o:
             resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
+        if 'transito' in o:
+            resultado['objetos'][-1]['transito'] = realizacion_stickman.validar(o['transito'], ('booleano',), 'objeto.transito')
+        if o.get('tipo') == 'etiqueta' and (not o.get('texto', '').strip() or len(o['texto'].split('\n')) > 3
+                or o.get('w', 80) < 80 or o.get('h', 80) < 48):
+            raise ValueError('etiqueta necesita texto de 1–3 líneas y caja de al menos 80×48')
         if 'panel' in o:
             resultado['objetos'][-1]['panel'] = elegir(o['panel'], ('izquierda', 'derecha'))
         if o.get('tipo') == 'vector':
@@ -548,6 +557,8 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             if not edicion:
                 contenido.setdefault('realizacion', {}).setdefault('tipografia', 'redondeada')
                 contenido['realizacion']['expresiones_fieles'] = True
+                contenido['realizacion'].setdefault('resplandor', True)
+                realizacion_stickman.preparar_documentos_nuevos(contenido, resolucion)
                 expresiones_stickman.validar(contenido, e.get('descripcion_visual'))
             else:
                 # La corrección del dibujo no depende de que la IA recuerde una
@@ -601,6 +612,11 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1,movimiento?:gesto|caminar|correr}. '
             'mirar cambia de orientación en ese instante; usa -1 hacia la izquierda y 1 hacia la derecha, también para dar la espalda a una petición. '
              'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
+             'Actuación legible: shout es gritar/señalar con torso inclinado y piernas separadas; recoil es encogerse, '
+             'retroceder y protegerse con ambos brazos elevados. Úsalas solo si la descripción pide esas acciones. '
+             'No sustituyas gritar por talk/explain ni defensa por stand/holdFront. Orienta a los actores uno hacia otro. '
+             'En una interacción de dos actores reserva aproximadamente 45–65% de altura para sus siluetas, '
+             'incluidas cabezas y manos, y deja aire para el rótulo; reparte el ancho entre reacción, acción y grafismo. '
              + expresiones_stickman.INSTRUCCIONES +
              'movimiento: gesto,caminar,correr. decorado: interior,ciudad,naturaleza,vacio. atmosfera: polvo,lluvia,nieve,ninguna. '
              'La caminata/carrera solo se dibuja durante tramos con desplazamiento x/y; al llegar al destino se detiene. '
@@ -615,7 +631,14 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'La utilería anclada sale con él. No uses transito para ocultar personajes pequeños o mal colocados. '
             'ambiente: day,golden,dusk,night,storm,interiorWarm,interiorCool,void. '
             'objetos: [{tipo:' + '|'.join(OBJETOS) + ',texto:"",color:"#RRGGBB",x:.5,y:.5,w:160,h:100,escala:1,inicio:0,fin:duracion,capa:fondo|frente,claves:[],fuente:48,grosor:6,opacidad:1,progreso:1}]. '
-            'Todos los objetos salvo linea están centrados en x,y; w,h son ancho y alto, NO tamaño de letra ni radio. '
+             'Todos los objetos salvo linea están centrados en x,y; w,h son ancho y alto, NO tamaño de letra ni radio. '
+             'etiqueta dibuja un rótulo Fredoka dentro de un marco redondeado oscuro del color indicado, con neon:.4–.7 '
+             'para halo local nítido. Admite saltos de línea \\n (hasta tres); fuente 80–130, caja protagonista w~650 h~150 '
+             'o w~500 h~200 para dos líneas. Úsala para etiquetas luminosas pedidas; no texto diminuto flotante. '
+             'Si una etiqueta se despega, anima la MISMA etiqueta con claves x/y/rot: primero legible junto al actor, '
+             'luego hacia un lateral y finalmente fuera. No la dejes apilada sobre la otra. '
+             'Para objetos que salen añade transito:true: el encuadre no los persigue. Termina en x=1.5 o -.5 '
+             'con toda la caja fuera, mantén allí su posición hasta fin; conserva visibles los demás elementos. '
             'linea va de x,y a x+w/1920,y+h/alto; grosor es su trazo, h puede ser 0. '
             'texto se ajusta a la caja w,h con fuente 16–160; usa 110–160 para rótulos protagonistas redondeados Fredoka. Evita texto salvo si lo pide el guion; no copies palabras sueltas de la voz como títulos. '
             'Utilería nativa: movil (pantalla y carcasa, w~54 h~90), mensaje (burbuja con cola y líneas legibles, w~200 h~95), '
@@ -631,7 +654,20 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'Claves de objeto admiten también opacidad y progreso 0–1; empieza con progreso:0 y llévalo a 1 para marcar calendario o dibujar línea. '
             'Apila mensajes en posiciones distintas y con inicios escalonados. Haz coincidir gestos de señalar con la posición del objeto. '
             'Un vínculo es linea fina, nunca una barra gruesa. Al enfriarse una relación muestra una reacción corporal y reduce la opacidad del vínculo; una nube sola es ambigua. '
-            'No tapes caras con objetos ni textos. Elige un escenario reconocible si hay actuación contextual. '
+             'No tapes caras con objetos ni textos. Elige un escenario reconocible si hay actuación contextual. '
+             'Acabado luminoso: realizacion.resplandor:true activa halo local en rótulos, acentos de color y gráficos; '
+             'neon:0 permite dejar un elemento sin luz y neon:.6–.9 enfatizarlo. No ilumines paredes, papel o muebles enteros. '
+             'Para un aura pedida alrededor de un actor usa actuacion:{aura:{color:"#ffad32",intensidad:.85}}. '
+             'El halo sigue su silueta y gestos. Nunca sustituyas el aura por un círculo semitransparente. '
+             'Documento explicativo: usa grafico documento con opciones:{estilo:"neon",titulo:"DIAGNÓSTICOS OFICIALES",'
+             'filas:["——","——","——"],color:"#5bd8da",excluidos:["PSICÓPATA","SOCIÓPATA"]}. '
+             'excluidos coloca términos FUERA de la hoja, a izquierda y derecha, con cruces amarillas vectoriales luminosas; '
+             'no los dupliques como objetos independientes ni añadas texto encima de la hoja. '
+             'Los renglones simbólicos se dibujan con trazos gruesos turquesa; las filas con contenido real conservan su texto. '
+             'En medio/primer_plano, texto y etiqueta SIN ancla usan coordenadas de PANTALLA: no reciben el zoom del rostro. '
+             'Compón su posición de lectura en un lateral (x~.23 o .77,y~.4,w~550,h~150) y anima su entrada con claves. '
+             'El motor reserva ese lateral al rostro; evita rótulos a ambos lados que no dejen espacio para la cara. '
+             'Los objetos con ancla conservan las coordenadas relativas del actor y la cámara. '
             'Usa decorado vacio para grafismos y atmosfera ninguna salvo necesidad narrativa; cámara vacía mantiene el plano fijo. '
             'Los textos deben coincidir con la narración, en su idioma. sfx: [{name,at,dur,gain:-12,seed:1,pitch:1}], '
             'incluye ambientes como rain,city,roomtone con dur de la escena y gain -26 si corresponde. Sonidos disponibles: '

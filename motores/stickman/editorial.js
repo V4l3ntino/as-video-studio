@@ -11,6 +11,7 @@ import { ambienteVisual } from './ambiente.js';
 import { bocadillo, proyectarRostro } from './bocadillos.js';
 import { fondoComparacion, recortarComparacion, separadorComparacion } from './comparacion.js';
 import { pintarCapitulo } from './capitulo.js';
+import { rotuloDePlanoCorto, reservarRotulos } from './planos_cortos.js';
 import { usaEscenografia, luzEscenografia, fondoEscenografia, sueloEscenografia, frenteEscenografia } from './escenografia.js';
 
 export function pintarEditorial(g,t,D,draw) {
@@ -26,6 +27,7 @@ export function pintarEditorial(g,t,D,draw) {
     const close=R.encuadre==='primer_plano';
     cam.z=clamp((close?H*.23:H*.13)/head.r,1.1,5)*cam.z;
     cam.x+=head.x-W/2;cam.y+=head.y+(close?H*.035:H*.14)-H/2;
+    reservarRotulos(cam,S0,head,W,H);
   }else if(R.encuadre==='detalle'&&R.foco){
     cam.z*=2.6;cam.x+=R.foco[0]*W-W/2;cam.y+=R.foco[1]*H-H/2;
   }
@@ -63,7 +65,9 @@ export function pintarEditorial(g,t,D,draw) {
         bocadillo(g,item.opciones,proyectarRostro(draw.cabeza(actor,t),cam));
         g.restore();continue;
       }
-      const pintar=()=>conNeon(g,item.neon??(R.comparacion&&item.tipo==='comparacion'?.20:0),item.opciones.color||(R.comparacion?'#ffdb83':S().ui.gold),
+      const neonPropio=item.tipo==='documento'&&item.opciones.estilo==='neon';
+      const luminoso=R.resplandor&&!['blueprint','documento','lineFigure','bubble','captions','poblacion'].includes(item.tipo);
+      const pintar=()=>conNeon(g,neonPropio?0:(item.neon??(luminoso?.5:R.comparacion&&item.tipo==='comparacion'?.20:0)),item.opciones.color||(R.comparacion?'#ffdb83':S().ui.gold),
         ctx=>grafico(ctx,item,t,draw.reparto,R.comparacion));
       if(capa==='pantalla')pintar();
       else layer(g,cam,capa==='fondo'?(R.profundidad??.65):1,pintar);
@@ -102,7 +106,7 @@ export function pintarEditorial(g,t,D,draw) {
         fn();g.restore();
       };
       const panelObjeto=o=>o.panel||(o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel);
-      S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>panel(panelObjeto(o),()=>draw.objeto(g,o,t)));
+      S0.objetos.filter(o=>o.tipo!=='texto'&&!rotuloDePlanoCorto(o,R)&&o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>panel(panelObjeto(o),()=>draw.objeto(g,o,t)));
       S0.personajes.forEach(c=>panel(c.panel,()=>{
         g.save();if(c.rol==='figurante')g.globalAlpha*=.42;
         const tinta=c.panel==='izquierda'?(R.comparacion?.color_izquierdo||'#83d9f7'):(R.comparacion?.color_derecho||'#ffbd78');
@@ -111,7 +115,7 @@ export function pintarEditorial(g,t,D,draw) {
         if(R.encuadre==='primer_plano'&&c.id===R.sujeto&&c.diseno.familia==='classic')draw.rostro(g,actor,t);
         else draw.figura(g,actor,t);g.restore();
       }));
-      S0.objetos.filter(o=>o.tipo!=='texto'&&o.capa!=='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>{
+      S0.objetos.filter(o=>o.tipo!=='texto'&&!rotuloDePlanoCorto(o,R)&&o.capa!=='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>{
         const p=panelObjeto(o);
         panel(p,()=>draw.objeto(g,o,t));
       });
@@ -129,7 +133,7 @@ export function pintarEditorial(g,t,D,draw) {
   if(R.comparacion)separadorComparacion(g,R.comparacion);
   // Rótulos fuera de la gradación, conservando cámara, posición y ancla del mundo.
   layer(g,cam,1,()=>{
-    S0.objetos.filter(o=>o.tipo==='texto'&&activo(o)).forEach(o=>{
+    S0.objetos.filter(o=>o.tipo==='texto'&&!rotuloDePlanoCorto(o,R)&&activo(o)).forEach(o=>{
       const panel=o.panel||(o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel);
       g.save();
       if(R.comparacion&&panel){
@@ -139,6 +143,7 @@ export function pintarEditorial(g,t,D,draw) {
       draw.objeto(g,o,t);g.restore();
     });
   });
+  S0.objetos.filter(o=>rotuloDePlanoCorto(o,R)&&activo(o)).forEach(o=>draw.objeto(g,o,t));
   graficos('pantalla',item=>item.tipo!=='capitulo');
   efectos(g,'pantalla');
   if(R.encuadre==='dividido'&&!R.comparacion){g.strokeStyle=alpha(S().ui.gold,.5);g.lineWidth=2;g.beginPath();g.moveTo(W/2,H*.12);g.lineTo(W/2,H*.9);g.stroke();}

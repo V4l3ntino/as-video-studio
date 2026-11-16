@@ -219,6 +219,27 @@ deformarse. La dirección anima sus entradas, desplazamientos y fusiones con
 claves suaves. Para actualizar el acabado de un clip ya generado, pide mejorar
 su tipografía desde **Editar escena** o regenera esa animación.
 
+Las escenas pueden usar poses específicas de **grito/señalamiento** y **defensa
+encogida**, con brazos y piernas que expresan la acción. Las etiquetas luminosas
+incluyen marco redondeado, hasta tres líneas y halo local; su caja y texto se
+desplazan juntos. Si la dirección pide que una etiqueta salga del cuadro, el
+encuadre puede dejarla salir sin alejar a los personajes para mantenerla visible.
+
+En planos medios y primeros planos, los rótulos sin ancla mantienen su tamaño
+de pantalla y su entrada animada. El rostro deja espacio para su posición de
+lectura, de modo que acercarse al personaje no oculte la información de la escena.
+
+Las nuevas animaciones incorporan resplandor local en rótulos, gráficos y acentos
+de color: un halo suave con núcleo más luminoso, manteniendo nítido el dibujo.
+Un aura solicitada sigue la silueta y los gestos del personaje, en vez de usar
+un disco translúcido. El efecto no cambia los colores del vestuario ni ilumina
+por defecto todo el mobiliario.
+
+Los documentos explicativos pueden representarse con borde luminoso, esquina
+doblada, título grande y renglones vectoriales turquesa. Cuando se indican
+términos que quedan fuera del documento, la composición reserva ambos laterales
+y coloca las cruces junto a esos términos, sin que la hoja los tape.
+
 Las expresiones se deciden **por personaje y a partir de la descripción visual
 actual**. Si no se pide una emoción o un gesto facial, la cara queda neutra,
 sin cejas de preocupación ni sonrisa impuesta. Gesticular, caminar o teclear

@@ -1,11 +1,13 @@
 // Adaptador declarativo sobre el rig GrowKaz. No ejecuta código del modelo.
 import { E, S, mood, layer, ease, key, glow, clamp, FONTS } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
-import { posesAt, breathe, walkPose, face, drawFigure, bigFace, soccerBall, drawProp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/rig2d.js';
+import { breathe, walkPose, face, drawFigure, bigFace, soccerBall, drawProp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/rig2d.js';
+import { poseActuada } from './actuacion.js';
+import { pintarEtiqueta } from './etiqueta.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { cargarFuentes } from './fuentes.js';
 import { pintarEditorial } from './editorial.js';
 import { aplicarEstilo, aplicarPaleta } from './estilo.js';
-import { conNeon } from './neon.js';
+import { conNeon, conAura, neonObjeto } from './neon.js';
 import { protegerTexto, rotuloRedondeado } from './texto.js';
 import { esquinas } from './encuadre.js';
 import { movimientoEn } from './movimiento.js';
@@ -35,7 +37,7 @@ function estado(c, t) {
   const fase = t * Math.PI * (movimiento === 'correr' ? 3.2 : 1.8);
   const act=c.actuacion||{};
   const pose = ['caminar', 'correr'].includes(movimiento) ? walkPose(fase, {run: movimiento === 'correr'})
-    : breathe(posesAt(t, keys.filter(k => k.pose).map(k => [k.t, k.pose]),act.mezcla_pose??.35), t,act.respiracion??1);
+    : breathe(poseActuada(t, keys.filter(k => k.pose),act.mezcla_pose??.35), t,act.respiracion??1);
   const exp = keys.filter(k => k.t <= t && k.expresion).at(-1)?.expresion || c.expresion;
   const mirar = keys.filter(k => k.t <= t && k.mirar !== undefined).at(-1)?.mirar ?? c.mirar;
   return {x, y, s, rot, pose, exp, mirar};
@@ -46,13 +48,15 @@ function cabeza(c,t){
   const dx=a.pose.head[0]*a.s*v.altura*a.mirar*(custom?v.ancho:1),dy=a.pose.head[1]*a.s*v.altura*(custom?v.cuerpo:1);
   return {x:a.x+dx*Math.cos(a.rot)-dy*Math.sin(a.rot),y:a.y+dx*Math.sin(a.rot)+dy*Math.cos(a.rot),r:29*a.s*v.altura*v.cabeza};
 }
-function figura(c, t, estela=false) {
+function figura(c, t, estela=false, ctx=g) {
+  const g=ctx;
   const v = c.diseno, {x, y, s, rot, pose, exp, mirar} = estado(c, t);
   if(!estela&&c.actuacion?.rastro){
     const count=Math.floor(c.actuacion.rastro);
-    for(let i=count;i>=1;i--){g.save();g.globalAlpha*=.2*(1-i/(count+1));g.translate(-i*25*s,0);figura(c,t,true);g.restore();}
+    for(let i=count;i>=1;i--){g.save();g.globalAlpha*=.2*(1-i/(count+1));g.translate(-i*25*s,0);figura(c,t,true,g);g.restore();}
   }
-  const habla = c.habla.some(a => t >= a[0] && t < a[1]) ? .35 + .6 * Math.abs(Math.sin(t * 14)) : 0;
+  const grita=c.claves.filter(k=>k.t<=t&&k.pose).at(-1)?.pose==='shout';
+  const habla = grita || c.habla.some(a => t >= a[0] && t < a[1]) ? .35 + .6 * Math.abs(Math.sin(t * 14)) : 0;
   g.save(); g.translate(x, y); g.rotate(rot); g.scale(s * v.altura * mirar, s * v.altura);
   g.globalAlpha *= valor(c.claves, t, 'opacidad', 1);
   // El Classic conserva ropa, accesorios y utilería del rig original.
@@ -120,7 +124,8 @@ function figura(c, t, estela=false) {
   if(c.actuacion?.atrezzo)drawProp(g,{type:c.actuacion.atrezzo,hand:c.actuacion.mano||'F'},pose,ink);
   g.restore();
 }
-function rostro(c,t) {
+function rostro(c,t,ctx=g) {
+  const g=ctx;
   const a=estado(c,t),v=c.diseno;
   const {x:hx,y:hy,r}=cabeza(c,t);
   // El busto continúa fuera de cuadro; no deja una cabeza flotante sobre el fondo.
@@ -211,6 +216,7 @@ function limites() {
   const hayFrente=escena.objetos.some(o=>o.capa!=='fondo')||escena.personajes.length;
   for(const t of tiempos){
     for(const o of escena.objetos){
+      if(o.transito)continue;
       if(o.ancla&&escena.personajes.some(c=>c.id===o.ancla.personaje&&c.transito))continue;
       if((hayFrente&&o.capa==='fondo'&&o.tipo!=='texto')||t<o.inicio||t>o.fin||valor(o.claves,t,'opacidad',o.opacidad??1)<=.001)continue;
       const {x,y,s,rot}=posicionObjeto(o,t),margen=o.tipo==='texto'?16:Math.max(8,o.grosor||0);
@@ -270,6 +276,7 @@ function objeto(o, t, ctx=g) {
   const caja = (x, y, w, h, r=8) => {g.beginPath(); g.roundRect(x, y, w, h, Math.min(r, w/2, h/2)); g.fill();};
   const trazo = (x, y, xx, yy) => {g.beginPath(); g.moveTo(x, y); g.lineTo(xx, yy); g.stroke();};
   if (o.tipo === 'vector') vector(o, t, g);
+  else if(o.tipo === 'etiqueta')pintarEtiqueta(g,o);
   else if(o.tipo === 'balon')soccerBall(g,0,0,Math.min(w,h)/2,0,o.color);
   else if (o.tipo === 'circulo') {g.beginPath(); g.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI * 2); g.fill();}
   else if (o.tipo === 'linea') {trazo(0, 0, w * progreso, h * progreso);}
@@ -341,8 +348,9 @@ function objeto(o, t, ctx=g) {
 }
 window.pintar = t => {
   if (D.escena.realizacion) return pintarEditorial(g,t,D,{
-    valor, estado, cabeza, limites, figura:(_g,c,time)=>figura(c,time), rostro:(_g,c,time)=>rostro(c,time),
-    objeto:(ctx,o,time)=>conNeon(ctx,o.neon,o.color,c=>objeto(o,time,c)),
+    valor, estado, cabeza, limites, figura:(ctx,c,time)=>conAura(ctx,c.actuacion?.aura,g=>figura(c,time,false,g)),
+    rostro:(ctx,c,time)=>conAura(ctx,c.actuacion?.aura,g=>rostro(c,time,g)),
+    objeto:(ctx,o,time)=>conNeon(ctx,neonObjeto(o,D.escena.realizacion),o.color,c=>objeto(o,time,c)),
     reparto:Object.fromEntries(D.escena.personajes.map(c=>[c.id,c.diseno])),
   });
   const S = D.escena, M = mood(S.ambiente);

@@ -2,6 +2,7 @@
 import { E, S, text, ease, prog, alpha, glow, ring, circle, seg, rr, linGrad, clamp, FONTS } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 import * as UI from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/ui2d.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
+import { documentoNeon } from './documento.js';
 
 export function efecto(g, tipo, o, t) {
   const {x=E.W/2, y=E.H*.8, w=400, h=300, r=70, s=1, color=S().ui.gold} = o;
@@ -138,6 +139,7 @@ export function grafico(g, item, t, reparto, contraste=null) {
       });return;
     }
     case 'documento': {
+      if(o.estilo==='neon')return documentoNeon(g,item,t);
       const x=W*.2,y=H*.12,w=W*.6,h=H*.76,filas=o.filas;
       rr(g,x+12,y+14,w,h,10);g.fillStyle='#0005';g.fill();
       rr(g,x,y,w,h,10);g.fillStyle='#f0e9db';g.fill();
