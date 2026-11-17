@@ -12208,7 +12208,7 @@ async function abrirEditorEscena(escena, estudio) {
       const op = ficha.animacion.opciones.find(o => o.id !== 'sin-animacion');
       b = { id: op.id, ancla: ficha.animacion.ancla, contenido: structuredClone(op.contenido), inicio, duracion: fin - inicio, posiciones: {} };
     } else if (pestaña === 'avatar') b = { entrada: 'fundido', salida: 'fundido', inicio, fin };
-    else b = { tipo: 'fundido', sentido: inicio < total / 2 ? 'entrada' : 'salida', inicio, fin: Math.min(total, inicio + .5) };
+    else b = { tipo: 'fundido', sentido: 'salida', inicio: Math.max(0, total - .5), fin: total };
     listaActual().push(b); seleccionado = listaActual().length - 1; pintarPanel(); cambio();
   }
   function pintarPanel() {

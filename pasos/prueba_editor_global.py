@@ -126,7 +126,12 @@ class EditorGlobal(unittest.TestCase):
                             'filas => filas.map(f => f.querySelectorAll(".anim-timeline-bloque").length)')
                         cantidades[int(destino[1:]) - 1] += 1
                         self.assertEqual(nuevas, cantidades)
-                        self.assertAlmostEqual(float(activo.get_by_label('Inicio (s)', exact=True).input_value()), .7)
+                        final = activo.get_by_label('Final (s)', exact=True)
+                        duracion_escena = float(final.get_attribute('max'))
+                        self.assertAlmostEqual(float(final.input_value()), duracion_escena, places=3)
+                        self.assertAlmostEqual(float(activo.get_by_label('Inicio (s)', exact=True).input_value()),
+                            max(0, duracion_escena - .5), places=3)
+                        self.assertEqual(activo.get_by_label('Sentido', exact=True).input_value(), 'salida')
                         cabecera.get_by_role('button', name='Deshacer', exact=False).click()
                     pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 0)')
                     # Una galería con scroll conserva el punto desde el que se
