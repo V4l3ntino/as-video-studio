@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -262,11 +263,11 @@ class Stickman(unittest.TestCase):
                 patch.object(app, 'lanzar_paso', return_value='regeneracion') as lanzar:
             self.assertEqual(app.regenerar_escena_stickman(p.id, 'S001', None), {'trabajo_id': 'regeneracion'})
             lanzar.assert_called_once_with(ctx, 'assets', ['escena:S001'],
-                opciones={'rehacer': True, 'proveedor_stickman': 'Claude'})
+                opciones={'rehacer': True, 'proveedor_stickman': 'Claude', 'revisar_stickman': True})
             self.assertEqual(app.regenerar_escena_stickman(p.id, 'S001', {'porcentaje': 100}),
                 {'trabajo_id': 'regeneracion'})
             self.assertEqual(lanzar.call_args.kwargs['opciones'],
-                {'rehacer': True, 'proveedor_stickman': 'ChatGPT'})
+                {'rehacer': True, 'proveedor_stickman': 'ChatGPT', 'revisar_stickman': True})
             unidades = estado.params('assets')['unidades']
             self.assertEqual(unidades['escena:S001'], {'descripcion_escena': anterior['descripcion_escena']})
             self.assertEqual(unidades['escena:S002'], otra)
@@ -443,12 +444,15 @@ class Stickman(unittest.TestCase):
                 [dict(id='telon_rojo',tipo='teatro',semilla=9)])
             # Regenerar solo la tercera también recupera raíz y anterior.
             for proveedor in ('Claude', 'ChatGPT'):
-                with patch.object(stickman, 'generar_escena', return_value=segunda) as generar:
+                with patch.object(stickman, 'generar_escena', return_value=segunda) as generar, \
+                        patch.object(stickman, 'fotogramas_revision', return_value=['frame.png']) as fotos:
                     p6_assets.ejecutar(p, params, lambda *a: None, unidades=['escena:S003'],
-                        rehacer=True, proveedor_stickman=proveedor)
+                        rehacer=True, proveedor_stickman=proveedor, revisar_stickman=True)
                 self.assertEqual(generar.call_count, 1)
                 self.assertEqual(generar.call_args.args[-1], proveedor)
                 self.assertEqual(generar.call_args.args[0]['continuidad_bloque'], contexto3)
+                self.assertEqual(generar.call_args.args[0]['_fotogramas_revision'], ['frame.png'])
+                self.assertEqual(fotos.call_count, 1)
             self.assertIn('proveedor_stickman', p6_assets.OPCIONES_EJECUCION)
         # El contexto llega al prompt del adaptador común a ambos proveedores.
         e = dict(escenas[2], continuidad_bloque=contexto3)
@@ -459,6 +463,31 @@ class Stickman(unittest.TestCase):
         self.assertIn('Escenario rojo con dos focos.', prompt)
         self.assertIn('#882222', prompt)
         self.assertIn('estado final', prompt)
+
+    def test_revision_adjunta_fotogramas_a_ambos_proveedores(self):
+        e = dict(id='S001', t_in=0, t_out=3, narracion='Una calle.',
+            prompt='Una calle nocturna.', _fotogramas_revision=['uno.png', 'dos.png'])
+        entrega = dict(ambiente='interiorWarm', decorado='vacio', personajes=[],
+            objetos=[dict(tipo='circulo', x=.5, y=.5, w=100, h=100,
+                color='#ffffff', claves=[dict(t=0, x=.5), dict(t=2, x=.6)])])
+        for proveedor in ('Claude', 'ChatGPT'):
+            with patch.dict(os.environ, ESTUDIO_SIMULAR='0'), \
+                    patch.object(stickman, '_consultar', return_value=entrega) as consulta:
+                stickman.generar_escena(e, self.base, {'protagonista': self.base}, None, lambda *a: None, proveedor)
+            self.assertEqual(consulta.call_args.args[2], ['uno.png', 'dos.png'])
+            self.assertIn('muestras cronológicas', consulta.call_args.args[0])
+            self.assertNotIn('_fotogramas_revision', consulta.call_args.args[0])
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'requiere ffmpeg')
+    def test_revision_extrae_muestras_del_clip(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            clip = str(Path(carpeta) / 'escena.mp4')
+            subprocess.run([medios.ffmpeg(), '-nostdin', '-y', '-v', 'error', '-f', 'lavfi',
+                '-i', 'testsrc2=size=160x90:rate=10:duration=2', '-pix_fmt', 'yuv420p', clip], check=True)
+            rutas = stickman.fotogramas_revision(clip, 2, carpeta)
+            self.assertEqual(len(rutas), 5)
+            self.assertTrue(all(Path(r).read_bytes().startswith(b'\x89PNG') for r in rutas))
+            self.assertNotEqual(Path(rutas[0]).read_bytes(), Path(rutas[-1]).read_bytes())
 
     def test_entregas_invalidas_no_bloquean_otras_escenas_y_reintento_selectivo(self):
         from pasos import p6_assets

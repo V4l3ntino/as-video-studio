@@ -11,7 +11,7 @@ from pasos.tiempos_stickman import tiempo
 from pasos.capitulos_guion import ESTILOS as ESTILOS_CAPITULO
 
 ENCUADRES = ('general', 'conjunto', 'medio', 'primer_plano', 'detalle', 'grafico', 'dividido', 'cierre')
-ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'ciudad', 'calle_comercial', 'parque', 'cocina', 'teatro', 'cine', 'aula')
+ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'ciudad', 'calle_comercial', 'calle_residencial', 'parque', 'cocina', 'teatro', 'cine', 'aula')
 PALETAS = json.loads((Path(__file__).resolve().parents[1] / 'motores/stickman/paletas.json').read_text(encoding='utf-8'))
 
 # Esquemas pequeños compartidos por validación e instrucciones al modelo.
@@ -271,7 +271,7 @@ def normalizar(datos, duracion, reparto):
             encuadre=('elegir', *ENCUADRES), sujeto=('texto', 120), objetivo=('texto', 500),
             escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000),
                 atril=BOOL, publico=BOOL, atril_x=('numero', .15, .85), luz=COLOR,
-                edificios=BOOL, fachada=COLOR, tejado=COLOR, luz_ventanas=COLOR,
+                edificios=BOOL, fachada=COLOR, tejado=COLOR, luz_ventanas=COLOR, laboratorio=BOOL,
                 proyeccion=('elegir', 'vacia', 'silueta_amenazante')),
             fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
             particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400), escenografia_detallada=BOOL,
@@ -347,7 +347,7 @@ def heredar_escenografia(escena, continuidad, renovar=False):
             if not renovar:
                 r.setdefault('escenografia_detallada', previa.get('escenografia_detallada', False))
             for campo in ('semilla', 'atril', 'atril_x', 'publico', 'luz',
-                          'edificios', 'fachada', 'tejado', 'luz_ventanas', 'proyeccion'):
+                          'edificios', 'fachada', 'tejado', 'luz_ventanas', 'laboratorio', 'proyeccion'):
                 if campo in lugar:
                     actual.setdefault(campo, lugar[campo])
             return
@@ -383,17 +383,28 @@ def preparar_escenografia_nueva(escena, resolucion, descripcion=None):
             or r.get('encuadre') == 'dividido' or escena.get('espacio3d')):
         return escena
     alto = 1920 * resolucion[1] / resolucion[0]
+    calle_viviendas = (re.search(r'\b(calles?|avenidas?)\b', texto)
+        and re.search(r'\b(casas?|viviendas?)\b', texto))
+    if calle_viviendas and tipo in ('barrio', 'ciudad') and (r.get('escenario') or {}).get('edificios') is not False:
+        raise ValueError('Una calle con casas necesita escenario.tipo:calle_residencial para mostrar fachadas '
+            'y farolas en perspectiva, no dos casas aisladas. Si se menciona un laboratorio exterior, '
+            'usa escenario.laboratorio:true. Conserva los materiales y la iluminación solicitados.')
+    if tipo == 'calle_residencial' and calle_viviendas and re.search(r'\blaboratorio\b', texto) and not (r.get('escenario') or {}).get('laboratorio'):
+        raise ValueError('La calle residencial necesita escenario.laboratorio:true para mostrar el edificio de laboratorio solicitado.')
     if (tipo in ('barrio', 'ciudad') and (r.get('escenario') or {}).get('edificios') is not False
             and re.search(r'\b(aceras?|calles?)\b', texto)
             and re.search(r'\bescaparates?\b', texto)):
         raise ValueError('Una calle con escaparates requiere escenario.tipo:calle_comercial, no dos casas '
             'aisladas de barrio/ciudad. Usa ese decorado comercial en perspectiva, o edificios:false '
             'si vas a construir toda la arquitectura con vectores.')
-    if tipo in ('barrio', 'ciudad', 'calle_comercial') and (r.get('escenario') or {}).get('edificios') is not False:
+    if tipo in ('barrio', 'ciudad', 'calle_comercial', 'calle_residencial') and (r.get('escenario') or {}).get('edificios') is not False:
         for objeto in escena['objetos']:
             recurso = escena.get('utileria', {}).get(objeto.get('recurso'), {})
             identidad = ' '.join([recurso.get('concepto', ''), recurso.get('nombre', ''),
                                   *recurso.get('etiquetas', [])]).lower()
+            if (tipo == 'calle_residencial' and (r.get('escenario') or {}).get('laboratorio')
+                    and objeto['tipo'] == 'vector' and re.search(r'\blaboratorio\b', identidad)):
+                raise ValueError('La calle residencial ya incluye el laboratorio exterior: elimina el vector que duplica el edificio.')
             if objeto['tipo'] == 'vector' and re.search(r'\b(casas?|viviendas?|fachadas?|houses?|homes?|escaparates?|tiendas?)\b', identidad):
                 raise ValueError('El decorado ya incluye casas: la utilería arquitectónica duplica los edificios. '
                     'Usa escenario.edificios:false si compones las casas con vectores, o elimina esas casas '
@@ -516,6 +527,16 @@ los dibuja enteros en gris. Escálalos por profundidad (pies .72: escala~1.1, pi
 Ordena los actores de lejos a cerca; el protagonista cercano se dibuja después de los del fondo.
 Para el que se cruza, usa actuacion.aura:{color:"#ffad45",intensidad:.16–.25}, no un rectángulo
 luminoso ni una ventana detrás. Solo ese transeúnte lleva el halo de énfasis; los demás gris neutro.
+CALLE RESIDENCIAL: para una calle con casas usa escenario.tipo:calle_residencial y escenografia_detallada:true.
+El motor dibuja calle en perspectiva, aceras, casas con tejados, ventanas y farolas a varias profundidades.
+Para un edificio de laboratorio exterior solicitado añade escenario.laboratorio:true: el motor lo integra
+en una fachada lateral con escaparate azul y cristalería; no lo dupliques con un vector en el centro.
+fachada, tejado y luz_ventanas fijan materiales y color de las ventanas encendidas. Usa ambiente:night
+para noche. No añadas fachadas ni casas vectoriales sobre las del decorado. Conserva el encuadre general.
+Si la escena solo muestra la calle, usa personajes:[],objetos:[] y una panorámica suave con dos claves
+de cámara distintas; el decorado es el contenido, no hace falta añadir objetos inventados. En camara,
+x e y son DESPLAZAMIENTOS desde el centro (centro = 0, no .5). Para una panorámica horizontal usa
+por ejemplo [{t:0,x:-.04,y:0,escala:1.16},{t:duracion,x:.04,y:0,escala:1.16}].
 Barrio/ciudad ya dibuja DOS casas grandes y una farola. Elige UNA arquitectura: usa esas casas
 con escenario:{fachada:"#e8e2d6",tejado:"#46515c",luz_ventanas:"#91c9ed"} para yeso,
 pizarra y un halo azul tenue en algunas ventanas; o usa escenario.edificios:false y compón TODOS

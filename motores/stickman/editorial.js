@@ -4,7 +4,7 @@ import { decorado } from './decorados.js';
 import { efecto, grafico } from './kit.js';
 import { acabado } from './acabado.js';
 import { pintar3D } from './espacio3d.js';
-import { encuadrar } from './encuadre.js';
+import { encuadrar, encuadrarCalle } from './encuadre.js';
 import { conNeon } from './neon.js';
 import { paletaEditorial } from './estilo.js';
 import { ambienteVisual } from './ambiente.js';
@@ -44,6 +44,7 @@ export function pintarEditorial(g,t,D,draw) {
     }
     if(zona.abajo>zona.arriba)encuadrar(cam,draw.limites(),W,H,zona);
   }
+  if(escenografia&&R.escenario?.tipo==='calle_residencial')encuadrarCalle(cam,S0.camara,W,H);
   g.setTransform(E.PX,0,0,E.PX,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';
   g.clearRect(0,0,W,H);
   // blurLayer atenúa el alpha en los bordes: mantener un respaldo opaco.

@@ -1114,6 +1114,93 @@ class Editorial(unittest.TestCase):
         with patch.object(p8_render.Navegador,'capturar',comprobar):
             stickman.renderizar(base,datos,4,str(Path(TEMP.name)/'calle-comercial.png'),salida=(960,540))
 
+    def test_calle_residencial_selecciona_escenario_desde_prompt_real(self):
+        descripcion='Panorámica de una ciudad nocturna: una calle con farolas, un edificio de laboratorio y casas de yeso con tejados de pizarra.'
+        entrega=dict(ambiente='night',decorado='ciudad',personajes=[],
+            realizacion=dict(encuadre='general',escenografia_detallada=True,
+                escenario=dict(id='calle',tipo='ciudad')),
+            objetos=[dict(tipo='circulo',x=.5,y=.5,w=40,h=40,color='#ffffff',
+                claves=[dict(t=0,x=.5),dict(t=2,x=.51)])])
+        correcto=copy.deepcopy(entrega)
+        correcto['realizacion']['escenario'].update(tipo='calle_residencial',laboratorio=True,
+            fachada='#e8e2d6',tejado='#46515c',luz_ventanas='#91c9ed')
+        correcto['objetos']=[]
+        correcto['camara']=[dict(t=0,x=.48,y=.5,escala=1),dict(t=4,x=.52,y=.5,escala=1)]
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'), patch.object(stickman,'_consultar',
+                side_effect=[entrega,correcto]) as consulta:
+            nueva=stickman.generar_escena(dict(t_in=0,t_out=4,prompt=descripcion),
+                self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(consulta.call_count,2)
+        self.assertIn('calle_residencial',consulta.call_args_list[1].args[0])
+        self.assertTrue(nueva['realizacion']['escenario']['laboratorio'])
+        self.assertEqual(nueva['objetos'],[])
+        self.assertEqual(stickman.escena(entrega,4,self.reparto)['realizacion']['escenario']['tipo'],'ciudad')
+        siguiente=dict(realizacion=dict(escenario=dict(id='calle',tipo='calle_residencial')))
+        editorial.heredar_escenografia(siguiente,dict(anterior=dict(contenido=nueva)))
+        self.assertTrue(siguiente['realizacion']['escenario']['laboratorio'])
+
+    @unittest.skipUnless(REAL,'usa --real para calle residencial y laboratorio')
+    def test_calle_residencial_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        datos=dict(ambiente='night',decorado='ciudad',personajes=[],realizacion=dict(
+            encuadre='general',escenografia_detallada=True,acabado=False,color_fiel=True,
+            escenario=dict(id='calle',tipo='calle_residencial',laboratorio=True,
+                fachada='#e8e2d6',tejado='#46515c',luz_ventanas='#91c9ed')))
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d');
+                const frame=()=>{window.pintar(0);return g.getImageData(0,0,c.width,c.height).data;};
+                const con=frame();window.STICKMAN.escena.realizacion.escenario.laboratorio=false;
+                const sin=frame();let cambia=0,azul=0;
+                for(let i=0;i<con.length;i+=4){
+                    if(con[i]!==sin[i]||con[i+1]!==sin[i+1]||con[i+2]!==sin[i+2])cambia++;
+                    if(con[i+2]>con[i]*1.4&&con[i+1]>con[i]*1.3)azul++;
+                }
+                window.STICKMAN.escena.realizacion.escenario.laboratorio=true;window.pintar(0);
+                return {cambia,azul};
+            })()''')
+            self.assertGreater(r['cambia'],2000,r)
+            self.assertGreater(r['azul'],10000,r)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(datos,4,{}),4,
+                str(Path(TEMP.name)/'calle-residencial.png'),salida=(960,540))
+
+    @unittest.skipUnless(REAL,'usa --real para el recorrido real de cámara de la calle residencial')
+    def test_calle_residencial_panoramica_plan_publicado_no_corta_decorado(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        datos=dict(ambiente='night',decorado='ciudad',personajes=[],
+            camara=[dict(t=0,x=.46,y=.5),dict(t=4.644,x=.54,y=.5,curva='inOut')],
+            realizacion=dict(encuadre='general',escenografia_detallada=True,acabado=False,
+                color_fiel=True,profundidad=.35,escenario=dict(id='calle',tipo='calle_residencial',
+                    laboratorio=True,fachada='#e8e2d6',tejado='#46515c',luz_ventanas='#91c9ed')))
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d'),escena=window.STICKMAN.escena;
+                const frame=t=>{window.pintar(t);return g.getImageData(0,0,c.width,c.height).data;};
+                const antes=[frame(0),frame(2.322),frame(4.643)];
+                escena.camara=[{t:0,x:-.04,y:0,escala:1.16},
+                    {t:4.644,x:.04,y:0,escala:1.16,curva:'inOut'}];
+                const despues=[frame(0),frame(2.322),frame(4.643)];
+                let diferencias=0,movimiento=0;
+                for(let j=0;j<3;j++)for(let i=0;i<antes[j].length;i+=4){
+                    if(antes[j][i]!==despues[j][i]||antes[j][i+1]!==despues[j][i+1]||antes[j][i+2]!==despues[j][i+2])diferencias++;
+                    if(j===0&&(antes[0][i]!==antes[2][i]||antes[0][i+1]!==antes[2][i+1]))movimiento++;
+                }
+                const centro=despues[1], pix=(x,y)=>Array.from(centro.slice((Math.floor(y*c.height)*c.width+Math.floor(x*c.width))*4,(Math.floor(y*c.height)*c.width+Math.floor(x*c.width))*4+3));
+                return {diferencias,movimiento,izquierda:pix(.08,.65),derecha:pix(.92,.65),centro:pix(.5,.9)};
+            })()''')
+            self.assertEqual(r['diferencias'],0,r)
+            self.assertGreater(r['movimiento'],10000,r)
+            self.assertGreater(sum(r['izquierda']),100,r)
+            self.assertGreater(sum(r['derecha']),100,r)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(datos,4.644,{}),4.644,
+                str(Path(TEMP.name)/'calle-panoramica.png'),salida=(960,540))
+
     def test_ciudad_arquitectura_unica_materiales_y_continuidad(self):
         lugar=dict(id='calle',tipo='ciudad',fachada='#e8e2d6',tejado='#46515c',luz_ventanas='#91c9ed')
         datos=dict(ambiente='night',decorado='ciudad',personajes=[],

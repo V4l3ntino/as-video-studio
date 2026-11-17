@@ -154,8 +154,11 @@ puedes adjuntarla y aplicar directamente con tus indicaciones. Las referencias
 se conservan en el historial de la escena y viajan al duplicar o exportar el vídeo.
 
 Junto a **Editar escena**, **Regenerar escena** crea de nuevo toda la animación
-de la escena situada bajo el cursor con la IA seleccionada en la cabecera, desde su descripción actual y sin reutilizar
-su plan ni los retoques anteriores. El previsualizador muestra **Regenerando
+de la escena situada bajo el cursor con la IA seleccionada en la cabecera. Si existe
+un clip anterior, la IA recibe cinco fotogramas repartidos a lo largo de él y los
+examina para mejorar la composición, la iluminación, el detalle y el movimiento,
+respetando la descripción actual. El nuevo plan se crea desde cero; el resultado
+depende del proveedor y de las posibilidades del motor. El previsualizador muestra **Regenerando
 animación…** y permite parar; al terminar carga el nuevo clip. Después vuelve a
 montar para incorporar el cambio al MP4.
 
@@ -287,6 +290,12 @@ suavizar el decorado. Luces, sombras de apoyo, atmósfera, gradación, viñeta y
 grano forman parte del render. Los estilos nuevos parten del acabado
 **Editorial Cinema**, con color neutro y contorno cálido; las variantes elegidas
 conservan su paleta. Los cinco acabados anteriores siguen disponibles.
+
+Las calles residenciales nuevas pueden utilizar un decorado en perspectiva con
+casas, tejados, aceras y farolas a distintas profundidades. Si la descripción
+incluye un laboratorio exterior, puede integrarse en una fachada de la calle.
+El decorado respeta los materiales y la iluminación indicados; para incorporarlo
+a una escena existente, regenera su animación.
 
 Los escenarios nuevos usan **escenografía detallada**, separada en arquitectura
 de fondo, suelo y mobiliario al mismo plano que los actores, y elementos de

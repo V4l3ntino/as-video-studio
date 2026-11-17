@@ -5402,7 +5402,7 @@ def regenerar_escena_stickman(pid: str, sid: str, datos: dict = Body(default=Non
         unidad.pop('edicion_stickman', None)
         unidad.pop('medio_usuario', None)
         ctx.estado.actualizar_params('assets', {'unidades': {uid: unidad}})
-        tid = lanzar_paso(ctx, 'assets', [uid], opciones={'rehacer': True, 'proveedor_stickman': proveedor})
+        tid = lanzar_paso(ctx, 'assets', [uid], opciones={'rehacer': True, 'proveedor_stickman': proveedor, 'revisar_stickman': True})
     return dict(trabajo_id=tid)
 
 

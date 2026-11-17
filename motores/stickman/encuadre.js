@@ -5,6 +5,23 @@ export function esquinas(x,y,w,h,rot=0) {
     .map(([dx,dy])=>[x+dx*c-dy*s,y+dx*s+dy*c]);
 }
 
+// El decorado residencial ocupa el lienzo completo: evita que una cámara
+// descubra sus bordes. Algunos planes publicados usaron .5 como centro en vez
+// de desplazamiento cero; reconoce solo esa pareja inequívoca de coordenadas.
+export function encuadrarCalle(cam,claves,W,H) {
+  const xs=claves.filter(k=>k.x!==undefined).map(k=>k.x);
+  const ys=claves.filter(k=>k.y!==undefined).map(k=>k.y);
+  if(xs.length&&ys.length&&xs.every(x=>x>=.35&&x<=.65)&&ys.every(y=>y>=.35&&y<=.65)){
+    cam.x-=W*.5;cam.y-=H*.5;
+  }
+  const c=Math.abs(Math.cos(cam.r||0)),s=Math.abs(Math.sin(cam.r||0));
+  const mitadX=(c*W+s*H)/2,mitadY=(s*W+c*H)/2;
+  cam.z=Math.max(cam.z,1.16,2*mitadX/W,2*mitadY/H);
+  const margenX=Math.max(0,W/2-mitadX/cam.z),margenY=Math.max(0,H/2-mitadY/cam.z);
+  cam.x=Math.max(-margenX,Math.min(margenX,cam.x));
+  cam.y=Math.max(-margenY,Math.min(margenY,cam.y));
+}
+
 export function encuadrar(cam,puntos,W,H,zona) {
   if(!puntos.length)return;
   const c=Math.cos(cam.r||0),s=Math.sin(cam.r||0);

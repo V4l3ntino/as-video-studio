@@ -542,10 +542,18 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
     proyeccion_cine = (realizacion.get('escenografia_detallada')
         and (realizacion.get('escenario') or {}).get('tipo') == 'cine'
         and realizacion['escenario'].get('proyeccion') == 'silueta_amenazante')
-    if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d') and not proyeccion_cine:
+    calle_residencial = (realizacion.get('escenografia_detallada')
+        and (realizacion.get('escenario') or {}).get('tipo') == 'calle_residencial'
+        and (realizacion.get('escenario') or {}).get('edificios') is not False)
+    if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d') and not proyeccion_cine and not calle_residencial:
         raise ValueError('escena sin contenido explicativo: añade actuación, objeto o gráfico')
     if duracion >= 2:
         cambios = bool(proyeccion_cine)
+        if calle_residencial:
+            camara = resultado.get('camara') or []
+            cambios |= len(camara) > 1 and any(
+                any(k.get(campo) != camara[0].get(campo) for campo in ('x', 'y', 'escala', 'zoom') if campo in k)
+                for k in camara[1:] if k.get('t', 0) > 0)
         for c in resultado['personajes']:
             anterior = dict(x=c['x'], y=c['y'], escala=c['escala'], expresion=c['expresion'], pose='stand', rot=0, opacidad=1, mirar=c['mirar'])
             for k in c['claves']:
@@ -585,7 +593,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
         edicion = (e.get('indicaciones_usuario') or {}).get('edicion_stickman')
         if edicion and edicion.get('ancla') != e.get('narracion'):
             raise ValueError('La edición ya no corresponde al texto de esta escena')
-        referencias_edicion = []
+        referencias_edicion = list(e.get('_fotogramas_revision') or [])
         if edicion:
             from pasos import edicion_stickman
             referencias_edicion = edicion_stickman.referencias(proyecto, edicion.get('mensajes') or [])
@@ -596,6 +604,15 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             'La petición de retoque manda sobre la descripción visual histórica y la continuidad cuando haya conflicto. '
               + edicion_stickman.CONTEXTO_IMAGENES
               + 'Devuelve el plan completo editado con el mismo contrato.\n') if edicion else ''
+        if referencias_edicion and not edicion:
+            prefijo = ('Las imágenes adjuntas son muestras cronológicas del clip anterior, desde el inicio hasta el final. '
+                'Antes de dirigir de nuevo, examina cada muestra y los cambios entre ellas: detecta problemas concretos '
+                'de composición, perspectiva, profundidad, iluminación, materiales, detalle, color, movimiento y legibilidad. '
+                'Decide cómo mejorar los problemas observados y materializa esas mejoras en el plan entregado; no repitas '
+                'una composición pobre solo por parecerse al clip. Conserva lo que funciona y respeta la descripción, '
+                'el estilo, la continuidad narrativa y la duración. Usa los recursos reales del motor y utilería vectorial '
+                'detallada cuando haga falta; evita fachadas planas, simetría rígida y espacios vacíos si empobrecen la escena. '
+                'No inventes acciones, personajes ni rótulos que contradigan el encargo.\n')
         def validar_entrega(d):
             resolucion = e.get('resolucion', [1920, 1080])
             contenido = validar_puesta_en_escena(d, dur, reparto, resolucion, catalogo_utileria)
@@ -607,7 +624,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
                 for grafico in contenido.get('graficos', []):
                     if grafico['tipo'] == 'lista':
                         grafico['opciones'].setdefault('estilo', 'texto')
-                expresiones_stickman.validar(contenido, e.get('descripcion_visual'))
+                expresiones_stickman.validar(contenido, e.get('descripcion_visual') or e.get('prompt'))
             else:
                 # La corrección del dibujo no depende de que la IA recuerde una
                 # marca nueva. No cambia las bocas neutras de un retoque histórico.
@@ -616,7 +633,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
                 realizacion_stickman.heredar_escenografia(contenido, e.get('continuidad_bloque'),
                     renovar=bool(e.get('renovar_escenografia')))
                 realizacion_stickman.preparar_escenografia_nueva(contenido, resolucion,
-                    descripcion=e.get('descripcion_visual') if not edicion else None)
+                    descripcion=(e.get('descripcion_visual') or e.get('prompt')) if not edicion else None)
             if not edicion or 'comparacion' in (contenido.get('realizacion') or {}):
                 realizacion_stickman.preparar_comparacion_nueva(contenido, resolucion)
             return utileria_stickman.validar_colores(contenido)
@@ -768,7 +785,7 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             + personajes.instruccion_tiempo_visual()
             + realizacion_stickman.instruccion()
             + utileria_stickman.CONTRATO
-            + json.dumps(dict(escena=e, duracion=dur, estilo=diseno, reparto=reparto,
+            + json.dumps(dict(escena={k: v for k, v in e.items() if k != '_fotogramas_revision'}, duracion=dur, estilo=diseno, reparto=reparto,
                 catalogo_utileria=utileria_stickman.indice(catalogo_utileria, e)), ensure_ascii=False),
             proyecto, referencias=referencias_edicion, avisar=avisar, proveedor=proveedor,
             validar=validar_entrega)
@@ -831,6 +848,20 @@ def memoria_visual(e, contenido):
         actor.pop('diseno', None)
         actor.pop('habla', None)
     return dict(id=e['id'], duracion=e['t_out'] - e['t_in'], contenido=visual)
+
+
+def fotogramas_revision(clip, duracion, carpeta):
+    """Muestras temporales para revisar la evolución sin enviar miles de imágenes."""
+    rutas = []
+    for i, fraccion in enumerate((.05, .28, .51, .74, .95)):
+        ruta = str(Path(carpeta) / f'fotograma_{i + 1}.png')
+        resultado = subprocess.run([medios.ffmpeg(), '-nostdin', '-v', 'error', '-ss',
+            str(max(0, duracion * fraccion)), '-i', str(clip), '-frames:v', '1',
+            '-vf', 'scale=960:-2', '-y', ruta], capture_output=True, timeout=60)
+        if resultado.returncode or not Path(ruta).is_file():
+            raise ValueError('No se pudieron extraer los fotogramas de la animación anterior para revisarla')
+        rutas.append(ruta)
+    return rutas
 
 
 def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer=False, previo=None, **opciones):
@@ -923,7 +954,15 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
                     contexto['renovar_escenografia'] = True
                 proveedor = proveedor_elegido or edicion.get('proveedor') or ('Claude' if i < n_claude else 'ChatGPT')
                 try:
-                    contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
+                    if (opciones.get('revisar_stickman') and rehacer and not edicion and completa
+                            and guardada.get('firma') == anterior.get('firma_stickman') and guardada.get('contenido')):
+                        avisar(i / max(1, len(escenas)), f'Revisando visualmente la animación {e["id"]}')
+                        with tempfile.TemporaryDirectory(prefix='.stickman_revision_', dir=os.path.realpath(proyecto.raiz)) as carpeta:
+                            contexto['_fotogramas_revision'] = fotogramas_revision(
+                                Path(trabajo) / anterior['clip'], e['t_out'] - e['t_in'], carpeta)
+                            contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
+                    else:
+                        contenido = generar_escena(contexto, base, reparto, proyecto, avisar, proveedor)
                 except ErrorValidacion as fallo:
                     # Solo una entrega inválida es local a la escena. Cancelación,
                     # cuota y fallos del motor siguen interrumpiendo la tarea.

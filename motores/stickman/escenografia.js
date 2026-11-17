@@ -4,8 +4,9 @@ import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d
 import { semillaLugar } from './decorados.js';
 import { fondoCalle, sueloCalle } from './calle.js';
 import { fondoCine, sueloCine, frenteCine } from './cine.js';
+import { fondoResidencial, sueloResidencial } from './calle_residencial.js';
 
-const TIPOS=new Set(['teatro','cine','fiesta','salon','oficina','laboratorio','cocina','aula','barrio','calle_comercial','parque','interior','ciudad','naturaleza']);
+const TIPOS=new Set(['teatro','cine','fiesta','salon','oficina','laboratorio','cocina','aula','barrio','calle_comercial','calle_residencial','parque','interior','ciudad','naturaleza']);
 export const tipoEscenografia=escena=>escena.realizacion?.escenario?.tipo||escena.decorado;
 export function usaEscenografia(escena){
   return Boolean(escena.realizacion?.escenografia_detallada&&!escena.realizacion.comparacion&&
@@ -79,6 +80,7 @@ export function fondoEscenografia(g,escena,t){
   const {tipo,W,H,dia,seed}=datos(escena),r=escena.realizacion;
   if(tipo==='cine'){fondoCine(g,escena,t,seed);return;}
   if(tipo==='calle_comercial'){fondoCalle(g,escena,seed);return;}
+  if(tipo==='calle_residencial'){fondoResidencial(g,escena,seed);return;}
   if(tipo==='teatro'){
     telon(g,W,H,seed,r.fondo);
     return;
@@ -171,6 +173,7 @@ export function sueloEscenografia(g,escena,t,luz){
   const {tipo,W,H,dia,seed,lugar}=datos(escena);
   if(tipo==='cine'){sueloCine(g);return;}
   if(tipo==='calle_comercial'){sueloCalle(g,escena);return;}
+  if(tipo==='calle_residencial'){sueloResidencial(g,escena);return;}
   const exterior=['barrio','parque','ciudad','naturaleza'].includes(tipo);
   if(!exterior)suelo(g,escena);
   else{

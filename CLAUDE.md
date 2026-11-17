@@ -72,6 +72,23 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+Las calles con casas pueden usar `escenario.tipo:calle_residencial`: el motor
+construye fachadas en perspectiva, tejados, aceras y farolas; `laboratorio:true`
+integra una fachada científica cuando la descripción lo pide. No lo impongas a
+proyectos guardados al leer ni cambies VERSION. La validación de entregas nuevas
+debe recibir `e.prompt` (el plan de P6 usa ese nombre), con `descripcion_visual`
+como alternativa; antes las comprobaciones de arquitectura no veían el texto real.
+No dupliques el laboratorio ni las casas con vectores. Contrato y render en
+`pasos/prueba_stickman_editorial.py [--real]`.
+En S131 el director entregó cámara `x:.46→.54,y:.5`, entendiendo .5 como centro,
+pero `layer()` interpreta x/y como desplazamientos desde cero: la calle aparecía
+cortada. `encuadrarCalle` reconoce esa pareja de coordenadas en planes publicados,
+la centra y limita el desplazamiento con zoom suficiente para cubrir el lienzo
+durante toda la panorámica, también con rotación. Para planes nuevos pide
+`x:-.04→.04,y:0,escala:1.16`. El MP4 existente debe volver a renderizarse;
+no mutar el JSON publicado ni cambiar VERSION. La regresión renderiza el recorrido
+real de S131 en inicio, medio y final y comprueba su equivalencia con la cámara correcta.
+
 S153 construía pantalla y figura como un vector de 1720×850 sin recorte: el cuerpo
 se salía y tapaba el cine como una franja negra. `escenario.tipo:cine` conecta
 `cine.js`, con pantalla, cortinas y butacas separadas del primer término.
