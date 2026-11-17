@@ -59,10 +59,19 @@ cortinas laterales, tarima de madera con juntas, candilejas y un foco cálido su
 protagonista, con partículas y destellos discretos en el haz. Público como siluetas cercanas
 en el borde inferior, no muñecos diminutos repetidos. Atril únicamente si participa en la acción;
 si el teatro está vacío, indícalo y no inventes espectadores. Mantén claros los planos de profundidad.
+En una sala de cine, pantalla panorámica con la película contenida dentro de su marco, cortinas
+burdeos a los lados, apliques ámbar y filas de butacas de terciopelo. El público se ve de espaldas
+en primer término. Una silueta amenazante ocupa la pantalla, nunca toda la sala: busto a contraluz
+ámbar, cabeza distinguible, cuello de abrigo alto y bruma suave, sin una franja negra que tape el cine.
 Aplica el mismo criterio a otros espacios: sofá/cojines, ventana y lámparas en un salón;
 escritorio y silla en oficina; banco, cristalería y microscopio en laboratorio; azulejos,
 armarios, fregadero y frigorífico en cocina; pizarra enmarcada y pupitres en aula; fachadas,
 vegetación y caminos con escala y distancia en exteriores. Los materiales conservan sus colores.
+Una acera urbana con escaparates se compone como CALLE COMERCIAL en perspectiva: fachadas
+de ladrillo y vitrinas cálidas a ambos lados, toldos, farolas y árboles que disminuyen hacia
+el fondo, pavimento continuo con juntas y silueta de ciudad lejana. No la sustituyas por dos
+casas aisladas con tejados y césped. Al atardecer, cielo violeta/coral, sol bajo y luz ámbar
+rasante; los transeúntes grises conservan su silueta corporal, y solo el indicado lleva halo naranja.
 El decorado apoya la acción y no añade una lista de cosas que deban animarse dentro de la frase.
 Las peticiones explícitas de fondo liso, ausencia de partículas o de cuadrícula tienen prioridad.
 OBLIGATORIO: cada entrada de escenas_visuales y cada escena regenerada incluye

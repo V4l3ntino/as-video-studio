@@ -25,7 +25,7 @@ FAMILIAS = {'classic': 'Classic Stick', 'bean': 'Bean Body', 'rubber': 'Rubber H
 ACABADOS = ('editorial', 'emerald', 'ember', 'arctic', 'sakura', 'retro')
 POSES = ('stand', 'relaxed', 'talk', 'explain', 'point', 'pointUp', 'wave', 'cheer', 'handsOnHead',
          'crossArms', 'think', 'shrug', 'holdFront', 'phone', 'reach', 'sad', 'facepalm', 'ready',
-         'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall', 'shout', 'recoil', 'pushReady', 'push', 'scratchHead')
+         'crouch', 'sit', 'sitBack', 'kneel', 'lie', 'dive', 'kick', 'jump', 'fall', 'shout', 'recoil', 'pushReady', 'push', 'scratchHead', 'palmUp')
 EXPRESIONES = ('neutral', 'smile', 'happy', 'joy', 'surprised', 'shocked', 'scared', 'worried',
                'nervous', 'angry', 'determined', 'sad', 'cry', 'smirk', 'sleepy', 'thinking', 'confused', 'awe')
 EFECTOS = ('whoosh', 'swish', 'impact', 'hit', 'riser', 'slowmo', 'freeze', 'tick', 'clock',
@@ -278,6 +278,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
                     atrezzo=('elegir', 'phone', 'ball', 'paper', 'cup', 'paddle', 'pointer', 'tablet', 'flashlight'),
                     mano=('elegir', 'F', 'B'), gafas=('elegir', 'none', 'glasses', 'sunglasses'),
                     guantes=realizacion_stickman.COLOR, pantalon=realizacion_stickman.COLOR,
+                    silueta=realizacion_stickman.COLOR,
                     rastro=('numero', 0, 5), aura=realizacion_stickman.opciones(
                         color=realizacion_stickman.COLOR, intensidad=('numero', 0, 1))), 'personaje.actuacion')
             aura = resultado['personajes'][-1]['actuacion'].get('aura')
@@ -538,10 +539,13 @@ def validar_puesta_en_escena(datos, duracion, reparto, resolucion, catalogo_util
                 'o encuadre="grafico" para una comparación de objetos o magnitudes; no inventes actores.')
     if encuadre == 'detalle' and not realizacion.get('foco'):
         raise ValueError('detalle necesita foco:[x,y] normalizado')
-    if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d'):
+    proyeccion_cine = (realizacion.get('escenografia_detallada')
+        and (realizacion.get('escenario') or {}).get('tipo') == 'cine'
+        and realizacion['escenario'].get('proyeccion') == 'silueta_amenazante')
+    if not resultado['personajes'] and not resultado['objetos'] and not resultado.get('graficos') and not resultado.get('espacio3d') and not proyeccion_cine:
         raise ValueError('escena sin contenido explicativo: añade actuación, objeto o gráfico')
     if duracion >= 2:
-        cambios = False
+        cambios = bool(proyeccion_cine)
         for c in resultado['personajes']:
             anterior = dict(x=c['x'], y=c['y'], escala=c['escala'], expresion=c['expresion'], pose='stand', rot=0, opacidad=1, mirar=c['mirar'])
             for k in c['claves']:
@@ -611,7 +615,8 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
             if not edicion or (contenido.get('realizacion') or {}).get('escenografia_detallada'):
                 realizacion_stickman.heredar_escenografia(contenido, e.get('continuidad_bloque'),
                     renovar=bool(e.get('renovar_escenografia')))
-                realizacion_stickman.preparar_escenografia_nueva(contenido, resolucion)
+                realizacion_stickman.preparar_escenografia_nueva(contenido, resolucion,
+                    descripcion=e.get('descripcion_visual') if not edicion else None)
             if not edicion or 'comparacion' in (contenido.get('realizacion') or {}):
                 realizacion_stickman.preparar_comparacion_nueva(contenido, resolucion)
             return utileria_stickman.validar_colores(contenido)
@@ -655,7 +660,11 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'es una copia local, no cambia su diseño ni proporciones. Conserva ese vestuario mientras continúe la acción. '
              'Claves: {t: segundos locales, x?,y?,escala?,rot? en radianes,pose?,expresion?,mirar?:-1|1,movimiento?:gesto|caminar|correr}. '
             'mirar cambia de orientación en ese instante; usa -1 hacia la izquierda y 1 hacia la derecha, también para dar la espalda a una petición. '
-             'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
+              'Pose inicial en t=0. Poses: ' + ','.join(POSES) + '. Expresiones: ' + ','.join(EXPRESIONES) + '. '
+              'Extender una mano con la palma hacia arriba (por ejemplo comprobar si llueve) usa pose:palmUp: '
+              'antebrazo adelantado, mano abierta con pulgar separado y dedos extendidos, otro brazo relajado. '
+              'No uses holdFront/reach/explain ni dibujes una mano como utilería vectorial, pinza, barra o bandeja. '
+              'La palma vacía no lleva atrezzo ni objetos anclados; conserva la expresión solicitada por la escena. '
              'Actuación legible: shout es gritar/señalar con torso inclinado y piernas separadas; recoil es encogerse, '
              'retroceder y protegerse con ambos brazos elevados. Úsalas solo si la descripción pide esas acciones. '
               'No sustituyas gritar por talk/explain ni defensa por stand/holdFront. Orienta a los actores uno hacia otro. '

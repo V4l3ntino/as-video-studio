@@ -10816,7 +10816,7 @@ const CACHE_EDITOR = {
 
 function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alAplicar, modelo}) {
   const base = `${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/stickman/chat`;
-  let enviando = false, cargado = false, subiendo = false, imagen = null;
+  let enviando = false, cargado = false, subiendo = false, imagenes = [];
   const mensajes = h('div', {clase: 'remotion-chat-mensajes', role: 'log', 'aria-live': 'polite'});
   const estado = h('p', {clase: 'meta', role: 'status', 'aria-live': 'polite'});
   const entrada = h('textarea', {rows: 3, maxlength: 12000,
@@ -10828,39 +10828,29 @@ function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alA
     title: 'Enviar mensaje (Enter). Shift+Enter añade una línea.', onclick: () => enviar(false)}, '➤');
   const aplicar = h('button', {clase: 'remotion-boton primario', onclick: () => enviar(true)}, 'Aplicar cambios');
   const parar = h('button', {clase: 'remotion-boton', hidden: true, onclick: cancelar}, 'Parar');
-  const archivo = h('input', {type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true,
-    'aria-label': 'Imagen de contexto', onchange: async () => {
-      const foto = archivo.files[0];
-      if (!foto || enviando || subiendo) return;
-      if (foto.size > 20 * 1024 * 1024) {
-        estado.textContent = 'La imagen supera el límite de 20 MiB.'; archivo.value = ''; return;
-      }
-      subiendo = true; bloquearControles(true); estado.textContent = 'Subiendo imagen de contexto…';
-      try {
-        const cuerpo = new FormData(); cuerpo.append('archivo', foto);
-        const subida = await pedir(`${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/animacion/imagenes`,
-          {method: 'POST', cuerpo});
-        imagen = subida.ruta; pintarAdjunto(); estado.textContent = '';
-      } catch (error) {estado.textContent = error.message;}
-      finally {subiendo = false; bloquearControles(false); archivo.value = '';}
-    }});
-  const adjuntar = h('button', {type: 'button', clase: 'remotion-boton', onclick: () => archivo.click()}, '📎 Adjuntar imagen');
-  const quitarImagen = h('button', {type: 'button', clase: 'mini', onclick: () => {imagen = null; pintarAdjunto();}}, 'Quitar imagen');
+  const archivo = h('input', {type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, hidden: true,
+    'aria-label': 'Imágenes de contexto', onchange: () => subirImagenes([...archivo.files])});
+  const adjuntar = h('button', {type: 'button', clase: 'remotion-boton', onclick: () => archivo.click()}, '📎 Adjuntar imágenes');
   const adjunto = h('div', {clase: 'stickman-chat-adjunto', hidden: true});
   const panel = h('aside', {clase: 'remotion-taller stickman-edicion', hidden: true,
-    'aria-label': `Chat de edición de ${escena.id}`},
+    'aria-label': `Chat de edición de ${escena.id}`, onpaste: ev => {
+      const fotos = [...(ev.clipboardData?.items || [])]
+        .filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
+      if (!fotos.length) return;
+      ev.preventDefault(); subirImagenes(fotos);
+    }},
     h('div', {clase: 'remotion-taller-cabecera'}, h('h3', {}, `✦ Editar escena · ${escena.id}`),
       h('button', {clase: 'mini', onclick: alCerrar, 'aria-label': 'Cerrar edición de escena'}, '×')),
     h('section', {clase: 'remotion-chat'},
       h('p', {clase: 'meta'}, 'Habla con la IA seleccionada para concretar los retoques. «Aplicar cambios» usa esa misma IA y modifica únicamente esta animación.'),
       mensajes, adjunto,
-      h('div', {clase: 'stickman-chat-subida'}, adjuntar, archivo, h('span', {clase: 'meta'}, 'Opcional · PNG, JPG o WebP · hasta 20 MiB')),
+      h('div', {clase: 'stickman-chat-subida'}, adjuntar, archivo, h('span', {clase: 'meta'}, 'Selecciona varias o pega con Ctrl+V · PNG, JPG o WebP · hasta 20 MiB por imagen')),
       h('div', {clase: 'remotion-chat-entrada'}, entrada, enviarBoton),
       h('div', {clase: 'remotion-chat-acciones'}, aplicar, parar), estado));
   function pintar(charla) {
     mensajes.replaceChildren(...(charla.mensajes || []).map(m => h('p', {},
       h('b', {}, m.autor === 'usuario' ? 'Tú: ' : m.autor === 'chatgpt' ? 'ChatGPT: ' : 'Claude: '), m.texto,
-      m.imagen ? miniatura(m.imagen) : null)));
+       h('span', {clase: 'stickman-chat-referencias'}, [...new Set([...(m.imagen ? [m.imagen] : []), ...(m.imagenes || [])])].map(miniatura)))));
     mensajes.scrollTop = mensajes.scrollHeight;
   }
   function miniatura(ruta) {
@@ -10869,11 +10859,32 @@ function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alA
       h('img', {clase: 'stickman-chat-imagen', src: url, alt: 'Imagen de contexto adjunta'}));
   }
   function pintarAdjunto() {
-    adjunto.hidden = !imagen;
-    adjunto.replaceChildren(...(imagen ? [miniatura(imagen), quitarImagen] : []));
+    adjunto.hidden = !imagenes.length;
+    adjunto.replaceChildren(...imagenes.map((ruta, indice) => h('div', {clase: 'stickman-chat-referencia'}, miniatura(ruta),
+      h('button', {type: 'button', clase: 'mini', disabled: enviando || subiendo, 'aria-label': `Quitar imagen ${indice + 1}`,
+        onclick: () => {if (!enviando && !subiendo) {imagenes.splice(indice, 1); pintarAdjunto();}}}, 'Quitar imagen'))));
   }
   function bloquearControles(ocupado) {
-    [entrada, enviarBoton, aplicar, archivo, adjuntar, quitarImagen].forEach(n => {n.disabled = ocupado;});
+    [entrada, enviarBoton, aplicar, archivo, adjuntar, ...adjunto.querySelectorAll('button')].forEach(n => {n.disabled = ocupado;});
+  }
+  async function subirImagenes(fotos) {
+    if (!fotos.length || enviando || subiendo) return;
+    subiendo = true; bloquearControles(true);
+    const errores = [];
+    try {
+      for (const [indice, foto] of fotos.entries()) {
+        estado.textContent = `Subiendo imagen ${indice + 1} de ${fotos.length}…`;
+        try {
+          if (!['image/png', 'image/jpeg', 'image/webp'].includes(foto.type)) throw new Error('Elige una imagen PNG, JPG o WebP.');
+          if (foto.size > 20 * 1024 * 1024) throw new Error('La imagen supera el límite de 20 MiB.');
+          const cuerpo = new FormData(); cuerpo.append('archivo', foto);
+          const subida = await pedir(`${API.proyecto(pid)}/escenas/${encodeURIComponent(escena.id)}/animacion/imagenes`,
+            {method: 'POST', cuerpo});
+          imagenes.push(subida.ruta); pintarAdjunto();
+        } catch (error) {errores.push(`${foto.name}: ${error.message}`);}
+      }
+      estado.textContent = errores.join('\n');
+    } finally {subiendo = false; bloquearControles(false); archivo.value = ''; entrada.focus();}
   }
   async function cargar() {
     if (cargado || enviando || subiendo) return;
@@ -10883,14 +10894,14 @@ function crearChatEdicionStickman({pid, escena, trabajo, cancelar, alCerrar, alA
   async function enviar(aplicando) {
     if (enviando || subiendo) return;
     const texto = entrada.value.trim();
-    if (!aplicando && !texto && !imagen) {entrada.focus(); return;}
+    if (!aplicando && !texto && !imagenes.length) {entrada.focus(); return;}
     enviando = true; panel.setAttribute('aria-busy', 'true');
     modelo.bloquear(true);
     bloquearControles(true); parar.hidden = false;
     try {
       const resultado = await trabajo(base, {mensaje: texto, porcentaje: modelo.elegido() === 'ChatGPT' ? 100 : 0,
-        aplicar: aplicando, ...(imagen ? {imagen} : {})}, estado);
-      entrada.value = ''; imagen = null; pintarAdjunto(); cargado = false;
+        aplicar: aplicando, ...(imagenes.length ? {imagenes: [...imagenes]} : {})}, estado);
+      entrada.value = ''; imagenes = []; pintarAdjunto(); cargado = false;
       pintar(aplicando ? await pedir(base) : resultado); cargado = true;
       estado.textContent = aplicando ? 'Cambios aplicados. Monta el vídeo para actualizar el MP4.' : '';
       if (aplicando) await alAplicar();

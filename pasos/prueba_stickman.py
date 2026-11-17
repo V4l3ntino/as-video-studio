@@ -136,6 +136,31 @@ class Stickman(unittest.TestCase):
         copia = p.duplicar(str(Path(self.temp.name) / 'copias'), 'Copia')
         self.assertEqual(editor.leer(copia, e), charla)
 
+    def test_chat_varias_imagenes_conserva_orden_historial_y_valida_antes_de_guardar(self):
+        import io
+        from PIL import Image
+        from pasos import edicion_stickman as editor, imagenes_animacion
+        p = Proyecto.crear(self.temp.name, 'Varias referencias')
+        e = dict(id='S001', narracion='Saluda.')
+        png = io.BytesIO()
+        Image.new('RGB', (12, 12)).save(png, 'PNG')
+        rutas = [imagenes_animacion.guardar(p, png.getvalue(), 'ref.png') for _ in range(3)]
+        medios.escribir_json(editor.ruta(p, 'S001'), dict(ancla=e['narracion'],
+            mensajes=[dict(autor='usuario', texto='Anterior', imagen=rutas[0])]))
+        for porcentaje in (0, 100):
+            with patch.object(stickman, '_consultar', return_value={'mensaje': 'Entendido.'}) as consultar:
+                charla = editor.conversar(p, e, {}, '', lambda *a: None, porcentaje, imagenes=rutas[1:])
+            self.assertEqual(consultar.call_args.args[2], [p.ruta(r) for r in rutas])
+            self.assertEqual(charla['mensajes'][-2]['imagenes'], rutas[1:])
+        encargo = editor.encargo(p, e, {}, '', 100, imagenes=rutas)
+        self.assertEqual(encargo['mensajes'][-1]['imagenes'], rutas)
+        self.assertEqual(editor.referencias(p, encargo['mensajes']), [p.ruta(r) for r in rutas])
+        with self.assertRaises(ValueError):
+            editor.conversar(p, e, {}, 'Inválida', lambda *a: None, imagenes=[rutas[0], '../clave.png'])
+        self.assertEqual(editor.leer(p, e), charla)
+        with self.assertRaises(ValueError):
+            editor.validar_imagenes(p, rutas[0])
+
     def test_chat_usa_la_ia_elegida_y_conserva_autores_al_cambiar(self):
         from pasos import edicion_stickman as editor
         p = Proyecto.crear(self.temp.name, 'Chat con ambas IA')

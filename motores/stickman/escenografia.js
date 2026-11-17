@@ -2,8 +2,10 @@
 import { E, alpha, shade, mix, linGrad, glow, rng, poly, seg, rr } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { semillaLugar } from './decorados.js';
+import { fondoCalle, sueloCalle } from './calle.js';
+import { fondoCine, sueloCine, frenteCine } from './cine.js';
 
-const TIPOS=new Set(['teatro','fiesta','salon','oficina','laboratorio','cocina','aula','barrio','parque','interior','ciudad','naturaleza']);
+const TIPOS=new Set(['teatro','cine','fiesta','salon','oficina','laboratorio','cocina','aula','barrio','calle_comercial','parque','interior','ciudad','naturaleza']);
 export const tipoEscenografia=escena=>escena.realizacion?.escenario?.tipo||escena.decorado;
 export function usaEscenografia(escena){
   return Boolean(escena.realizacion?.escenografia_detallada&&!escena.realizacion.comparacion&&
@@ -11,7 +13,7 @@ export function usaEscenografia(escena){
 }
 export function luzEscenografia(escena){
   const tipo=tipoEscenografia(escena);
-  return escena.realizacion.escenario?.luz||(tipo==='teatro'?'#ffe1ad':
+  return escena.realizacion.escenario?.luz||(tipo==='calle_comercial'?'#ffc16b':tipo==='teatro'?'#ffe1ad':
     ['laboratorio','oficina'].includes(tipo)||(['barrio','parque','ciudad','naturaleza'].includes(tipo)&&
       ['night','storm'].includes(escena.ambiente))?'#c6e6f4':'#ffe4bd');
 }
@@ -75,6 +77,8 @@ function telon(g,W,H,seed,color='#652622'){
 
 export function fondoEscenografia(g,escena,t){
   const {tipo,W,H,dia,seed}=datos(escena),r=escena.realizacion;
+  if(tipo==='cine'){fondoCine(g,escena,t,seed);return;}
+  if(tipo==='calle_comercial'){fondoCalle(g,escena,seed);return;}
   if(tipo==='teatro'){
     telon(g,W,H,seed,r.fondo);
     return;
@@ -165,6 +169,8 @@ function haz(g,x,y,color,W){
 
 export function sueloEscenografia(g,escena,t,luz){
   const {tipo,W,H,dia,seed,lugar}=datos(escena);
+  if(tipo==='cine'){sueloCine(g);return;}
+  if(tipo==='calle_comercial'){sueloCalle(g,escena);return;}
   const exterior=['barrio','parque','ciudad','naturaleza'].includes(tipo);
   if(!exterior)suelo(g,escena);
   else{
@@ -244,18 +250,30 @@ export function sueloEscenografia(g,escena,t,luz){
       seg(g,[[x-w*.35,y-H*.055],[x+w*.35,y-H*.055]],3,'#49443b');
     }
   }else if(tipo==='barrio'||tipo==='ciudad'){
-    for(const [x,w,h,color] of [[W*.04,W*.29,H*.43,'#bd9f7d'],[W*.68,W*.28,H*.49,'#b8ada0']]){
-      const pared=dia?color:shade(color,-.57),base=H*.81;
+    for(const [x,w,h,color] of lugar.edificios===false?[]:[[W*.04,W*.29,H*.43,'#bd9f7d'],[W*.68,W*.28,H*.49,'#b8ada0']]){
+      const material=lugar.fachada||color,pared=dia?material:shade(material,-.57),base=H*.81;
+      const tejado=lugar.tejado?(dia?lugar.tejado:shade(lugar.tejado,-.35)):(dia?'#865044':'#462b2a');
       caja(g,x,base-h,w,h,pared,2);
-      poly(g,[[x-w*.055,base-h],[x+w*.5,base-h-H*.13],[x+w*1.055,base-h]],dia?'#865044':'#462b2a');
+      poly(g,[[x-w*.055,base-h],[x+w*.5,base-h-H*.13],[x+w*1.055,base-h]],tejado);
       for(let k=1;k<5;k++){
         const yy=base-h-H*.13*(1-k/5),medio=w*.5*k/5;
-        seg(g,[[x+w*.5-medio,yy],[x+w*.5+medio,yy]],1,alpha('#dba07b',.13));
+        seg(g,[[x+w*.5-medio,yy],[x+w*.5+medio,yy]],1,alpha(lugar.tejado||'#dba07b',.13));
       }
-      for(const wx of [.16,.63])ventana(g,x+w*wx,base-h*.72,w*.22,h*.26,dia,seed,true);
+      for(const wx of [.16,.63]){
+        const vx=x+w*wx,vy=base-h*.72,vw=w*.22,vh=h*.26;
+        if(!lugar.luz_ventanas)ventana(g,vx,vy,vw,vh,dia,seed,true);
+        else{
+          // Una ventana iluminada por casa; las restantes quedan apagadas.
+          caja(g,vx-9,vy-9,vw+18,vh+18,'#342d28',5);
+          g.fillStyle=wx===.16?shade(lugar.luz_ventanas,-.45):'#182431';g.fillRect(vx,vy,vw,vh);
+          if(wx===.16)glow(g,vx+vw/2,vy+vh/2,vw*.85,lugar.luz_ventanas,.12);
+          seg(g,[[vx+vw/2,vy],[vx+vw/2,vy+vh]],5,'#282b2b');
+          seg(g,[[vx,vy+vh/2],[vx+vw,vy+vh/2]],5,'#282b2b');
+        }
+      }
       caja(g,x+w*.42,base-h*.36,w*.18,h*.36,'#5a4031',2);
-      caja(g,x+w*.74,base-h-H*.08,w*.07,H*.09,dia?'#9d6b55':'#543d33',2);
-      seg(g,[[x-w*.04,base-h],[x+w*1.04,base-h]],3,'#79564b');
+      caja(g,x+w*.74,base-h-H*.08,w*.07,H*.09,lugar.fachada?shade(pared,-.2):(dia?'#9d6b55':'#543d33'),2);
+      seg(g,[[x-w*.04,base-h],[x+w*1.04,base-h]],3,lugar.tejado?shade(tejado,-.2):'#79564b');
     }
     FX.lampPost(g,W*.57,H*.83,H*.49,{color:'#252c2c',light:'#ffe0a7',a:dia?.02:.06});
     FX.pool(g,W*.59,H*.86,W*.12,H*.024,'#ffe0a7',dia?.04:.17);
@@ -279,6 +297,7 @@ export function sueloEscenografia(g,escena,t,luz){
 
 export function frenteEscenografia(g,escena){
   const {tipo,W,H,seed,lugar}=datos(escena);
+  if(tipo==='cine'){frenteCine(g,escena);return;}
   if(tipo!=='teatro')return;
   for(let lado=0;lado<2;lado++){
     g.save();if(lado){g.translate(W,0);g.scale(-1,1);}

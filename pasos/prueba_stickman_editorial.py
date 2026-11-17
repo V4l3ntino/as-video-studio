@@ -23,7 +23,30 @@ if REAL:
 
 def actores(base):
     return {'ana': dict(base, ropa='tshirt', color='#33769b', contorno='#8dd1f2'),
-            'bruno': dict(base, ropa='tshirt', color='#e18a39', contorno='#ffbc75')}
+             'bruno': dict(base, ropa='tshirt', color='#e18a39', contorno='#ffbc75')}
+
+
+def referencia_calle_comercial():
+    def peaton(ident,x,y,s,destino,aura=False):
+        return dict(id=ident,x=x,y=y,escala=s,rol='figurante',mirar=1 if destino>x else -1,
+            movimiento='caminar',actuacion=dict(silueta='#7d8088',respiracion=0,
+                **(dict(aura=dict(color='#ffad45',intensidad=.20)) if aura else {})),
+            claves=[dict(t=0,pose='relaxed'),dict(t=4,x=destino)])
+    return dict(ambiente='golden',decorado='ciudad',atmosfera='ninguna',
+        realizacion=dict(encuadre='general',escenografia_detallada=True,color_fiel=True,
+            acabado=True,expresiones_fieles=True,vineta=.14,grano=0,
+            escenario=dict(id='calle_tiendas',tipo='calle_comercial',semilla=9)),
+        personajes=[peaton('gris1',.22,.78,1.6,.30),peaton('gris2',.48,.69,1,.55),
+            peaton('cruce',.68,.85,2.3,.59,True),peaton('gris3',.82,.78,1.6,.76),
+            dict(id='tu',x=.37,y=.92,escala=3,movimiento='caminar',expresion='neutral',
+                claves=[dict(t=0,pose='relaxed'),dict(t=4,x=.43)])])
+
+
+def referencia_cine():
+    return dict(ambiente='night',decorado='vacio',atmosfera='ninguna',camara=[],personajes=[],objetos=[],
+        realizacion=dict(encuadre='general',escenografia_detallada=True,color_fiel=True,acabado=True,
+            vineta=.12,grano=0,escenario=dict(id='cine',tipo='cine',semilla=7,
+                proyeccion='silueta_amenazante',publico=True,luz='#ffb456')))
 
 
 def narrativa(base, **cambios):
@@ -327,6 +350,57 @@ class Editorial(unittest.TestCase):
                 with self.subTest(modo=modo,plano=plano),patch.object(p8_render.Navegador,'capturar',comprobar):
                     stickman.renderizar(self.base,self.validar(referencia_enfasis(modo,plano)),4,
                         str(Path(TEMP.name)/f'enfasis-{modo}-{plano}.png'),salida=(960,540))
+
+    def test_palma_abierta_mezcla_y_fin_sin_mutar_kit(self):
+        import subprocess
+        d=stickman.escena(dict(personajes=[dict(id='bruno',claves=[dict(t=0,pose='palmUp')])]),4,self.reparto)
+        self.assertEqual(d['personajes'][0]['claves'][0]['pose'],'palmUp')
+        programa='''
+            import assert from 'node:assert/strict';
+            const {poseActuada,aperturaPalma}=await import(process.argv[1]);
+            const {POSES}=await import(process.argv[2]);
+            const original=JSON.stringify(POSES);
+            const keys=[{t:0,pose:'relaxed'},{t:1,pose:'palmUp'},{t:3,pose:'relaxed'}];
+            assert.equal(aperturaPalma(.9,keys,.2),0);
+            assert.ok(aperturaPalma(1.1,keys,.2)>0&&aperturaPalma(1.1,keys,.2)<1);
+            assert.equal(aperturaPalma(2,keys,.2),1);
+            assert.ok(aperturaPalma(3.1,keys,.2)>0&&aperturaPalma(3.1,keys,.2)<1);
+            assert.equal(aperturaPalma(3.5,keys,.2),0);
+            const p=poseActuada(2,keys,.2);
+            assert.ok(p.hF[0]>p.eF[0]&&p.eF[0]>p.sh[0]);
+            assert.ok(p.hB[1]>p.sh[1]);
+            assert.deepEqual(poseActuada(3.5,keys,.2),POSES.relaxed);
+            assert.equal(JSON.stringify(POSES),original);
+        '''
+        subprocess.run(['node','--input-type=module','-e',programa,
+            (stickman.RAIZ/'motores/stickman/actuacion.js').as_uri(),
+            (stickman.KIT/'engine/rig2d.js').as_uri()],check=True,capture_output=True,text=True)
+
+    @unittest.skipUnless(REAL,'usa --real para palma visible en Classic y familias')
+    def test_palma_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            # Comprobar puntas, huecos y pulgar en el espacio de la figura.
+            r=nav.evaluar('''(() => {
+                window.pintar(0);
+                const c=document.querySelector('canvas'),g=c.getContext('2d');
+                const pix=(x,y)=>Array.from(g.getImageData(Math.round(x),Math.round(y),1,1).data);
+                // Pies (.4,.88), escala 3, lienzo 960x540 sin cámara adicional.
+                const px=(x,y)=>pix(384+x*1.5,475.2+y*1.5);
+                return {dedo:px(90,-167),hueco:px(90,-173),pulgar:px(63,-171),aire:px(57,-178)};
+            })()''')
+            self.assertNotEqual(r['dedo'],r['hueco'])
+            self.assertNotEqual(r['pulgar'],r['aire'])
+            return original(nav,destino)
+        for familia in ('classic','rubber','bean','geometric'):
+            diseno=dict(self.base,familia=familia,ropa='hoodie',color='#32bc77',contorno='#f4e5b8')
+            datos=dict(ambiente='day',decorado='vacio',atmosfera='ninguna',personajes=[
+                dict(id='bruno',x=.4,y=.88,escala=3,actuacion=dict(respiracion=0),
+                    claves=[dict(t=0,pose='palmUp')])])
+            with self.subTest(familia=familia),patch.object(p8_render.Navegador,'capturar',comprobar):
+                stickman.renderizar(diseno,stickman.escena(datos,4,{'bruno':diseno}),4,
+                    str(Path(TEMP.name)/f'palma-{familia}.png'),salida=(960,540))
 
     def test_rascar_cabeza_contacto_ciclo_y_fin_sin_mutar_kit(self):
         import subprocess
@@ -918,6 +992,182 @@ class Editorial(unittest.TestCase):
             with self.subTest(ruta=nombre),patch.object(p8_render.Navegador,'capturar',comprobar):
                 stickman.renderizar(diseno,stickman.escena(datos,4,{'ana':diseno}),4,
                     str(Path(TEMP.name)/f'expresiones-{nombre}.png'),salida=(960,540))
+
+    def test_cine_contrato_proyeccion_y_generacion_sin_vector_gigante(self):
+        d=stickman.validar_puesta_en_escena(referencia_cine(),4,{},[1920,1080])
+        self.assertEqual(stickman.escena(d,4,{}),d)
+        self.assertEqual(d['personajes'],[])
+        self.assertEqual(d['objetos'],[])
+        vacia=referencia_cine();vacia['realizacion']['escenario']['proyeccion']='vacia'
+        with self.assertRaisesRegex(ValueError,'sin contenido'):
+            stickman.validar_puesta_en_escena(vacia,4,{},[1920,1080])
+        antigua=referencia_cine();antigua['realizacion']['escenario'].pop('proyeccion')
+        antigua['realizacion']['escenario']['tipo']='teatro'
+        antigua['objetos']=[dict(tipo='circulo',x=.5,y=.4,w=300,h=300,claves=[dict(t=1,escala=1.1)])]
+        descripcion='Sala de cine con butacas de terciopelo burdeos: en la pantalla, una silueta amenazante a contraluz; siluetas de público en el borde inferior.'
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[antigua,referencia_cine()]) as consulta:
+            nueva=stickman.generar_escena(dict(t_in=0,t_out=4,descripcion_visual=descripcion),
+                self.base,self.reparto,None,lambda *a:None)
+        self.assertEqual(consulta.call_count,2)
+        self.assertIn('Una sala de cine requiere',consulta.call_args_list[1].args[0])
+        self.assertEqual(nueva['realizacion']['escenario']['proyeccion'],'silueta_amenazante')
+        self.assertEqual(stickman.escena(antigua,4,{})['realizacion']['escenario']['tipo'],'teatro')
+        con_crowd=copy.deepcopy(d);con_crowd['efectos_visuales']=[dict(tipo='crowd')]
+        with self.assertRaisesRegex(ValueError,'público entre las butacas'):
+            editorial.preparar_escenografia_nueva(con_crowd,[1920,1080])
+        detalle=copy.deepcopy(d);detalle['realizacion']['encuadre']='detalle'
+        with self.assertRaisesRegex(ValueError,'ocultar las butacas'):
+            editorial.preparar_escenografia_nueva(detalle,[1920,1080],descripcion)
+
+    @unittest.skipUnless(REAL,'usa --real para cine, proyección recortada y público entre butacas')
+    def test_cine_render_recorta_pelicula_y_publico_sin_tapar_pantalla(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        d=stickman.validar_puesta_en_escena(referencia_cine(),4,{},[1920,1080])
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d'),lugar=window.STICKMAN.escena.realizacion.escenario;
+                const frame=t=>{window.pintar(t);return g.getImageData(0,0,c.width,c.height).data;};
+                const pix=(x,y)=>Array.from(g.getImageData(Math.round(c.width*x),Math.round(c.height*y),1,1).data);
+                const con=frame(.5),cabeza=pix(.51,.20),lateral=pix(.23,.25),butaca=pix(.45,.95);
+                lugar.proyeccion='vacia';const vacia=frame(.5);let pelicula=0,fuera=0;
+                for(let i=0;i<con.length;i+=4)if(con[i]!==vacia[i]||con[i+1]!==vacia[i+1]||con[i+2]!==vacia[i+2]){
+                    pelicula++;const x=i/4%c.width,y=Math.floor(i/4/c.width);
+                    if(x<c.width*.18-1||x>c.width*.82+1||y<c.height*.085-1||y>c.height*.625+1)fuera++;
+                }
+                lugar.proyeccion='silueta_amenazante';const a=frame(.5),b=frame(.9);let animados=0;
+                for(let i=0;i<a.length;i+=4)if(a[i]!==b[i])animados++;
+                lugar.publico=false;const sinPublico=frame(.9);let publico=0,invade=0;
+                for(let i=0;i<b.length;i+=4)if(b[i]!==sinPublico[i]){
+                    publico++;const x=i/4%c.width;
+                    if(x>c.width*.18&&x<c.width*.82&&Math.floor(i/4/c.width)<c.height*.625)invade++;
+                }
+                lugar.publico=true;window.pintar(.5);
+                return {pelicula,fuera,animados,publico,invade,cabeza,lateral,butaca};
+            })()''')
+            self.assertGreater(r['pelicula'],5000,r)
+            self.assertEqual(r['fuera'],0,r)
+            self.assertGreater(r['animados'],100,r)
+            self.assertGreater(r['publico'],500,r)
+            self.assertEqual(r['invade'],0,r)
+            self.assertLess(max(r['cabeza'][:3]),40,r)
+            self.assertGreater(sum(r['lateral'][:3]),sum(r['cabeza'][:3]),r)
+            self.assertGreater(r['butaca'][0],r['butaca'][1]*1.5,r)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,d,4,str(Path(TEMP.name)/'cine.png'),salida=(960,540))
+
+    def test_calle_comercial_contrato_y_direccion_sin_casas_aisladas(self):
+        base=dict(self.base,ropa='hoodie',color='#16b96b')
+        reparto={k:base for k in ('tu','gris1','gris2','cruce','gris3')}
+        entrega=referencia_calle_comercial()
+        normalizada=stickman.validar_puesta_en_escena(entrega,4,reparto,[1920,1080])
+        self.assertEqual(stickman.escena(normalizada,4,reparto),normalizada)
+        self.assertEqual(normalizada['personajes'][0]['actuacion']['silueta'],'#7d8088')
+        self.assertEqual(sum('aura' in p.get('actuacion',{}) for p in normalizada['personajes']),1)
+        descripcion='Acera de ciudad al atardecer con fachadas de ladrillo y escaparates: Tú camina entre transeúntes.'
+        incorrecta=copy.deepcopy(entrega);incorrecta['realizacion']['escenario']['tipo']='barrio'
+        with patch.dict(os.environ,ESTUDIO_SIMULAR='0'),patch.object(stickman,'_consultar',
+                side_effect=[incorrecta,entrega]) as consulta:
+            corregida=stickman.generar_escena(dict(t_in=0,t_out=4,descripcion_visual=descripcion),
+                base,reparto,None,lambda *a:None)
+        self.assertEqual(consulta.call_count,2)
+        self.assertIn('no dos casas',consulta.call_args_list[1].args[0])
+        self.assertEqual(corregida['realizacion']['escenario']['tipo'],'calle_comercial')
+        # Leer un plano anterior no lo convierte ni persiste el nuevo escenario.
+        self.assertEqual(stickman.escena(incorrecta,4,reparto)['realizacion']['escenario']['tipo'],'barrio')
+
+    @unittest.skipUnless(REAL,'usa --real para calle comercial, siluetas y halo selectivo')
+    def test_calle_comercial_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        base=dict(self.base,ropa='hoodie',color='#16b96b')
+        reparto={k:base for k in ('tu','gris1','gris2','cruce','gris3')}
+        datos=stickman.escena(referencia_calle_comercial(),4,reparto)
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d');
+                const frame=t=>{window.pintar(t);return g.getImageData(0,0,c.width,c.height).data;};
+                const pix=(x,y)=>Array.from(g.getImageData(Math.round(c.width*x),Math.round(c.height*y),1,1).data);
+                const a=frame(0),cabeza=pix(.225,.47),cielo=pix(.5,.1),ocaso=pix(.52,.37);
+                const b=frame(.15);let andando=0;
+                for(let i=0;i<a.length;i+=4)if(Math.floor(i/4/c.width)>c.height*.6&&a[i]!==b[i])andando++;
+                const escena=window.STICKMAN.escena,actor=escena.personajes.find(p=>p.id==='cruce');
+                const con=frame(0);actor.actuacion.aura.intensidad=0;const sin=frame(0);
+                let halo=0,contamina=0;
+                for(let i=0;i<con.length;i+=4)if(con[i]!==sin[i]||con[i+1]!==sin[i+1]||con[i+2]!==sin[i+2]){
+                    halo++;if(i/4%c.width<c.width*.45)contamina++;
+                }
+                actor.actuacion.aura.intensidad=.2;window.pintar(0);
+                return {cabeza,cielo,ocaso,andando,halo,contamina};
+            })()''')
+            self.assertLess(max(r['cabeza'][:3])-min(r['cabeza'][:3]),25,r)
+            self.assertGreater(min(r['cabeza'][:3]),90,r)  # Gris opaco, sin ropa verde heredada.
+            self.assertGreater(r['cielo'][2],r['cielo'][1],r)  # Violeta, no azul de mediodía.
+            self.assertGreater(r['cielo'][0],r['cielo'][1],r)
+            self.assertGreater(r['ocaso'][0],r['ocaso'][2],r)
+            self.assertGreater(r['andando'],100,r)
+            self.assertGreater(r['halo'],100,r)
+            self.assertEqual(r['contamina'],0,r)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(base,datos,4,str(Path(TEMP.name)/'calle-comercial.png'),salida=(960,540))
+
+    def test_ciudad_arquitectura_unica_materiales_y_continuidad(self):
+        lugar=dict(id='calle',tipo='ciudad',fachada='#e8e2d6',tejado='#46515c',luz_ventanas='#91c9ed')
+        datos=dict(ambiente='night',decorado='ciudad',personajes=[],
+            realizacion=dict(encuadre='general',escenografia_detallada=True,escenario=lugar))
+        d=stickman.escena(datos,4,{})
+        self.assertEqual(d['realizacion']['escenario'],lugar)
+        d['utileria']['casa']=dict(concepto='casa-de-yeso',nombre='Casa de yeso',etiquetas=['vivienda'])
+        d['objetos']=[dict(tipo='vector',recurso='casa')]
+        anterior=copy.deepcopy(d)
+        with self.assertRaisesRegex(ValueError,'duplica los edificios'):
+            editorial.preparar_escenografia_nueva(d,[1920,1080])
+        self.assertEqual(d,anterior)  # Pide corregir, no borra la utilería.
+        d['realizacion']['escenario']['edificios']=False
+        editorial.preparar_escenografia_nueva(d,[1920,1080])
+        siguiente=dict(realizacion=dict(escenario=dict(id='calle',tipo='ciudad')))
+        editorial.heredar_escenografia(siguiente,dict(anterior=dict(contenido=d)))
+        self.assertEqual(siguiente['realizacion']['escenario'],dict(lugar,edificios=False))
+        # Un laboratorio exterior añadido no equivale a duplicar las viviendas.
+        d['realizacion']['escenario'].pop('edificios')
+        d['utileria']['casa']=dict(concepto='laboratorio-exterior',nombre='Laboratorio',etiquetas=['laboratorio'])
+        editorial.preparar_escenografia_nueva(d,[1920,1080])
+        for campo in ('fachada','tejado','luz_ventanas'):
+            malo=copy.deepcopy(datos);malo['realizacion']['escenario'][campo]='azul'
+            with self.assertRaises(ValueError):stickman.escena(malo,4,{})
+
+    @unittest.skipUnless(REAL,'usa --real para casas únicas, pizarra y ventanas azules')
+    def test_ciudad_materiales_render_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        datos=dict(ambiente='night',decorado='ciudad',personajes=[],realizacion=dict(
+            encuadre='general',escenografia_detallada=True,acabado=False,color_fiel=True,
+            escenario=dict(id='calle',tipo='ciudad',fachada='#e8e2d6',tejado='#46515c',luz_ventanas='#91c9ed')))
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d');
+                const pix=(x,y)=>Array.from(g.getImageData(Math.round(c.width*x),Math.round(c.height*y),1,1).data);
+                window.pintar(0);
+                const tejados=[pix(.185,.30),pix(.82,.25)],ventana=pix(.102,.53),pared=pix(.06,.65);
+                window.STICKMAN.escena.realizacion.escenario.edificios=false;window.pintar(0);
+                const sin=[pix(.185,.30),pix(.82,.25),pix(.06,.65)];
+                window.STICKMAN.escena.realizacion.escenario.edificios=true;window.pintar(0);
+                return {tejados,ventana,pared,sin};
+            })()''')
+            for i,color in enumerate(r['tejados']):
+                self.assertGreater(color[2],color[0])  # Pizarra fría, no terracota roja.
+                self.assertNotEqual(color,r['sin'][i])
+            self.assertGreater(r['ventana'][2],r['ventana'][0])
+            self.assertGreater(r['ventana'][2],r['ventana'][1])
+            self.assertGreater(r['pared'][0],r['pared'][2])  # Yeso cálido, no verde de marca.
+            self.assertNotEqual(r['pared'],r['sin'][2])
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            stickman.renderizar(self.base,stickman.escena(datos,4,{}),4,
+                str(Path(TEMP.name)/'ciudad-materiales.png'),salida=(960,540))
 
     def test_escenografia_detallada_nueva_respeta_historial_y_pide_no_taparla(self):
         entrega=referencia_escenario_detallado(self.base)

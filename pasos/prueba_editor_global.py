@@ -392,7 +392,7 @@ class EditorGlobal(unittest.TestCase):
                             trabajo: async (ruta, datos) => {
                                 window.turnosStickman.push(datos);
                                 if (datos.aplicar) window.revisionesStickman[opciones.escena.id] = window.turnosStickman.length;
-                                return {mensajes: [{autor: 'usuario', texto: datos.mensaje, imagen: datos.imagen},
+                                return {mensajes: [{autor: 'usuario', texto: datos.mensaje, imagenes: datos.imagenes},
                                     {autor: datos.porcentaje ? 'chatgpt' : 'claude', texto: 'Entendido.'}]};
                             }});
                         EDITOR_GLOBAL.cerrar(); EDITOR_GLOBAL = null;
@@ -418,18 +418,34 @@ class EditorGlobal(unittest.TestCase):
                     imagen_contexto = proyecto.ruta('pasos', 'assets', 'v1', 'escenas', 'S001.png')
                     estado_antes_subida = Path(proyecto.ruta('estado.json')).read_bytes()
                     chat.locator('input[type=file]').set_input_files(imagen_contexto)
-                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    chat.get_by_role('button', name='Quitar imagen 1', exact=True).wait_for()
                     self.assertEqual(estado_antes_subida, Path(proyecto.ruta('estado.json')).read_bytes())
-                    chat.get_by_role('button', name='Quitar imagen', exact=True).click()
+                    chat.get_by_role('button', name='Quitar imagen 1', exact=True).click()
                     self.assertTrue(chat.locator('.stickman-chat-adjunto').is_hidden())
-                    chat.locator('input[type=file]').set_input_files(imagen_contexto)
-                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
-                    self.assertTrue(chat.locator('.stickman-chat-imagen').evaluate('n => n.complete && n.naturalWidth > 0'))
+                    chat.locator('input[type=file]').set_input_files([imagen_contexto, imagen_contexto])
+                    chat.get_by_role('button', name='Quitar imagen 2', exact=True).wait_for()
+                    # Pegar varias imágenes acumula referencias sin perder las seleccionadas.
+                    chat.get_by_role('textbox').evaluate('''async entrada => {
+                        const canvas = document.createElement('canvas'); canvas.width = 12; canvas.height = 12;
+                        const blob = await new Promise(resolve => canvas.toBlob(resolve));
+                        const datos = new DataTransfer();
+                        datos.items.add(new File([blob], 'pegada.png', {type: 'image/png'}));
+                        datos.items.add(new File([blob], 'pegada2.png', {type: 'image/png'}));
+                        entrada.dispatchEvent(new ClipboardEvent('paste', {clipboardData: datos, bubbles: true, cancelable: true}));
+                    }''')
+                    chat.get_by_role('button', name='Quitar imagen 4', exact=True).wait_for()
+                    chat.get_by_role('button', name='Quitar imagen 2', exact=True).click()
+                    self.assertEqual(chat.locator('.stickman-chat-adjunto img').count(), 3)
+                    pagina.wait_for_function('''() => [...document.querySelectorAll('.stickman-chat-adjunto img')]
+                        .every(n => n.complete && n.naturalWidth > 0)''')
+                    self.assertEqual(chat.get_by_role('textbox').input_value(), 'Aleja el zoom')
                     chat.get_by_role('button', name='Enviar mensaje', exact=True).click()
                     chat.get_by_text('ChatGPT: ', exact=True).wait_for()
-                    referencia = pagina.evaluate('turnosStickman[0].imagen')
-                    self.assertTrue(referencia.startswith('medios_usuario/animaciones/'))
-                    self.assertTrue(chat.locator('.remotion-chat-mensajes .stickman-chat-imagen').is_visible())
+                    referencias = pagina.evaluate('turnosStickman[0].imagenes')
+                    self.assertEqual(len(referencias), 3)
+                    self.assertTrue(all(r.startswith('medios_usuario/animaciones/') for r in referencias))
+                    self.assertEqual(chat.locator('.remotion-chat-mensajes .stickman-chat-imagen').count(), 3)
+                    self.assertTrue(chat.locator('.remotion-chat-mensajes .stickman-chat-imagen').first.is_visible())
                     self.assertTrue(chat.locator('.stickman-chat-adjunto').is_hidden())
                     pagina.evaluate('''() => {
                         window.timelineAnterior = document.querySelector('.editor-global-timeline');
@@ -472,14 +488,14 @@ class EditorGlobal(unittest.TestCase):
                     chat.get_by_role('button', name='Enviar mensaje', exact=True).click()
                     chat.get_by_text('Claude: ', exact=True).wait_for()
                     chat.locator('input[type=file]').set_input_files(imagen_contexto)
-                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    chat.get_by_role('button', name='Quitar imagen 1', exact=True).wait_for()
                     chat.get_by_role('button', name='Aplicar cambios', exact=True).click()
                     pagina.wait_for_function('turnosStickman.length === 4')
                     pagina.wait_for_function('PREVIA.ficha.escenas[1].editor_revision.endsWith(":4")')
                     esperar_cache_stickman('S002', 4)
                     self.assertEqual(pagina.evaluate('turnosStickman.map(t => [t.porcentaje, t.aplicar])'),
                         [[100, False], [100, True], [0, False], [0, True]])
-                    self.assertTrue(pagina.evaluate('!!turnosStickman[3].imagen'))
+                    self.assertEqual(pagina.evaluate('turnosStickman[3].imagenes.length'), 1)
                     pagina.wait_for_function('!document.querySelector(".stickman-proveedores button").disabled')
                     regeneraciones = []
                     def regenerar_sin_proveedor(ruta):
@@ -498,8 +514,8 @@ class EditorGlobal(unittest.TestCase):
                     pagina.set_viewport_size({'width': 390, 'height': 844})
                     self.assertTrue(pagina.evaluate('document.documentElement.scrollWidth <= innerWidth'))
                     pagina.set_viewport_size({'width': 1440, 'height': 1000})
-                    chat.locator('input[type=file]').set_input_files(imagen_contexto)
-                    chat.get_by_role('button', name='Quitar imagen', exact=True).wait_for()
+                    chat.locator('input[type=file]').set_input_files([imagen_contexto, imagen_contexto])
+                    chat.get_by_role('button', name='Quitar imagen 2', exact=True).wait_for()
                     if os.environ.get('ESTUDIO_CAPTURA_EDITOR'):
                         pagina.screenshot(path=os.environ['ESTUDIO_CAPTURA_EDITOR'], full_page=True)
                     self.assertFalse(errores, errores)

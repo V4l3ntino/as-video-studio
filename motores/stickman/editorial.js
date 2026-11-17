@@ -116,7 +116,7 @@ export function pintarEditorial(g,t,D,draw) {
       const panelObjeto=o=>o.panel||(o.ancla&&S0.personajes.find(c=>c.id===o.ancla.personaje)?.panel);
       S0.objetos.filter(o=>o.tipo!=='texto'&&!rotuloDePlanoCorto(o,R)&&o.capa==='fondo'&&t>=o.inicio&&t<o.fin).forEach(o=>panel(panelObjeto(o),()=>draw.objeto(g,o,t)));
       S0.personajes.forEach(c=>panel(c.panel,()=>{
-        g.save();if(c.rol==='figurante')g.globalAlpha*=.42;
+        g.save();if(c.rol==='figurante'&&!c.actuacion?.silueta)g.globalAlpha*=.42;
         const tinta=c.panel==='izquierda'?(R.comparacion?.color_izquierdo||'#83d9f7'):(R.comparacion?.color_derecho||'#ffbd78');
         const actor=R.comparacion&&c.panel?{...c,diseno:{...c.diseno,contorno:tinta}}:
           escenografia?{...c,diseno:{...c.diseno,contorno:luzEscenografia(S0)}}:c;

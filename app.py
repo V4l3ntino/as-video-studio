@@ -5399,11 +5399,12 @@ def chat_stickman(pid: str, sid: str, datos: dict = Body(...)):
             raise ErrorApi(409, 'espera a que termine el trabajo del vídeo')
         try:
             imagen = edicion_stickman.validar_imagen(ctx.proyecto, datos.get('imagen'))
+            imagenes = edicion_stickman.validar_imagenes(ctx.proyecto, datos.get('imagenes'))
         except ValueError as exc:
             raise ErrorApi(400, str(exc)) from exc
         if datos.get('aplicar') is True:
             try:
-                encargo = edicion_stickman.encargo(ctx.proyecto, escena, contenido, mensaje, porcentaje, imagen)
+                encargo = edicion_stickman.encargo(ctx.proyecto, escena, contenido, mensaje, porcentaje, imagen, imagenes)
             except ValueError as exc:
                 raise ErrorApi(400, str(exc)) from exc
             uid = 'escena:' + sid
@@ -5417,10 +5418,10 @@ def chat_stickman(pid: str, sid: str, datos: dict = Body(...)):
             medios = PASOS_MODULOS.medios
             medios.escribir_json(edicion_stickman.ruta(ctx.proyecto, sid), charla)
         else:
-            if not mensaje and imagen is None:
+            if not mensaje and imagen is None and not imagenes:
                 raise ErrorApi(400, 'escribe un mensaje para la IA seleccionada')
             tid = ctx.gestor.lanzar('stickman:chat', lambda avisar: edicion_stickman.conversar(
-                ctx.proyecto, escena, contenido, mensaje, avisar, porcentaje, imagen))
+                ctx.proyecto, escena, contenido, mensaje, avisar, porcentaje, imagen, imagenes))
             _registrar_trabajo(tid, pid)
     return dict(trabajo_id=tid)
 

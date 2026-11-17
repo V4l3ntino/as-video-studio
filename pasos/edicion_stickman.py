@@ -4,7 +4,8 @@ import json
 
 from pasos import imagenes_animacion, medios, stickman
 
-CONTEXTO_IMAGENES = ('Las imágenes adjuntas corresponden, en orden, a las rutas distintas de mensajes[].imagen. '
+CONTEXTO_IMAGENES = ('Las imágenes adjuntas corresponden, en orden, a las rutas distintas de mensajes[].imagen '
+    'y mensajes[].imagenes (incluidas en su orden dentro de cada mensaje). '
     'Son referencias visuales del usuario para concretar el retoque, no sustituciones del plano. ')
 
 
@@ -15,14 +16,27 @@ def validar_imagen(proyecto, imagen):
 
 
 def referencias(proyecto, mensajes):
-    rutas = dict.fromkeys(m['imagen'] for m in mensajes if m.get('imagen') is not None)
+    rutas = dict.fromkeys(r for m in mensajes for r in validar_imagenes(proyecto, m.get('imagenes'), m.get('imagen')))
     return [imagenes_animacion.ruta_de(proyecto, r) for r in rutas]
 
 
-def mensaje_usuario(proyecto, texto, imagen=None):
+def validar_imagenes(proyecto, imagenes=None, imagen=None):
+    if imagenes is None:
+        imagenes = []
+    if not isinstance(imagenes, list):
+        raise ValueError('las imágenes deben ser una lista de referencias subidas')
+    rutas = ([imagen] if imagen is not None else []) + imagenes
+    for referencia in rutas:
+        imagenes_animacion.ruta_de(proyecto, referencia)
+    return list(dict.fromkeys(rutas))
+
+
+def mensaje_usuario(proyecto, texto, imagen=None, imagenes=None):
     mensaje = dict(autor='usuario', texto=texto)
     if validar_imagen(proyecto, imagen) is not None:
         mensaje['imagen'] = imagen
+    if imagenes:
+        mensaje['imagenes'] = validar_imagenes(proyecto, imagenes)
     return mensaje
 
 
@@ -52,10 +66,10 @@ def leer(proyecto, escena):
     return charla
 
 
-def conversar(proyecto, escena, contenido, mensaje, avisar, porcentaje=0, imagen=None):
+def conversar(proyecto, escena, contenido, mensaje, avisar, porcentaje=0, imagen=None, imagenes=None):
     proveedor = 'ChatGPT' if porcentaje >= 50 else 'Claude'
     charla = leer(proyecto, escena)
-    mensajes = charla['mensajes'] + [mensaje_usuario(proyecto, mensaje, imagen)]
+    mensajes = charla['mensajes'] + [mensaje_usuario(proyecto, mensaje, imagen, imagenes)]
     adjuntas = referencias(proyecto, mensajes)
     # Conservar también el encargo si la consulta falla o se cancela.
     charla['mensajes'] = mensajes
@@ -79,11 +93,11 @@ def _respuesta(datos):
     return datos
 
 
-def encargo(proyecto, escena, contenido, mensaje, porcentaje, imagen=None):
+def encargo(proyecto, escena, contenido, mensaje, porcentaje, imagen=None, imagenes=None):
     charla = leer(proyecto, escena)
     mensajes = copy.deepcopy(charla['mensajes'])
-    if mensaje or imagen is not None:
-        mensajes.append(mensaje_usuario(proyecto, mensaje, imagen))
+    if mensaje or imagen is not None or imagenes:
+        mensajes.append(mensaje_usuario(proyecto, mensaje, imagen, imagenes))
     referencias(proyecto, mensajes)
     if not any(m['autor'] == 'usuario' for m in mensajes):
         raise ValueError('describe los cambios que quieres aplicar')

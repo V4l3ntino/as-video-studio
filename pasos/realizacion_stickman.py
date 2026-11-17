@@ -11,7 +11,7 @@ from pasos.tiempos_stickman import tiempo
 from pasos.capitulos_guion import ESTILOS as ESTILOS_CAPITULO
 
 ENCUADRES = ('general', 'conjunto', 'medio', 'primer_plano', 'detalle', 'grafico', 'dividido', 'cierre')
-ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'parque', 'cocina', 'teatro', 'aula')
+ESCENARIOS = ('vacio', 'fiesta', 'salon', 'oficina', 'laboratorio', 'barrio', 'ciudad', 'calle_comercial', 'parque', 'cocina', 'teatro', 'cine', 'aula')
 PALETAS = json.loads((Path(__file__).resolve().parents[1] / 'motores/stickman/paletas.json').read_text(encoding='utf-8'))
 
 # Esquemas pequeños compartidos por validación e instrucciones al modelo.
@@ -270,7 +270,9 @@ def normalizar(datos, duracion, reparto):
         r = validar(datos['realizacion'], opciones(
             encuadre=('elegir', *ENCUADRES), sujeto=('texto', 120), objetivo=('texto', 500),
             escenario=opciones(id=('texto', 120), tipo=('elegir', *ESCENARIOS), semilla=('numero', 0, 100000),
-                atril=BOOL, publico=BOOL, atril_x=('numero', .15, .85), luz=COLOR),
+                atril=BOOL, publico=BOOL, atril_x=('numero', .15, .85), luz=COLOR,
+                edificios=BOOL, fachada=COLOR, tejado=COLOR, luz_ventanas=COLOR,
+                proyeccion=('elegir', 'vacia', 'silueta_amenazante')),
             fondo=COLOR, paleta=('elegir', *PALETAS), desenfoque=('numero', 0, 20), profundidad=('numero', .1, 1),
             particulas=BOOL, malla=BOOL, desfase_ambiente=('numero', 0, 86400), escenografia_detallada=BOOL,
             tipografia=('elegir', 'redondeada', 'clasica'),
@@ -285,6 +287,8 @@ def normalizar(datos, duracion, reparto):
             raise ValueError('el encuadre requiere sujeto')
         if r.get('escenario') and not all(r['escenario'].get(k) for k in ('id', 'tipo')):
             raise ValueError('el escenario necesita id y tipo estables')
+        if (r.get('escenario') or {}).get('proyeccion') and r['escenario']['tipo'] != 'cine':
+            raise ValueError('escenario.proyeccion solo corresponde a una sala de cine')
         resultado['realizacion'] = r
     for campo, catalogo, maximo in (('graficos', GRAFICOS, 12), ('efectos_visuales', EFECTOS, 40)):
         if campo in datos:
@@ -342,22 +346,58 @@ def heredar_escenografia(escena, continuidad, renovar=False):
             # La ausencia en una referencia histórica significa dibujo anterior, no un default retroactivo.
             if not renovar:
                 r.setdefault('escenografia_detallada', previa.get('escenografia_detallada', False))
-            for campo in ('semilla', 'atril', 'atril_x', 'publico', 'luz'):
+            for campo in ('semilla', 'atril', 'atril_x', 'publico', 'luz',
+                          'edificios', 'fachada', 'tejado', 'luz_ventanas', 'proyeccion'):
                 if campo in lugar:
                     actual.setdefault(campo, lugar[campo])
             return
 
 
-def preparar_escenografia_nueva(escena, resolucion):
+def preparar_escenografia_nueva(escena, resolucion, descripcion=None):
     """Pide corregir planos que ocultan la arquitectura o duplican el decorado."""
     r = escena.setdefault('realizacion', {})
     r.setdefault('encuadre', 'general')
     r.setdefault('escenografia_detallada', True)
     tipo = (r.get('escenario') or {}).get('tipo') or escena.get('decorado')
+    texto = (descripcion or '').lower()
+    if (re.search(r'\bsala de cine\b', texto) and not escena.get('espacio3d')
+            and (tipo != 'cine' or not r['escenografia_detallada'])):
+        raise ValueError('Una sala de cine requiere escenario.tipo:cine y escenografia_detallada:true: '
+            'pantalla de proyección recortada, cortinas y butacas con público de primer término, no un vector gigante.')
+    if tipo == 'cine':
+        if 'sala de cine' in texto and r.get('encuadre') not in ('general', 'conjunto'):
+            raise ValueError('La sala de cine con público necesita encuadre:general o conjunto; '
+                'el detalle del prompt histórico no debe ocultar las butacas y las cortinas.')
+        if ('amenazante' in texto and (r.get('escenario') or {}).get('proyeccion') != 'silueta_amenazante'):
+            raise ValueError('La silueta amenazante dentro de la pantalla usa escenario.proyeccion:silueta_amenazante; '
+                'no una figura superpuesta a toda la sala.')
+        if any(e['tipo'] == 'crowd' for e in escena.get('efectos_visuales', [])):
+            raise ValueError('El cine ya incluye público entre las butacas: no añadas un crowd independiente.')
+        for objeto in escena['objetos']:
+            recurso = escena.get('utileria', {}).get(objeto.get('recurso'), {})
+            identidad = ' '.join([recurso.get('concepto', ''), recurso.get('nombre', ''),
+                                  *recurso.get('etiquetas', [])]).lower()
+            if objeto['tipo'] == 'vector' and re.search(r'\b(cine|pantalla|butacas?|p[uú]blico)\b', identidad):
+                raise ValueError('El cine ya construye pantalla, proyección y butacas: elimina el vector que duplica la sala.')
     if (not r['escenografia_detallada'] or tipo in (None, 'vacio') or 'comparacion' in r
             or r.get('encuadre') == 'dividido' or escena.get('espacio3d')):
         return escena
     alto = 1920 * resolucion[1] / resolucion[0]
+    if (tipo in ('barrio', 'ciudad') and (r.get('escenario') or {}).get('edificios') is not False
+            and re.search(r'\b(aceras?|calles?)\b', texto)
+            and re.search(r'\bescaparates?\b', texto)):
+        raise ValueError('Una calle con escaparates requiere escenario.tipo:calle_comercial, no dos casas '
+            'aisladas de barrio/ciudad. Usa ese decorado comercial en perspectiva, o edificios:false '
+            'si vas a construir toda la arquitectura con vectores.')
+    if tipo in ('barrio', 'ciudad', 'calle_comercial') and (r.get('escenario') or {}).get('edificios') is not False:
+        for objeto in escena['objetos']:
+            recurso = escena.get('utileria', {}).get(objeto.get('recurso'), {})
+            identidad = ' '.join([recurso.get('concepto', ''), recurso.get('nombre', ''),
+                                  *recurso.get('etiquetas', [])]).lower()
+            if objeto['tipo'] == 'vector' and re.search(r'\b(casas?|viviendas?|fachadas?|houses?|homes?|escaparates?|tiendas?)\b', identidad):
+                raise ValueError('El decorado ya incluye casas: la utilería arquitectónica duplica los edificios. '
+                    'Usa escenario.edificios:false si compones las casas con vectores, o elimina esas casas '
+                    'adicionales y define escenario.fachada/tejado/luz_ventanas para los materiales del decorado.')
     for objeto in escena['objetos']:
         if (objeto['tipo'] == 'rectangulo' and objeto['capa'] == 'fondo' and not objeto.get('ancla')
                 and objeto['w'] * objeto['escala'] >= 1920 * .45 and objeto['h'] * objeto['escala'] >= alto * .55):
@@ -447,11 +487,42 @@ que eliminen toda esa profundidad salvo que la indicación pida ese encuadre.
 En escenario puedes añadir atril:true solo si la acción lo necesita, atril_x:.61, publico:true|false,
 y luz:"#RRGGBB" para una iluminación explícita. No añadas un atril si no interviene ni lo dupliques
 con otro vector. En un teatro vacío usa publico:false. sujeto identifica a quien recibe el foco.
+CINE: para una sala de cine usa escenario.tipo:cine, escenografia_detallada:true, encuadre:general.
+El motor construye pantalla panorámica oscura, cortinas burdeos laterales, apliques ámbar, filas
+de butacas de terciopelo y público cercano de espaldas en el borde inferior (publico:false lo retira).
+Una silueta amenazante A CONTRALUZ EN LA PANTALLA usa escenario.proyeccion:silueta_amenazante:
+busto negro de abrigo con cuello alto, cabeza redonda, ojos entrecerrados luminosos, halo ámbar
+y bruma animada, TODO recortado al área de proyección. luz:"#ffb456" ajusta el contraluz.
+No dibujes pantalla, película ni público mediante vectores gigantes, actores fuera de escala,
+crowd o círculos por delante del cine; la proyección nativa ya es contenido animado suficiente.
+Usa personajes:[],objetos:[],utileria:{},camara:[] si la acción está solo en esa proyección.
+No uses detalle/primer_plano ni el encuadre del prompt antiguo si oculta sala, cortinas o butacas.
+Para una pantalla sin esta figura usa proyeccion:vacia. No es teatro con tarima ni marco sepia.
 Salón/fiesta: ventana con profundidad, cuadros o sofá con cojines y costuras, suelo de madera y luz
 de lámparas. Oficina: ventana, escritorio, pantalla y silla reconocibles. Laboratorio: azulejos,
 banco metálico, cristalería y microscopio. Cocina: armarios con tiradores, encimera, fregadero y
 frigorífico. Aula: pizarra enmarcada, bandeja y pupitres. Barrio/parque: distancia entre planos,
 fachadas de materiales naturales, vegetación y caminos; no casas verdes con tejados eléctricos.
+CALLES CON ESCAPARATES: usa escenario.tipo:calle_comercial, escenografia_detallada:true.
+El motor construye una calle peatonal en perspectiva: fachadas de ladrillo a ambos lados,
+escaparates iluminados con estantes, toldos, ventanas, árboles, jardineras y farolas a distinta
+profundidad; pavimento con juntas convergentes y ciudad al fondo. No añadas otra fila de edificios,
+tejados o escaparates vectoriales por encima del encuadre. No uses barrio/ciudad para sustituir
+esta calle por dos casas aisladas con césped. Para atardecer usa ambiente:golden: cielo violeta/coral,
+sol bajo, vidrieras cálidas, luz rasante y farolas encendidas; no un cielo azul de mediodía.
+Conserva al protagonista en el tercio izquierdo/central (x~.35–.44,y~.88–.92,escala~2.7–3).
+Transeúntes: actores reales animados, no gráficos lineFigure ni paneles; actuacion.silueta:"#7d8088"
+los dibuja enteros en gris. Escálalos por profundidad (pies .72: escala~1.1, pies .84: escala~2).
+Ordena los actores de lejos a cerca; el protagonista cercano se dibuja después de los del fondo.
+Para el que se cruza, usa actuacion.aura:{color:"#ffad45",intensidad:.16–.25}, no un rectángulo
+luminoso ni una ventana detrás. Solo ese transeúnte lleva el halo de énfasis; los demás gris neutro.
+Barrio/ciudad ya dibuja DOS casas grandes y una farola. Elige UNA arquitectura: usa esas casas
+con escenario:{fachada:"#e8e2d6",tejado:"#46515c",luz_ventanas:"#91c9ed"} para yeso,
+pizarra y un halo azul tenue en algunas ventanas; o usa escenario.edificios:false y compón TODOS
+los edificios con vectores de tamaño coherente, conservando cielo, calle y farola del motor.
+No superpongas casas vectoriales pequeñas a las casas del decorado. Un laboratorio exterior
+puede añadirse entre las casas; escenario.tipo:laboratorio representa un INTERIOR, no su fachada.
+Los colores fachada/tejado son materiales base que se sombrean de noche, no se sustituyen por la paleta.
 El motor construye ese decorado estable. No lo tapes con rectángulos opacos, un blueprint a
 pantalla completa o una segunda multitud genérica; usa la utilería adicional para la acción concreta.
 Conserva id/semilla y los elementos del escenario al continuar. Los detalles ambientales no inventan

@@ -140,9 +140,10 @@ manteniendo la narración y su duración. **Parar** cancela el trabajo.
 Al terminar, el timeline conserva sus pistas y actualiza la caché de la escena
 afectada, sin volver a cargar desde cero las demás escenas.
 
-En ese chat, **Adjuntar imagen** permite añadir una referencia visual opcional
-(PNG, JPG o WebP, hasta 20 MiB). Puedes comprobar su miniatura y quitarla antes
-de enviar. La imagen queda asociada al mensaje y sirve de contexto tanto para
+En ese chat, **Adjuntar imágenes** permite seleccionar varias referencias visuales
+(PNG, JPG o WebP, hasta 20 MiB por imagen). También puedes pegarlas directamente
+desde el portapapeles con **Ctrl+V** dentro del chat. Puedes comprobar sus miniaturas
+y quitar cada imagen por separado antes de enviar. Quedan asociadas al mensaje y sirven de contexto tanto para
 la conversación como para **Aplicar cambios**, con Claude o ChatGPT. También
 puedes adjuntarla y aplicar directamente con tus indicaciones. Las referencias
 se conservan en el historial de la escena y viajan al duplicar o exportar el vídeo.

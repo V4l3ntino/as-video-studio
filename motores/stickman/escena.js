@@ -1,7 +1,7 @@
 // Adaptador declarativo sobre el rig GrowKaz. No ejecuta código del modelo.
 import { E, S, mood, layer, ease, key, glow, clamp, FONTS } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 import { breathe, walkPose, face, drawFigure, bigFace, soccerBall, drawProp } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/rig2d.js';
-import { poseActuada } from './actuacion.js';
+import { poseActuada, aperturaPalma, pintarPalma } from './actuacion.js';
 import { pintarEtiqueta } from './etiqueta.js';
 import * as FX from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/fx2d.js';
 import { cargarFuentes } from './fuentes.js';
@@ -57,9 +57,24 @@ function figura(c, t, estela=false, ctx=g) {
     for(let i=count;i>=1;i--){g.save();g.globalAlpha*=.2*(1-i/(count+1));g.translate(-i*25*s,0);figura(c,t,true,g);g.restore();}
   }
   const grita=c.claves.filter(k=>k.t<=t&&k.pose).at(-1)?.pose==='shout';
+  const palma=movimientoEn(c,t)==='gesto'?aperturaPalma(t,c.claves.filter(k=>k.pose),c.actuacion?.mezcla_pose??.35):0;
   const habla = grita || c.habla.some(a => t >= a[0] && t < a[1]) ? .35 + .6 * Math.abs(Math.sin(t * 14)) : 0;
   g.save(); g.translate(x, y); g.rotate(rot); g.scale(s * v.altura * mirar, s * v.altura);
   g.globalAlpha *= valor(c.claves, t, 'opacidad', 1);
+  if(c.actuacion?.silueta){
+    // Figurantes con volumen legible y tinta uniforme, sin heredar ropa/cara
+    // ni convertirlos en líneas de un gráfico. Comparten pose y reloj del rig.
+    g.scale(v.ancho,v.cuerpo);g.lineCap=g.lineJoin='round';
+    const color=c.actuacion.silueta;
+    g.fillStyle='#11182744';g.beginPath();g.ellipse(0,2,32,5,0,0,Math.PI*2);g.fill();
+    const trazo=(p,w)=>{g.strokeStyle=color;g.lineWidth=w;g.beginPath();p.forEach((q,i)=>i?g.lineTo(...q):g.moveTo(...q));g.stroke();};
+    for(const pts of [[pose.hip,pose.kB,pose.fB],[pose.sh,pose.eB,pose.hB],
+      [pose.hip,pose.kF,pose.fF],[pose.sh,pose.eF,pose.hF]])trazo(pts,13);
+    trazo([pose.sh,pose.hip],23);
+    g.save();g.translate(...pose.head);g.scale(v.cabeza,v.cabeza/v.cuerpo);
+    g.fillStyle=color;g.beginPath();g.arc(0,0,26,0,Math.PI*2);g.fill();g.restore();
+    g.restore();return;
+  }
   // El Classic conserva ropa, accesorios y utilería del rig original.
   if (v.familia === 'classic' && v.cabeza === 1 && v.cuerpo === 1 && v.ancho === 1 && v.ojos === 'dot' && v.boca === 'smallSmile') {
     drawFigure(g, {x: 0, y: 0, s: 1, facing: 1, pose, expr: exp, talk: habla,
@@ -70,6 +85,7 @@ function figura(c, t, estela=false, ctx=g) {
       prop:c.actuacion?.atrezzo?{type:c.actuacion.atrezzo,hand:c.actuacion.mano||'F'}:undefined,
       ...(c.actuacion?{outfit:{top:v.ropa,color:v.color,color2:v.secundario,head:v.accesorio,headColor:v.secundario,
         face:c.actuacion.gafas,gloves:c.actuacion.guantes,legs:c.actuacion.pantalon}}:{})});
+    pintarPalma(g,pose,palma,c.actuacion?.guantes||S().ink,v.contorno);
     g.restore(); return;
   }
   g.fillStyle = '#0008'; g.beginPath(); g.ellipse(0, 3, 52 * v.ancho, 9, 0, 0, Math.PI * 2); g.fill();
@@ -122,6 +138,7 @@ function figura(c, t, estela=false, ctx=g) {
     for(const xx of [-9,9]){g.beginPath();g.arc(xx,-4,8,0,Math.PI*2);if(c.actuacion.gafas==='sunglasses'){g.fillStyle='#080810';g.fill();}g.stroke();}
   }
   g.restore();
+  pintarPalma(g,pose,palma,c.actuacion?.guantes||ink,v.contorno);
   if(c.actuacion?.atrezzo)drawProp(g,{type:c.actuacion.atrezzo,hand:c.actuacion.mano||'F'},pose,ink);
   g.restore();
 }

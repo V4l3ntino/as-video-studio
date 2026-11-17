@@ -72,6 +72,54 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+S153 construía pantalla y figura como un vector de 1720×850 sin recorte: el cuerpo
+se salía y tapaba el cine como una franja negra. `escenario.tipo:cine` conecta
+`cine.js`, con pantalla, cortinas y butacas separadas del primer término.
+`proyeccion:silueta_amenazante` dibuja un busto a contraluz y bruma procedural
+animada dentro de un clip Canvas; cuenta como contenido real en puesta en escena
+sin personajes/objetos ficticios. `publico:false` retira solo espectadores.
+No dupliques sala ni crowd con vectores. La dirección actual prevalece sobre
+el «extreme close-up» heredado del prompt de imágenes. No conviertas planes al
+leer ni cambies VERSION; reinicia el servicio y verifica el MP4 publicado de S153.
+Contrato, píxeles del recorte y público: `prueba_stickman_editorial.py [--real]`.
+
+El servicio `python app.py --puerto 8020` NO recarga módulos Python al editarlos.
+Un render aislado de `calle.js` salió bien, pero regenerar S148 desde la web volvió
+a producir `escenario.tipo:barrio`: el servidor seguía arrancado desde antes del
+cambio. Comprueba el proceso activo y reinícialo sin trabajos en marcha antes de
+pedir una regeneración tras cambiar el director/validador. Verifica después el
+`.animacion.json` y el clip PUBLICADOS por esa petición, no solo una referencia
+de prueba construida a mano. No atribuyas ese fallo al prompt ni a la caché del navegador.
+
+Las aceras con escaparates no caben en el decorado de dos casas aisladas.
+`escenario.tipo:calle_comercial` usa `calle.js`: fachadas y detalles proyectados
+sobre el mismo cuadrilátero, vitrinas, toldos, pavimento convergente, vegetación
+y farolas en el plano de los actores; cielo/ciudad lejana en fondo. `golden`
+coloca el sol bajo y luz coral/ámbar, no el sol alto del exterior genérico.
+`preparar_escenografia_nueva` recibe la descripción al generar para pedir corregir
+calles con escaparates resueltas como barrio/ciudad automático. La lectura no
+convierte nada ni cambia VERSION. `actuacion.silueta` dibuja actores grises con
+su pose real, sin ropa heredada ni el alfa .42 de los figurantes históricos;
+su aura sigue usando la máscara del actor, nunca un rectángulo de fondo.
+Contrato y render de marcha/ocaso/halo selectivo: `prueba_stickman_editorial.py [--real]`.
+
+Una ciudad nocturna duplicaba las casas: `escenografia.js` dibujaba dos fachadas
+grandes con tejados terracota fijos y el plan añadía casas vectoriales de pizarra.
+`escenario.edificios:false` retira solo las casas automáticas del decorado detallado;
+`fachada/tejado/luz_ventanas` permiten materiales explícitos y halo tenue en algunas
+ventanas sin heredar la paleta de marca. `preparar_escenografia_nueva` pide corregir
+casas vectoriales duplicadas, sin borrarlas ni modificar planes al leer. Conserva
+estos campos en continuidad; no cambies VERSION. Contrato y píxeles de tejados,
+fachadas y ventanas: `prueba_stickman_editorial.py [--real]`.
+
+Extender la palma vacía no es sostener utilería ni `reach`/`holdFront`.
+La pose local `palmUp` en `actuacion.js` adelanta el antebrazo y dibuja una
+mano con cuatro dedos y pulgar separado en Classic y familias personalizadas.
+Su apertura sigue la mezcla de poses y se desactiva durante locomoción; respeta
+guantes, proporciones y reflejo del actor. No mutes el kit ni cambies VERSION:
+los clips publicados se corrigen al editar o regenerar su animación. Contrato
+y píxeles de dedos/pulgar: `prueba_stickman_editorial.py [--real]`.
+
 Un tachado con `linea` independiente quedaba azul hielo y detrás de las letras,
 porque los rótulos se pintan después del acabado. Los objetos `texto` admiten
 `tachado:{inicio,fin}`: `texto.js` pinta rojo sobre la tinta, mide la fuente ya
@@ -281,7 +329,9 @@ para conversar como para aplicar los cambios; la elección se comparte entre esc
 el cliente envía respectivamente 0 o 100 en el contrato `porcentaje` existente.
 Los chats viven en `stickman/chats` del proyecto y viajan también al duplicar.
 Las imágenes opcionales del chat usan la subida normalizada de `imagenes_animacion`
-y rutas relativas `medios_usuario/animaciones` en `mensajes[].imagen`. Valida su
+y rutas relativas `medios_usuario/animaciones` en `mensajes[].imagenes` (lista),
+con lectura compatible de `mensajes[].imagen`. La selección múltiple y el pegado
+con Ctrl+V acumulan referencias en el borrador. Valida su
 existencia antes de lanzar; conversa y aplica con esas mismas referencias, resueltas
 contra el proyecto actual (también tras duplicar/importar). No guardes rutas absolutas
 en el encargo. El adaptador de texto Codex agrupa más de cinco imágenes conservando

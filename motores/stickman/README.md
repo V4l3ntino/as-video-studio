@@ -71,6 +71,58 @@ validado en `pasos/stickman.py`, nunca programas que se ejecuten desde el modelo
 
 ## Puesta en escena y utilería
 
+### Sala de cine
+
+`realizacion.escenario.tipo:"cine"` con `escenografia_detallada:true` dibuja
+una sala oscura: pantalla panorámica, cortinas burdeos, apliques cálidos y filas
+escalonadas de butacas de terciopelo con público de espaldas en primer término.
+`escenario.publico:false` permite retirar los espectadores sin quitar las butacas.
+
+`escenario.proyeccion:"silueta_amenazante"` incorpora una película animada: busto
+oscuro de abrigo con cuello alto, ojos entrecerrados, contraluz ámbar y bruma
+procedural. Toda la película se recorta al rectángulo de pantalla; no utiliza
+actores gigantes ni vectores que puedan tapar la sala. `escenario.luz` cambia
+el color del contraluz. Usa `encuadre:"general"`, cámara vacía, y no añadas
+pantallas, butacas o público duplicados. La proyección ya cuenta como contenido
+animado, sin necesidad de personajes u objetos adicionales. `proyeccion:"vacia"`
+deja la pantalla sin esa figura.
+
+Para actualizar un plano anterior, regenera su escena con el servicio actualizado.
+
+### Calles con escaparates
+
+`realizacion.escenario.tipo:"calle_comercial"` con `escenografia_detallada:true`
+construye una calle peatonal en perspectiva: fachadas de ladrillo, escaparates
+con estantes y reflejos, toldos, ventanas, árboles, jardineras y farolas a
+distintas distancias. Las juntas del pavimento convergen hacia la ciudad del
+fondo. `ambiente:"golden"` da cielo violeta/coral, sol bajo, vitrinas cálidas y
+farolas encendidas; `day` y `night` tienen su iluminación propia.
+
+La generación pide este decorado para calles/aceras con escaparates y rechaza
+su sustitución por las dos casas aisladas de barrio/ciudad. No añadas encima
+otra fila de fachadas vectoriales. `escenario.fachada` permite cambiar el
+material y `edificios:false` retira los edificios si vas a componerlos tú.
+
+`actuacion.silueta:"#7d8088"` dibuja un transeúnte en gris uniforme con las poses
+y el movimiento del actor, sin heredar su ropa ni aplicar la transparencia de
+los figurantes antiguos. Usa distinta escala según su distancia y ordena los
+actores de lejos a cerca. El halo de un transeúnte concreto se pide con
+`actuacion.aura:{color:"#ffad45",intensidad:.2}`; no con un panel luminoso.
+
+### Casas de barrio
+
+En barrio/ciudad con escenografía detallada, el decorado incluye dos casas y una
+farola. `realizacion.escenario` admite `fachada`, `tejado` y `luz_ventanas`
+(`#RRGGBB`) para definir sus materiales y un halo tenue en una ventana por casa.
+Por ejemplo: `fachada:"#e8e2d6",tejado:"#46515c",luz_ventanas:"#91c9ed"`
+representa yeso, pizarra y luz azul; la noche sombrea esos materiales.
+Si la arquitectura se compone con vectores, usa `escenario.edificios:false`:
+retira las casas automáticas y conserva cielo, calle y farola. La generación
+rechaza casas vectoriales superpuestas al decorado automático; un laboratorio
+exterior puede añadirse sin duplicar las viviendas. Estos campos se conservan
+al continuar el mismo lugar. Los clips anteriores se corrigen al editar o
+regenerar su animación.
+
 El lienzo lógico mide 1920 de ancho y `1920 * alto_salida / ancho_salida` de
 alto. Las posiciones son normalizadas. En un actor, `x,y` sitúan sus **pies**;
 su altura aproximada es `240 * escala * diseno.altura`. Las entregas nuevas se
@@ -143,6 +195,15 @@ reconocible frente a metáforas anidadas y cadenas de iconos. El ancla `pecho`
 está entre hombros y cadera; no sobre el cuello.
 Las claves de actor admiten `mirar: -1|1`: el giro se aplica en ese instante,
 sin interpolar un reflejo a través de cero, y las anclas siguen su orientación.
+
+### Palma abierta
+
+La pose `palmUp` extiende una mano vacía con la palma hacia arriba: pulgar
+separado, cuatro dedos y el otro brazo relajado. Sirve, por ejemplo, para
+comprobar si llueve. El motor dibuja la mano en las cuatro familias y respeta
+guantes, orientación, respiración y mezcla de poses. No necesita utilería ni
+objetos anclados que simulen dedos. Para corregir un clip anterior, pide este
+gesto desde **Editar escena** o regenera la animación.
 
 ### Líneas de énfasis
 
