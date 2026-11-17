@@ -2,6 +2,19 @@
 // Se conserva el color solicitado: el respaldo es claro para tinta oscura y viceversa.
 import { rgb } from '../../GrowKaz_Stickman/skills/make-2d-video/kit/engine/core.js';
 
+// Se pinta DESPUÉS de la tinta, en sus mismas coordenadas y con la fuente ajustada.
+export function pintarTachado(g, texto, size, tachado, t) {
+  if (!tachado || t <= tachado.inicio) return;
+  const progreso = Math.min(1,(t-tachado.inicio)/(tachado.fin-tachado.inicio));
+  const m = g.measureText(texto);
+  const ancho = m.width + size*.1;
+  const y = ((m.actualBoundingBoxDescent||0)-(m.actualBoundingBoxAscent||size*.6))/2;
+  g.save();
+  g.shadowBlur=0;g.strokeStyle='#ef3434';g.lineWidth=Math.max(4,size*.075);g.lineCap='round';
+  g.beginPath();g.moveTo(-ancho/2,y);g.lineTo(-ancho/2+ancho*progreso,y);g.stroke();
+  g.restore();
+}
+
 // Tinta con relieve suave: el degradado queda dentro del glifo, nunca borroso.
 export function rotuloRedondeado(g, texto, size, color) {
   const [r,v,b] = rgb(color);

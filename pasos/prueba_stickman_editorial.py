@@ -61,6 +61,14 @@ def referencia_tipografia():
             for y in (.24,.30)]])
 
 
+def referencia_tachado():
+    return dict(ambiente='void',decorado='vacio',personajes=[],realizacion=dict(encuadre='grafico',
+        tipografia='redondeada',paleta='arctic',fondo='#08121f',color_fiel=True,grano=0,vineta=0),
+        objetos=[dict(tipo='texto',texto='PLANIFICACIÓN',color='#ffcb52',x=.5,y=.26,w=1100,h=180,fuente=130),
+            dict(tipo='texto',texto='Errores torpes',color='#b97676',x=.5,y=.52,w=1100,h=180,
+                fuente=130,tachado=dict(inicio=1,fin=1.5))])
+
+
 def referencia_interaccion(base):
     d=narrativa(base)
     d['realizacion']=dict(encuadre='conjunto',tipografia='redondeada',paleta='ember',
@@ -1147,6 +1155,53 @@ class Editorial(unittest.TestCase):
         termometros=stickman.escena(referencia_termometros(),4,{})
         self.assertEqual(termometros['personajes'],[])
         self.assertEqual([o['panel'] for o in termometros['objetos']],['izquierda','derecha'])
+
+    def test_tachado_contrato_opcional_y_tiempos(self):
+        datos=referencia_tachado()
+        contenido=stickman.escena(datos,4,{})
+        self.assertEqual(contenido['objetos'][1]['tachado'],dict(inicio=1,fin=1.5))
+        self.assertNotIn('tachado',contenido['objetos'][0])
+        for cambio in (dict(inicio=-1,fin=1),dict(inicio=2,fin=1),dict(inicio=1,fin=5),
+                       dict(inicio=1,fin=1),dict(inicio=1,fin=2,color='#83d9f7')):
+            datos['objetos'][1]['tachado']=cambio
+            with self.assertRaises(ValueError):
+                stickman.escena(datos,4,{})
+        datos['objetos'][1].update(tipo='linea',tachado=dict(inicio=1,fin=2))
+        with self.assertRaisesRegex(ValueError,'objeto texto'):
+            stickman.escena(datos,4,{})
+
+    @unittest.skipUnless(REAL,'usa --real para tachado rojo por delante de las letras en Canvas')
+    def test_tachado_rojo_superpuesto_real(self):
+        from pasos import p8_render
+        original=p8_render.Navegador.capturar
+        def comprobar(nav,destino=None):
+            r=nav.evaluar('''(() => {
+                const c=document.querySelector('canvas'),g=c.getContext('2d');
+                const frame=t=>{window.pintar(t);return g.getImageData(0,0,c.width,c.height).data;};
+                const a=frame(.5),b=frame(1.25),d=frame(3);
+                let medio=0,rojos=0,sobreLetras=0,x0=c.width,x1=0,y0=c.height,y1=0;
+                for(let i=0;i<d.length;i+=4){
+                    const rojo=p=>p[i]>180&&p[i+1]<90&&p[i+2]<90;
+                    if(rojo(b))medio++;
+                    if(!rojo(d))continue;
+                    rojos++;const x=i/4%c.width,y=Math.floor(i/4/c.width);
+                    x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);
+                    if(a[i]>100&&a[i+1]>50)sobreLetras++;
+                }
+                return {medio,rojos,sobreLetras,x0,x1,y0,y1,w:c.width,h:c.height};
+            })()''')
+            self.assertGreater(r['rojos'],1000)
+            self.assertGreater(r['sobreLetras'],300)
+            self.assertGreater(r['medio'],r['rojos']*.4)
+            self.assertLess(r['medio'],r['rojos']*.65)
+            self.assertLess(abs((r['x0']+r['x1'])/2-r['w']/2),3)
+            self.assertLess(r['y1']-r['y0'],r['h']*.03)
+            return original(nav,destino)
+        with patch.object(p8_render.Navegador,'capturar',comprobar):
+            muestras=Path(os.environ.get('ESTUDIO_PRUEBA_STICKMAN_MUESTRAS',TEMP.name))
+            muestras.mkdir(parents=True,exist_ok=True)
+            stickman.renderizar(self.base,stickman.escena(referencia_tachado(),4,{}),4,
+                str(muestras/'stickman_tachado.png'),salida=(1280,720))
 
     def test_tipografia_nueva_y_retoque_historico(self):
         datos=referencia_tipografia()

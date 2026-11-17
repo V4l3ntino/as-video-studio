@@ -307,6 +307,17 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
             opacidad=numero(o.get('opacidad', 1), 0, 1), progreso=numero(o.get('progreso', 1), 0, 1)))
         if 'neon' in o:
             resultado['objetos'][-1]['neon'] = numero(o['neon'], 0, 1)
+        if 'tachado' in o:
+            if o.get('tipo') != 'texto' or not o.get('texto', '').strip():
+                raise ValueError('tachado necesita un objeto texto no vacío')
+            tachado = o['tachado']
+            if not isinstance(tachado, dict) or set(tachado) != {'inicio', 'fin'}:
+                raise ValueError('texto.tachado necesita inicio y fin')
+            a = tiempo(tachado['inicio'], ini, fin, 'texto.tachado.inicio')
+            b = tiempo(tachado['fin'], a, fin, 'texto.tachado.fin')
+            if b - a < .05:
+                raise ValueError('el tachado necesita al menos .05 s')
+            resultado['objetos'][-1]['tachado'] = dict(inicio=a, fin=b)
         if o.get('tipo') == 'puerta':
             puerta = resultado['objetos'][-1]
             puerta.update(bisagra=elegir(o.get('bisagra', 'izquierda'), ('izquierda', 'derecha')),
@@ -704,6 +715,10 @@ def generar_escena(e, diseno, reparto, proyecto, avisar, proveedor='Claude'):
              'con toda la caja fuera, mantén allí su posición hasta fin; conserva visibles los demás elementos. '
             'linea va de x,y a x+w/1920,y+h/alto; grosor es su trazo, h puede ser 0. '
             'texto se ajusta a la caja w,h con fuente 16–160; usa 110–160 para rótulos protagonistas redondeados Fredoka. Evita texto salvo si lo pide el guion; no copies palabras sueltas de la voz como títulos. '
+            'Para tachar palabras usa ese mismo objeto tipo:texto con tachado:{inicio:segundos,fin:segundos}: '
+            'el motor dibuja una raya ROJA encima de las letras, ajustada a su ancho, que crece de izquierda a derecha '
+            'entre esos tiempos y permanece hasta que desaparece el texto. No añadas una linea independiente ni un conector '
+            'desde otro rótulo: el tachado no hereda el azul hielo de Arctic Glass aunque la descripción antigua lo pida. '
             'Utilería nativa: movil (pantalla y carcasa, w~54 h~90), mensaje (burbuja con cola y líneas legibles, w~200 h~95), '
             'calendario (cabecera, cuadrícula y fechas marcadas, w~260 h~230; progreso 0–1 revela las marcas), '
             'nube (silueta con lóbulos, w~150 h~90), corazon (w~70 h~65). Usa estos tipos en lugar de rectángulos que pretendan representarlos. '

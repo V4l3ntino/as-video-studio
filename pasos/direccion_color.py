@@ -18,6 +18,9 @@ Ember Forge: negro, rojo intenso, cobre y naranja para drama y tensión.
 Arctic Glass: azules fríos, turquesas y blanco hielo para ciencia y tecnología;
 incorpora amarillo cálido #ffcb52 para títulos, cifras, etiquetas, umbrales o el foco explicativo.
 Mantén ejes, estructura y datos de contexto azules/turquesas sobre fondo azul oscuro.
+Los tachados de palabras o señales descartadas son ROJOS, también en Arctic Glass:
+describe una raya roja superpuesta a las letras, cruzándolas por su centro y cubriendo
+la palabra completa. No una raya azul hielo, un subrayado ni un conector desde otro rótulo.
 Sakura Bloom: rosa, violeta, ciruela y melocotón para emoción e intimidad.
 Retro Print: verde azulado apagado, mostaza, sepia y naranja para historia y memoria.
 Respeta la familia del acabado elegido si es una de estas cuatro. Con Editorial Cinema,

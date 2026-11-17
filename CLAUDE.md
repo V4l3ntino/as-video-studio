@@ -72,6 +72,15 @@ ignora esa eliminación. Regresión aislada y navegador:
 
 ## Stickman 2D
 
+Un tachado con `linea` independiente quedaba azul hielo y detrás de las letras,
+porque los rótulos se pintan después del acabado. Los objetos `texto` admiten
+`tachado:{inicio,fin}`: `texto.js` pinta rojo sobre la tinta, mide la fuente ya
+ajustada y cruza el centro de los glifos; comparte posición, escala, rotación y
+opacidad del rótulo. La dirección cromática reserva rojo para tachados incluso
+en Arctic Glass; el director debe usar este campo, no un conector independiente.
+Es opcional: no lo infieras al abrir planes históricos ni cambies VERSION.
+Contrato y superposición comprobada con píxeles: `prueba_stickman_editorial.py --real`.
+
 Las líneas de reacción son `graficos[].tipo:enfasis`, no objetos permanentes ni
 un efecto inferido de la expresión base. `enfasis.js` dibuja sorpresa/sobresalto/
 descubrimiento/enfado/confusion/impacto con pulso de .2–.4 s, subida rápida,

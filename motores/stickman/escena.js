@@ -8,7 +8,7 @@ import { cargarFuentes } from './fuentes.js';
 import { pintarEditorial } from './editorial.js';
 import { aplicarEstilo, aplicarPaleta } from './estilo.js';
 import { conNeon, conAura, neonObjeto } from './neon.js';
-import { protegerTexto, rotuloRedondeado } from './texto.js';
+import { protegerTexto, rotuloRedondeado, pintarTachado } from './texto.js';
 import { esquinas } from './encuadre.js';
 import { movimientoEn } from './movimiento.js';
 import { rasgosExpresion } from './expresiones.js';
@@ -291,6 +291,7 @@ function objeto(o, t, ctx=g) {
     g.font = familia.replace(/[\d.]+px/,`${size}px`); g.textAlign = 'center'; g.textBaseline = 'middle';
     if(redondeada)rotuloRedondeado(g,o.texto,size,o.color);
     else g.fillText(o.texto, 0, 0);
+    pintarTachado(g,o.texto,size,o.tachado,t);
   }
   else if (o.tipo === 'pizarra') {
     const marco = Math.min(14, w*.04, h*.07);

@@ -229,6 +229,12 @@ deformarse. La dirección anima sus entradas, desplazamientos y fusiones con
 claves suaves. Para actualizar el acabado de un clip ya generado, pide mejorar
 su tipografía desde **Editar escena** o regenera esa animación.
 
+Los tachados se dibujan con una **raya roja por delante de las letras**, ajustada
+al ancho real del texto y animada de izquierda a derecha. El rojo conserva su
+significado también con la paleta Arctic Glass. Para corregir un clip anterior,
+pide «tachado rojo superpuesto al texto» desde **Editar escena** y aplica el cambio,
+o regenera la animación.
+
 Las escenas pueden usar poses específicas de **grito/señalamiento** y **defensa
 encogida**, con brazos y piernas que expresan la acción. Las etiquetas luminosas
 incluyen marco redondeado, hasta tres líneas y halo local; su caja y texto se
