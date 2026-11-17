@@ -43,7 +43,8 @@ class Avatar(unittest.TestCase):
             def lotes(lista):
                 tareas.extend(lista)
                 return [dict(id=t['id'], frames=t['frames'], duracion=t['frames'] / t['fps']) for t in lista]
-            with patch.object(avatar, 'preparar', return_value={'S001': figura}), \
+            with patch.object(avatar, 'estado_previa', return_value={'estado': 'listo', 'clips': {'S001': 'avatar.mp4'}}), \
+                    patch.object(avatar, 'preparar', side_effect=AssertionError('no generar avatar al montar')), \
                     patch.object(avatar, 'componer', side_effect=AssertionError('no sustituir el fondo por un compuesto fijo')), \
                     patch.object(p8_render, 'correr_lote', side_effect=lotes), patch.object(p8_render, '_concatenar'), \
                     patch.object(p8_render, '_elegir_codec', return_value='libx264'):

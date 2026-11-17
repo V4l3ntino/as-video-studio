@@ -6069,9 +6069,8 @@ function subirZipConProgreso(archivo, opciones) {
       else rechazar(new Error((datos && (datos.error || datos.detail))
         || `No se ha podido recibir el ZIP (HTTP ${peticion.status}).`));
     };
-    const cuerpo = new FormData();
-    cuerpo.append('archivo', archivo);
-    peticion.send(cuerpo);
+    peticion.setRequestHeader('Content-Type', 'application/zip');
+    peticion.send(archivo);
   });
 }
 

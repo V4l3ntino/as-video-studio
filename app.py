@@ -1075,21 +1075,53 @@ def _procesar_importacion_video(avisar, temporal, raiz):
 
 
 @app.post("/api/proyectos/importar/seguir", status_code=202)
-def importar_video_con_progreso(archivo: UploadFile = File(...)):
+async def importar_video_con_progreso(peticion: Request):
     """Recibe el ZIP y arranca una importacion con progreso consultable."""
     from pasos import paquete_video
-    if archivo.size is not None and archivo.size > paquete_video.MAX_ARCHIVO:
-        raise ErrorApi(400, "el ZIP supera el limite de 2 GB")
-    temporal = tempfile.TemporaryDirectory(prefix="subida_video_")
+    raiz = raiz_proyectos()
+    temporal = None
     try:
-        # UploadFile se cierra al terminar la peticion: el trabajo debe poseer
-        # su propia copia y retirarla tambien cuando el paquete sea invalido.
+        os.makedirs(raiz, exist_ok=True)
+        temporal = tempfile.TemporaryDirectory(prefix=".subida_video_", dir=raiz)
+        tipo = peticion.headers.get("content-type", "").lower()
+        longitud = peticion.headers.get("content-length")
+        if not tipo.startswith("multipart/") and longitud:
+            try:
+                if int(longitud) > paquete_video.MAX_ARCHIVO:
+                    raise ErrorApi(400, "el ZIP supera el límite de 2 GB")
+            except ValueError:
+                raise ErrorApi(400, "el tamaño indicado para el ZIP no es válido")
+        total = 0
         with open(os.path.join(temporal.name, "video.zip"), "wb") as destino:
-            shutil.copyfileobj(archivo.file, destino, length=1024 * 1024)
+            if tipo.startswith("multipart/"):
+                # Compatibilidad con clientes anteriores. Los nuevos envían el
+                # ZIP directamente, sin el temporal adicional del parser.
+                async with peticion.form() as formulario:
+                    archivo = formulario.get("archivo")
+                    if not hasattr(archivo, "read"):
+                        raise ErrorApi(400, "falta el archivo ZIP")
+                    while bloque := await archivo.read(1024 * 1024):
+                        total += len(bloque)
+                        if total > paquete_video.MAX_ARCHIVO:
+                            raise ErrorApi(400, "el ZIP supera el límite de 2 GB")
+                        destino.write(bloque)
+            else:
+                async for bloque in peticion.stream():
+                    total += len(bloque)
+                    if total > paquete_video.MAX_ARCHIVO:
+                        raise ErrorApi(400, "el ZIP supera el límite de 2 GB")
+                    destino.write(bloque)
+        if not total:
+            raise ErrorApi(400, "el ZIP está vacío")
         tid = _IMPORTACIONES_VIDEO.lanzar(
-            "importar:video", _procesar_importacion_video, temporal, raiz_proyectos())
+            "importar:video", _procesar_importacion_video, temporal, raiz)
+    except OSError as fallo:
+        if temporal:
+            temporal.cleanup()
+        raise ErrorApi(400, f"no se ha podido guardar el ZIP recibido; comprueba el espacio disponible: {fallo}") from fallo
     except BaseException:
-        temporal.cleanup()
+        if temporal:
+            temporal.cleanup()
         raise
     return {"trabajo_id": tid, "seguimiento": f"/api/proyectos/importaciones/{tid}"}
 
@@ -11255,6 +11287,8 @@ TANDAS_LIGHT = [
     # ahi todo lo que ya esta al dia se salta (ver `_esta_al_dia`). Con assets
     # listo, lo unico que corre es lo que se quedo viejo.
     {"id": "render", "nombre": "El MP4", "pestanas": ["video", "render"],
+     "sin": ["escenarios", "guia_estilo", "corte", "plan_cartelas", "direccion",
+             "piezas", "assets", "publicacion"],
      "porque": "pone al día los rótulos si hace falta y monta el vídeo"},
 ]
 TANDAS_LIGHT_POR_ID = {t["id"]: t for t in TANDAS_LIGHT}
@@ -11704,7 +11738,10 @@ def _plan_de_generacion(ctx, pestanas, modo="pendientes", datos=None):
                           ctx, pestana,
                           [{"id": t["id"]} for t in pendientes])})
         total += segundos
-    coste = _coste_previsto(ctx, pestanas)
+    pestanas_coste = pestanas
+    if str((datos or {}).get("tanda") or "").strip().lower() == "render":
+        pestanas_coste = [p for p in pestanas if p != "video"]
+    coste = _coste_previsto(ctx, pestanas_coste)
     if any(t["id"] == "publicacion" and t["se_hace"]
            for f in fases for t in f["tareas"]):
         datos_publicacion = _publicacion().leer(ctx.proyecto, ctx.estado)

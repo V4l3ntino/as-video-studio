@@ -61,7 +61,13 @@ def ventana(centro, escala):
 def hyperframe(origen, destino, escala=2):
     """Amplia el plano. LANCZOS basta porque el arte es plano y de linea dura:
     no hay textura fina que reconstruir, solo bordes que mantener limpios."""
-    img = Image.open(origen).convert("RGB")
+    try:
+        with Image.open(origen) as imagen:
+            img = imagen.convert("RGB")
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"No se puede leer la imagen de la escena {os.path.basename(origen)}: "
+                           "el archivo está dañado o incompleto. Recupera la imagen "
+                           "antes de volver a montar el vídeo.") from exc
     grande = img.resize((img.width * escala, img.height * escala), Image.LANCZOS)
     os.makedirs(os.path.dirname(destino), exist_ok=True)
     grande.save(destino, "PNG")

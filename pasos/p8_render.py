@@ -1601,9 +1601,14 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         proyecto, "voz", claves=("wav", "audio", "narracion"),
         patrones=(r"narracion\.wav", r".*\.wav"))
 
-    from pasos import avatar
-    clips_avatar = (avatar.preparar(proyecto, p, plan, audio, avisar)
-                    if not solo_montar else {})
+    clips_avatar = {}
+    if not solo_montar:
+        previa_avatar = avatar.estado_previa(proyecto, p, plan, audio)
+        if previa_avatar:
+            if previa_avatar["estado"] != "listo":
+                raise ValueError("prepara los clips del avatar en Imágenes antes de montar el vídeo")
+            clips_avatar = {sid: proyecto.ruta(ruta)
+                            for sid, ruta in previa_avatar["clips"].items()}
 
     trabajo = medios.sembrar_trabajo(proyecto, "render")
     # DESPUES de sembrar, y eso es lo que lo hace robusto: todo lo que aparezca
@@ -1789,13 +1794,13 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=[ancho, alto])
         if sid in seleccion_parallax and not escena.get('stickman') and not any(b.get('modo') == 'sustituir' and 'origen' not in b for b in bloques_remotion):
             from pasos import clips_parallax
-            mensaje = f"{sid}: creando efecto parallax con DepthFlow"
-            avisar(0.02, mensaje)
             medio = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
             original = medio.get("poster") or os.path.join(os.path.dirname(ruta_plan), "escenas", sid + ".png")
             pedido = clips_parallax.preparar(proyecto, escena,
                 original if os.path.isfile(original) else hyper, seleccion_parallax[sid], fps)
-            video = clips_parallax.generar(proyecto, pedido, latido=lambda: avisar(0.02, mensaje))
+            video = clips_parallax.disponible(proyecto, pedido)
+            if not video:
+                raise ValueError(f"{sid}: prepara el efecto parallax en Imágenes antes de montar el vídeo")
 
         video = sustitucion or video
         capas_remotion = [c for c in capas_remotion if c.get('modo') != 'sustituir']

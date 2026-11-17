@@ -807,10 +807,13 @@ def probar_presets_canal(cliente):
           "el tamaño anunciado coincide con los bytes de la descarga")
     respuesta, _ = cliente.get(f"/api/proyectos/{video_id}/exportar/token_inexistente")
     igual(respuesta.status_code, 404, "una descarga caducada devuelve un error explicativo")
-    for contenido, esperado in ((zip_video.content, "listo"), (b"ZIP invalido", "error")):
+    for contenido, esperado, directo in ((zip_video.content, "listo", True),
+                                         (zip_video.content, "listo", False),
+                                         (b"ZIP invalido", "error", True)):
         respuesta = cliente.sesion.post(
             f"{cliente.base}/api/proyectos/importar/seguir",
-            files={"archivo": ("video.zip", contenido, "application/zip")}, timeout=30)
+            **({"data": contenido, "headers": {"Content-Type": "application/zip"}} if directo
+               else {"files": {"archivo": ("video.zip", contenido, "application/zip")}}), timeout=30)
         igual(respuesta.status_code, 202, "la importacion con progreso devuelve un trabajo")
         seguimiento = respuesta.json()["seguimiento"]
         importacion = {}
@@ -826,6 +829,9 @@ def probar_presets_canal(cliente):
             ok(nuevo.get("id") and nuevo["id"] != video_id, "el resultado permite abrir el video importado")
         else:
             ok(bool(importacion.get("error")), "el error del paquete permanece en el seguimiento")
+    respuesta = cliente.sesion.post(f"{cliente.base}/api/proyectos/importar/seguir",
+                                   data=b"", headers={"Content-Type": "application/zip"}, timeout=30)
+    igual(respuesta.status_code, 400, "se rechaza una subida vacía con un error claro")
     respuesta, _ = cliente.get("/api/proyectos/importaciones/no_existe")
     igual(respuesta.status_code, 404, "una importacion inexistente devuelve 404")
     respuesta = cliente.sesion.post(
@@ -3583,6 +3589,9 @@ def probar_video_light(cliente):
        f"montar el vídeo alcanza a los rótulos, que es de donde salen los "
        f"movimientos que el render exige: {tareas}")
     ok("render" in tareas, "y al render, claro")
+    igual(set(tareas) - {"callouts", "banda_sonora", "efectos", "render"}, set(),
+          "el montaje no ejecuta generación visual ni publicación con IA")
+    igual(plan["coste"]["imagenes"], 0, "el montaje no presupuesta imágenes nuevas")
 
     cliente.put(f"/api/proyectos/{vid}/pasos/voz/params",
                 {"params": {"incorporar_voz": False}})
@@ -5480,9 +5489,10 @@ def probar_que_montar_no_redibuja(cliente):
     montaje = (fases.get("render") or {}).get("tareas") or []
     ok(imagenes and all(t["se_hace"] == (not t["al_dia"]) for t in imagenes),
        "en la pestaña de imagenes se hace solo lo que no esta al dia")
-    ok(any(t["id"] == "guia_estilo" and t["al_dia"] and not t["se_hace"]
-           for t in imagenes),
-       "y la guia de estilo ya escrita no se vuelve a pagar")
+    igual([t["id"] for t in imagenes], ["callouts"],
+          "solo prepara las capas, sin ejecutar tareas visuales con IA")
+    ok(not any(t["id"] == "publicacion" for t in montaje),
+       "la publicación se prepara por separado")
     ok(montaje and all(t["se_hace"] for t in montaje),
        "la del MP4 se hace entera: es volver a montar")
     cliente.delete(f"/api/proyectos/{vid}")

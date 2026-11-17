@@ -14,6 +14,28 @@ from nucleo.proyecto import Proyecto
 
 
 class RenderAcelerado(unittest.TestCase):
+    def test_imagen_incompleta_identifica_la_escena(self):
+        movimiento = p8_render.medios.motor("render_video/movimiento.py")
+        with tempfile.TemporaryDirectory(prefix="estudio_imagen_incompleta_") as carpeta:
+            origen = Path(carpeta) / "S058.png"
+            imagen = io.BytesIO()
+            Image.new("RGB", (64, 64), "blue").save(imagen, "PNG")
+            origen.write_bytes(imagen.getvalue()[:45])
+            with self.assertRaisesRegex(RuntimeError, "escena S058.png.*dañado o incompleto"):
+                movimiento.hyperframe(str(origen), str(Path(carpeta) / "hyper.png"))
+
+    def test_montaje_exige_avatar_preparado_sin_generarlo(self):
+        with tempfile.TemporaryDirectory(prefix="estudio_avatar_render_") as carpeta:
+            proyecto = Proyecto.crear(carpeta, "Render de prueba")
+            plan = Path(carpeta) / "plan.json"
+            movimiento = Path(carpeta) / "movimiento.json"
+            p8_render.medios.escribir_json(str(plan), {"escenas": []})
+            p8_render.medios.escribir_json(str(movimiento), {"movimientos": []})
+            with patch.object(p8_render.avatar, "estado_previa", return_value={"estado": "pendiente"}), \
+                    patch.object(p8_render.avatar, "preparar", side_effect=AssertionError("no generar")):
+                with self.assertRaisesRegex(ValueError, "prepara los clips del avatar"):
+                    p8_render.ejecutar(proyecto, {"plan": str(plan), "movimiento": str(movimiento)})
+
     def test_desactivar_subtitulos_conserva_cartelas_y_capas_originales(self):
         with tempfile.TemporaryDirectory(prefix="estudio_subtitulos_") as carpeta:
             raiz = Path(carpeta)

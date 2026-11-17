@@ -119,6 +119,11 @@ reproducir las escenas disponibles mientras continúa la tanda; **Parar** conser
 las terminadas y **Continuar animaciones** retoma las pendientes. El botón de
 montaje utiliza los clips generados, las voces, los subtítulos y las transiciones.
 
+**Montar el vídeo** renderiza las escenas ya preparadas y las une con la voz,
+los efectos y la música. No genera imágenes, animaciones, avatares ni material
+para publicación: prepara los avatares y efectos parallax en Imágenes antes de
+montar. El título, la descripción y la miniatura se generan por separado.
+
 Si una escena entrega un plan inválido incluso tras sus correcciones automáticas,
 queda pendiente y la tanda continúa con las siguientes. Al terminar se indican
 las escenas fallidas y su motivo para poder reintentarlas individualmente;
