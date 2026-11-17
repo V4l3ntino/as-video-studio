@@ -110,6 +110,28 @@ class EditorGlobal(unittest.TestCase):
                         pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 0)')
                     cabecera = pagina.locator('.editor-global > .light-cab')
                     bloques = pagina.locator('.editor-global-bloque-escena')
+                    # Una galería con scroll conserva el punto desde el que se
+                    # pulsa, también al mover su nodo al panel de otra escena.
+                    estilo_scroll = pagina.add_style_tag(content='.prueba-scroll-galeria .previa-galeria { max-height: 65px !important; }')
+                    pagina.evaluate('document.body.classList.add("prueba-scroll-galeria")')
+                    galeria_scroll = activo.locator('.previa-galeria')
+                    galeria_scroll.evaluate('''n => {
+                        n.scrollTop = n.scrollHeight;
+                        n.addEventListener('click', () => { window.scrollGaleriaAlPulsar = n.scrollTop; }, {capture: true, once: true});
+                    }''')
+                    scroll_antes = galeria_scroll.evaluate('n => n.scrollTop')
+                    self.assertGreater(scroll_antes, 0)
+                    galeria_scroll.locator('[data-escena="S005"]').click()
+                    scroll_antes = pagina.evaluate('window.scrollGaleriaAlPulsar')
+                    self.assertGreater(scroll_antes, 0)
+                    self.assertIn('S005', activo.get_attribute('aria-label'))
+                    self.assertAlmostEqual(activo.locator('.previa-galeria').evaluate('n => n.scrollTop'), scroll_antes, delta=1)
+                    # Repintar el panel de la misma escena tampoco reinicia la lista.
+                    activo.get_by_role('tab', name='Imágenes', exact=True).click()
+                    self.assertAlmostEqual(activo.locator('.previa-galeria').evaluate('n => n.scrollTop'), scroll_antes, delta=1)
+                    pagina.evaluate('document.body.classList.remove("prueba-scroll-galeria")')
+                    estilo_scroll.evaluate('n => n.remove()')
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 0)')
                     activo.get_by_role('tab', name='Animación', exact=True).click()
                     activo.get_by_role('button', name='+ Añadir bloque').click()
                     bloques.nth(1).click()

@@ -11399,6 +11399,7 @@ function editorGlobalImagenes(escenas) {
   let actual = escenas[PREVIA.i]?.id || escenas[0].id, reproduciendo = false, cerrado = false;
   let seleccionada = actual;
   let ultimaEdicion = [], ondaPromesa, galeriaCompartida, aplicandoPosicion = false;
+  let scrollGaleria = 0;
   let cargandoPistas = false;
   let proveedorStickman = 'Claude';
   const proveedoresStickman = ['Claude', 'ChatGPT'].map(nombre => h('button', {
@@ -11597,10 +11598,16 @@ function editorGlobalImagenes(escenas) {
       contenedores.get(e.id).appendChild(c.timeline);
       estudio.ajustarPistas();
     },
-    galeria: () => {
-      if (galeriaCompartida) return galeriaCompartida;
-      const galeria = galeriaImagenesPrevia(escenas, id => estudio.seleccionar(id, 'imagenes', 0));
-      galeriaCompartida = galeria; return galeria;
+    recordarScrollGaleria: () => {
+      const rejilla = galeriaCompartida?.querySelector('.previa-galeria');
+      // Ocultar o separar el panel puede poner scrollTop a cero. Se recuerda
+      // antes de hacerlo, y solo se lee mientras la galería está visible.
+      if (rejilla?.getClientRects().length) scrollGaleria = rejilla.scrollTop;
+    },
+    galeria: destino => {
+      if (!galeriaCompartida) galeriaCompartida = galeriaImagenesPrevia(escenas, id => estudio.seleccionar(id, 'imagenes', 0));
+      destino.appendChild(galeriaCompartida);
+      galeriaCompartida.querySelector('.previa-galeria').scrollTop = scrollGaleria;
     },
     seleccionar: (id, tab, t = 0, indice, continuo = false, soloCursor = continuo) => {
       if (cerrado || aplicandoPosicion) return;
@@ -11610,6 +11617,7 @@ function editorGlobalImagenes(escenas) {
       }
       const c = controles.get(id); if (!c) return;
       if (!soloCursor && id !== seleccionada && controles.get(seleccionada)?.ocupadoLocal()) return;
+      estudio.recordarScrollGaleria();
       controles.get(actual)?.pausar(!continuo);
       if (!continuo) reproduciendo = false;
       actual = id; PREVIA.i = escenas.findIndex(e => e.id === id);
@@ -11696,6 +11704,7 @@ function editorGlobalImagenes(escenas) {
       });
       const firma = JSON.stringify(escenas.map(e => e.imagen));
       if (firma !== firmaGaleria) {
+        estudio.recordarScrollGaleria();
         firmaGaleria = firma; galeriaCompartida = null; controles.get(seleccionada)?.refrescarPanel();
       }
       controles.get(seleccionada)?.refrescarNotas();
@@ -12196,6 +12205,7 @@ async function abrirEditorEscena(escena, estudio) {
     listaActual().push(b); seleccionado = listaActual().length - 1; pintarPanel(); cambio();
   }
   function pintarPanel() {
+    estudio.recordarScrollGaleria();
     panel.classList.toggle('escena-editor-galeria', pestaña === 'imagenes');
     vaciar(panel);
     if (!ficha || !borrador) return;
@@ -12204,7 +12214,7 @@ async function abrirEditorEscena(escena, estudio) {
       return;
     }
     if (pestaña === 'imagenes') {
-      if (estudio.esPanelActual(escena.id)) panel.appendChild(estudio.galeria());
+      if (estudio.esPanelActual(escena.id)) estudio.galeria(panel);
       panel.appendChild(h('p', { clase: 'meta' }, `${escena.id} · ${total.toFixed(2)} s. Selecciona una imagen o un bloque para editar su escena.`));
       return;
     }
