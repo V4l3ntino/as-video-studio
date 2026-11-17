@@ -11552,6 +11552,13 @@ function editorGlobalImagenes(escenas) {
     modificado: () => [...controles.values()].some(c => c.modificado()),
     pausar: () => { reproduciendo = false; controles.forEach(c => c.pausar()); },
     guardar: () => guardar.click(), deshacer: () => deshacer.click(),
+    nuevoBloque: tab => {
+      const e = escenas.find(e => e.id === actual), c = controles.get(actual);
+      if (!e || !c?.listo || c.ocupado()) return;
+      // El panel puede seguir editando otra escena tras desplazar el cursor.
+      estudio.seleccionar(e.id, tab, Math.max(0, PREVIA.t - e.t_in));
+      if (seleccionada === e.id) c.nuevo();
+    },
     tienePosteriores: id => escenas.findIndex(e => e.id === id) < escenas.length - 1,
     aplicarPosicionAvatar: async (id, posicion) => {
       if (aplicandoPosicion || cerrado || !!trabajoVideoLight()) return;
@@ -11943,7 +11950,7 @@ async function abrirEditorEscena(escena, estudio) {
     onclick: () => estudio.seleccionar(escena.id, 'imagenes', 0),
     'aria-label': `Seleccionar escena ${escena.id}` }, `${escena.id} (${total.toFixed(2)} s)`);
   filas.bloques.appendChild(bloqueEscena);
-  const control = { nodo: dialogo, notas: notasEscena, timeline, pistas, filas, total, cerrar, guardar,
+  const control = { nodo: dialogo, notas: notasEscena, timeline, pistas, filas, total, cerrar, guardar, nuevo,
     cargarAnimacionIA: plantilla => tallerRemotion.cargarResultado(plantilla),
     capasRemotion: capasActualesRemotion,
     moverRemotion,
@@ -12236,7 +12243,7 @@ async function abrirEditorEscena(escena, estudio) {
     const lista = listaActual(), b = pestaña === 'transiciones' && seleccionado === -2 ? bloqueEnlace() : lista[seleccionado];
     panel.appendChild(h('div', { clase: 'escena-editor-acciones' }, h('b', {}, nombres.find(n => n[0] === pestaña)[2]),
       h('button', { clase: 'mini', disabled: (pestaña === 'avatar' && !ficha.avatar.disponible) || lista.length >= 32,
-        onclick: nuevo }, '+ Añadir bloque')));
+        onclick: () => estudio.nuevoBloque(pestaña) }, '+ Añadir bloque')));
     if (pestaña === 'sonidos') panel.appendChild(h('p', { clase: 'meta' }, ficha.sonidos.fuentes.length
       ? 'Arrastra cada bloque para sincronizarlo con la animación. Sus extremos recortan el sonido sin cambiar su velocidad ni su tono. Reproducir permite oírlo junto a la voz.'
       : 'Pulsa «Añadir bloque» para buscar un efecto en Freesound e incorporarlo a esta escena.'));

@@ -110,6 +110,25 @@ class EditorGlobal(unittest.TestCase):
                         pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 0)')
                     cabecera = pagina.locator('.editor-global > .light-cab')
                     bloques = pagina.locator('.editor-global-bloque-escena')
+                    # Mover solo el cursor deja el panel en S002. Los bloques
+                    # nuevos pertenecen a la escena del cursor, no a ese panel.
+                    for destino in ('S003', 'S005'):
+                        pagina.evaluate('EDITOR_GLOBAL.seleccionar("S002", "transiciones", 0)')
+                        pagina.evaluate('''sid => {
+                            EDITOR_GLOBAL.seleccionar(sid, undefined, .7, undefined, false, true);
+                        }''', destino)
+                        self.assertIn('S002', activo.get_attribute('aria-label'))
+                        cantidades = pagina.locator('.editor-global-columna .transiciones').evaluate_all(
+                            'filas => filas.map(f => f.querySelectorAll(".anim-timeline-bloque").length)')
+                        activo.get_by_role('button', name='+ Añadir bloque').click()
+                        self.assertIn(destino, activo.get_attribute('aria-label'))
+                        nuevas = pagina.locator('.editor-global-columna .transiciones').evaluate_all(
+                            'filas => filas.map(f => f.querySelectorAll(".anim-timeline-bloque").length)')
+                        cantidades[int(destino[1:]) - 1] += 1
+                        self.assertEqual(nuevas, cantidades)
+                        self.assertAlmostEqual(float(activo.get_by_label('Inicio (s)', exact=True).input_value()), .7)
+                        cabecera.get_by_role('button', name='Deshacer', exact=False).click()
+                    pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 0)')
                     # Una galería con scroll conserva el punto desde el que se
                     # pulsa, también al mover su nodo al panel de otra escena.
                     estilo_scroll = pagina.add_style_tag(content='.prueba-scroll-galeria .previa-galeria { max-height: 65px !important; }')
