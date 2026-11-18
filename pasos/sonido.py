@@ -1290,7 +1290,7 @@ def _eventos_automaticos(escenas, cortes, params, semilla=0):
     for escena in escenas or []:
         sid = escena.get("id")
         inicio = float(escena.get("t_in") or 0.0) - origen
-        for s in escena.get('sonidos_stickman') or []:
+        for s in (escena.get('sonidos_stickman') or []) + (escena.get('sonidos_estilo_ia') or []):
             fuera.append(dict(escena=sid, t=inicio + s['inicio'], papel=s['id'],
                 ficha=dict(archivo=s['archivo'], duracion=s['duracion'], titulo=s['nombre']),
                 duracion=s['duracion'], ganancia=s['ganancia']))

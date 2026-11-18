@@ -1526,6 +1526,8 @@ def planificar(proyecto, params, inventario=None, replantear=False,
         "habia_plan_previo": bool((previo or {}).get("escenas")),
         "replanteado": bool(replantear),
     }
+    if params.get('animacion_nativa') is True:
+        plan['animacion_nativa'] = True
     return plan
 
 
@@ -4937,6 +4939,10 @@ def planos_hechos(proyecto):
             }
         return hechos
 
+    plan = plan_actual(proyecto) or {}
+    if plan.get('animacion_nativa'):
+        from pasos import animacion_nativa
+        return animacion_nativa.hechos(proyecto, plan)
     hechos = {}
     if proyecto.version_activa("assets") is not None:
         hechos.update(_leer_escenas(proyecto.ruta_paso("assets")))
@@ -4959,6 +4965,11 @@ def unidades_pendientes(proyecto, params):
     lo mismo que ejecutar entero, y decirlo con None evita un caso especial.
     """
     p = _con_defectos(params)
+    from pasos import animacion_nativa, espacio_estilo
+    if animacion_nativa.activa(p):
+        plan = espacio_estilo.aplicar_recursos(proyecto, planificar(proyecto, p))
+        return ['escena:' + e['id'] for e in plan['escenas']
+                if not e.get('medio_usuario') and not e.get('animacion_estilo')]
     if (p.get('estilo') or {}).get('stickman'):
         from pasos import stickman
         plan = stickman.aplicar_recursos(proyecto, planificar(proyecto, p))
@@ -4986,7 +4997,12 @@ def unidades_pendientes(proyecto, params):
         elif escena.get("tarjetas_animacion") and not os.path.exists(
                 os.path.join(trabajo, escena["tarjetas_animacion"]["otra"])):
             faltan.append(f"escena:{escena['id']}")
-    return faltan
+    if (p.get('estilo') or {}).get('espacio_ia'):
+        from pasos import espacio_estilo
+        espacio_estilo.aplicar_recursos(proyecto, plan)
+        faltan.extend('escena:' + e['id'] for e in plan['escenas'] if not e.get('animacion_estilo')
+                      and not e.get('medio_usuario') and (e.get('medio_biblioteca') or {}).get('tipo') != 'video')
+    return sorted(set(faltan))
 
 
 def _asset_hecho(uid, ficha, dirs, p):
@@ -5092,7 +5108,28 @@ def _anotar_tiempo(paso, arranque, hechas, detalle=None, proyecto=None):
 
 
 def ejecutar(proyecto, params, avisar=None, unidades=None, solo_assets=False,
-             replantear=False, rehacer=False, tipos=None, previo=None, proveedor_stickman=None, revisar_stickman=False):
+              replantear=False, rehacer=False, tipos=None, previo=None, proveedor_stickman=None, revisar_stickman=False):
+    """Genera las imágenes y aplica, si existe, el motor local de su estilo."""
+    tiene_espacio = bool(((params or {}).get('estilo') or {}).get('espacio_ia'))
+    notificar = avisar or (lambda *args: None)
+    from pasos import animacion_nativa
+    if animacion_nativa.activa(params):
+        if solo_assets or tipos:
+            raise ValueError('La animación nativa produce escenas completas, no tandas de ilustraciones auxiliares.')
+        return animacion_nativa.ejecutar(proyecto, params, notificar, unidades=unidades,
+            rehacer=rehacer, previo=previo, replantear=replantear)
+    progreso_base = (lambda valor, *mensajes: notificar((valor or 0) * .7, *mensajes)) if tiene_espacio else avisar
+    resultado = _ejecutar_base(proyecto, params, progreso_base, unidades, solo_assets,
+        replantear, rehacer, tipos, previo, proveedor_stickman, revisar_stickman)
+    if tiene_espacio and not solo_assets and not tipos:
+        from pasos import espacio_estilo
+        resultado = espacio_estilo.animar_resultado(proyecto, params, resultado,
+            lambda valor, *mensajes: notificar(.7 + (valor or 0) * .3, *mensajes), rehacer=rehacer)
+    return resultado
+
+
+def _ejecutar_base(proyecto, params, avisar=None, unidades=None, solo_assets=False,
+              replantear=False, rehacer=False, tipos=None, previo=None, proveedor_stickman=None, revisar_stickman=False):
     """Construye assets y escenas. Si unidades no es None, solo esas.
 
     Con solo_assets se para despues de los assets (sets, reparto, mapas y

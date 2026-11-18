@@ -902,6 +902,8 @@ def ejecutar(proyecto, params, avisar, unidades=None, solo_assets=False, rehacer
     if not solo_assets:
         escenas = plan['escenas']
         carga = (params.get('bibliotecas') or {}).get('carga_claude', 50)
+        from pasos import reparto_animaciones
+        carga = reparto_animaciones.carga_de(params, defecto=carga)
         n_claude, _ = reparto_escenas(len(escenas), carga)
         animaciones = {}
         for i, e in enumerate(escenas):

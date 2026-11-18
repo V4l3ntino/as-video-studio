@@ -164,7 +164,9 @@ def paleta_de_guia(guia, paleta_base=None):
                if _rgb(valor)}
     base.pop("fijados", None)
     colores = []
-    for crudo in (guia or {}).get("paleta") or []:
+    # Las guías IA/editoriales pueden ser texto libre, sin paleta estructurada.
+    # No se adivinan colores del texto ni se persisten valores al abrir el editor.
+    for crudo in (guia.get("paleta") or []) if isinstance(guia, dict) else []:
         rgb = _rgb(crudo)
         if rgb:
             colores.append((f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}", rgb))
@@ -212,8 +214,8 @@ def diseno_sugerido(guia):
     dibujo plano de una imagen con aire realista. Es una sugerencia con su
     porque, no una imposicion: se puede cambiar a mano.
     """
-    trazo = medios.normalizar_texto(str((guia or {}).get("trazo") or ""))
-    personajes = medios.normalizar_texto(str((guia or {}).get("personajes") or ""))
+    trazo = medios.normalizar_texto(str(guia.get("trazo") or "")) if isinstance(guia, dict) else medios.normalizar_texto(str(guia or ''))
+    personajes = medios.normalizar_texto(str(guia.get("personajes") or "")) if isinstance(guia, dict) else ''
     junto = f"{trazo} {personajes}"
     if any(p in junto for p in ("thick", "grueso", "bold outline", "cartoon",
                                 "flat", "stickman", "uniform")):
@@ -1354,6 +1356,9 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
     if not ruta_plan:
         raise RuntimeError("el paso assets no ha dejado plan.json")
     plan = medios.leer_json(ruta_plan, {})
+    if plan.get('animacion_nativa'):
+        from pasos import espacio_estilo
+        espacio_estilo.aplicar_recursos(proyecto, plan)
     base_assets = os.path.dirname(ruta_plan)
     dir_escenas = os.path.join(base_assets, "escenas")
     dir_assets = os.path.join(base_assets, "assets")
@@ -1457,16 +1462,22 @@ def ejecutar(proyecto, params, avisar=None, unidades=None):
                 capa_fija_vacia(salida), [], lienzo=lienzo, salida=salida)
             continue
 
-        png = os.path.join(dir_escenas, f"{sid}.png")
+        dir_plano = dir_escenas
+        if plan.get('animacion_nativa') and not escena.get('medio_usuario'):
+            poster_nativo = (escena.get('animacion_estilo') or {}).get('poster')
+            if not poster_nativo:
+                raise RuntimeError(f'{sid}: falta el clip de animación nativa; una imagen anterior no lo sustituye')
+            dir_plano = os.path.dirname(poster_nativo)
+        png = os.path.join(dir_plano, f"{sid}.png")
         if not os.path.exists(png):
             raise RuntimeError(f"{sid}: falta la imagen {png}")
 
         # el movimiento va primero: la capa necesita saber que trozo del plano
         # sigue en cuadro durante todo el zoom para no rotular fuera de campo
-        entrada = movimiento.calcular({"escenas": [escena]}, dir_escenas,
+        entrada = movimiento.calcular({"escenas": [escena]}, dir_plano,
                                       dirs["hyper"], os.path.join(dir_assets, "sets"),
                                       int(p["escala_hyper"]))[0]
-        if (plan.get('estilo') or {}).get('stickman'):
+        if (plan.get('estilo') or {}).get('stickman') or plan.get('animacion_nativa'):
             # El desplazamiento ya está en la animación: el montaje no añade otro.
             entrada.update(ventana_ini=[0., 0., 1., 1.], ventana_fin=[0., 0., 1., 1.])
         evitar = _zonas_de_unidad(p, uid)

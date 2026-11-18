@@ -1271,12 +1271,12 @@ def _fuente_para_enlace(escena, movimientos, base, animadas, proyecto, subtitulo
     if sustitucion:
         mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=list(salida))
         hyper = os.path.join(os.path.dirname(sustitucion), 'fondo.png')
-    elif escena.get('stickman') and not medio:
+    elif (escena.get('stickman') or escena.get('animacion_estilo')) and not medio:
         mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=list(salida))
     return dict(escena=escena, mov=mov, hyper=hyper, capa=leer_svg('capa'),
                 capa_fija=leer_svg('capa_fija') if subtitulos and not animaciones.es_cartela_editor(animada.get('animacion')) else '',
                 capa_anim=animada.get('svg', ''), fondo_anim=animada.get('fondo'), precarga=animada.get('imagenes') or [],
-                video=sustitucion or (proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else (escena.get('stickman') or {}).get('clip')),
+                video=sustitucion or (proyecto.ruta(medio['archivo']) if medio.get('tipo') == 'video' else (escena.get('stickman') or escena.get('animacion_estilo') or {}).get('clip')),
                 remotion=capas_remotion,
                 avatar=dict(clip=clips_avatar[sid], posicion=avatar.posicion_de(params, escena, salida),
                             presentacion=avatar.presentacion_de(params, escena)) if (clips_avatar or {}).get(sid) else None)
@@ -1590,6 +1590,12 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     plan = medios.leer_json(ruta_plan, {})
     from pasos import stickman
     stickman.aplicar_recursos(proyecto, plan)
+    from pasos import espacio_estilo
+    espacio_estilo.aplicar_recursos(proyecto, plan)
+    if (plan.get('estilo') or {}).get('espacio_ia') and any(
+            not e.get('animacion_estilo') and not e.get('medio_usuario')
+            and (e.get('medio_biblioteca') or {}).get('tipo') != 'video' for e in plan.get('escenas', [])):
+        raise ValueError('faltan animaciones del motor del estilo; continúa la generación de Imágenes antes de montar')
     from pasos import personajes
     personajes.exigir_visuales_ia(proyecto, plan, os.path.dirname(ruta_plan))
     base_callouts = os.path.dirname(ruta_mov)
@@ -1789,10 +1795,10 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
 
         video = ((escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("archivo")
                   if (escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}).get("tipo") == "video" else None)
-        if escena.get('stickman') and not escena.get('medio_usuario'):
-            video = escena['stickman']['clip']
+        if (escena.get('stickman') or escena.get('animacion_estilo')) and not escena.get('medio_usuario'):
+            video = (escena.get('stickman') or escena['animacion_estilo'])['clip']
             mov = dict(mov, ventana_ini=[0, 0, 1, 1], ventana_fin=[0, 0, 1, 1], hyperframe_px=[ancho, alto])
-        if sid in seleccion_parallax and not escena.get('stickman') and not any(b.get('modo') == 'sustituir' and 'origen' not in b for b in bloques_remotion):
+        if sid in seleccion_parallax and not escena.get('stickman') and not escena.get('animacion_estilo') and not any(b.get('modo') == 'sustituir' and 'origen' not in b for b in bloques_remotion):
             from pasos import clips_parallax
             medio = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
             original = medio.get("poster") or os.path.join(os.path.dirname(ruta_plan), "escenas", sid + ".png")

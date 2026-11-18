@@ -1,0 +1,13 @@
+# Reconocimiento local de voz para Estilos con IA (Python 3.12).
+# Se instala en transcripcion/whisper/dependencias de cada estilo, NO en el
+# entorno del servicio. Las transitivas resueltas se fijan allí al instalar.
+faster-whisper==1.2.1
+# PyAV 19 retira metadata_errors de av.open, que esta versión de Whisper usa.
+av==15.1.0
+ctranslate2==4.9.0
+huggingface-hub==2.4.0
+tokenizers==0.23.3
+onnxruntime==1.32.0
+numpy==2.5.5
+pyyaml==6.0.3
+tqdm==4.70.1

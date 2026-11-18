@@ -567,10 +567,14 @@ class Proyecto:
         # Las carpetas del PROYECTO, no de un paso: los fotogramas de estilo y
         # los videos de tono son entradas que el usuario eligio, y una copia sin
         # ellas no se puede regenerar sin volver a elegirlas.
-        for carpeta in ("estilo", "tono", "medios_usuario", "recursos_biblioteca", "avatar", "remotion", "stickman"):
+        for carpeta in ("estilo", "estilo_ia", "tono", "medios_usuario", "recursos_biblioteca", "avatar", "remotion", "stickman"):
             if os.path.isdir(self.ruta(carpeta)):
+                def ignorar_locales(base, nombres):
+                    if os.path.basename(os.path.dirname(base)) == 'paquetes' and re.fullmatch(r'[a-f0-9]{64}', os.path.basename(base)):
+                        return set(nombres) & {'dependencias', 'cache', 'trabajo'}
+                    return set()
                 shutil.copytree(self.ruta(carpeta), copia.ruta(carpeta),
-                                dirs_exist_ok=True)
+                                dirs_exist_ok=True, ignore=ignorar_locales if carpeta == 'estilo_ia' else None)
                 if carpeta == "recursos_biblioteca":
                     equivalencias[self.ruta(carpeta)] = copia.ruta(carpeta)
 

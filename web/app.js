@@ -497,6 +497,8 @@ const API = {
   estimacion: () => `${BASE}/api/estimacion`,
   // modo light: la galeria de presets de canal
   presetsLight: () => `${BASE}/api/presets-light`,
+  estilosIA: () => `${BASE}/api/estilos-ia`,
+  estiloIA: id => `${BASE}/api/estilos-ia/${encodeURIComponent(id)}`,
   presetLight: id => `${BASE}/api/presets-light/${encodeURIComponent(id)}`,
   presetLightPlan: () => `${BASE}/api/presets-light/plan`,
   presetLightRegenerar: id => `${BASE}/api/presets-light/${encodeURIComponent(id)}/regenerar`,
@@ -922,8 +924,28 @@ function seguirTrabajo(paso, tid, alTerminar, alAvanzar) {
   pintarTrabajo(paso);
 
   seguimiento.tic = setInterval(() => {
+    // Un SSE puede emitir el primer progreso y quedarse abierto sin entregar
+    // el fin. No dependemos de recargar la página para descubrir ese error.
+    const ahora = Date.now();
+    if (!seguimiento.sondeo && !seguimiento.verificando
+        && ahora - (seguimiento.ultimoDato || seguimiento.ultimoSondeoSeguridad || APP.trabajos[paso]?.inicio || ahora) > 5000
+        && ahora - (seguimiento.ultimoSondeoSeguridad || 0) > 5000) {
+      seguimiento.ultimoSondeoSeguridad = ahora;
+      seguimiento.verificando = true;
+      pedir(API.trabajo(tid)).then(aplicar).catch(() => {}).finally(() => { seguimiento.verificando = false; });
+    }
     pintarTrabajo(paso);
-    if (paso === CLAVE_VIDEO_LIGHT) refrescarMontajeDisponibleLight();
+    if (paso === CLAVE_VIDEO_LIGHT) {
+      refrescarMontajeDisponibleLight();
+      // El render puede incluir escenas pendientes y el SSE agrupa avances.
+      // Descubrir clips no debe depender de recibir justo su evento de fin.
+      const v = APP.light.video;
+      if (v?.pid === APP.trabajos[paso]?.pid
+          && ahora - (seguimiento.ultimoSondeoPlanos || 0) >= 2000) {
+        seguimiento.ultimoSondeoPlanos = ahora;
+        refrescarPlanosLight();
+      }
+    }
   }, 500);
 
   const aplicar = datos => {
@@ -931,6 +953,8 @@ function seguirTrabajo(paso, tid, alTerminar, alAvanzar) {
     const actual = APP.trabajos[paso] || {};
     APP.trabajos[paso] = Object.assign({}, actual, datos,
       { id: tid, inicio: actual.inicio, muestras: actual.muestras });
+    seguimiento.ultimoDato = Date.now();
+    if (['listo', 'error', 'cancelado'].includes(datos.estado)) { terminar(datos); return; }
     anotarAvance(paso, datos.progreso);
     pintarTrabajo(paso);
     // lo que se esta produciendo se ve mientras se produce
@@ -941,11 +965,11 @@ function seguirTrabajo(paso, tid, alTerminar, alAvanzar) {
     // el medidor de la cabecera se mueve con el mismo flujo que la barra: lo
     // que se esta gastando se ve mientras se gasta, no al terminar
     refrescarCoste();
-    if (['listo', 'error', 'cancelado'].includes(datos.estado)) terminar(datos);
   };
 
   const terminar = async datos => {
     soltarSeguimiento(paso);
+    try { pintarTrabajo(paso); } catch (error) { console.error('No se pudo actualizar la cabecera del trabajo', error); }
     refrescarCoste(true);
     const segundos = datos.segundos || (Date.now() - (APP.trabajos[paso].inicio || Date.now())) / 1000;
     if (datos.estado === 'listo') {
@@ -5080,6 +5104,12 @@ function arrancar() {
     if (PESTANAS.some(p => p.id === pedida) && pedida !== APP.activa) irA(pedida, true);
   });
   $('#btn-config').addEventListener('click', () => conmutarConfig());
+  $('#btn-inicio-estilos').addEventListener('click', () => {
+    pararPrevia(); recordarVideoLight(''); irALight('galeria');
+  });
+  $('#btn-estilos-ia').addEventListener('click', () => {
+    pararPrevia(); irALight('estilos_ia'); cargarEstilosIA();
+  });
   $('#btn-salir').addEventListener('click', () => salirDeStudio());
   cargarCuenta();
   montarAsistente();
@@ -5538,7 +5568,7 @@ function navLight() {
       ir: () => { pararPrevia(); v.vista = 'guion'; pintarLight(); } },
     // La previa también muestra tandas parciales: no necesita una versión
     // completa de assets para poder salir y volver mientras se generan escenas.
-    { id: 'diapositivas', texto: 'Imágenes', puede: dentro,
+    { id: 'diapositivas', texto: v.fichas?.assets?.params?.animacion_nativa === true ? 'Animación' : 'Imágenes', puede: dentro,
       activa: sub === 'previa',
       porque: dentro ? 'el previsualizador y las escenas disponibles'
         : 'abre un vídeo primero',
@@ -5692,6 +5722,9 @@ function refrescarVivosLight() {
 
 
 function pintarLightAhora() {
+  const enIA = APP.light.vista === 'estilos_ia';
+  $('#btn-estilos-ia').setAttribute('aria-current', enIA ? 'page' : 'false');
+  $('#btn-inicio-estilos').setAttribute('aria-current', APP.light.vista === 'galeria' ? 'page' : 'false');
   // lo vivo de la pantalla anterior se va con ella: sus cajas ya no estan en
   // el documento (ver `refrescarVivosLight`)
   VIVOS.length = 0;
@@ -5736,7 +5769,8 @@ function pintarLightAhora() {
     return;
   }
   try {
-    if (APP.light.vista === 'crear') contenido.appendChild(vistaCrearLight());
+    if (APP.light.vista === 'estilos_ia') contenido.appendChild(vistaEstilosIA());
+    else if (APP.light.vista === 'crear') contenido.appendChild(vistaCrearLight());
     else if (APP.light.vista === 'generando') contenido.appendChild(vistaGenerandoLight());
     else if (APP.light.vista === 'preset') contenido.appendChild(vistaPresetLight());
     else if (APP.light.vista === 'elegido') {
@@ -5780,9 +5814,372 @@ function irALight(vista, extra) {
 
 /* ------------------------------------------------------------- la galería */
 
+const ESTILOS_IA_UI = { fichas: null, error: '', cargando: false, subiendo: false,
+  nombre: '', transcripcion: '', archivo: null, seleccionado: '', creando: false, reloj: null,
+  proveedor_analisis: localStorage.getItem('estudio.estilos-ia.analista') === 'ChatGPT' ? 'ChatGPT' : 'Claude' };
+
+async function cargarEstilosIA() {
+  const ui = ESTILOS_IA_UI;
+  if (ui.cargando) return;
+  clearTimeout(ui.reloj);
+  ui.cargando = true;
+  try {
+    ui.fichas = (await pedir(API.estilosIA())).estilos;
+    ui.error = '';
+    if (ui.fichas.some(f => f.preset_id && !fichaLight(f.preset_id))) await cargarGaleriaLight(true);
+  } catch (e) { ui.error = e.message; }
+  finally { ui.cargando = false; }
+  if (APP.light.vista === 'estilos_ia' && !ui.creando) pintarLight();
+  if ((ui.fichas || []).some(f => ['pendiente', 'ejecutando'].includes(f.trabajo?.estado))) {
+    ui.reloj = setTimeout(cargarEstilosIA, 2500);
+  }
+}
+
+async function subirReferenciaEstiloIA() {
+  const ui = ESTILOS_IA_UI;
+  if (ui.subiendo) return;
+  if (!ui.nombre.trim() || !ui.archivo) {
+    toast('Escribe el nombre y selecciona un vídeo.', true); return;
+  }
+  ui.subiendo = true; ui.error = ''; pintarLight();
+  try {
+    const cuerpo = new FormData();
+    cuerpo.append('nombre', ui.nombre.trim()); cuerpo.append('archivo', ui.archivo);
+    cuerpo.append('transcripcion', ui.transcripcion);
+    cuerpo.append('proveedor_analisis', ui.proveedor_analisis);
+    const respuesta = await pedir(API.estilosIA(), { method: 'POST', cuerpo });
+    ui.seleccionado = respuesta.estilo.id;
+    ui.creando = false; ui.archivo = null; ui.nombre = ''; ui.transcripcion = '';
+    await cargarEstilosIA();
+  } catch (e) { ui.error = e.message; }
+  finally { ui.subiendo = false; pintarLight(); }
+}
+
+async function usarBaseEstiloIA(ficha) {
+  if (!window.confirm('Esta base utiliza las referencias visuales y la guía narrativa. '
+    + 'Todavía NO reproduce las animaciones ni el sonido de la referencia, no instala herramientas '
+    + 'y su calidad no está validada. ¿Quieres crear un vídeo con los motores disponibles?')) return;
+  try {
+    const respuesta = await pedir(API.estiloIA(ficha.id) + '/base',
+      { method: 'POST', cuerpo: { aceptar_limitaciones: true } });
+    await cargarGaleriaLight(true);
+    await cargarEstilosIA();
+    elegirEstiloLight(respuesta.preset);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function prepararHerramientasEstiloIA(ficha) {
+  try {
+    await pedir(API.estiloIA(ficha.id) + '/preparar', { method: 'POST' });
+    await cargarEstilosIA();
+  } catch (e) { toast(e.message, true); }
+}
+
+function selectorAnalistaEstiloIA(valor, alCambiar, desactivado=false) {
+  const grupo = h('div', { clase: 'estilo-ia-analistas', role: 'group', 'aria-label': 'IA para analizar el vídeo' });
+  ['Claude', 'ChatGPT'].forEach(nombre => {
+    grupo.appendChild(h('button', { clase: 'estilo-ia-analista', type: 'button', 'aria-label': nombre,
+      'aria-pressed': nombre === valor ? 'true' : 'false', disabled: desactivado,
+      onclick: () => {
+        grupo.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.getAttribute('aria-label') === nombre ? 'true' : 'false'));
+        alCambiar(nombre);
+      } }, iconoNav(nombre === 'Claude' ? 'M12 2v20M2 12h20M5 5l14 14M5 19 19 5M3 8l18 8M8 3l8 18'
+        : 'M4 4h16v13H10l-6 4V4zM8 9h8M8 13h5'),
+      h('span', {}, h('b', {}, nombre), h('small', {}, nombre === 'Claude' ? 'Sesión de Claude' : 'Sesión ChatGPT · Codex'))));
+  });
+  return grupo;
+}
+
+function formularioEstiloIA() {
+  const ui = ESTILOS_IA_UI;
+  const archivo = h('input', { type: 'file', accept: '.mp4,.mov,.webm,.mkv',
+    'aria-label': 'Vídeo de referencia', disabled: ui.subiendo });
+  const elegido = h('span', { clase: 'meta', role: 'status' }, ui.archivo?.name || 'MP4, MOV, WebM o MKV · sin límite de tamaño · 10 minutos');
+  const seleccionar = f => {
+    if (f && !/\.(mp4|mov|webm|mkv)$/i.test(f.name)) {
+      toast('Selecciona un MP4, MOV, WebM o MKV.', true); return;
+    }
+    ui.archivo = f || null; elegido.textContent = f?.name || 'Ningún archivo seleccionado';
+  };
+  archivo.addEventListener('change', () => seleccionar(archivo.files[0]));
+  const zona = h('div', { clase: 'estilo-ia-subida',
+    ondragover: ev => { ev.preventDefault(); if (!ui.subiendo) zona.classList.add('arrastrando'); },
+    ondragleave: () => zona.classList.remove('arrastrando'),
+    ondrop: ev => {
+      ev.preventDefault(); zona.classList.remove('arrastrando');
+      if (!ui.subiendo) seleccionar(ev.dataTransfer.files[0]);
+    } }, h('b', {}, 'Arrastra aquí un vídeo de referencia'), elegido, archivo);
+  return h('section', { clase: 'estilo-ia-form light-form' },
+    h('h3', {}, 'Crear un estilo a partir de un vídeo'),
+    h('label', { clase: 'campo' }, 'Nombre del estilo', h('input', { type: 'text', maxlength: 100,
+      value: ui.nombre, disabled: ui.subiendo, 'data-foco': 'estilo-ia-nombre',
+      oninput: ev => { ui.nombre = ev.target.value; } })),
+    h('div', { clase: 'campo' }, h('span', { clase: 'etiqueta' }, 'Analizar con'),
+      selectorAnalistaEstiloIA(ui.proveedor_analisis, nombre => {
+        ui.proveedor_analisis = nombre; localStorage.setItem('estudio.estilos-ia.analista', nombre);
+      }, ui.subiendo)), zona,
+    h('p', { clase: 'estilo-ia-transcripcion-aviso' }, 'La voz del vídeo se transcribe automáticamente con Whisper local. No necesitas proporcionar el texto.'),
+    h('details', { clase: 'estilo-ia-transcripcion-manual', open: !!ui.transcripcion },
+      h('summary', {}, 'Aportar una transcripción alternativa (opcional)'),
+      h('label', { clase: 'campo' }, 'Texto alternativo para sustituir el reconocimiento automático',
+        h('textarea', { rows: 4, maxlength: 60000, value: ui.transcripcion, disabled: ui.subiendo,
+          'data-foco': 'estilo-ia-transcripcion', placeholder: 'Déjalo vacío para que Whisper transcriba el vídeo. Puedes aportar un texto revisado si ya lo tienes.',
+          oninput: ev => { ui.transcripcion = ev.target.value; } }))),
+    h('p', { clase: 'pista' }, 'Se recorre todo el vídeo para detectar cambios y se inspeccionan secuencias y fotogramas de detalle por intervalos. '
+      + 'OpenCV mide el movimiento localmente y selecciona hasta 12 secuencias relevantes repartidas por todo el vídeo para la IA. '
+      + 'Utiliza la sesión y cuota de la IA elegida; puede tardar varios minutos y consumir bastante cuota según la duración y los cortes. '
+      + 'Después podrás preparar su motor, herramientas, recursos y dependencias dentro de su carpeta propia. '
+      + 'Whisper funciona sin API de pago; la primera vez se descargan sus dependencias y el modelo en la carpeta del estilo.'),
+    h('div', { clase: 'fila' },
+      h('button', { clase: 'primario', disabled: ui.subiendo,
+        onclick: subirReferenciaEstiloIA }, ui.subiendo ? 'Subiendo referencia…' : 'Analizar vídeo'),
+      h('button', { clase: 'fantasma', disabled: ui.subiendo,
+        onclick: () => { ui.creando = false; pintarLight(); } }, 'Cerrar')));
+}
+
+const TRANSCRIPCIONES_ESTILOS_IA = new Map();
+const ANALISTAS_ESTILOS_IA = new Map();
+const INSPECCIONES_ESTILOS_IA = new Map();
+
+function botonSintetizarEstiloIA(ficha) {
+  if (!ficha.puede_sintetizar) return null;
+  const activo = ['pendiente', 'ejecutando'].includes(ficha.trabajo?.estado);
+  const solicitado = activo && ficha.sintesis_solicitada;
+  const boton = h('button', { clase: 'mini', disabled: solicitado,
+    onclick: async () => {
+      boton.disabled = true;
+      try {
+        await pedir(API.estiloIA(ficha.id) + '/sintetizar', { method: 'POST' });
+        INSPECCIONES_ESTILOS_IA.delete(ficha.id);
+        await cargarEstilosIA();
+      } catch (e) { boton.disabled = false; toast(e.message, true); }
+    } }, solicitado ? 'Síntesis solicitada…' : 'Finalizar lotes y sintetizar');
+  return h('div', { clase: 'estilo-ia-sintetizar' }, boton,
+    h('p', { clase: 'pista' }, activo
+      ? 'Termina el lote en curso y pasa al informe con los completados, sin iniciar más lotes. El informe será parcial.'
+      : 'Genera un informe parcial con los lotes ya completados, sin analizar los pendientes.'));
+}
+
+function panelInspeccionVisualEstiloIA(ficha) {
+  const cobertura = ficha.inspeccion_visual || ficha.metadatos?.cobertura_visual;
+  if (!cobertura) return null;
+  const caja = h('section', { clase: 'estilo-ia-cobertura', 'aria-label': 'Cobertura de la inspección visual' },
+    h('h4', {}, 'Inspección visual por planos'),
+    cobertura.detector === 'PySceneDetect' ? h('p', { clase: 'meta' }, 'PySceneDetect · cortes adaptativos y fundidos a negro/blanco · vídeo completo, sin saltar fotogramas') : null,
+    cobertura.modo === 'movimiento_selectivo' ? h('p', { clase: 'meta' },
+      `OpenCV mide el movimiento de todo el vídeo · IA sobre hasta ${cobertura.ventanas_previstas_ia} secuencias relevantes distribuidas por el vídeo, no todos los planos.`) : null,
+    h('div', { clase: 'estilo-ia-metricas' },
+      h('span', {}, h('b', {}, cobertura.fotogramas_decodificados), ' fotogramas barridos'),
+      h('span', {}, h('b', {}, cobertura.fotogramas_seleccionados), ' fotogramas preparados para IA'),
+      h('span', {}, h('b', {}, cobertura.planos_detectados), ' planos candidatos'),
+      h('span', {}, h('b', {}, cobertura.ventanas), ' intervalos visuales')),
+    cobertura.ritmo_montaje ? h('p', { clase: 'meta' },
+      `Duración media de plano: ${cobertura.ritmo_montaje.duracion_media_plano_s.toFixed(2)} s · `
+      + `${cobertura.ritmo_montaje.cambios_por_minuto.toFixed(1)} cambios/minuto (detección estimada)`) : null,
+    cobertura.lotes_total ? h('p', { clase: 'meta' }, `${cobertura.proveedor}: ${cobertura.lotes_completos}/${cobertura.lotes_total} lotes visuales examinados`) : null,
+    cobertura.parcial ? h('p', { clase: 'estilo-ia-parcial' },
+      `Informe parcial · ${cobertura.lotes_completos}/${cobertura.lotes_total} lotes · `
+      + `${cobertura.ventanas_examinadas}/${cobertura.ventanas} intervalos examinados · `
+      + `${cobertura.fotogramas_examinados} fotogramas seleccionados examinados · `
+      + `${cobertura.muestreo_selectivo ? 'Tramos seleccionados' : 'Del inicio a ' + reloj(cobertura.hasta_s)} · `
+      + `${reloj(cobertura.duracion_examinada_s)} visuales de ${reloj(cobertura.duracion_s)}. El resto no se ha inspeccionado con IA.`) : null,
+    cobertura.muestreo_selectivo && !cobertura.parcial ? h('p', { clase: 'pista' },
+      `Muestreo visual selectivo completado: ${cobertura.ventanas_examinadas}/${cobertura.ventanas} intervalos con imágenes examinadas. `
+      + 'Las mediciones locales cubren el vídeo entero; no equivalen a inspección visual de todos los planos.') : null,
+    h('p', { clase: 'pista' }, 'El barrido local mide todos los fotogramas. La IA examina secuencias adaptativas y detalles de hasta 1920 px; '
+      + 'esto no garantiza detectar cada píxel, cada corte ni movimientos invisibles entre las muestras.'));
+  const sintetizar = botonSintetizarEstiloIA(ficha);
+  if (sintetizar) caja.appendChild(sintetizar);
+  if (ficha.inspeccion_visual && !cobertura.inspeccion_finalizada && cobertura.lotes_completos !== cobertura.lotes_total) return caja;
+  const anterior = INSPECCIONES_ESTILOS_IA.get(ficha.id);
+  if (!anterior || anterior.ejecucion !== ficha.analisis_ejecucion) INSPECCIONES_ESTILOS_IA.set(ficha.id,
+    { ejecucion: ficha.analisis_ejecucion, datos: null, abierto: false, cargando: false, error: '' });
+  const ui = INSPECCIONES_ESTILOS_IA.get(ficha.id);
+  const detalle = h('details', { open: ui.abierto }, h('summary', {}, 'Ver el informe detallado por intervalos'));
+  detalle.addEventListener('toggle', async () => {
+    ui.abierto = detalle.open;
+    if (!ui.abierto) { ui.error = ''; return; }
+    if (ui.datos || ui.cargando || ui.error) return;
+    ui.cargando = true;
+    try { ui.datos = (await pedir(API.estiloIA(ficha.id) + '/inspeccion')).inspeccion; }
+    catch (e) { ui.error = e.message; }
+    finally { ui.cargando = false; pintarLight(); }
+  });
+  if (ui.error) detalle.appendChild(cajaError(ui.error));
+  if (ui.datos) {
+    detalle.appendChild(h('p', { clase: 'meta' }, `Informe realizado con ${ui.datos.proveedor}`));
+    ui.datos.lotes.forEach(lote => lote.ventanas.forEach(v => {
+      const tiempos = ui.datos.intervalos.find(t => t.id === v.id);
+      detalle.appendChild(h('details', { clase: 'estilo-ia-intervalo' },
+        h('summary', {}, `${v.id} · ${tiempos?.plano || ''} · ${reloj(tiempos?.t_in || 0)}–${reloj(tiempos?.t_out || 0)}`),
+        tiempos?.movimiento ? h('p', { clase: 'meta' },
+          `OpenCV: ${tiempos.movimiento.frames_fiables}/${tiempos.movimiento.frames_medidos} frames con flujo fiable · `
+          + `velocidad ${tiempos.movimiento.velocidad_media_fraccion_s.toFixed(4)} fracción del encuadre/s · `
+          + `escala ${tiempos.movimiento.zoom_log_s.toFixed(4)} log/s · `
+          + `movimiento residual ${tiempos.movimiento.residual_px.toFixed(2)} px a 320×180. Son estimaciones, no efectos identificados.`) : null,
+        ...Object.entries(v.areas).map(([area, texto]) => h('div', {},
+          h('h4', {}, area.replaceAll('_', ' ')), h('p', {}, texto))),
+        h('p', { clase: 'meta' }, 'Evidencias: ' + v.evidencias.join(', ')),
+        h('p', { clase: 'pista' }, 'Incertidumbres: ' + (v.incertidumbres || 'No declaradas por el analista.'))));
+    }));
+  } else if (ui.abierto && !ui.error) detalle.appendChild(h('p', { clase: 'meta' }, 'Cargando el informe visual…'));
+  caja.appendChild(detalle);
+  return caja;
+}
+
+function panelTranscripcionEstiloIA(ficha) {
+  if (!ficha.transcripcion_info) return null;
+  if (!TRANSCRIPCIONES_ESTILOS_IA.has(ficha.id)) TRANSCRIPCIONES_ESTILOS_IA.set(ficha.id,
+    { datos: null, borrador: null, cargando: false, abierto: false, error: '' });
+  const ui = TRANSCRIPCIONES_ESTILOS_IA.get(ficha.id);
+  const info = ficha.transcripcion_info;
+  const procedencia = info.origen === 'whisper' ? `Whisper · ${info.modelo}` : info.origen === 'manual' ? 'Texto aportado' : 'Sin pista de audio';
+  const detalles = h('details', { clase: 'estilo-ia-transcripcion', open: ui.abierto },
+    h('summary', {}, `Transcripción · ${procedencia} · ${info.palabras} palabras`));
+  detalles.addEventListener('toggle', async () => {
+    ui.abierto = detalles.open;
+    if (!ui.abierto) { ui.error = ''; return; }
+    if (ui.datos || ui.cargando || ui.error) return;
+    ui.cargando = true;
+    try {
+      ui.datos = (await pedir(API.estiloIA(ficha.id) + '/transcripcion')).transcripcion;
+      ui.borrador = ui.datos.texto; ui.error = '';
+    } catch (e) { ui.error = e.message; }
+    finally { ui.cargando = false; pintarLight(); }
+  });
+  if (ui.error) detalles.appendChild(cajaError(ui.error));
+  if (ui.datos) {
+    const editable = !ficha.preset_id && !['pendiente', 'ejecutando'].includes(ficha.trabajo?.estado);
+    const corregir = h('button', { clase: 'mini', disabled: ui.borrador === ui.datos.texto,
+      onclick: async () => {
+        corregir.disabled = true;
+        try {
+          await pedir(API.estiloIA(ficha.id) + '/transcripcion', { method: 'PUT', cuerpo: { texto: ui.borrador,
+            proveedor_analisis: ANALISTAS_ESTILOS_IA.get(ficha.id) || ficha.proveedor_analisis || 'Claude' } });
+          TRANSCRIPCIONES_ESTILOS_IA.delete(ficha.id);
+          await cargarEstilosIA();
+        } catch (e) { toast(e.message, true); corregir.disabled = false; }
+      } }, 'Corregir y volver a analizar');
+    detalles.appendChild(h('label', { clase: 'campo' }, 'Transcripción reconocida',
+      h('textarea', { rows: 7, maxlength: 60000, value: ui.borrador, readonly: !editable,
+        'data-foco': `transcripcion-${ficha.id}`, oninput: ev => {
+          ui.borrador = ev.target.value; corregir.disabled = ui.borrador === ui.datos.texto;
+        } })));
+    detalles.appendChild(h('p', { clase: 'pista' }, info.estado === 'sin_habla'
+      ? 'Whisper no ha detectado habla en esta pista. Esto no significa que el vídeo no tenga música o efectos.'
+      : 'La transcripción permite analizar el guion y sus tiempos. No identifica por sí sola la música, los efectos o al locutor.'));
+    if (editable) detalles.appendChild(corregir);
+  } else if (ui.abierto && !ui.error) detalles.appendChild(h('p', { clase: 'meta' }, 'Cargando la transcripción…'));
+  return detalles;
+}
+
+function detalleEstiloIA(ficha) {
+  const analisis = ficha.analisis;
+  const activo = ['pendiente', 'ejecutando'].includes(ficha.trabajo?.estado);
+  const caja = h('section', { clase: 'estilo-ia-detalle', 'aria-label': `Análisis de ${ficha.nombre}` },
+    h('h3', {}, ficha.nombre), h('p', {}, analisis?.resumen || 'El análisis todavía no ha terminado.'));
+  const elegido = ANALISTAS_ESTILOS_IA.get(ficha.id) || ficha.proveedor_analisis || 'Claude';
+  const analizar = h('button', { clase: 'mini', disabled: activo, onclick: async () => {
+    try {
+      await pedir(API.estiloIA(ficha.id) + '/analizar', { method: 'POST', cuerpo: {
+        proveedor_analisis: ANALISTAS_ESTILOS_IA.get(ficha.id) || ficha.proveedor_analisis || 'Claude' } });
+      INSPECCIONES_ESTILOS_IA.delete(ficha.id);
+      await cargarEstilosIA();
+    } catch (e) { toast(e.message, true); }
+  } }, `Volver a analizar con ${elegido}`);
+  caja.appendChild(h('div', { clase: 'campo' }, h('span', { clase: 'etiqueta' }, 'IA para el análisis'),
+    selectorAnalistaEstiloIA(elegido, nombre => { ANALISTAS_ESTILOS_IA.set(ficha.id, nombre); analizar.textContent = `Volver a analizar con ${nombre}`; }, activo || !!ficha.preset_id)));
+  if (!ficha.preset_id && !activo) caja.appendChild(analizar);
+  if (analisis) caja.appendChild(h('p', { clase: 'meta' }, `Último informe global: ${ficha.analista_del_informe || 'Claude'}`));
+  if (ficha.error) caja.appendChild(cajaError(ficha.error));
+  const inspeccion = panelInspeccionVisualEstiloIA(ficha);
+  if (inspeccion) caja.appendChild(inspeccion);
+  const transcripcion = panelTranscripcionEstiloIA(ficha);
+  if (transcripcion) caja.appendChild(transcripcion);
+  if (analisis) {
+    caja.appendChild(h('div', { clase: 'estilo-ia-areas' },
+      ...Object.entries(analisis.areas).map(([nombre, texto]) => h('div', {},
+        h('h4', {}, nombre), h('p', {}, texto)))));
+    caja.appendChild(h('h4', {}, 'Recursos y motores necesarios'));
+    caja.appendChild(h('ul', {}, ...analisis.recursos.map(r => h('li', {},
+      h('b', {}, r.nombre), ` · ${ficha.espacio ? 'incluido en el encargo del motor' : 'requiere preparación'} · ${r.motivo}`))));
+  }
+  caja.appendChild(h('div', { clase: 'estilo-ia-limites' }, h('b', {}, 'Calidad todavía no verificada'),
+    h('ul', {}, ...(ficha.limites || []).map(l => h('li', {}, l)))));
+  if (analisis && !activo && ['analizado', 'preparado', 'error_preparacion', 'cancelado_preparacion', 'interrumpido_preparacion'].includes(ficha.estado)) caja.appendChild(h('div', { clase: 'fila' },
+    h('button', { clase: 'primario', onclick: () => prepararHerramientasEstiloIA(ficha) },
+      ficha.espacio ? 'Preparar una nueva versión' : 'Preparar herramientas y motor'),
+    ficha.espacio && ficha.preset_id ? h('button', { clase: 'primario', onclick: () => {
+      const estilo = fichaLight(ficha.preset_id);
+      if (estilo) elegirEstiloLight(estilo); else toast('No se encuentra el estilo publicado; recarga la galería.', true);
+    } }, 'Crear vídeo con este estilo') : null,
+    ficha.estado === 'analizado' ? h('button', { clase: 'mini fantasma', onclick: () => usarBaseEstiloIA(ficha) },
+      'Usar solo la base visual y editorial') : null));
+  if (ficha.espacio) caja.appendChild(h('div', { clase: 'estilo-ia-muestra' },
+    h('p', { clase: 'meta' }, `Versión ${ficha.espacio.version} · motor comprobado · calidad pendiente de revisión`),
+    h('p', { clase: 'meta' }, 'Carpeta del estilo: ', h('code', {}, ficha.carpeta_trabajo || 'espacio propio de esta versión')),
+    h('video', { controls: true, preload: 'metadata', src: API.estiloIA(ficha.id) + '/muestra?v=' + ficha.espacio.version,
+      'aria-label': 'Muestra animada del motor del estilo' })));
+  if (['error', 'cancelado', 'interrumpido'].includes(ficha.estado)) caja.appendChild(h('button', {
+    clase: 'primario', onclick: async () => {
+      try { await pedir(API.estiloIA(ficha.id) + '/reanudar', { method: 'POST' }); await cargarEstilosIA(); }
+      catch (e) { toast(e.message, true); }
+    },
+  }, 'Reintentar análisis'));
+  return caja;
+}
+
+function vistaEstilosIA() {
+  const ui = ESTILOS_IA_UI;
+  const caja = h('div', { clase: 'estilos-ia' },
+    h('div', { clase: 'light-cab' }, h('h2', {}, '✦ Estilos con IA'),
+      h('button', { clase: 'primario', disabled: ui.subiendo,
+        onclick: () => { ui.creando = true; pintarLight(); } }, '+ Crear nuevo estilo')),
+    h('p', { clase: 'meta' }, 'Estilos extraídos de vídeos de referencia, con recursos propios y análisis de producción.'));
+  if (ui.error) caja.appendChild(cajaError(ui.error));
+  if (ui.fichas === null) caja.appendChild(h('button', { clase: 'mini',
+    onclick: cargarEstilosIA, disabled: ui.cargando }, ui.cargando ? 'Cargando…' : 'Cargar estilos'));
+  if (ui.creando || (ui.fichas && !ui.fichas.length)) caja.appendChild(formularioEstiloIA());
+  const rejilla = h('div', { clase: 'galeria-estilos' });
+  const publicados = presetsLight().filter(f => f.datos?.origen?.estilo_ia);
+  publicados.forEach(f => {
+    const tarjeta = tarjetaEstiloLight(f);
+    const analisis = (ui.fichas || []).find(a => a.id === f.datos.origen.estilo_ia.id);
+    if (analisis) tarjeta.appendChild(h('button', { clase: 'mini estilo-ia-ver-analisis',
+      onclick: () => { ui.seleccionado = analisis.id; pintarLight(); } }, 'Ver análisis y recursos'));
+    rejilla.appendChild(tarjeta);
+  });
+  (ui.fichas || []).forEach(f => {
+    if (publicados.some(p => p.id === f.preset_id)) return;
+    const activo = ['pendiente', 'ejecutando'].includes(f.trabajo?.estado);
+    rejilla.appendChild(h('article', { clase: 'ficha-estilo estilo-ia-ficha' },
+      h('button', { clase: 'cara-y-cuerpo', onclick: () => { ui.seleccionado = f.id; pintarLight(); } },
+        h('div', { clase: 'cara' }, f.metadatos || f.analisis
+          ? h('img', { src: API.estiloIA(f.id) + '/miniatura', alt: `Fotogramas de ${f.nombre}`, loading: 'lazy' })
+          : h('div', { clase: 'sin-cara' }, '✦')),
+        h('div', { clase: 'cuerpo' }, h('div', { clase: 'nombre' }, f.nombre),
+          h('p', { clase: 'meta' }, f.preset_id ? 'Análisis y recursos de la base' : f.estado),
+          h('p', { clase: 'pista' }, activo ? f.trabajo.mensaje || 'Preparando análisis…' : 'Ver análisis y recursos'))),
+      activo ? h('div', { clase: 'estilo-ia-progreso' },
+        h('progress', { max: 1, value: f.trabajo.progreso, 'aria-label': 'Progreso del análisis' }),
+        h('button', { clase: 'mini', onclick: async () => {
+          try { await pedir(API.estiloIA(f.id) + '/cancelar', { method: 'POST' }); await cargarEstilosIA(); }
+          catch (e) { toast(e.message, true); }
+        } }, 'Parar')) : null,
+      botonSintetizarEstiloIA(f)));
+  });
+  caja.appendChild(rejilla);
+  const seleccionado = (ui.fichas || []).find(f => f.id === ui.seleccionado);
+  if (seleccionado) caja.appendChild(detalleEstiloIA(seleccionado));
+  caja.appendChild(h('p', { clase: 'estilo-ia-aislamiento' },
+    'Cada estilo tiene su carpeta de trabajo: motores, herramientas, referencias, recursos, requisitos y dependencias locales. '
+    + 'Las adaptaciones no sustituyen el código compartido. No requiere virtualización; cada vídeo conserva su propia versión.'));
+  return caja;
+}
+
 function vistaGaleriaLight() {
   const caja = h('div', {});
-  const fichas = presetsLight();
+  const fichas = presetsLight().filter(f => !f.datos?.origen?.estilo_ia);
   caja.appendChild(h('div', { clase: 'light-cab' },
     h('h2', {}, 'Tus estilos'),
     h('span', { clase: 'meta' }, fichas.length
@@ -6870,6 +7267,13 @@ function vistaElegidoLight() {
     return caja;
   }
 
+  if (ficha.datos?.origen?.estilo_ia) caja.appendChild(h('p', { clase: 'estilo-ia-limites' },
+    ficha.datos?.estilo?.espacio_ia
+      ? 'Este vídeo utiliza las referencias, el motor de animación y las dependencias propias del estilo. '
+        + 'Su versión se conserva con el proyecto; la fidelidad a la referencia necesita revisión.'
+      : 'Base visual y editorial de un estilo con IA. Utiliza referencias propias; la animación y el sonido '
+        + 'de la referencia aún no están reproducidos ni su calidad validada.'));
+
   // Un vídeo a medias tiene prioridad sobre empezar otro: se generó durante
   // minutos y se está mirando desde el móvil.
   const guardado = videoLightGuardado();
@@ -7378,7 +7782,8 @@ function personalizarPersonajesDelEncargo(e, estilo, alCambiar, pid) {
 }
 
 function bibliotecasDelEncargo(e, alCambiar, esEstilo = false) {
-  if (e.stickman) return repartoStickmanLight(e, alCambiar);
+  if (e.stickman) return Object.hasOwn(e, 'reparto_animaciones')
+    ? repartoAnimacionesDelEncargo(e, alCambiar, true) : repartoStickmanLight(e, alCambiar);
   const bloqueado = e.generar_personajes !== false;
   // La preferencia guardada queda intacta: al quitar Generar personajes se
   // recupera exactamente el reparto anterior, incluso en proyectos antiguos.
@@ -8229,6 +8634,7 @@ const CAMPOS_ENCARGO = [
   { clave: 'parallax', paso: 'render', param: 'parallax' },
   { clave: 'avatar', paso: 'render', param: 'avatar' },
   { clave: 'bibliotecas', paso: 'assets', param: 'bibliotecas' },
+  { clave: 'reparto_animaciones', paso: 'assets', param: 'reparto_animaciones' },
   { clave: 'generar_personajes', paso: 'assets', param: 'generar_personajes' },
   { clave: 'personajes', paso: 'guion', param: 'personajes' },
   { clave: 'incorporar_voz', paso: 'voz', param: 'incorporar_voz' },
@@ -8283,6 +8689,7 @@ function pedidoDelVideoLight() {
     generar_personajes: params('assets').generar_personajes === true,
     personajes: JSON.parse(JSON.stringify(params('guion').personajes || { activo: false, items: [] })),
     stickman: params('assets').estilo?.stickman || null,
+    reparto_animaciones: params('assets').reparto_animaciones ? structuredClone(params('assets').reparto_animaciones) : null,
     incorporar_voz: params('voz').incorporar_voz !== false,
     voz_id: params('voz').voz_id || '',
     proveedor_voz: params('voz').proveedor || 'cartesia',
@@ -8347,6 +8754,7 @@ function vistaEncargoVideoLight() {
 
   if (e.stickman) caja.appendChild(cabeceraStickmanLight(e.stickman));
   caja.appendChild(bibliotecasDelEncargo(e));
+  if (!e.stickman && v.fichas.assets?.params?.estilo?.espacio_ia) caja.appendChild(repartoAnimacionesDelEncargo(e, programarGuardadoEncargo));
   caja.appendChild(incorporarVozDelEncargo(e,
     () => { programarGuardadoEncargo(); pintarLight(); }, false,
     ...(e.incorporar_voz !== false ? [vozParaVideoLight(e, estilo)] : [])));
@@ -8623,14 +9031,25 @@ async function refrescarPlanosLight() {
       // La última imagen resuelta también se ve en grande mientras se genera.
       // No se interrumpe una escucha ni se mueve el foco de una nota en edición.
       if (v.vista === 'previa' && !PREVIA.sonando
-          && (!pedidoDelVideoLight().copia.stickman || !escenaPrevia()?.clip)
+          && (!(pedidoDelVideoLight().copia.stickman || animacionNativaLight()) || !escenaPrevia()?.clip)
           && !document.activeElement?.matches('textarea, input, [contenteditable="true"]')) {
         const ultima = nuevos[nuevos.length - 1];
         const i = ((PREVIA.ficha || {}).escenas || [])
           .findIndex(e => e.id === (ultima || {}).id && e.imagen);
         if (i >= 0) { PREVIA.i = i; PREVIA.t = escenaPrevia().t_in; }
       }
-      if (v.vista === 'video' || v.vista === 'previa') pintarLight();
+      if (v.vista === 'previa' && (PREVIA.sonando
+          || document.activeElement?.matches('textarea, input, [contenteditable="true"]'))) {
+        // Actualiza solo las tarjetas: no reconstruir el reproductor durante
+        // una escucha ni quitar el foco a quien está escribiendo una nota.
+        const lateral = document.querySelector('.previa-lateral');
+        if (lateral) {
+          const scroll = lateral.querySelector('.previa-galeria')?.scrollTop || 0;
+          const nueva = galeriaImagenesPrevia(PREVIA.ficha?.escenas || []);
+          lateral.replaceWith(nueva);
+          nueva.querySelector('.previa-galeria').scrollTop = scroll;
+        }
+      } else if (v.vista === 'video' || v.vista === 'previa') pintarLight();
       else refrescarVivosLight();
     }
   } catch (e) { /* mientras corre, un fallo puntual no es noticia */ }
@@ -9713,7 +10132,7 @@ function pieLight() {
   const hayGuion = !!v.guion;
   const hayAudio = !!v.audio;
   const encargo = pedidoDelVideoLight().copia;
-  const animarStickman = !!encargo.stickman;
+  const animarStickman = !!encargo.stickman || animacionNativaLight();
   const sinVoz = encargo.incorporar_voz === false
     && (encargo.generar_personajes !== true || encargo.personajes?.incorporar_dialogos === false);
   const hayVideo = hayMp4Light();
@@ -12986,11 +13405,15 @@ function animarPrevia(capa, fondo, tiempo) {
   if (capa.animacion && fondo) aplicarFondo(fondo, capa.animacion.fondo, tiempo);
 }
 
+function animacionNativaLight() {
+  return APP.light.video.fichas?.assets?.params?.animacion_nativa === true;
+}
+
 function galeriaImagenesPrevia(escenas, alSeleccionar) {
   const pid = videoAbierto().pid;
   const generadas = escenas.filter(e => e.imagen);
   const rejilla = h('div', { clase: 'previa-galeria',
-    role: 'region', 'aria-label': pedidoDelVideoLight().copia.stickman ? 'Animaciones generadas' : 'Imágenes generadas', tabindex: '0' });
+    role: 'region', 'aria-label': (pedidoDelVideoLight().copia.stickman || animacionNativaLight()) ? 'Animaciones generadas' : 'Imágenes generadas', tabindex: '0' });
   escenas.forEach((escena, i) => {
     if (!escena.imagen) return;
     rejilla.appendChild(h('button', {
@@ -13010,9 +13433,9 @@ function galeriaImagenesPrevia(escenas, alSeleccionar) {
       alt: '', loading: 'lazy' }), h('span', {}, escena.id)));
   });
   if (!generadas.length) rejilla.appendChild(h('p', { clase: 'meta' },
-    pedidoDelVideoLight().copia.stickman ? 'Las animaciones aparecerán aquí cuando estén listas.' : 'Las imágenes aparecerán aquí cuando estén generadas.'));
+    (pedidoDelVideoLight().copia.stickman || animacionNativaLight()) ? 'Las animaciones aparecerán aquí cuando estén listas.' : 'Las imágenes aparecerán aquí cuando estén generadas.'));
   return h('aside', { clase: 'previa-lateral', 'aria-label': 'Galería de escenas' },
-    h('div', { clase: 'previa-galeria-cab' }, h('h3', {}, pedidoDelVideoLight().copia.stickman ? 'Animaciones generadas' : 'Imágenes generadas'),
+    h('div', { clase: 'previa-galeria-cab' }, h('h3', {}, (pedidoDelVideoLight().copia.stickman || animacionNativaLight()) ? 'Animaciones generadas' : 'Imágenes generadas'),
       h('span', { clase: 'meta' }, `${generadas.length} de ${escenas.length}`)), rejilla);
 }
 
@@ -13023,7 +13446,7 @@ function vistaPreviaLight() {
   const e = escenaPrevia();
 
   caja.appendChild(h('div', { clase: 'light-cab' },
-    h('h2', {}, pedidoDelVideoLight().copia.stickman ? 'Las animaciones, una a una' : 'Las imágenes, una a una'),
+    h('h2', {}, (pedidoDelVideoLight().copia.stickman || animacionNativaLight()) ? 'Las animaciones, una a una' : 'Las imágenes, una a una'),
     h('span', { clase: 'meta' },
       escenas.length ? `escena ${PREVIA.i + 1} de ${escenas.length}` : ''),
     obsoletasEnLaCabecera(escenas),
@@ -13031,13 +13454,14 @@ function vistaPreviaLight() {
     h('span', { clase: 'crece' }),
     costeLight()));
 
+  if (ERRORES[CLAVE_VIDEO_LIGHT]) caja.appendChild(cajaError(ERRORES[CLAVE_VIDEO_LIGHT]));
   if (PREVIA.error) { caja.appendChild(cajaError(PREVIA.error)); return caja; }
-  const esperandoStickman = pedidoDelVideoLight().copia.stickman && !escenas.some(escena => escena.clip);
+  const esperandoStickman = (pedidoDelVideoLight().copia.stickman || animacionNativaLight()) && !escenas.some(escena => escena.clip);
   if ((!e || esperandoStickman) && trabajoVideoLight()) {
     if (!PREVIA.ficha && !PREVIA.cargando) setTimeout(cargarPreviaLight, 0);
     const marco = h('div', { clase: `previa-marco ${formatoDelVideo()}` },
       h('div', { clase: 'previa-sin-imagen', role: 'status' },
-        pedidoDelVideoLight().copia.stickman
+        (pedidoDelVideoLight().copia.stickman || animacionNativaLight())
           ? 'Preparando las escenas… Las animaciones aparecerán aquí conforme estén listas para reproducirse.'
           : 'Preparando las escenas… Las imágenes aparecerán aquí conforme se generen.'));
     caja.appendChild(marco);
@@ -14695,22 +15119,30 @@ function cabeceraStickmanLight(configuracion) {
 }
 
 function repartoStickmanLight(e, alCambiar) {
-  const inicial = Number(e.bibliotecas?.carga_claude ?? 50);
+  return repartoAnimacionesDelEncargo(e, alCambiar, true, true);
+}
+
+function repartoAnimacionesDelEncargo(e, alCambiar, stickman=false, legado=false) {
+  const inicial = Number(e.reparto_animaciones?.carga_claude ?? (stickman ? e.bibliotecas?.carga_claude ?? 50 : 100));
   const etiqueta = h('span', { clase: 'meta' }, `Claude ${inicial}% · ChatGPT ${100 - inicial}%`);
   const porcentaje = h('output', { clase: 'stickman-reparto-porcentaje', 'aria-live': 'polite' }, `${100 - inicial}%`);
-  const slider = h('input', { type: 'range', min: 0, max: 100, step: 10, value: 100 - inicial,
-    'aria-label': 'Porcentaje de escenas para ChatGPT',
+  const slider = h('input', { type: 'range', min: 0, max: 100, step: legado ? 10 : 1, value: 100 - inicial,
+    'aria-label': 'Porcentaje de escenas para ChatGPT', 'data-foco': 'reparto-animaciones-chatgpt',
     'aria-valuetext': `Claude ${inicial}%, ChatGPT ${100 - inicial}%`, oninput: ev => {
-      e.bibliotecas = { ...(e.bibliotecas || {}), carga_claude: 100 - Number(ev.target.value) };
-      etiqueta.textContent = `Claude ${e.bibliotecas.carga_claude}% · ChatGPT ${100 - e.bibliotecas.carga_claude}%`;
+      const carga = 100 - Number(ev.target.value);
+      if (legado) e.bibliotecas = { ...(e.bibliotecas || {}), carga_claude: carga };
+      else e.reparto_animaciones = { carga_claude: carga };
+      etiqueta.textContent = `Claude ${carga}% · ChatGPT ${100 - carga}%`;
       porcentaje.value = `${ev.target.value}%`;
       ev.target.setAttribute('aria-valuetext', etiqueta.textContent);
       if (alCambiar) alCambiar();
     } });
-  return bloqueLight('Repartir carga de trabajo', 'Todas las escenas serán animaciones Stickman',
+  return bloqueLight('Repartir carga de trabajo', 'Dirección de animaciones · Claude y ChatGPT',
     h('div', { clase: 'stickman-reparto-control' }, porcentaje,
       h('div', { clase: 'stickman-reparto' }, h('span', {}, 'Claude'), slider, h('span', {}, 'ChatGPT')),
-      etiqueta, h('p', { clase: 'meta' }, 'El porcentaje indica cuántas escenas creará cada modelo. Las escenas sobrantes se asignan a Claude.')));
+      etiqueta, h('p', { clase: 'meta' }, 'El porcentaje indica cuántas escenas nuevas o regeneradas dirige cada IA; no mide tiempo ni cuota. '
+        + 'Las escenas sobrantes se asignan a Claude. No cambia guion, imágenes ni voces, ni regenera animaciones ya válidas. '
+        + (stickman ? 'Cada proveedor genera los datos de animación Stickman.' : 'Ambos configuran el mismo motor del estilo; el render se ejecuta localmente.'))));
 }
 
 function panelEstiloStickmanLight(e, alCambiar) {

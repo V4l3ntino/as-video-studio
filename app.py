@@ -51,7 +51,7 @@ RAIZ_ESTUDIO = os.path.dirname(os.path.abspath(__file__))
 if RAIZ_ESTUDIO not in sys.path:
     sys.path.insert(0, RAIZ_ESTUDIO)
 
-from fastapi import Body, FastAPI, Query, Request, UploadFile, File  # noqa: E402
+from fastapi import Body, FastAPI, Query, Request, UploadFile, File, Form  # noqa: E402
 from starlette.background import BackgroundTask  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.responses import (FileResponse, HTMLResponse,  # noqa: E402
@@ -1644,6 +1644,18 @@ def _validar_params(paso_id, nuevos, ctx=None):
             raise ErrorApi(400, f"cta: {fallo}")
 
     if PASOS_MODULOS is not None:
+        if paso_id == 'assets' and 'animacion_nativa' in nuevos:
+            if type(nuevos['animacion_nativa']) is not bool:
+                raise ErrorApi(400, 'animacion_nativa debe ser un booleano')
+            estilo_nativo = nuevos.get('estilo') or ((ctx.estado.params('assets') or {}).get('estilo') if ctx else {}) or {}
+            if nuevos['animacion_nativa'] and not estilo_nativo.get('espacio_ia'):
+                raise ErrorApi(400, 'la animación nativa necesita el espacio propio de un estilo')
+        if paso_id == 'assets' and 'reparto_animaciones' in nuevos:
+            from pasos import reparto_animaciones
+            try:
+                reparto_animaciones.normalizar(nuevos['reparto_animaciones'])
+            except ValueError as fallo:
+                raise ErrorApi(400, str(fallo)) from fallo
         if paso_id == 'voz' and 'proveedor' in nuevos:
             try:
                 PASOS_MODULOS.p4_voz.proveedor_de(nuevos)
@@ -3468,6 +3480,16 @@ def planos_hechos(pid: str, ligero: int = Query(default=0)):
                   for sid, ficha in hechos.items()}
     plan = PASOS_MODULOS.p6_assets.plan_actual(ctx.proyecto, "assets", estado=ctx.estado) or {}
     del_plan = [str(e.get("id")) for e in (plan.get("escenas") or []) if e.get("id")]
+    if (ctx.estado.params('assets') or {}).get('animacion_nativa') is True:
+        from pasos import animacion_nativa
+        # El plan sellado puede ser todavía el de las ilustraciones anteriores.
+        # La previa ya calcula el plan vigente contra voz/params: comparar los
+        # recibos nativos con los prompts antiguos ocultaba todos los avances.
+        plan = _plan_de_previsualizacion(ctx)
+        del_plan = [str(e['id']) for e in plan.get('escenas', []) if e.get('id')]
+        hechos = animacion_nativa.hechos(ctx.proyecto, plan)
+        if ligero:
+            hechos = {sid: {k: v for k, v in ficha.items() if k != 'prompt'} for sid, ficha in hechos.items()}
     return {"planos": hechos, "total": len(hechos),
             "plan": del_plan,
             "del_plan": len([s for s in del_plan if s in hechos])}
@@ -4840,6 +4862,7 @@ def _correr_direccion(avisar, ctx, ajuste, aplicar=False, solo_faltan=False):
     assets = ctx.estado.params("assets") or {}
     plan_assets = _plan_de_planos(ctx, avisar)
     escenas = (plan_assets or {}).get("escenas") or []
+    contexto_escenas = list(escenas)
     if not escenas:
         raise RuntimeError("no hay planos todavía y no se ha podido cortar la "
                            "narración: comprueba que la voz haya dejado su "
@@ -4864,8 +4887,8 @@ def _correr_direccion(avisar, ctx, ajuste, aplicar=False, solo_faltan=False):
     # imagen, los sitios con su descripción literal, el reparto y la acción del
     # tramo de cada plano. Es lo que le permite escribir SABIENDO cómo se va a
     # dibujar, en vez de adivinar — y lo que hace que pueda no contradecirlo.
-    ficha = direccion.proponer(
-        escenas, ajuste=ajuste, avisar=avisar, proyecto_id=ctx.id,
+    opciones_direccion = dict(
+        ajuste=ajuste, avisar=avisar, proyecto_id=ctx.id,
         titulo=(assets.get("titulo") or ctx.proyecto.id),
         estilo=(assets.get("estilo") or (plan_assets or {}).get("estilo") or {}),
         # EL IDIOMA VA EXPLICITO. Sin el, `direccion` escribia los rotulos en el
@@ -4878,6 +4901,32 @@ def _correr_direccion(avisar, ctx, ajuste, aplicar=False, solo_faltan=False):
         catalogo=(assets.get("catalogo")
                   or (plan_assets or {}).get("catalogo") or {}),
         beats=beats)
+    if assets.get('reparto_animaciones') is None:
+        ficha = direccion.proponer(escenas, **opciones_direccion)
+    else:
+        from pasos import reparto_animaciones
+        asignacion = reparto_animaciones.proveedores(
+            [e for e in contexto_escenas if direccion.dirigible(e)], assets)
+        contexto_visual = [dict(id=e['id'], narracion=e.get('narracion'), prompt=e.get('prompt'),
+            direccion=ya.get(e['id'])) for e in contexto_escenas]
+        ficha = dict(plan={}, avisos=[], planos=0, dirigidos=0, segundos=0., estimacion_s=0., ajuste=ajuste)
+        for proveedor in ('Claude', 'ChatGPT'):
+            pares = [(e, beats[i] if i < len(beats or []) else {}) for i, e in enumerate(escenas)
+                     if asignacion.get(e['id']) == proveedor]
+            if not pares:
+                continue
+            avisar(.04, f'{proveedor}: preparando la dirección de {len(pares)} planos')
+            parte = direccion.proponer([e for e, _ in pares], **dict(opciones_direccion,
+                beats=[b for _, b in pares], proveedor=proveedor, contexto=contexto_visual))
+            ficha['plan'].update(parte.get('plan') or {})
+            ficha['avisos'].extend(parte.get('avisos') or [])
+            for clave in ('planos', 'dirigidos', 'segundos', 'estimacion_s'):
+                ficha[clave] += parte.get(clave, 0)
+            for e in contexto_visual:
+                e['direccion'] = ficha['plan'].get(e['id'], e.get('direccion'))
+            if aplicar:
+                # Si el otro proveedor falla, no se pierde la parte completada.
+                _guardar_direccion_por_unidad(ctx, dict(ya, **ficha['plan']))
     ctx.bitacora.anotar("direccion", "assets", {
         "planos": ficha.get("planos"), "dirigidos": ficha.get("dirigidos"),
         "ajuste": ajuste, "aplicar": bool(aplicar),
@@ -5200,7 +5249,10 @@ def _plan_de_previsualizacion(ctx):
             params = dict(ctx.estado.params("assets") or {}, audio_meta=ruta_meta)
             plan = PASOS_MODULOS.p6_assets.planificar(ctx.proyecto, params, previo=plan) or plan
     from pasos import stickman
-    return stickman.aplicar_recursos(ctx.proyecto, plan)
+    from pasos import espacio_estilo
+    if (ctx.estado.params('assets') or {}).get('animacion_nativa') is True:
+        plan = dict(plan, animacion_nativa=True)
+    return espacio_estilo.aplicar_recursos(ctx.proyecto, stickman.aplicar_recursos(ctx.proyecto, plan))
 
 
 def _fuente_sonido_editor(ctx, fuente, desfase=0):
@@ -6315,13 +6367,15 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         except Exception:                                     # noqa: BLE001
             trozos = []
         imagen = _ruta_de_version(ctx, "assets", "escenas", f"{sid}.png")
+        if plan.get('animacion_nativa') and not escena.get('medio_usuario'):
+            imagen = (escena.get('animacion_estilo') or {}).get('poster')
         # Una tanda interrumpida conserva los dibujos en trabajo/, sin sellar
         # una versión nueva. Mostrarlos también aquí, como en la rejilla, pero
         # solo si la ficha corresponde al texto del plan: los ids se reutilizan.
         ficha = hechos.get(sid) or {}
         p6 = PASOS_MODULOS.p6_assets
         dibujada, dice = p6._texto_clave(ficha), p6._texto_clave(escena)
-        if dibujada and dice and p6._mismo_dicho(dibujada, dice):
+        if not plan.get('animacion_nativa') and dibujada and dice and p6._mismo_dicho(dibujada, dice):
             imagen = ficha.get("ruta") or imagen
         medio_usuario = escena.get("medio_usuario") or escena.get("medio_biblioteca") or {}
         sustituciones = [b for b in remotion.bloques_de(render, escena) if b.get('modo') == 'sustituir' and 'origen' not in b]
@@ -6333,7 +6387,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
         efecto_parallax = None
         clip_parallax = None
         avatar_escena = (previa_avatar or {}).get("clips", {}).get(sid)
-        if sid in seleccion_parallax and not (plan.get('estilo') or {}).get('stickman'):
+        if sid in seleccion_parallax and not (plan.get('estilo') or {}).get('stickman') and not escena.get('animacion_estilo'):
             pedido = clips_parallax.preparar(ctx.proyecto, escena, imagen,
                 seleccion_parallax[sid], render.get("fps") or 30)
             clip_parallax = clips_parallax.disponible(ctx.proyecto, pedido)
@@ -6357,7 +6411,7 @@ def _leer_previsualizacion(pid, sid_borrador=None, borrador=None):
             "imagen_tarjeta": imagen_tarjeta,
             "remotion_clip": clip_remotion,
             "clip": (_ruta_publica_proyecto(ctx, medio_usuario.get("archivo"))
-                    if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, (escena.get('stickman') or {}).get('clip') or clip_parallax)),
+                    if medio_usuario.get("tipo") == "video" else _ruta_publica_proyecto(ctx, (escena.get('stickman') or {}).get('clip') or (escena.get('animacion_estilo') or {}).get('clip') or clip_parallax)),
             'stickman': bool((plan.get('estilo') or {}).get('stickman')),
             "parallax": efecto_parallax,
             "avatar": {"clip": avatar_escena, "estado": "listo" if avatar_escena else "pendiente",
@@ -7816,6 +7870,9 @@ def _que_hace(tarea_id, ctx, receta, modo="pendientes", solo_montar=False, retom
     volver a dibujar los 98 planos en un navegador y volver a mezclar el audio
     sobre los clips que ya hay. Ver `repaso.solo_mezcla`.
     """
+    from pasos import animacion_nativa
+    if tarea_id in ('escenarios', 'guia_estilo', 'plan_cartelas', 'direccion', 'piezas') and animacion_nativa.activa(ctx.estado.params('assets') or {}):
+        return _tarea_sin_clave, ('Actores, acciones y edición se programan dentro de cada escena animada, sin generar imágenes.',)
     if tarea_id in ('guia_estilo', 'plan_cartelas', 'direccion', 'piezas') and ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
         return _tarea_sin_clave, ('La dirección, los personajes y los gráficos se generan con las animaciones Stickman.',)
     if tarea_id == "ingesta":
@@ -7883,6 +7940,9 @@ def _esta_al_dia(ctx, tarea):
     hace la pantalla para pintar su pastilla.
     """
     tid = tarea["id"]
+    from pasos import animacion_nativa
+    if tid in ('escenarios', 'guia_estilo', 'plan_cartelas', 'direccion', 'piezas') and animacion_nativa.activa(ctx.estado.params('assets') or {}):
+        return True
     if tid in ('guia_estilo', 'plan_cartelas', 'direccion', 'piezas') and ((ctx.estado.params('assets') or {}).get('estilo') or {}).get('stickman'):
         return True
     if tid in PASOS_POR_ID:
@@ -9220,6 +9280,12 @@ def aplicar_preset_canal(pid: str, preset_id: str):
     actuales = {paso: (ctx.estado.params(paso) or {})
                 for paso in presets.TIPOS[ficha["tipo"]]["pasos"]}
     cambios = _preset_o_400(lambda p: p.cambios_para(ficha, actuales))
+    if ((ficha.get('datos') or {}).get('origen') or {}).get('estilo_ia'):
+        from pasos import estilos_ia
+        try:
+            estilos_ia.congelar(presets, ficha, ctx.proyecto)
+        except (ValueError, OSError) as fallo:
+            raise ErrorApi(409, str(fallo)) from fallo
     # Las referencias dibujadas que guarda el preset vuelven al banco global si
     # alli ya no estan. Normalmente no hace nada: la clave sale de la huella de
     # los fotogramas, y los del preset son copia byte a byte de los originales.
@@ -10402,6 +10468,242 @@ def _congelar_preset(ctx, encargo, preset_id=None):
     return ficha
 
 
+# ------------------------------------------------------------------ estilos IA
+
+TRABAJOS_ESTILOS_IA = GestorTrabajos()
+INDICE_ESTILOS_IA = {}
+LOCK_ESTILOS_IA = threading.RLock()
+
+
+def _estilos_ia():
+    from pasos import estilos_ia
+    return estilos_ia
+
+
+def _ficha_estilo_ia(sid):
+    try:
+        ficha = _estilos_ia().leer(raiz_proyectos(), sid)
+    except (ValueError, OSError) as fallo:
+        raise ErrorApi(404, 'no se encuentra el estilo IA') from fallo
+    ficha = dict(ficha)
+    with LOCK_ESTILOS_IA:
+        tid = INDICE_ESTILOS_IA.get(sid)
+    try:
+        ficha['trabajo'] = TRABAJOS_ESTILOS_IA.estado(tid) if tid else None
+    except KeyError:  # el gestor poda trabajos terminados; el estilo no caduca
+        tid = None
+        ficha['trabajo'] = None
+    if not tid and ficha['estado'] in ('pendiente', 'analizando', 'preparando'):
+        ficha['estado'] = 'interrumpido_preparacion' if ficha['estado'] == 'preparando' else 'interrumpido'
+    # La transcripción completa solo se utiliza en el trabajo del analista.
+    ficha.pop('transcripcion', None)
+    progreso_visual = leer_json(str(_estilos_ia().carpeta(raiz_proyectos(), sid) / 'analisis_visual' / 'progreso.json'), {}) or {}
+    if progreso_visual.get('ejecucion') and progreso_visual.get('ejecucion') == ficha.get('analisis_ejecucion'):
+        ficha['inspeccion_visual'] = progreso_visual
+        solicitud = leer_json(str(_estilos_ia().carpeta(raiz_proyectos(), sid) / 'analisis_visual' / 'sintesis_solicitada.json'), {}) or {}
+        ficha['sintesis_solicitada'] = bool(solicitud and (
+            solicitud.get('ejecucion') == ficha.get('analisis_ejecucion') or
+            solicitud.get('firma') and solicitud.get('firma') == progreso_visual.get('firma')))
+        ficha['puede_sintetizar'] = bool(not ficha.get('preset_id') and ficha['estado'] in ('analizando', 'error', 'cancelado', 'interrumpido')
+            and progreso_visual.get('etapa') != 'sintesis'
+            and 0 < progreso_visual.get('lotes_completos', 0) < progreso_visual.get('lotes_total', 0))
+    if ficha.get('espacio'):
+        version = (ficha['espacio'] or {}).get('version')
+        if type(version) is int and version > 0:
+            ficha['carpeta_trabajo'] = str(_estilos_ia().carpeta(raiz_proyectos(), sid) / 'versiones' / f'v{version}')
+    return ficha
+
+
+@app.get("/api/estilos-ia")
+def listar_estilos_ia():
+    """Análisis por referencia, con inventario de recursos y límites verificables."""
+    try:
+        fichas = _estilos_ia().listar(raiz_proyectos())
+        return {'estilos': [_ficha_estilo_ia(f['id']) for f in fichas]}
+    except (ValueError, OSError) as fallo:
+        raise ErrorApi(409, 'no se pudo leer el catálogo de estilos IA') from fallo
+
+
+@app.post("/api/estilos-ia", status_code=202)
+def crear_estilo_ia(archivo: UploadFile = File(...), nombre: str = Form(...),
+                    transcripcion: str = Form(default=''), proveedor_analisis: str = Form(default='Claude')):
+    """Sube una referencia privada y lanza su análisis de producción."""
+    ia = _estilos_ia()
+    with LOCK_ESTILOS_IA:
+        if TRABAJOS_ESTILOS_IA.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el análisis de estilo en marcha')
+        try:
+            ficha = ia.crear(raiz_proyectos(), archivo.file, archivo.filename, nombre, transcripcion, proveedor_analisis)
+        except (ValueError, OSError) as fallo:
+            raise ErrorApi(400, str(fallo)) from fallo
+        tid = TRABAJOS_ESTILOS_IA.lanzar('estilo_ia', ia.analizar, raiz_proyectos(), ficha['id'])
+        INDICE_ESTILOS_IA[ficha['id']] = tid
+    return {'estilo': _ficha_estilo_ia(ficha['id'])}
+
+
+@app.get("/api/estilos-ia/{sid}")
+def obtener_estilo_ia(sid: str):
+    """Estado persistido y progreso del análisis de un estilo."""
+    return {'estilo': _ficha_estilo_ia(sid)}
+
+
+@app.get("/api/estilos-ia/{sid}/miniatura")
+def miniatura_estilo_ia(sid: str):
+    """Mosaico local de fotogramas; no es una muestra generada ni validada."""
+    _ficha_estilo_ia(sid)
+    ruta = _estilos_ia().carpeta(raiz_proyectos(), sid) / 'miniatura.jpg'
+    if not ruta.is_file():
+        raise ErrorApi(404, 'todavía no hay fotogramas disponibles')
+    return FileResponse(str(ruta), media_type='image/jpeg')
+
+
+@app.get("/api/estilos-ia/{sid}/transcripcion")
+def transcripcion_estilo_ia(sid: str):
+    """Texto y marcas de tiempo de la referencia, obtenidos con Whisper o aportados."""
+    _ficha_estilo_ia(sid)
+    from pasos import transcripcion_estilo
+    try:
+        dato = transcripcion_estilo.leer(_estilos_ia().carpeta(raiz_proyectos(), sid))
+    except (ValueError, OSError) as fallo:
+        raise ErrorApi(409, str(fallo)) from fallo
+    if dato is None:
+        raise ErrorApi(404, 'la referencia todavía no tiene una transcripción completada')
+    return {'transcripcion': dato}
+
+
+@app.get("/api/estilos-ia/{sid}/inspeccion")
+def inspeccion_visual_estilo_ia(sid: str):
+    """Informe minucioso por intervalos, con evidencias, cobertura e incertidumbres."""
+    _ficha_estilo_ia(sid)
+    ruta = _estilos_ia().carpeta(raiz_proyectos(), sid) / 'analisis_visual' / 'informe_actual.json'
+    if not ruta.is_file():
+        raise ErrorApi(404, 'todavía no hay una inspección visual completada')
+    return {'inspeccion': leer_json(str(ruta), estricto=True)}
+
+
+@app.post("/api/estilos-ia/{sid}/analizar", status_code=202)
+def analizar_con_proveedor_estilo_ia(sid: str, cuerpo: dict = Body(default=None)):
+    """Reanaliza con Claude o ChatGPT antes de publicar, sin cambiar vídeos existentes."""
+    datos = _cuerpo(cuerpo)
+    with LOCK_ESTILOS_IA:
+        _ficha_estilo_ia(sid)
+        if TRABAJOS_ESTILOS_IA.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo de estilo en marcha')
+        try:
+            _estilos_ia().cambiar_analista(raiz_proyectos(), sid, datos.get('proveedor_analisis'))
+        except (ValueError, OSError) as fallo:
+            raise ErrorApi(409, str(fallo)) from fallo
+        tid = TRABAJOS_ESTILOS_IA.lanzar('estilo_ia', _estilos_ia().analizar, raiz_proyectos(), sid)
+        INDICE_ESTILOS_IA[sid] = tid
+    return {'estilo': _ficha_estilo_ia(sid)}
+
+
+@app.put("/api/estilos-ia/{sid}/transcripcion", status_code=202)
+def corregir_transcripcion_estilo_ia(sid: str, cuerpo: dict = Body(default=None)):
+    """Corrige el texto antes de publicar y vuelve a analizar; vacío reactiva Whisper."""
+    datos = _cuerpo(cuerpo)
+    with LOCK_ESTILOS_IA:
+        _ficha_estilo_ia(sid)
+        if TRABAJOS_ESTILOS_IA.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo de estilo en marcha')
+        try:
+            _estilos_ia().corregir_transcripcion(raiz_proyectos(), sid, datos.get('texto'), datos.get('proveedor_analisis'))
+        except (ValueError, OSError) as fallo:
+            raise ErrorApi(409, str(fallo)) from fallo
+        tid = TRABAJOS_ESTILOS_IA.lanzar('estilo_ia', _estilos_ia().analizar, raiz_proyectos(), sid)
+        INDICE_ESTILOS_IA[sid] = tid
+    return {'estilo': _ficha_estilo_ia(sid)}
+
+
+@app.post("/api/estilos-ia/{sid}/cancelar")
+def cancelar_estilo_ia(sid: str):
+    """Cancela cooperativamente el análisis sin borrar la referencia."""
+    _ficha_estilo_ia(sid)
+    with LOCK_ESTILOS_IA:
+        tid = INDICE_ESTILOS_IA.get(sid)
+    return {'cancelado': bool(tid and TRABAJOS_ESTILOS_IA.cancelar(tid))}
+
+
+@app.post("/api/estilos-ia/{sid}/sintetizar", status_code=202)
+def sintetizar_lotes_estilo_ia(sid: str):
+    """Finaliza la inspección y sintetiza solo los lotes completados, marcando el alcance parcial."""
+    from pasos import analisis_video
+    with LOCK_ESTILOS_IA:
+        ficha = _ficha_estilo_ia(sid)
+        if ficha.get('preset_id') or ficha['estado'] not in ('analizando', 'error', 'cancelado', 'interrumpido'):
+            raise ErrorApi(409, 'este estilo no tiene una inspección de lotes que se pueda finalizar')
+        activo = (ficha.get('trabajo') or {}).get('estado') in ('pendiente', 'ejecutando')
+        if not activo and TRABAJOS_ESTILOS_IA.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo de estilo en marcha')
+        if (ficha.get('inspeccion_visual') or {}).get('etapa') == 'sintesis' and activo:
+            return {'estilo': ficha}
+        try:
+            analisis_video.solicitar_sintesis(_estilos_ia().carpeta(raiz_proyectos(), sid), ficha)
+        except (ValueError, OSError) as fallo:
+            raise ErrorApi(409, str(fallo)) from fallo
+        if not activo:
+            tid = TRABAJOS_ESTILOS_IA.lanzar('estilo_ia', _estilos_ia().analizar, raiz_proyectos(), sid)
+            INDICE_ESTILOS_IA[sid] = tid
+    return {'estilo': _ficha_estilo_ia(sid)}
+
+
+@app.post("/api/estilos-ia/{sid}/reanudar", status_code=202)
+def reanudar_estilo_ia(sid: str):
+    """Reintenta un análisis interrumpido; nunca sobrescribe una versión publicada."""
+    with LOCK_ESTILOS_IA:
+        ficha = _ficha_estilo_ia(sid)
+        if ficha['estado'] not in ('error', 'cancelado', 'interrumpido') or (
+                ficha.get('trabajo') or {}).get('estado') in ('ejecutando', 'pendiente'):
+            raise ErrorApi(409, 'este análisis está activo o ya está terminado')
+        if TRABAJOS_ESTILOS_IA.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el análisis de estilo en marcha')
+        tid = TRABAJOS_ESTILOS_IA.lanzar('estilo_ia', _estilos_ia().analizar, raiz_proyectos(), sid)
+        INDICE_ESTILOS_IA[sid] = tid
+    return {'estilo': _ficha_estilo_ia(sid)}
+
+
+@app.post("/api/estilos-ia/{sid}/base", status_code=201)
+def preparar_base_estilo_ia(sid: str, cuerpo: dict = Body(default=None)):
+    """Opt-in para usar solo referencias y guía editorial con los motores actuales."""
+    if _cuerpo(cuerpo).get('aceptar_limitaciones') is not True:
+        raise ErrorApi(400, 'confirma que usarás una base visual/editorial, no una réplica validada')
+    _ficha_estilo_ia(sid)
+    try:
+        ficha = _estilos_ia().publicar_base(raiz_proyectos(), sid, _presets())
+    except (ValueError, OSError, _presets().ErrorPreset) as fallo:
+        raise ErrorApi(409, str(fallo)) from fallo
+    return {'preset': ficha}
+
+
+@app.post("/api/estilos-ia/{sid}/preparar", status_code=202)
+def preparar_espacio_estilo_ia(sid: str):
+    """Construye herramientas, instala requisitos locales y prueba otra versión del estilo."""
+    with LOCK_ESTILOS_IA:
+        ficha = _ficha_estilo_ia(sid)
+        if not ficha.get('analisis') or ficha['estado'] not in ('analizado', 'preparado', 'error_preparacion', 'cancelado_preparacion', 'interrumpido_preparacion'):
+            raise ErrorApi(409, 'termina el análisis del vídeo primero')
+        if TRABAJOS_ESTILOS_IA.listar(activos=True):
+            raise ErrorApi(409, 'espera a que termine el trabajo de estilo en marcha')
+        tid = TRABAJOS_ESTILOS_IA.lanzar('preparar_estilo_ia', _estilos_ia().preparar,
+                                       raiz_proyectos(), sid, _presets())
+        INDICE_ESTILOS_IA[sid] = tid
+    return {'estilo': _ficha_estilo_ia(sid)}
+
+
+@app.get("/api/estilos-ia/{sid}/muestra")
+def muestra_espacio_estilo_ia(sid: str):
+    """Clip de comprobación técnica de la última versión preparada del estilo."""
+    ficha = _ficha_estilo_ia(sid)
+    marca = ficha.get('espacio') or {}
+    version = marca.get('version')
+    if type(version) is not int or version < 1:
+        raise ErrorApi(404, 'el estilo no tiene una muestra preparada')
+    ruta = _estilos_ia().carpeta(raiz_proyectos(), sid) / 'versiones' / f'v{version}' / 'muestra' / 'clip.mp4'
+    if not ruta.is_file():
+        raise ErrorApi(404, 'falta el clip de muestra del estilo')
+    return FileResponse(str(ruta), media_type='video/mp4')
+
+
 # ------------------------------------------------------------------ endpoints
 
 def _rescatar_del_taller(ficha, carpeta):
@@ -10515,7 +10817,8 @@ def listar_presets_light():
     # existiendo y siguen siendo del modo editor: no se ensenan ni se tocan.
     fichas = (_preset_o_400(lambda p: p.listar())["presets"] or {}).get("canal") or []
     for ficha in fichas:
-        _curar_muestras(ficha)
+        if not ((ficha.get('datos') or {}).get('origen') or {}).get('estilo_ia'):
+            _curar_muestras(ficha)
     return {"presets": fichas,
             "idiomas": [{"valor": c, "nombre": presets.NOMBRES_IDIOMA.get(c, c)}
                         for c in light.IDIOMAS],
@@ -10794,6 +11097,11 @@ def duplicar_preset_light(preset_id: str, cuerpo: dict = Body(default=None)):
     # las muestras sueltas, que no son params y por tanto no viajan en `datos`
     viejas = presets.carpeta_de(preset_id)
     destino = presets.carpeta_de(nueva["id"])
+    if (origen or {}).get('estilo_ia'):
+        fuente_ia = os.path.join(viejas, 'estilo_ia', 'manifiesto.json')
+        if not os.path.isfile(fuente_ia):
+            raise ErrorApi(409, 'falta el manifiesto del estilo IA original')
+        shutil.copytree(os.path.join(viejas, 'estilo_ia'), os.path.join(destino, 'estilo_ia'), dirs_exist_ok=True)
     for nombre_fichero in (origen.get("muestras") or []):
         una = os.path.join(viejas, os.path.basename(str(nombre_fichero)))
         if os.path.exists(una):

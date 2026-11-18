@@ -213,6 +213,53 @@ class Editorial(unittest.TestCase):
         self.assertTrue((trabajo / "narracion.json").exists())
         self.assertFalse((trabajo / "guion.json").exists())
 
+    def test_reintentar_tras_fallar_direccion_recupera_fases_sin_reescribir_narracion(self):
+        modo = dict(generar_personajes=True, incorporar_voz=True)
+        params = dict(escaleta_previa=True, sistema_personajes=modo, reintentos=0)
+        respuestas = [(json.dumps(escaleta()), {}), (json.dumps(narracion()), {}),
+                      p3_guion.TiempoAgotado('dirección interrumpida')]
+        with patch.object(p3_guion.personajes, 'contexto', return_value=modo), \
+                patch.object(p3_guion, '_llamar_claude', side_effect=respuestas):
+            with self.assertRaises(p3_guion.TiempoAgotado):
+                p3_guion.ejecutar(self.proyecto, params, lambda *a: None)
+        trabajo = Path(self.proyecto.ruta_trabajo('guion', crear=False))
+        original = json.loads((trabajo / 'narracion.json').read_text(encoding='utf-8'))
+        direccion = dict(personajes_automaticos=[], bloques=[dict(id=b['id'], personajes_visibles=[],
+            descripcion_visual='Panel con una tubería.', escenas_visuales=[dict(texto=f,
+                descripcion_visual=f'Panel con sección {i} y válvula propia.', personajes_visibles=[])
+                for i, f in enumerate(p3_guion.medios.motor('guion/segmentar.py').frases_del_texto(b['texto']))])
+            for b in narracion()['bloques']])
+        with patch.object(p3_guion.personajes, 'contexto', return_value=modo):
+            _, doc, cli = self.ejecutar([direccion], params)
+        self.assertEqual(cli.call_count, 1)
+        self.assertEqual([marcas_tts.limpiar(b['texto']) for b in doc['guion']],
+                         [marcas_tts.limpiar(b['texto']) for b in original['bloques']])
+        self.assertIn('LISTA EXACTA calculada por el segmentador', cli.call_args.args[0])
+        self.assertFalse(Path(p3_guion._recuperacion_editorial(str(trabajo), 'narracion_guion')).exists())
+
+    def test_recuperacion_no_reutiliza_un_encargo_o_ajuste_distinto(self):
+        opciones = p3_guion._normalizar(dict(escaleta_previa=True))
+        firma = p3_guion._firma_recuperacion_editorial('Encargo A', opciones)
+        self.assertNotEqual(firma, p3_guion._firma_recuperacion_editorial('Encargo B', opciones))
+        self.assertNotEqual(firma, p3_guion._firma_recuperacion_editorial('Encargo A', dict(opciones, modelo='sonnet')))
+
+    def test_reintento_visual_recibe_entrega_previa_y_frases_exactas(self):
+        modo = dict(generar_personajes=True, incorporar_voz=True)
+        b = dict(id='B001', texto='Primera frase. Segunda frase.', personaje_id='', personajes_visibles=[], descripcion_visual='')
+        erronea = dict(personajes_automaticos=[], bloques=[dict(id='B001', personajes_visibles=[], descripcion_visual='Dos paneles.',
+            escenas_visuales=[dict(texto=b['texto'], personajes_visibles=[], descripcion_visual='Una escena agrupada incorrectamente.')])])
+        correcta = dict(personajes_automaticos=[], bloques=[dict(id='B001', personajes_visibles=[], descripcion_visual='Dos paneles.',
+            escenas_visuales=[dict(texto='Primera frase.', personajes_visibles=[], descripcion_visual='Se abre la válvula.'),
+                             dict(texto='Segunda frase.', personajes_visibles=[], descripcion_visual='Sale agua por la tubería.')])])
+        trabajo = self.proyecto.ruta_trabajo('guion')
+        opciones = p3_guion._normalizar(dict(sistema_personajes=modo, reintentos=1))
+        with patch.object(p3_guion, '_llamar_claude', side_effect=[(json.dumps(d), {}) for d in (erronea, correcta)]) as cli:
+            salida, _, _, _ = p3_guion._dirigir_narracion({}, [b], opciones, {}, trabajo, lambda *a: None)
+        self.assertEqual(len(salida[0]['escenas_visuales']), 2)
+        self.assertEqual(salida[0]['texto'], b['texto'])
+        self.assertIn('2 esperadas, 1 recibidas', cli.call_args.args[0])
+        self.assertIn('Una escena agrupada incorrectamente.', cli.call_args.args[0])
+
     def test_guion_propio_y_correccion_local_no_abren_escaleta(self):
         original = narracion()
         _, doc, cli = self.ejecutar([original], dict(guion_propio=True))

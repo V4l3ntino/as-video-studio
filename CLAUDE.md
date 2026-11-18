@@ -1,5 +1,232 @@
 # AS Video Studio — lo que hay que saber antes de tocarlo
 
+## Espacios de trabajo de Estilos con IA
+
+`assets.params.animacion_nativa=true` + `estilo.espacio_ia` activa la ruta de
+`pasos/animacion_nativa.py` ANTES de `_ejecutar_base`: no llama al generador de
+imágenes. Recetas omiten catálogo/guía/cartelas/dirección/piezas de ilustración;
+conservan corte, voz, capas y montaje. Estilos publicados nuevos propagan el modo;
+anteriores NO se migran al abrirlos. El constructor recibe un contrato de actores,
+herramientas reutilizables y muestra sin imagen de entrada. Versiones selladas no
+se modifican; código por escena ejecutado por copia local del ejecutor actual.
+Fuente/procedencia persisten fuera de trabajo bajo estilo_ia/escenas_nativas.
+El recibo solo aparece tras render y control temporal; los PNG son pósteres del
+clip para compatibilidad con P7, no imágenes generadas ni entrada del motor.
+Previa exige recibos nativos; PNG antiguos no cuentan como escenas terminadas.
+Las acciones declaradas y variación de cinco frames NO certifican semántica ni
+fidelidad: `calidad_verificada=False`. No anunciar calidad comparable sin revisar
+una muestra. Prueba offline con FFmpeg: `python pasos/prueba_animacion_nativa.py`.
+
+La dirección `edicion` de una escena nativa admite texto no vacío O un objeto
+con encuadre/ritmo/transiciones textuales no vacíos; conserva también sus campos
+de evidencia. La entrega real S001 ya contenía esas decisiones, pero el validador
+solo aceptaba str y bloqueaba cada reintento de la misma caché. No borres ni
+reconsultes fuentes guardadas por esta incompatibilidad de formato. La prueba
+nativa cubre ambas representaciones y rechaza objetos vacíos/incompletos.
+
+En acciones nativas, el límite superior admite exclusivamente ruido absoluto de
+coma flotante <=1e-9 s (rel_tol=0): S002 dura 1.98-.934=1.0459999999999998,
+pero su clave final válida dice 1.046. No redondees ni reescales poses, código o
+duración, ni toleres claves repetidas/desordenadas o negativas por este motivo.
+
+El tic de `seguirTrabajo` consulta planos terminados cada 2 s también durante
+montaje (que puede incluir assets), sin depender de eventos SSE por clip. El
+refresco nativo conserva la selección y no salta de un clip ya abierto al nuevo.
+Durante escucha/edición, reemplaza solo `.previa-lateral`, no el reproductor.
+Para planes nativos `aplicar_recursos` busca trabajo antes de la versión activa:
+un recibo anterior con la misma narración no debe esconder el clip recién rehecho.
+Regresión navegador: montaje sin eventos descubre tarjeta nueva conservando nodo
+de vídeo, selección, reloj y escucha. Regresión Python cubre prioridad de recibos.
+
+Refresco nativo: `/assets/hechos` DEBE usar `_plan_de_previsualizacion(ctx)` al
+comparar recibos, no `p6.plan_actual` sin replanificar. Caso real: v4 todavía tiene
+prompts de ilustraciones, trabajo contiene clips con prompts actuales; la previa
+devuelve 9 clips, pero hechos devolvía 0 y el JS no detectaba novedades. No relajes
+la igualdad del prompt en los recibos: unifica el plan como se hace en medios
+manuales. Regresión nativa de API: plan antiguo no acepta recibos actuales, el
+endpoint usa el plan de la previa y descubre S001, también en respuesta ligera.
+
+Las referencias NUEVAS llevan `analisis_eficiente=True`; `cambiar_analista` lo
+activa al pedir expresamente otro análisis. Reintentar referencias antiguas no
+cambia el modo ni invalida sus lotes. No cambies VERSION por añadir esta opción.
+`pasos/movimiento_video.py` y el worker local `movimiento.py` usan el entorno
+PySceneDetect/OpenCV existente, no nuevas dependencias ni APIs. Procesan todos
+los frames a 320×180, con Lucas–Kanade ida/vuelta, RANSAC y residual por rejilla;
+reinician en cortes, rechazan baja coherencia y conservan ausencia de textura.
+Desplazamiento se mide en el CENTRO (un zoom centrado no es traslación); velocidades
+y aceleración usan PTS reales. No identificar alpha, personajes ni cámaras a partir
+de flujo/luminosidad. `movimiento.json` guarda medidas completas; el informe incluye
+resúmenes por ventana y hasta 60 bloques de contexto global para no inflar tokens.
+`ventanas_ia` selecciona <=12 ventanas por diversidad temporal/movimiento: <=6
+consultas visuales y síntesis, esfuerzo medium. La firma del índice eficiente
+incluye ambos códigos de movimiento y separa ese encargo del antiguo; no se borran
+cachés anteriores. `_grupos_inspeccion` es la fuente común de grupos para solicitud
+de síntesis y ejecución. Las ventanas pueden NO ser contiguas: cruza narración por
+unión de tramos, no entre extremos; calcula cobertura por IDs, no por prefijo.
+`muestreo_selectivo` distingue finalizar la selección prevista de ver cada plano;
+`parcial` sigue indicando corte anticipado del usuario. El informe global no debe
+decir que la IA vio todos los planos. Prueba `pasos/prueba_movimiento_video.py --real`:
+traslación, zoom, rotación, estático, sin textura y vídeo completo con selección.
+La medición local del vídeo real de 309 s/18562 frames tardó ~71 s incluida la
+instalación; NO se ha medido el tiempo real del nuevo flujo de IA ni su fidelidad.
+
+Las referencias con audio se transcriben automáticamente ANTES de analizar con
+Claude o ChatGPT (`pasos/transcripcion_estilo.py`). Whisper corre en un proceso CPU/int8
+con dependencias/modelos locales en `transcripcion/whisper`, no en el intérprete
+del servicio. No utiliza API ni tokens. La transcripción manual es solo un
+override explícito; no guardes el texto automático en ese campo o se saltará
+Whisper en los reintentos. `resultado.json` guarda texto y marcas, con firma de
+vídeo, modelo y contrato. Una transcripción incompleta/cancelada no se cachea.
+Sin pista de audio no descargues modelos; sin habla no inventes narración.
+
+`pasos/analisis_video.py` mide todos los frames con FFmpeg; los límites los decide
+`pasos/deteccion_escenas.py` con PySceneDetect, NO el umbral de `scdet`. El worker
+`motores/deteccion_escenas/detectar.py` procesa frames BGR de FFmpeg por pipe sin
+saltos ni remuestreo de FPS, comprueba el recuento y cruza índices con los PTS del
+barrido (también VFR). AdaptiveDetector filtra por cambio relativo; ContentDetector
+cubre solo extremos sin vecinos; ThresholdDetector busca negro y blanco (este
+último sobre imagen invertida para evitar el arranque asimétrico de CEILING en
+0.6.7, sin compartir su average_rgb con negro). No mezcles todos los cortes de
+ContentDetector con los adaptativos: reintroduce falsos positivos por movimiento.
+Los límites siguen siendo candidatos, no efectos identificados. Contexto de ambos
+lados de cada plano ayuda a la IA a estudiar transiciones sin mezclar narraciones.
+`escenas.json` y `metricas_escenas.csv` conservan procedencia y medidas completas;
+la firma incluye código, configuración y requisitos. Un fallo/cancelación o recuento
+incompleto NO da por segmentado el vídeo ni cambia silenciosamente a FFmpeg.
+PySceneDetect 0.6.7/OpenCV headless 4.11.0.86/NumPy 2.2.6 viven separados del servicio
+y de Whisper, bajo `analisis_visual/pyscenedetect`, con `requirements-escenas.txt`.
+Verificados con instalación limpia. Prueba: `python pasos/prueba_deteccion_escenas.py`;
+`--real` instala las dependencias y prueba cortes, fundidos, VFR y cinco minutos
+completos sin llamadas a IA. No subas versiones sin repetir estas pruebas.
+
+Tras segmentar,
+la IA examina intervalos <=8 s con secuencias de hasta 24 frames y una imagen
+de detalle <=1920 px, NO cada píxel de cada frame. El proveedor es explícito:
+Claude Sonnet/high o `codex.texto` con sesión ChatGPT, sin fallback ni imágenes
+pagadas. Las cachés dependen de vídeo, algoritmo, proveedor y transcripción;
+valida todas las áreas, intervalos y evidencias propias antes de conservar un lote.
+No borres lotes completos al cancelar.
+`POST /api/estilos-ia/{sid}/sintetizar` guarda `sintesis_solicitada.json` con la firma
+de vídeo/proveedor/transcripción. `examinar` termina el lote en curso, carga todos
+los lotes completos contiguos y no inicia pendientes; nunca publica cero lotes.
+No uses cancelar el trabajo para pasar a síntesis. Puede retomar una inspección
+fallida/interrumpida sin lanzar dos trabajos simultáneos ni modificar publicados.
+La petición persiste al reintentar errores de síntesis; `cambiar_analista` y
+`corregir_transcripcion` la retiran al pedir un recorrido nuevo. No cambies VERSION:
+las cachés pagadas se conservan. Progreso lleva etapa (`lotes`/`sintesis`) y cobertura
+real; `inspeccion_finalizada` permite abrir también informes parciales. La síntesis
+parcial solo adjunta hojas del tramo examinado y segmentos de voz solapados, y
+declara explícitamente el alcance; no presentes los cortes locales del vídeo
+completo como observaciones de IA. Cobertura viaja en informe, manifiesto y encargo
+del constructor. Contratos de corte/reanudación y UI en `prueba_analisis_video.py`
+y `prueba_estilos_ia.py --real` (proveedores simulados).
+
+El informe global se guarda ANTES de `validar_analisis`, bajo
+`analisis_visual/informes_globales/<firma>.json`. Firma por proveedor, prompt y
+contenido de adjuntos; una entrega inválida tampoco se vuelve a pagar al reintentar.
+Los límites salen de `estilos_ia.LIMITES_TEXTO_ANALISIS` tanto en validador como en
+JSON Schema y prompt. El resumen real de 1617 caracteres era válido pero se perdía
+por el antiguo tope oculto de 1500; ahora admite 6000 y conserva el texto íntegro.
+Errores nombran campo/longitud/máximo, sin truncar ni inventar contenido. No cambies
+VERSION del análisis por esto: los lotes ya completados deben seguir reutilizándose.
+
+Claude usa `--json-schema` en inspección, síntesis y análisis global. El adaptador
+lee `structured_output` incluso si `result` está vacío; solo exige ese campo cuando
+se solicitó el esquema, sin afectar las llamadas normales. Mantén Read acotado.
+Respuestas JSON: `interpretar_respuesta` admite envoltorios y comas finales fuera
+de cadenas. El fallo real del lote 8 omitía el cierre de `areas` en AMBAS ventanas:
+`_cerrar_areas_completas` solo añade ese cierre ante `evidencias` si están las siete
+claves únicas con sus textos completos; no reconstruye cadenas ni áreas ausentes.
+Valida siempre el lote después, incluidos IDs/evidencias. Conserva entregas
+con errores en `analisis_visual/respuestas/` y nombra proveedor/lote en el fallo.
+No repitas automáticamente llamadas por un error de formato ni cambies VERSION
+por cambios del parser: se perdería la reutilización de lotes ya pagados. Siempre
+valida contenido/evidencias después de recuperar la sintaxis.
+
+El desfase audio/vídeo se aplica al cruzar
+segmentos con ventanas visuales. `analista_del_informe` distingue un informe previo
+de un reanálisis fallido. No permitas preparar tras un análisis pendiente/fallido
+ni cambiar el analista de estilos publicados. El manifiesto conserva el informe.
+La selección afecta al análisis, no al constructor/dirección posterior (Claude).
+Contrato aislado: `python pasos/prueba_analisis_video.py --real` (FFmpeg sin IA).
+El FFmpeg empaquetado usa `-/filter:v` y `-fps_mode passthrough`; las opciones
+antiguas `-filter_script:v` y `-vsync` ya no existen en esa versión.
+
+`requirements-whisper.txt` fija un entorno aparte: faster-whisper 1.2.1 falla con
+PyAV 19 (`av.open` ya no admite `metadata_errors`). PyAV 15.1.0 conserva el contrato,
+comprobado con instalación limpia y reconocimiento real. No subas versiones sin
+repetir esa prueba. Una transcripción no es una escucha de música/foley ni identifica
+locutores: el prompt debe conservar esa distinción. Prueba offline:
+`python pasos/prueba_transcripcion_estilo.py`; `--real` necesita red para los pesos
+y usa una muestra pública, sin llamadas a servicios de pago.
+
+Aquí «sandbox» significa una carpeta autocontenida, NO virtualización.
+`pasos/estilos_ia.py` analiza y publica versiones inmutables;
+`pasos/espacio_estilo.py` prepara herramientas, recursos y requisitos locales.
+Las dependencias se instalan con `pip --target`, nunca en el intérprete del
+servicio. `motores/estilo_ia/ejecutor.py` se copia y sella con el paquete: ejecuta
+el motor generado en otro proceso con `-I -S`, cwd/cachés propios y sin las
+credenciales del servicio. No es una frontera de seguridad frente a código hostil.
+
+`assets.params.reparto_animaciones={carga_claude:0..100}`
+reparte la dirección por escenas enteras (resto a Claude), no imágenes/guion/voz.
+Ausencia conserva comportamiento previo: motor IA Claude 100%; Stickman utiliza
+`bibliotecas.carga_claude` histórico. No persistas el valor inicial al abrir Encargo.
+El control nuevo tiene su campo propio en `CAMPOS_ENCARGO`, independiente de las
+búsquedas de bibliotecas. Formularios Stickman antiguos conservan su campo histórico.
+`reparto_animaciones.py` valida enteros estrictos, fija proveedores sobre TODO el
+plan elegible para no rebalancear al retomar una escena. `espacio_estilo.dirigir`
+admite Claude o `codex.texto`, sin fallback; el render sigue siendo local y el
+constructor no cambia. El recibo conserva proveedor. No incluyas el porcentaje
+en la firma de clips: mover el control no debe pagar de nuevo dirección válida.
+Regresión aislada: `python pasos/prueba_reparto_animaciones.py`; navegador en
+`prueba_estilos_ia.py --real` prueba guardado, reapertura y ausencia de mutaciones
+del guion. El cambio de reparto solo invalida desde assets, no narración ni voz.
+
+El fallo de cuota con carga_claude=0 estaba ANTES del motor: `_correr_direccion`
+seguía llamando a Claude para dirigir planos. Con reparto explícito ahora asigna
+planos con `reparto_animaciones.proveedores` sobre el plan COMPLETO dirigible,
+filtra los pendientes sin rebalancear y llama `direccion.proponer` por proveedor.
+ChatGPT usa `codex.texto`, no `_llamar_claude`; cada grupo recibe contexto de TODOS
+los planos y las decisiones previas. Al aplicar, guarda cada parte completada antes
+de llamar al siguiente proveedor para no perderla si falta cuota. Sin reparto
+explícito conserva la llamada histórica única. No es fallback automático ni
+selecciona otro proveedor para guion, catálogo, cartelas o constructor del estilo.
+
+En JS `seguirTrabajo` comprueba el estado si el SSE lleva >5 s sin datos, aunque
+haya emitido un primer progreso. El evento terminal se procesa ANTES de pintar
+paneles para que una excepción visual no oculte el error ni deje la barra viva.
+`vistaPreviaLight` muestra ERRORES persistentes, además del toast. La prueba de
+navegador simula un SSE abierto que pierde el fin y comprueba la recuperación
+automática del estado de cuota, sin iniciar ningún trabajo de proveedores.
+
+`assets.params.estilo.espacio_ia` selecciona la versión por huella. P6 conserva
+su generación de imágenes y después anima con la copia propia del vídeo;
+`<sid>.estilo_ia.json` se publica solo tras resolver clip y audio. No sobrescribas
+los PNG originales de P6 ni escribas params al leer. Previa y P8 resuelven el
+mismo recibo contra narración, prompt y duración actuales; una toma editada no
+hereda una animación con tiempos antiguos. Sonidos mezcla `sonidos_estilo_ia`
+por su pista, nunca dentro del clip visual. Un montaje con animaciones pendientes
+debe fallar, no disimularlo mostrando las imágenes estáticas.
+
+`estilo.guia` puede ser dict estructurado O texto libre de Estilos IA.
+`p7_callouts.paleta_de_guia` conserva la paleta base y colores fijados si la guía
+es texto; `diseno_sugerido` examina ese texto sin `.get`. No inventes una paleta
+estructurada ni cambies params al abrir el editor. El fallo real saltaba en
+`leer_editor_escena → leer_transicion_escena → _paleta_del_video`.
+`presets_canal.cambios_para` DEBE copiar `espacio_ia` junto a guía/referencias;
+guardarlo en la ficha y copiar el paquete no bastan para activar P6. Al aplicar un
+estilo normal retira esa marca para no heredar el motor anterior. Conserva también
+la marca en `datos_de_params`. Regresión de editor con guía textual sin mutación:
+`prueba_editor_escena.py`; pipeline real del motor usa ahora `cambios_para`, no
+los datos crudos del preset (`prueba_estilos_ia.py --real`).
+
+Fuentes y requisitos viajan al duplicar/exportar; dependencias, cachés y trabajo
+dentro de `estilo_ia/paquetes/<huella>` no viajan. No cambies fuentes de una
+versión publicada: prepara otra. No afirmes fidelidad por haber codificado una
+muestra técnica. Contratos: `python pasos/prueba_estilos_ia.py`; `--real` prueba
+ffmpeg/navegador y motores locales, con dobles de IA sin consumir cuota.
+
 ## Entrega y espera del guion
 
 La redaccion usa **Opus/medium** por defecto; los params explicitos siguen
@@ -29,6 +256,25 @@ El mapa de bloques sale de la escaleta previa, no de una justificacion posterior
 No uses la direccion para corregir una narracion: debe fallar si intenta cambiarla.
 Las estadisticas de escaleta/narracion/direccion son distintas; conserva el
 enganche `_llamar_claude` del medidor de coste para todas las llamadas.
+
+La dirección recibe una LISTA EXACTA de `escenas_visuales` por bloque, calculada
+con el mismo segmentador y `marcas_tts.limpiar` que `personajes.preparar_intervenciones`.
+No flexibilices la validación ni repartas automáticamente una descripción entre
+varias frases: cada escena necesita su propia acción y sus IDs declarados (o []).
+El fallo real tenía primero escenas sin `personajes_visibles` y después frases
+agrupadas; los errores ahora nombran el campo ausente o los recuentos esperados.
+Al corregir dirección, `_pedir` conserva la respuesta JSON anterior también ante
+errores de contrato para que el modelo pueda corregirla sin inventar otra narración.
+
+Si la dirección falla, `_recuperacion_editorial/{escaleta_guion,narracion_guion}.json`
+fuera de `trabajo/` conserva SOLO fases validadas sin motivos pendientes. Firma por
+instrucción completa y opciones normalizadas; al reintentar el mismo encargo se
+vuelven a validar esas entregas sin CLI ni nuevas medidas de coste/tiempo de modelo.
+Al publicar `guion.json` se retiran los dos ficheros pendientes. No es una caché
+permanente de redacción: tras completar, regenerar sigue siendo una decisión nueva.
+No conviertas `escaleta.json`/`narracion.json` de trabajo en fuente ciega de recuperación.
+Pruebas de timeout, recuperación, inmutabilidad y corrección con respuesta previa:
+`python pasos/prueba_editorial_guion.py` (sin proveedores).
 
 Una auditoria real encontro 22 palabras de tema para 2.261 palabras de guion,
 sin dosier ni referencia inglesa, y una guia que exigia anunciar una revelacion

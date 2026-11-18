@@ -137,7 +137,7 @@ TIPOS = {
         # derivado, y dejar que viajara desde el navegador seria dejar que el
         # preset dijera que tiene referencias dibujadas que nadie ha mirado.
         "claves": ("referencias", "guia", "url", "moodboard",
-                    "calidad", "min_s", "max_s", "min_s_rotulos", "stickman"),
+                    "calidad", "min_s", "max_s", "min_s_rotulos", "stickman", "espacio_ia", "animacion_nativa"),
         "pasos": ("assets",),
     },
     # El id se queda en 'rotulos' aunque ya no haya rotulos: es la clave con la
@@ -198,7 +198,7 @@ CLAVES_ORIGEN = ("estilo_prompt", "estilo_imagenes", "tono_prompt",
                  # Descripciones cortas de lo que salio, para poder ENSENAR el
                  # estilo sin abrirlo entero. No son params: no se aplican a
                  # ningun paso, solo se leen.
-                 "tono_resumen", "estilo_resumen", "muestras")
+                  "tono_resumen", "estilo_resumen", "muestras", "estilo_ia")
 
 # Orden en el que se ensenan y en el que se aplican. El guion va primero porque
 # el resto se lee en el: la voz hereda el idioma que fija el guion.
@@ -250,6 +250,12 @@ def _limpiar_datos(tipo, datos):
         from pasos import stickman
         try:
             limpios['stickman'] = stickman.estilo(limpios['stickman'])
+        except ValueError as fallo:
+            raise ErrorPreset(str(fallo)) from fallo
+    if tipo == 'estilo' and 'espacio_ia' in limpios:
+        from pasos import espacio_estilo
+        try:
+            limpios['espacio_ia'] = espacio_estilo.validar_marca(limpios['espacio_ia'])
         except ValueError as fallo:
             raise ErrorPreset(str(fallo)) from fallo
     if tipo == "montaje":
@@ -673,7 +679,7 @@ def leer(pid):
     raise ErrorPreset(f"no hay ningun preset con id {pid!r}")
 
 
-def guardar(tipo, nombre, datos, nota="", miniatura="", pid=None):
+def guardar(tipo, nombre, datos, nota="", miniatura="", pid=None, _preparar_ficheros=None):
     """Guarda un preset nuevo, o sustituye el contenido de uno que ya existe.
 
     `miniatura` es una de las rutas de `datos['referencias']` (solo tipo
@@ -707,6 +713,10 @@ def guardar(tipo, nombre, datos, nota="", miniatura="", pid=None):
 
         limpios, ruta_miniatura = _sembrar_ficheros(tipo, identificador, limpios,
                                                     miniatura, anterior)
+        # Los paquetes con herramientas deben estar completos ANTES de aparecer
+        # en la galería. El callback interno no cambia el formato de los presets.
+        if _preparar_ficheros is not None:
+            _preparar_ficheros(carpeta_de(identificador))
 
         ficha = {
             "id": identificador,
@@ -1102,11 +1112,18 @@ def cambios_para(ficha, params_actuales=None):
             estilo['stickman'] = copy.deepcopy(datos['stickman'])
         else:
             estilo.pop('stickman', None)
+        if datos.get('espacio_ia'):
+            from pasos import espacio_estilo
+            estilo['espacio_ia'] = espacio_estilo.validar_marca(datos['espacio_ia'])
+        else:
+            # Cambiar a un estilo normal no debe heredar el motor anterior.
+            estilo.pop('espacio_ia', None)
         if rutas:
             estilo["referencias"] = rutas
         if datos.get("guia"):
             estilo["guia"] = copy.deepcopy(datos["guia"])
         cambios["assets"] = {"estilo": estilo}
+        cambios['assets']['animacion_nativa'] = datos.get('animacion_nativa') is True and bool(datos.get('espacio_ia'))
         # la calidad y la duracion de plano son params sueltos de assets, no van
         # dentro del diccionario 'estilo'
         for clave in ("calidad", "min_s", "max_s", "min_s_rotulos"):
@@ -1206,7 +1223,9 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
 
     if "estilo" in incluir:
         bloque = {}
-        for clave in ("referencias", "guia", "url", "stickman"):
+        if assets.get('animacion_nativa') is True:
+            bloque['animacion_nativa'] = True
+        for clave in ("referencias", "guia", "url", "stickman", "espacio_ia"):
             if estilo.get(clave):
                 bloque[clave] = copy.deepcopy(estilo[clave])
         for clave in ("calidad", "min_s", "max_s", "min_s_rotulos"):

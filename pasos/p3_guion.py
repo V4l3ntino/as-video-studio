@@ -96,11 +96,13 @@ De ahi las tres reglas que gobiernan ahora los reintentos:
      entrega el primero y se dice.
 """
 import copy
+import hashlib
 import json
 import os
 import re
 import subprocess  # noqa: F401  (las pruebas sustituyen p3_guion.subprocess.Popen)
 import time
+from nucleo.proyecto import leer_json, escribir_json as escribir_recuperacion
 
 try:
     from . import animaciones, cli_claude, comun, cta, editorial_guion, estadisticas, fuentes, marcas_tts, medios, personajes
@@ -1295,6 +1297,10 @@ def _generar_escaleta(transcript, metadatos, brief, opciones, idioma, trabajo, a
 
 def _dirigir_narracion(datos, bloques, opciones, brief, trabajo, avisar):
     """Direccion posterior: solo puede agregar metadatos a la narracion final."""
+    segmentador = medios.motor('guion/segmentar.py')
+    frases_exactas = [dict(id=b['id'], escenas_visuales=[dict(texto=frase,
+        personajes_visibles=[], descripcion_visual='Sustituye por una acción propia de esta frase.')
+        for frase in segmentador.frases_del_texto(marcas_tts.limpiar(b['texto']))]) for b in bloques]
     prompt = ("Dirige visualmente esta narracion TERMINADA. No escribas ni cambies "
         "texto, orden, IDs o hablantes. Conserva las identidades del reparto ya definido; "
         "puedes agregar personajes visuales necesarios. Devuelve SOLO JSON con "
@@ -1305,7 +1311,11 @@ def _dirigir_narracion(datos, bloques, opciones, brief, trabajo, avisar):
             personajes_automaticos=datos.get("personajes_automaticos") or [],
             idioma=brief.get("idioma_salida") or "es", velocidad=brief.get("velocidad")), ensure_ascii=False)
         + "\nEl contrato de ESTA entrega prevalece: solo metadatos visuales. "
-          "Cada escenas_visuales.texto es la frase literal sin etiquetas de voz.")
+          "Cada escenas_visuales.texto es la frase literal sin etiquetas de voz.\n"
+        + 'LISTA EXACTA calculada por el segmentador de la aplicación. Conserva cada entrada y su texto, '
+          'sin juntar ni dividir frases. Completa descripcion_visual y personajes_visibles en CADA entrada; '
+          'la lista de personajes es obligatoria aunque sea []. Usa solo IDs declarados en el reparto.\n'
+        + json.dumps(frases_exactas, ensure_ascii=False))
 
     def comprobar(respuesta):
         try:
@@ -1319,7 +1329,10 @@ def _dirigir_narracion(datos, bloques, opciones, brief, trabajo, avisar):
         return []
 
     respuesta, sobre, intentos, _ = _pedir(
-        lambda correcciones, previo: prompt + ("\nCorrige el contrato: " + "; ".join(correcciones) if correcciones else ""),
+        lambda correcciones, previo: prompt + ("\nCorrige el contrato: " + "; ".join(correcciones) if correcciones else "")
+            + ('\nEntrega visual anterior que debes corregir SIN reescribir la narración:\n'
+               + json.dumps({k: v for k, v in previo.items() if not k.startswith('_')}, ensure_ascii=False)
+               if previo else ''),
         opciones, trabajo, avisar, (.65, .95), "dirigiendo la narracion terminada",
         estadisticas.estimar("direccion_guion", sum(marcas_tts.contar_palabras(b["texto"]) for b in bloques),
             ajuste={k: opciones[k] for k in ("modelo", "esfuerzo")}),
@@ -1789,6 +1802,16 @@ def _avisos(bloques, palabras, brief, idioma):
 
 # ------------------------------------------------------------------ redaccion
 
+def _firma_recuperacion_editorial(instruccion, opciones):
+    return hashlib.sha256(json.dumps([instruccion, opciones], sort_keys=True,
+        ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def _recuperacion_editorial(trabajo, fase):
+    # Fuera de trabajo/: preparar_trabajo lo vacía al pulsar Reintentar.
+    return os.path.join(os.path.dirname(trabajo), '_recuperacion_editorial', fase + '.json')
+
+
 def _pedir(instruccion, opciones, trabajo, avisar, tramo, mensaje, prevision,
            nombre_fichero, comprobar, fase=FASE_REDACCION):
     """Una peticion al CLI con sus reintentos, su reloj y sus correcciones.
@@ -1838,8 +1861,19 @@ def _pedir(instruccion, opciones, trabajo, avisar, tramo, mensaje, prevision,
             avisar, intento_desde, intento_hasta, prevision,
             f"{mensaje} (intento {intento})")
         avance.arrancar()
+        recuperable = fase in ('escaleta_guion', 'narracion_guion')
+        recuperacion = None
+        firma_recuperacion = _firma_recuperacion_editorial(instruccion_actual, opciones) if recuperable else None
+        if recuperable:
+            recuperacion = leer_json(_recuperacion_editorial(trabajo, fase), None)
+            if not isinstance(recuperacion, dict) or recuperacion.get('firma') != firma_recuperacion:
+                recuperacion = None
         try:
-            texto, sobre = _llamar_claude(instruccion_actual, opciones, trabajo, avance)
+            if recuperacion:
+                avisar(intento_desde, f'recuperando {fase} ya completada; sin otra llamada al modelo')
+                texto, sobre = recuperacion['texto'], recuperacion['sobre']
+            else:
+                texto, sobre = _llamar_claude(instruccion_actual, opciones, trabajo, avance)
         except RuntimeError as fallo:
             tardado = avance.parar()
             reintentable = (not isinstance(fallo, SIN_REINTENTO)
@@ -1865,11 +1899,13 @@ def _pedir(instruccion, opciones, trabajo, avisar, tramo, mensaje, prevision,
         # completa antes de analizarla, incluso si no pasa la validacion.
         comun.escribir_texto(
             os.path.join(trabajo, f"entrega_{nombre_fichero}_{intento}.txt"), texto)
-        estadisticas.anotar(fase, tardado,
+        if not recuperacion:
+            estadisticas.anotar(fase, tardado,
                             tamano=prevision.get("tamano", 0),
                             ajuste={"modelo": opciones["modelo"],
                                     "esfuerzo": opciones["esfuerzo"]})
         avisar(intento_hasta, "revisando lo que ha devuelto")
+        datos = None
         try:
             datos = _extraer_json(texto)
             motivos = comprobar(datos)
@@ -1882,9 +1918,12 @@ def _pedir(instruccion, opciones, trabajo, avisar, tramo, mensaje, prevision,
                     f"entrega el intento {mejor[2]}"]
             correcciones = [f"la respuesta anterior no se pudo leer ({fallo}). "
                             "Devuelve solo el objeto JSON pedido."]
-            previo = None
+            previo = datos if fase == 'direccion_guion' and isinstance(datos, dict) else None
             continue
 
+        if recuperable and not motivos:
+            escribir_recuperacion(_recuperacion_editorial(trabajo, fase),
+                dict(firma=firma_recuperacion, texto=texto, sobre=sobre))
         if mejor is None or len(motivos) < len(motivos_mejor):
             mejor, motivos_mejor = (datos, sobre, intento), motivos
         if not motivos or not _puede_reintentar(intento, tardado, opciones):
@@ -2250,6 +2289,10 @@ def _redactar(proyecto, params, avisar):
         os.path.join(trabajo, "guion.txt"),
         f"{titulo}\n\n"
         + "\n\n".join(f"{b['id']}  {b['texto']}" for b in guion) + "\n")
+    for fase in ('escaleta_guion', 'narracion_guion'):
+        ruta_recuperacion = _recuperacion_editorial(trabajo, fase)
+        if os.path.isfile(ruta_recuperacion):
+            os.unlink(ruta_recuperacion)
 
     segundos = time.time() - arranque
     estadisticas.anotar(PASO, segundos, tamano=palabras_material,

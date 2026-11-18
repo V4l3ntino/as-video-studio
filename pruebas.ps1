@@ -90,6 +90,13 @@ $suites = @(
   'pasos\prueba_editor_global.py',
   'pasos\prueba_remotion.py',
   'pasos\prueba_animaciones_ia.py',
+  'pasos\prueba_estilos_ia.py',
+  'pasos\prueba_animacion_nativa.py',
+  'pasos\prueba_transcripcion_estilo.py',
+  'pasos\prueba_analisis_video.py',
+  'pasos\prueba_deteccion_escenas.py',
+  'pasos\prueba_movimiento_video.py',
+  'pasos\prueba_reparto_animaciones.py',
   'pasos\prueba_piezas.py', 'pasos\prueba_conservar.py',
   'pasos\prueba_encuadres.py', 'pasos\prueba_presets.py',
   'pasos\prueba_presets_light.py', 'pasos\prueba_paquete_video.py', 'pasos\prueba_regresiones.py'

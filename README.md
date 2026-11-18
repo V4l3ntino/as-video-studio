@@ -53,6 +53,14 @@ todos los tramos en orden; el mapa ya no se inventa retrospectivamente.
 Si las ediciones manuales cambian las palabras después de redactarlas, se omite
 el mapa final para evitar una descripción desfasada.
 
+Si falla la dirección visual después de redactar, el siguiente intento puede
+reutilizar la escaleta y narración ya validadas, sin volver a pedir sus textos al
+modelo. Esa recuperación pendiente vive fuera de `trabajo/`, se comprueba contra
+el encargo y los parámetros exactos y se elimina al terminar el guion. Cambiar el
+encargo o los ajustes impide reutilizar una entrega distinta. El director recibe
+las frases exactas calculadas por el segmentador: no puede agruparlas, reescribir
+la narración ni omitir la lista de personajes de cada escena.
+
 Un tema breve no se presenta como un dosier verificado: se permite una explicación
 prudente de conocimientos generales, registrando qué información necesitaría
 fuentes y evitando citas, cifras y estudios fabricados. La aplicación no busca
@@ -84,6 +92,213 @@ propósito: es lo que más cambia entre dos vídeos del mismo canal, y guardarla
 el estilo obligaba a acordarse de cambiarlas en cada encargo.
 
 ---
+
+## Estilos con IA y su espacio de trabajo
+
+La pestaña **Estilos con IA** permite subir un vídeo MP4, MOV, WebM o MKV sin un tope
+de tamaño impuesto por la aplicación (hasta diez minutos). Los botones **Claude** y
+**ChatGPT** permiten elegir quién analiza la referencia y volver a analizarla antes
+de publicar el estilo. El analista propone
+un inventario de recursos para imagen, animación, montaje, guion, voz, música,
+sonidos y tipografía. **La voz se transcribe automáticamente con Whisper local**:
+no tienes que proporcionar el texto. La transcripción y sus marcas de tiempo
+entran en el análisis del guion, su estructura, tono, idioma y ritmo verbal.
+El análisis utiliza la sesión y cuota del proveedor elegido (ChatGPT mediante
+Codex), sin cambiar automáticamente de proveedor ni generar imágenes pagadas;
+la transcripción no llama a una API de pago ni necesita claves.
+
+El barrido local decodifica y mide **todos los fotogramas**. **PySceneDetect**
+procesa también el vídeo completo, sin saltar frames: su detector adaptativo busca
+cortes diferenciándolos de cambios sostenidos como movimientos de cámara; los
+detectores de umbral localizan posibles fundidos a negro y blanco. Conserva los
+límites de los planos y sus duraciones, estadísticas del ritmo de montaje y métricas
+por fotograma en `analisis_visual/escenas.json` y `metricas_escenas.csv`.
+Los tiempos se cruzan con las marcas reales de FFmpeg, no con un FPS supuesto,
+también en MKV de frecuencia variable. Son candidatos: puede haber falsos positivos
+y cortes no detectados; no se deduce automáticamente el tipo exacto de efecto.
+
+**Análisis eficiente para referencias nuevas:** OpenCV examina todos los frames
+con seguimiento de puntos Lucas–Kanade, comprobación ida/vuelta y ajuste de
+transformación con RANSAC. Mide desplazamiento, escala y rotación aparentes,
+velocidades/aceleraciones con tiempos reales, cambios de luz y movimiento residual
+en una rejilla de regiones. Los cortes reinician el seguimiento. La falta de textura
+o de correspondencias fiables se registra, no se convierte en movimiento cero
+verificado. Las métricas completas quedan en `analisis_visual/movimiento.json`.
+
+Se seleccionan **hasta 12 secuencias relevantes**, distribuidas entre inicio y final
+y con ejemplos de movimiento, escala, aceleración, variación de luz y movimiento
+local. Son **hasta seis consultas visuales y una síntesis global**, en vez de una
+consulta por cada dos intervalos del vídeo. Claude usa esfuerzo medio en este modo.
+La síntesis recibe las medidas de todo el vídeo (resumidas en hasta 60 bloques) y
+la transcripción, además de las observaciones visuales seleccionadas. Los informes
+distinguen cobertura local completa de muestreo visual selectivo: no se afirma que
+la IA haya visto todos los planos. No hay un tiempo de respuesta garantizado.
+
+Las medidas se estiman a 320×180 y **no recuperan capas, opacidad alpha ni rigs**:
+un cambio de luminosidad no demuestra opacidad; un movimiento global no demuestra
+una cámara; una región móvil no identifica a un personaje. Claude interpreta las
+técnicas probables usando medidas y evidencias, declarando estas incertidumbres.
+
+Los análisis anteriores mantienen sus cachés y recorrido al reintentar. Para usar
+el nuevo modo en un estilo no publicado, pulsa **Volver a analizar**; no se inicia
+automáticamente otra tanda ni se alteran estilos publicados.
+
+Los planos se dividen en intervalos de hasta ocho segundos. En los seleccionados la IA recibe
+secuencias adaptativas de hasta 24 fotogramas por intervalo, incluyendo contexto
+de ambos lados de los límites para examinar las transiciones, y una imagen de detalle
+sin ampliar, de hasta 1920 px. Examina encuadre, personajes, poses, materiales,
+iluminación, paleta, cámara, animación, grafismos, tipografía, transiciones y su
+relación con la narración temporizada. **No equivale a que la IA examine cada
+píxel de cada fotograma**, ni garantiza detectar todos los cortes o movimientos.
+Las fuentes, técnicas y detalles que no se distinguen deben declararse inciertos.
+
+**Ver el informe detallado por intervalos** muestra las observaciones, evidencias
+y dudas; los contadores distinguen fotogramas barridos y seleccionados para IA.
+El informe completo queda en `analisis_visual/informe_actual.json` y viaja en el
+manifiesto del estilo. Las tandas completas se conservan al parar/reintentar;
+cambiar de analista o corregir la transcripción separa las cachés. Según duración
+y número de cortes, el análisis puede tardar y consumir bastante cuota. La elección
+afecta al análisis; la construcción del motor y dirección posterior siguen usando
+Claude. Los estilos publicados conservan su análisis, sin cambios retroactivos.
+
+Tras completar al menos un lote aparece **Finalizar lotes y sintetizar**. Termina
+el lote que ya esté en curso y no inicia más: genera el informe global únicamente
+con los lotes completados. También funciona con los lotes guardados de un análisis
+interrumpido o fallido. **Parar** sigue siendo cancelar, no solicitar la síntesis.
+El informe se marca como **parcial**, con lotes/intervalos examinados, fotogramas
+seleccionados vistos y el tramo cubierto; el resto no se presenta como inspeccionado
+por IA. Esa cobertura viaja en el manifiesto y al constructor del motor. La síntesis
+no recibe hojas de planos pendientes ni narración temporizada ajena al tramo.
+Si falla la síntesis, reintentar conserva la decisión y reutiliza los lotes.
+La respuesta del informe global se guarda antes de validarla en
+`analisis_visual/informes_globales/`; un reintento con el mismo encargo y adjuntos
+la reutiliza sin otra consulta. Los errores de validación identifican el campo y
+su longitud, sin recortar texto automáticamente. El esquema de Claude y la
+validación local comparten los mismos límites de caracteres.
+**Volver a analizar** inicia de nuevo el recorrido completo reutilizando sus cachés;
+no modifica estilos ya publicados.
+
+PySceneDetect y OpenCV **headless** se instalan automáticamente en
+`analisis_visual/pyscenedetect/` del estilo al analizar la primera referencia;
+requiere internet, pero no claves ni cuota de IA. No cambian las dependencias del
+servicio ni las de Whisper. Las versiones probadas están en `requirements-escenas.txt`.
+
+Whisper usa `faster-whisper`/CTranslate2 en CPU con cálculo int8, sin instalar
+PyTorch ni requerir GPU. En la primera referencia con audio se instalan sus
+dependencias y se descargan los pesos dentro de `transcripcion/whisper/` del
+estilo (requiere internet y espacio en disco). No cambia el entorno Python del
+servicio. Las versiones viven en `requirements-whisper.txt`; las transitivas
+resueltas también se guardan localmente. El modelo predeterminado es `small`,
+multilingüe. `ESTUDIO_WHISPER_MODELO=tiny|base|small|medium|large-v3|turbo` permite
+elegir otro equilibrio entre precisión, memoria y tiempo.
+
+El texto con sus segmentos y palabras temporizadas queda en
+`transcripcion/resultado.json` y se conserva con el manifiesto del estilo al
+crear vídeos o exportarlo. Un reintento del análisis reutiliza la transcripción
+completada si el vídeo, modelo y contrato no han cambiado. Sin pista de audio no
+se instala ni ejecuta Whisper; si Whisper no detecta habla, se indica sin rellenar
+el texto. Un fallo de transcripción no se disimula como un análisis completo.
+
+Puedes desplegar **Transcripción** para revisar lo reconocido y corregirlo antes
+de publicar el estilo. **Corregir y volver a analizar** utiliza el texto revisado;
+vaciarlo vuelve al reconocimiento automático. También existe la opción avanzada
+de aportar un texto alternativo al subir el vídeo. Las transcripciones de estilos
+ya publicados quedan conservadas con su versión.
+
+Cada análisis conserva su referencia y sus archivos en una carpeta propia,
+fuera del programa: junto a los proyectos si están en un volumen externo o en
+los datos del usuario. `ESTUDIO_ESTILOS_IA` permite elegir otra ubicación.
+Incluye esa carpeta en las copias de seguridad. Puedes parar un análisis o
+reintentar uno fallido/interrumpido sin volver a subir el vídeo.
+Claude entrega las inspecciones y síntesis mediante el esquema JSON del CLI,
+además de la validación de contenido y evidencias de la aplicación. Si una entrega
+antigua tiene un error de formato reconocible (coma final o cierre de las siete
+áreas completas), se recupera localmente sin otra consulta. Si no se puede recuperar, se conserva la
+respuesta para diagnóstico y **Reintentar análisis** continúa reutilizando los
+lotes completados, sin inventar contenido ni repetirlos.
+
+Tras analizar, pulsa **Preparar herramientas y motor**. Claude construye un
+motor gráfico propio y sus herramientas/recursos originales, reutilizando la
+generación de imágenes y ffmpeg existentes sin modificar su código. Los recursos
+externos necesitan URL HTTPS pública, licencia declarada y SHA256 verificable.
+Cada versión queda en `versiones/v<N>/`, con esta organización:
+
+```text
+motores/       código gráfico específico del estilo
+herramientas/  adaptaciones y auxiliares propios
+recursos/      gráficos, tipografías y otros materiales del estilo
+referencias/   imágenes tomadas del vídeo de referencia
+requisitos/    dependencias solicitadas y versiones resueltas
+dependencias/  paquetes Python instalados localmente, nunca de forma global
+cache/         cachés y descargas locales
+trabajo/       archivos temporales de esta versión
+muestra/       clip de comprobación técnica del motor
+```
+
+La preparación instala únicamente versiones fijadas y ruedas binarias de PyPI,
+y comprueba resolución, duración y funcionamiento mediante una muestra animada.
+Puedes ver el clip y la ruta de la carpeta en la pantalla del estilo. Una entrega
+que falla no se anuncia como preparada; al reintentar una muestra fallida, el
+constructor recibe el diagnóstico para corregirla. Preparar otra versión no
+sobrescribe versiones anteriores.
+
+**Crear vídeo con este estilo** abre el formulario habitual. Los estilos nuevos
+activan la **animación nativa**: se programa cada escena con acciones, poses
+temporizadas, actores/objetos y decisiones de edición; se renderiza su clip antes
+de pasar a la siguiente. No se generan ilustraciones por escena ni se pegan los
+fotogramas de referencia como fondos. El análisis guía la realización, no una
+colección de imágenes. Los PNG visibles son pósteres de los clips terminados.
+Las herramientas propias del estilo se facilitan al programador de escenas.
+Las versiones publicadas anteriores conservan su funcionamiento salvo activación
+explícita de `assets.params.animacion_nativa=true` en un vídeo con espacio propio.
+Los efectos/ambientes que cree el
+motor se incorporan a Sonidos y se mezclan una sola vez, fuera del clip visual.
+El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
+
+En **Encargo → Repartir carga de trabajo** puedes elegir el
+porcentaje de escenas animadas que dirige Claude y el que dirige ChatGPT/Codex.
+Se aplica al motor del estilo y a Stickman; no al guion, las imágenes ni las voces.
+Ambos usan el mismo motor local del estilo. El porcentaje cuenta escenas enteras,
+no tiempo ni cuota; las sobrantes se asignan a Claude. Se aplica a escenas nuevas
+o regeneradas: no rehace clips válidos por mover el deslizador. No hay cambio de
+proveedor automático si se agota una cuenta. La construcción inicial del motor
+del estilo sigue usando Claude.
+
+Incluye también la dirección previa de los planos: con ChatGPT al 100 % esa fase
+no llama a Claude. Con reparto mixto, ambos reciben contexto de continuidad y se
+conserva la parte completada si el otro proveedor falla. Los fallos se muestran
+de forma persistente en la previsualización. Si el flujo de progreso queda abierto
+sin actualizaciones, el navegador comprueba el estado del trabajo sin necesitar
+recargar la página.
+
+Cada vídeo conserva una copia del código, recursos, referencias y requisitos
+de esa versión. Sus dependencias y temporales también quedan dentro de su
+espacio, sin compartir cachés mutables con otros vídeos. Duplicar/exportar lleva
+las fuentes y requisitos, no los binarios ni cachés de la máquina original;
+las dependencias locales se reconstruyen al volver a generar. Borrar o actualizar
+el estilo original no rompe los vídeos existentes. Los estilos normales siguen
+su camino anterior. **Usar solo la base visual y editorial** sigue disponible
+como alternativa explícita sin motor propio.
+
+**No requiere virtualización.** Se trata de carpetas y procesos independientes,
+no de una barrera de seguridad frente a código hostil. El motor recibe únicamente
+su pedido, referencias y recursos, con cachés propias y sin credenciales del
+servicio. El código generado no se importa dentro del servidor Python.
+La muestra verifica funcionamiento, no calidad equivalente: la fidelidad visual,
+el guion y el sonido necesitan revisión. Whisper reconoce habla, pero no identifica
+por sí solo la música, los efectos ni a los locutores; no se garantiza reproducir
+cualquier técnica audiovisual ni se verifican todos los movimientos y cortes.
+
+Verificación sin proveedores: `python pasos/prueba_estilos_ia.py`.
+Con Playwright instalado y Edge/ffmpeg disponibles, `--real` prueba extracción,
+subida, preparación del motor, animación, audio, portabilidad y formulario en un
+navegador; sustituye al analista/constructor por dobles sin consumir cuota.
+`python pasos/prueba_animacion_nativa.py` prueba clips articulados con FFmpeg real,
+recuperación, reparto, rechazo de estáticos y ausencia del generador de imágenes,
+sin proveedores. Detectar variación temporal no demuestra actuación correcta ni
+calidad comparable: hace falta revisar una muestra animada frente a la referencia.
+`python pasos/prueba_transcripcion_estilo.py` comprueba los contratos sin red;
+`--real` descarga Whisper y un modelo de prueba y reconoce voz real en un MKV.
 
 ## Crear vídeos Stickman 2D
 

@@ -68,6 +68,10 @@ def _copiar_arbol(origen, destino, avisar=None):
     if not os.path.isdir(origen):
         return
     for base, dirs, nombres in os.walk(origen):
+        # Los requisitos viajan; los binarios/cachés de una máquina se reconstruyen.
+        partes = os.path.relpath(base, origen).replace('\\', '/').split('/')
+        if len(partes) >= 2 and partes[-2] == 'paquetes' and len(partes[-1]) == 64:
+            dirs[:] = [n for n in dirs if n not in ('dependencias', 'cache', 'trabajo')]
         for nombre in dirs + nombres:
             if os.path.islink(os.path.join(base, nombre)):
                 raise ErrorPaquete("el estilo contiene enlaces simbolicos; "

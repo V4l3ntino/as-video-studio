@@ -261,6 +261,25 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/presets-light/{preset_id}/video` | Un proyecto de video nuevo con ese estilo ya aplicado. -> la ficha. |
 | `POST` | `/api/presets-light/{preset_id}/voz/previsualizar` | Unos segundos con la voz de este estilo, para escucharla. |
 
+## Estilos con IA: análisis y paquetes independientes
+
+| | Ruta | Qué hace |
+|---|---|---|
+| `GET` | `/api/estilos-ia` | Análisis por referencia, con inventario de recursos y límites verificables. |
+| `POST` | `/api/estilos-ia` | Sube una referencia privada y lanza su análisis de producción. |
+| `GET` | `/api/estilos-ia/{sid}` | Estado persistido y progreso del análisis de un estilo. |
+| `POST` | `/api/estilos-ia/{sid}/analizar` | Reanaliza con Claude o ChatGPT antes de publicar, sin cambiar vídeos existentes. |
+| `POST` | `/api/estilos-ia/{sid}/base` | Opt-in para usar solo referencias y guía editorial con los motores actuales. |
+| `POST` | `/api/estilos-ia/{sid}/cancelar` | Cancela cooperativamente el análisis sin borrar la referencia. |
+| `GET` | `/api/estilos-ia/{sid}/inspeccion` | Informe minucioso por intervalos, con evidencias, cobertura e incertidumbres. |
+| `GET` | `/api/estilos-ia/{sid}/miniatura` | Mosaico local de fotogramas; no es una muestra generada ni validada. |
+| `GET` | `/api/estilos-ia/{sid}/muestra` | Clip de comprobación técnica de la última versión preparada del estilo. |
+| `POST` | `/api/estilos-ia/{sid}/preparar` | Construye herramientas, instala requisitos locales y prueba otra versión del estilo. |
+| `POST` | `/api/estilos-ia/{sid}/reanudar` | Reintenta un análisis interrumpido; nunca sobrescribe una versión publicada. |
+| `POST` | `/api/estilos-ia/{sid}/sintetizar` | Finaliza la inspección y sintetiza solo los lotes completados, marcando el alcance parcial. |
+| `GET` | `/api/estilos-ia/{sid}/transcripcion` | Texto y marcas de tiempo de la referencia, obtenidos con Whisper o aportados. |
+| `PUT` | `/api/estilos-ia/{sid}/transcripcion` | Corrige el texto antes de publicar y vuelve a analizar; vacío reactiva Whisper. |
+
 ## Ajustes del CLI y estadísticas
 
 | | Ruta | Qué hace |
@@ -339,4 +358,4 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 
 ---
 
-**225 endpoints.** Escrito por `generar_api.py` desde `app.py`.
+**239 endpoints.** Escrito por `generar_api.py` desde `app.py`.

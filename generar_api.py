@@ -60,6 +60,7 @@ FAMILIAS = (
                           "/api/proyectos/{pid}/render")),
     ("Presets del canal", ("/api/presets-canal", "/api/presets")),
     ("Modo light: estilos y vídeo", ("/api/presets-light", "/api/estimacion")),
+    ("Estilos con IA: análisis y paquetes independientes", ("/api/estilos-ia",)),
     ("Ajustes del CLI y estadísticas", ("/api/ajustes", "/api/estadisticas",
                                         "/api/rendimiento", "/api/mapa")),
     ("Claves y enlaces", ("/api/claves", "/api/enlaces")),

@@ -2756,7 +2756,7 @@ function barraTandaLight(tanda) {return barraTandaLightAhora(tanda);}
 """ + "\n".join(cuerpo_de(firma) for firma in (
         "function trabajoVideoLight()", "function avancePublico(trabajo)",
         "function barraTandaLightAhora(", "function restanteTandaLight(",
-        "function botonRenderizarLight()", "function pieLight()")) + r"""
+        "function botonRenderizarLight()", "function animacionNativaLight()", "function pieLight()")) + r"""
 const resultados = {};
 for (const estado of ['pendiente', 'ejecutando']) {
   APP.trabajos.video = {estado, progreso: .42, publico:

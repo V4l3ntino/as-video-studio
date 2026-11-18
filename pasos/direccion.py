@@ -65,6 +65,7 @@ un bloque al prompt, no sustituye ninguno. Asi un video a medias no cambia de
 imagen por el hecho de que exista este paso.
 """
 import os
+import json
 import re
 import sys
 import time
@@ -929,7 +930,7 @@ def _llamar_claude(instruccion, modelo, esfuerzo, avance=None):
 
 
 def proponer(escenas, ajuste=None, avisar=None, proyecto_id=None, cwd=None,
-             titulo="", estilo=None, catalogo=None, beats=None, idioma=""):
+              titulo="", estilo=None, catalogo=None, beats=None, idioma="", proveedor='Claude', contexto=None):
     """Escribe que se ve en cada plano. NO escribe en params: propone.
 
     Devuelve {plan, avisos, ...}. Igual que el plan de cartelas y el de rotulos:
@@ -940,9 +941,13 @@ def proponer(escenas, ajuste=None, avisar=None, proyecto_id=None, cwd=None,
     en una carpeta temporal, fuera del proyecto y fuera del repo.
     """
     ajuste = ajuste or {}
+    if proveedor not in ('Claude', 'ChatGPT'):
+        raise ValueError('proveedor de dirección de planos desconocido')
     modelo = ajuste.get("modelo") or MODELO_POR_DEFECTO
     esfuerzo = ajuste.get("esfuerzo") or ESFUERZO_POR_DEFECTO
     elegido = {"modelo": modelo, "esfuerzo": esfuerzo}
+    if proveedor == 'ChatGPT':
+        elegido = dict(modelo='ChatGPT/Codex', esfuerzo='sesion')
 
     todos = [e for e in (escenas or []) if e.get("id")]
     if not todos:
@@ -962,7 +967,7 @@ def proponer(escenas, ajuste=None, avisar=None, proyecto_id=None, cwd=None,
         avance = estadisticas.Avance(
             avisar, 0.05, 0.9, prevision,
             f"leyendo los {len(dirigibles)} planos a la vez para que ninguno "
-            f"repita al de al lado, con {modelo} (esfuerzo {esfuerzo})")
+            f"repita al de al lado, con {proveedor}")
         avance.arrancar()
 
     sencillo = bool((catalogo or {}).get("sencillo")) if isinstance(
@@ -985,9 +990,21 @@ def proponer(escenas, ajuste=None, avisar=None, proyecto_id=None, cwd=None,
                    if sencillo else ""),
         planos=_planos_legibles(dirigibles, [b for _, b in pares]))
 
+    if contexto:
+        instruccion += ('\nContexto de continuidad de TODO el vídeo, solo como referencia: '
+            + json.dumps(contexto, ensure_ascii=False)
+            + '\nDirige SOLO los IDs solicitados arriba, no vuelvas a dirigir los planos de contexto. '
+              'Respeta las direcciones ya decididas sin repetirlas.')
     arranque = time.time()
     try:
-        crudo = _llamar_claude(instruccion, modelo, esfuerzo, avance)
+        if proveedor == 'ChatGPT':
+            from motores.imagen_openai import codex
+            from pasos import comun
+            crudo = comun.extraer_json(codex.texto(instruccion,
+                avance=lambda: avisar(.2, 'ChatGPT: dirigiendo los planos solicitados') if avisar else None,
+                segundos=600), 'la dirección de los planos de ChatGPT')
+        else:
+            crudo = _llamar_claude(instruccion, modelo, esfuerzo, avance)
     except BaseException:
         if avance is not None:
             avance.parar()

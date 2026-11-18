@@ -825,7 +825,15 @@ def _una_pasada_cruda(instruccion, modelo, esfuerzo, cwd, tiempo_max_s, base_tie
                 f"puede hacer {para}: {limite}")
         raise RuntimeError(
             f"el CLI de claude devolvio error: {str(sobre.get('result'))[:600]}")
-    texto = sobre.get("result")
+    if '--json-schema' in (extra or []):
+        # Con salida estructurada, result puede estar vacío: el dato está en
+        # structured_output. Solo se exige en las llamadas que lo solicitan.
+        estructurado = sobre.get('structured_output')
+        if not isinstance(estructurado, dict):
+            raise RuntimeError('el CLI de claude no entregó el objeto JSON estructurado solicitado')
+        texto = json.dumps(estructurado, ensure_ascii=False, allow_nan=False)
+    else:
+        texto = sobre.get("result")
     if not isinstance(texto, str) or not texto.strip():
         raise RuntimeError("el CLI de claude devolvio una respuesta vacia")
 

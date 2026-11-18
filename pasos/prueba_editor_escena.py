@@ -31,6 +31,25 @@ import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    def test_editor_admite_guia_ia_textual_sin_mutar_parametros(self):
+        from pasos import p7_callouts
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto, estado = juguete.construir(tmp)
+            guia = 'Flat 2D stick figures, soft gradients and original night environments.'
+            estado.actualizar_params('assets', {'estilo': {'guia': guia}})
+            antes = copy.deepcopy(estado.params('assets'))
+            ctx = SimpleNamespace(proyecto=proyecto, estado=estado, gestor=MagicMock())
+            ctx.gestor.listar.return_value = []
+            with patch.object(servidor, 'contexto', return_value=ctx):
+                ficha = servidor.leer_editor_escena(proyecto.id, 'S001')
+            self.assertIn('animacion', ficha)
+            self.assertIsNotNone(ficha['enlace'])
+            self.assertEqual(estado.params('assets'), antes)
+            paleta = dict(p7_callouts.PARAMS_POR_DEFECTO['paleta'])
+            paleta['fijados'] = {'acento': '#ff0000'}
+            self.assertEqual(p7_callouts.paleta_de_guia(guia, paleta)['acento'], '#ff0000')
+            self.assertEqual(p7_callouts.diseno_sugerido(guia)[0], 'dibujo')
+
     def test_publicar_assets_conserva_cache_de_escenas_copiadas(self):
         with tempfile.TemporaryDirectory() as tmp:
             proyecto, estado = juguete.construir(tmp)

@@ -322,13 +322,18 @@ def preparar_intervenciones(datos, bloques, opciones):
             frases = medios.motor("guion/segmentar.py").frases_del_texto(marcas_tts.limpiar(b["texto"]))
             visuales = b["escenas_visuales"]
             if not isinstance(visuales, list) or len(visuales) != len(frases):
-                raise ValueError(f'{b["id"]}: escenas_visuales necesita una entrada por frase completa')
+                recibidas = len(visuales) if isinstance(visuales, list) else 'un valor que no es lista'
+                raise ValueError(f'{b["id"]}: escenas_visuales necesita una entrada por frase completa '
+                                 f'({len(frases)} esperadas, {recibidas} recibidas); no agrupes frases')
             descripciones = set()
             for frase, visual in zip(frases, visuales):
                 if (not isinstance(visual, dict) or visual.get("texto") != frase
                         or not isinstance(visual.get("descripcion_visual"), str) or not visual["descripcion_visual"].strip()):
                     raise ValueError(f'{b["id"]}: cada escena visual necesita su frase literal y una descripción no vacía')
                 ids = visual.get("personajes_visibles")
+                if ids is None:
+                    raise ValueError(f'{b["id"]}: falta personajes_visibles en la escena de «{frase[:80]}»; '
+                                     'incluye una lista de IDs declarados o [] si no aparecen personajes')
                 if not isinstance(ids, list) or any(not isinstance(p, str) or p not in reparto for p in ids):
                     raise ValueError(f'{b["id"]}: personajes desconocidos en escenas_visuales')
                 descripcion = medios.normalizar_texto(visual["descripcion_visual"])
