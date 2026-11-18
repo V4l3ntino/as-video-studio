@@ -11,7 +11,7 @@ export function pulsoEnfasis(t,duracion,fps,brusco=false){
 
 export function pintarEnfasis(g,item,t,ancla,mirar=1){
   const o=item.opciones,modo=o.modo;
-  const pulso=pulsoEnfasis(t-item.inicio,item.fin-item.inicio,E.fps,modo==='sobresalto');
+  const pulso=pulsoEnfasis(t-item.inicio,item.fin-item.inicio,Math.min(E.fps,30),modo==='sobresalto');
   if(!pulso.alpha)return;
   const r=ancla.r*(o.escala??1),impacto=modo==='impacto';
   const lado=ancla.x+r*2>E.W?-1:1;

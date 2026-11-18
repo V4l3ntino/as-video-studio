@@ -49,7 +49,7 @@ export function acabado(g, t, r) {
   const grano = r.grano ?? Math.min(.025, gr.grain || 0);
   if (grano) {
     g.globalAlpha = grano; g.globalCompositeOperation = 'overlay';
-    g.drawImage(granos[Math.floor(t*E.fps) % 4], 0, 0, W, H);
+    g.drawImage(granos[Math.floor(t*Math.min(E.fps, 30)) % 4], 0, 0, W, H);
   }
   g.restore();
 }

@@ -1050,6 +1050,7 @@ def crear_proyecto(cuerpo: dict = Body(default=None)):
         # un ajuste ilegible no puede impedir crear un proyecto: se queda con
         # el valor por defecto del paso, que es el que habia antes de todo esto
         pass
+    _fps_de_partida(ctx)
     ctx.bitacora.anotar("proyecto_creado", None, {"nombre": nombre, "id": proyecto.id})
     return {"proyecto": ficha_proyecto(ctx),
             "pasos": [ficha_paso(ctx, p["id"]) for p in PASOS]}
@@ -7513,6 +7514,7 @@ def leer_ajustes():
     """
     return {"ajustes": AJUSTES.leer(),
             "calidades": list(AJUSTES.CALIDADES),
+            "fps_validos": list(AJUSTES.FPS_VALIDOS),
             "costes": AJUSTES.tabla_de_costes(),
             "tamano": AJUSTES.TAMANO}
 
@@ -12083,6 +12085,27 @@ def _calidad_de_partida(ctx):
         pass     # un ajuste ilegible no puede impedir crear el video
 
 
+def _fps_de_partida(ctx):
+    """Los fotogramas por segundo de Configuracion, en un video NUEVO.
+
+    Solo se escribe cuando son 60: 30 es el defecto de `render` y de `assets`,
+    asi que no escribirlo deja el proyecto exactamente como antes. Van los dos
+    params porque Stickman dibuja sus clips con el fps de `assets` y el montaje
+    los vuelve a muestrear con el de `render`. Nunca se llama al abrir un video:
+    el fps entra en la firma de los clips y un cambio retroactivo los dejaria
+    obsoletos. Lo que el estilo ya fije, manda.
+    """
+    try:
+        fps = AJUSTES.fps_video()
+        if fps == 30:
+            return
+        for paso in ("assets", "render"):
+            if not (ctx.estado.params(paso) or {}).get("fps"):
+                ctx.estado.actualizar_params(paso, {"fps": fps})
+    except Exception:                                         # noqa: BLE001
+        pass     # un ajuste ilegible no puede impedir crear el video
+
+
 @app.post("/api/presets-light/{preset_id}/video", status_code=201)
 def crear_video_light(preset_id: str, cuerpo: dict = Body(default=None)):
     """Un proyecto de video nuevo con ese estilo ya aplicado. -> la ficha.
@@ -12163,6 +12186,7 @@ def crear_video_light(preset_id: str, cuerpo: dict = Body(default=None)):
         ctx.estado.actualizar_params("callouts", {"plantillas_cartela": []})
     _referencias_propias_del_video(ctx)
     _calidad_de_partida(ctx)
+    _fps_de_partida(ctx)
     avisos = _sembrar_video_light(ctx, datos)
     _sincronizar_personajes(ctx)
     ctx.bitacora.anotar("video_light_creado", None, {

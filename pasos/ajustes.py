@@ -60,8 +60,15 @@ TAMANO = "1536x1024"
 #: 'imagen'.
 TOKENS_ENTRADA_POR_IMAGEN = 5114
 
+#: Los fotogramas por segundo con los que arranca un video nuevo. 60 da el
+#: movimiento fluido de los canales de animacion, pero cuesta el doble de captura
+#: en Stickman y en el montaje. Como la calidad, es SOLO el punto de partida y se
+#: escribe al crear el proyecto, nunca al leerlo.
+FPS_VALIDOS = (30, 60)
+
 POR_DEFECTO = {
     "calidad_imagen": "low",
+    "fps_video": 30,
     # Si ya se ha pasado por la guia de inicio (las tarjetas que piden las
     # claves al entrar por primera vez). Vive aqui y no en el navegador
     # porque es de la instalacion, no de la pantalla: desde el movil no hay
@@ -79,6 +86,8 @@ def leer():
             salida[clave] = valor
     if salida.get("calidad_imagen") not in CALIDADES:
         salida["calidad_imagen"] = POR_DEFECTO["calidad_imagen"]
+    if salida.get("fps_video") not in FPS_VALIDOS:
+        salida["fps_video"] = POR_DEFECTO["fps_video"]
     salida["onboarding_visto"] = bool(salida.get("onboarding_visto"))
     return salida
 
@@ -98,6 +107,9 @@ def guardar(cambios):
         if clave == "calidad_imagen" and valor not in CALIDADES:
             raise ValueError(
                 f"calidad {valor!r}: solo {', '.join(CALIDADES)}")
+        if clave == "fps_video" and (isinstance(valor, bool) or valor not in FPS_VALIDOS):
+            raise ValueError(
+                f"fps {valor!r}: solo {', '.join(map(str, FPS_VALIDOS))}")
         if clave == "onboarding_visto" and not isinstance(valor, bool):
             raise ValueError("onboarding_visto es verdadero o falso")
         actual[clave] = valor
@@ -108,6 +120,11 @@ def guardar(cambios):
 def calidad_imagen():
     """La calidad con la que arranca un proyecto nuevo."""
     return leer()["calidad_imagen"]
+
+
+def fps_video():
+    """Los fotogramas por segundo con los que arranca un proyecto nuevo."""
+    return leer()["fps_video"]
 
 
 def coste_por_imagen(calidad, tamano=TAMANO):

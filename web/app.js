@@ -2336,6 +2336,7 @@ function pintarConfig() {
   caja.appendChild(bloquePruebaClaves());
   caja.appendChild(seccionOpenAI(ficha));
   caja.appendChild(seccionCalidadImagen());
+  caja.appendChild(seccionFpsVideo());
   caja.appendChild(seccionCartesia(ficha));
   caja.appendChild(seccionElevenLabs(ficha));
   caja.appendChild(seccionCLI());
@@ -2504,6 +2505,52 @@ async function guardarCalidadImagen(calidad) {
     vista.error = e.message;
   }
   repintarClaves();
+}
+
+
+async function guardarFpsVideo(fps) {
+  const vista = estadoConfig();
+  try {
+    const r = await pedir(API.ajustes(), { method: 'PUT', cuerpo: { fps_video: fps } });
+    vista.ajustes = { ...(vista.ajustes || {}), ajustes: r.ajustes, costes: r.costes };
+  } catch (e) {
+    vista.error = e.message;
+  }
+  repintarClaves();
+}
+
+
+/* LOS FOTOGRAMAS POR SEGUNDO de los videos NUEVOS. 60 da el movimiento fluido
+ * de los canales de animacion; cuesta el doble de captura en Stickman y en el
+ * montaje. Como la calidad, no toca ningun video hecho: el fps entra en la firma
+ * de los clips y un cambio retroactivo los dejaria obsoletos. */
+function seccionFpsVideo() {
+  const datos = estadoConfig().ajustes;
+  const caja = h('section', { clase: 'bloque-config' },
+    h('div', { clase: 'fila' },
+      h('h3', {}, 'Fotogramas por segundo'),
+      h('span', { clase: 'crece' }),
+      datos ? pastillaEstado('ok', `${datos.ajustes.fps_video} fps`) : null));
+  if (!datos) return caja;
+  const textos = {
+    30: 'Estándar. Render más rápido y archivos más ligeros.',
+    60: 'Movimiento fluido (barridos, contadores, personajes). Tarda el doble en dibujar y montar.',
+  };
+  (datos.fps_validos || [30, 60]).forEach(fps => {
+    const puesta = fps === datos.ajustes.fps_video;
+    caja.appendChild(h('button', {
+      clase: 'fila-calidad' + (puesta ? ' elegida' : ''),
+      disabled: puesta,
+      title: puesta ? 'es el que esta puesto' : `los videos nuevos saldran a ${fps} fps`,
+      onclick: () => guardarFpsVideo(fps),
+    },
+      h('span', { clase: 'nombre' }, `${fps} fps`),
+      h('span', { clase: 'meta desglose' }, textos[fps] || '')));
+  });
+  caja.appendChild(h('div', { clase: 'meta' },
+    'Es el punto de partida de los videos NUEVOS. Los que ya existen se quedan con su '
+    + 'velocidad: cambiarla obligaría a volver a dibujar sus clips.'));
+  return caja;
 }
 
 
