@@ -46,6 +46,12 @@ la igualdad del prompt en los recibos: unifica el plan como se hace en medios
 manuales. Regresión nativa de API: plan antiguo no acepta recibos actuales, el
 endpoint usa el plan de la previa y descubre S001, también en respuesta ligera.
 
+Galería IA: los análisis con `preset_id` se representan SOLO mediante los
+presets publicados visibles. Al apartar el preset no deben reaparecer como
+tarjetas de análisis sin menú. Conserva las fuentes y requisitos para restaurar;
+no borres carpetas. Oculta también su detalle seleccionado si no queda ningún
+preset visible de ese análisis. Navegador prueba borrado real, recarga y restauración.
+
 Las referencias NUEVAS llevan `analisis_eficiente=True`; `cambiar_analista` lo
 activa al pedir expresamente otro análisis. Reintentar referencias antiguas no
 cambia el modo ni invalida sus lotes. No cambies VERSION por añadir esta opción.

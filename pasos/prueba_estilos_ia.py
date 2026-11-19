@@ -656,5 +656,58 @@ class Contratos(unittest.TestCase):
             proceso.terminate(); proceso.wait(timeout=15)
 
 
+    @unittest.skipUnless(REAL, 'usa --real para navegador, sin IA ni instalaciones')
+    def test_borrar_estilo_ia_quita_card_y_restaurar_lo_devuelve(self):
+        import socket
+        import subprocess
+        import time
+        import urllib.request
+        from playwright.sync_api import sync_playwright
+        from pasos import medios
+        ficha = self.preparado()
+        publicado = ia.publicar_base(self.raiz,ficha['id'],presets)
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0)); puerto=sock.getsockname()[1]
+        programa = f"import app,uvicorn; uvicorn.run(app.app,host='127.0.0.1',port={puerto},log_level='error')"
+        proceso = subprocess.Popen([sys.executable,'-c',programa],env=dict(os.environ,ESTUDIO_PROYECTOS=self.raiz),
+            cwd=Path(__file__).resolve().parents[1])
+        try:
+            url=f'http://127.0.0.1:{puerto}'
+            for _ in range(100):
+                try:
+                    urllib.request.urlopen(url,timeout=1).close();break
+                except OSError: time.sleep(.1)
+            with sync_playwright() as pw:
+                navegador=pw.chromium.launch(headless=True,executable_path=medios.edge())
+                pagina=navegador.new_page(viewport=dict(width=390,height=844))
+                errores=[]
+                pagina.on('pageerror',lambda error:errores.append(str(error)))
+                pagina.on('dialog',lambda dialogo:dialogo.accept())
+                def abrir():
+                    pagina.goto(url)
+                    pagina.wait_for_function('APP.light.datos && !APP.light.cargando')
+                    pagina.evaluate("document.querySelector('#inicio')?.remove()")
+                    pagina.locator('#btn-estilos-ia').click()
+                    pagina.wait_for_function('ESTILOS_IA_UI.fichas !== null')
+                abrir()
+                self.assertEqual(pagina.locator('.galeria-estilos .ficha-estilo').count(),1)
+                pagina.evaluate('async id => { await borrarPresetLight(fichaLight(id)); }',publicado['id'])
+                pagina.locator('#btn-estilos-ia').click()
+                pagina.wait_for_function("document.querySelectorAll('.galeria-estilos .ficha-estilo').length===0")
+                capturas=Path(os.environ.get('LOCALAPPDATA',tempfile.gettempdir()))/'Temp'/'opencode'
+                pagina.screenshot(path=str(capturas/'estilos-ia-borrado-sin-card.png'),full_page=True)
+                abrir()
+                self.assertEqual(pagina.locator('.galeria-estilos .ficha-estilo').count(),0)
+                self.assertTrue((ia.carpeta(self.raiz,ficha['id'])/'estilo.json').is_file())
+                respuesta=pagina.request.post(url+f"/api/presets-canal/papelera/{publicado['id']}/restaurar",data={})
+                self.assertTrue(respuesta.ok)
+                pagina.evaluate('async () => { await cargarGaleriaLight(true); await cargarEstilosIA(); }')
+                pagina.wait_for_function("document.querySelectorAll('.galeria-estilos .ficha-estilo').length===1")
+                self.assertEqual(errores,[])
+                navegador.close()
+        finally:
+            proceso.terminate();proceso.wait(timeout=15)
+
+
 if __name__ == '__main__':
     unittest.main()

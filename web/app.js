@@ -6150,7 +6150,10 @@ function vistaEstilosIA() {
     rejilla.appendChild(tarjeta);
   });
   (ui.fichas || []).forEach(f => {
-    if (publicados.some(p => p.id === f.preset_id)) return;
+    // Un análisis publicado se representa por su preset. Si el preset está
+    // en la papelera, no resucitarlo como tarjeta de análisis sin menú.
+    // Sus fuentes se conservan para restaurar, pero ya no está en la galería.
+    if (f.preset_id) return;
     const activo = ['pendiente', 'ejecutando'].includes(f.trabajo?.estado);
     rejilla.appendChild(h('article', { clase: 'ficha-estilo estilo-ia-ficha' },
       h('button', { clase: 'cara-y-cuerpo', onclick: () => { ui.seleccionado = f.id; pintarLight(); } },
@@ -6169,7 +6172,8 @@ function vistaEstilosIA() {
       botonSintetizarEstiloIA(f)));
   });
   caja.appendChild(rejilla);
-  const seleccionado = (ui.fichas || []).find(f => f.id === ui.seleccionado);
+  const seleccionado = (ui.fichas || []).find(f => f.id === ui.seleccionado
+    && (!f.preset_id || publicados.some(p => p.datos.origen.estilo_ia.id === f.id)));
   if (seleccionado) caja.appendChild(detalleEstiloIA(seleccionado));
   caja.appendChild(h('p', { clase: 'estilo-ia-aislamiento' },
     'Cada estilo tiene su carpeta de trabajo: motores, herramientas, referencias, recursos, requisitos y dependencias locales. '
