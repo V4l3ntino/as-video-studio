@@ -53,7 +53,7 @@ def validar(dato):
     if not isinstance(dependencias,dict) or len(dependencias)>20:
         raise ValueError('dependencias de asset no válidas')
     for nombre,ref in dependencias.items():
-        if (not MODULO.fullmatch(nombre) or nombre in sys.stdlib_module_names
+        if (not espacio_estilo.nombre_modulo_valido(nombre) or nombre in sys.stdlib_module_names
                 or not isinstance(ref,dict) or not HUELLA.fullmatch(str(ref.get('huella','')))
                 or ref.get('ruta') != f"estilo_ia/recursos_animacion/recursos/{ref['huella']}.json"):
             raise ValueError('dependencia de asset no válida; necesita módulo y referencia inmutable')
@@ -638,10 +638,13 @@ def vincular(proyecto,estilo,entrega,herramientas,escena):
     if not isinstance(nuevos,dict) or len(nuevos) > 20:
         raise ValueError('recursos_nuevos debe ser un objeto de hasta 20 módulos autocontenidos')
     for nombre,dato in nuevos.items():
-        if (not MODULO.fullmatch(nombre) or nombre in herramientas or nombre in disponibles
+        if (not espacio_estilo.nombre_modulo_valido(nombre) or nombre in herramientas
                 or nombre in sys.stdlib_module_names or nombre in ('recurso_muestra','escena_nativa','motor_del_estilo')):
-            raise ValueError('nombre de recurso nuevo no válido o ya utilizado')
-        disponibles[nombre] = guardar(proyecto,estilo,dato)
+            raise ValueError('nombre de recurso nuevo no válido o reservado: '+str(nombre))
+        ref = guardar(proyecto,estilo,dato)
+        if nombre in disponibles and disponibles[nombre]!=ref:
+            raise ValueError('el recurso nuevo intenta sustituir otro recurso disponible: '+nombre)
+        disponibles[nombre] = ref
     arbol = ast.parse(entrega['respuesta'].get('codigo',''))
     usados = set()
     for nodo in ast.walk(arbol):

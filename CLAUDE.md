@@ -2,6 +2,25 @@
 
 ## Espacios de trabajo de Estilos con IA
 
+### Errores por escena sin interrumpir el resto de la tanda
+
+`animacion_nativa.ejecutar` registra errores locales de lectura/JSON, validación,
+vinculación o render en trabajo/errores_escenas.json (sid,error,firma,fuente), conserva
+raw/programa y sigue con la siguiente escena. No publica recibo de la fallida ni
+borra uno anterior. Al FINAL de la tanda, si hubo fallos, lanza un resumen agregado:
+no completar assets ni permitir montaje con huecos. Los recibos buenos se guardan
+inmediatamente en trabajo y Continuar los recupera sin IA. Éxito limpia el error
+de esa escena. Cancelado, cuota/proveedor y fallos de preparación global NO se
+convierten en errores locales, para no recorrer la tanda pagando intentos inútiles.
+
+S038 fallaba con nombres válidos Python que contienen acentos (puerta_petróleo_bisagra,
+preguntas_de_latón). `espacio_estilo.nombre_modulo_valido` permite identificadores
+Unicode NFKC estables, sin keywords/rutas/privados; valida también al copiar módulos
+en render. No quitar acentos del CÓDIGO ni cambiar imports o fuentes pagadas.
+En vincular, repetir EXACTAMENTE el mismo recurso bajo un nombre disponible es
+idempotente; un contenido distinto bajo ese nombre sigue rechazado con diagnóstico.
+Paquetes sellados, VERSION y firmas de clips existentes intactos.
+
 ### Texto Unicode en renders futuros, sin invalidar clips
 
 S014/S016 guardaban correctamente ¿POR QUÉ NO BASTÓ? y ATRACCIÓN, pero usaban

@@ -83,6 +83,28 @@ def dibujar(im,estado,contexto):
 
 
 class Recursos(unittest.TestCase):
+    def test_recursos_con_tildes_son_modulos_python_validos_y_portables(self):
+        nombre='puerta_petr\u00f3leo_bisagra'
+        dato=dict(ARBOL,concepto='puerta_de_prueba')
+        entrega_escena=dict(respuesta=dict(codigo=f'import {nombre}\n'+CODIGO,
+            recursos_nuevos={nombre:dato}),recursos_disponibles={})
+        modulos,refs=recursos.vincular(self.proyecto,self.marca['huella'],entrega_escena,{}, {})
+        self.assertEqual(modulos[nombre],dato['codigo'])
+        # Repetir exactamente un asset ya disponible es idempotente, no colisión.
+        entrega_escena['recursos_disponibles']=refs
+        self.assertEqual(recursos.vincular(self.proyecto,self.marca['huella'],entrega_escena,{}, {})[1],refs)
+        # Nunca sustituir otro contenido bajo un nombre existente.
+        entrega_escena['respuesta']['recursos_nuevos'][nombre]=dict(dato,nombre='Otra puerta')
+        with self.assertRaisesRegex(ValueError,'sustituir otro recurso'):
+            recursos.vincular(self.proyecto,self.marca['huella'],entrega_escena,{}, {})
+        codigo=f'from {nombre} import dibujar\n'+CODIGO.replace('    return im',"    dibujar(im,dict(x=.8,y=.5),dict(t=t))\n    return im")
+        espacio.renderizar(self.espacio,dict(ancho=320,alto=180,fps=12,duracion=1,escena={},parametros={}),
+            self.raiz/'unicode_modulo',lambda *a:None,codigo_escena=codigo,herramientas_escena=modulos)
+        copia=self.proyecto.duplicar(str(self.raiz/'copias'),'Con tildes')
+        self.assertEqual(recursos.fuentes(copia,refs),modulos)
+        for invalido in ('../puerta','class','a-b','_privado','\u212a'):
+            self.assertFalse(espacio.nombre_modulo_valido(invalido))
+
     def test_wrapper_pagado_expone_helpers_heredados_sin_modificar_asset(self):
         codigo_base=ACTOR['codigo']+'''
 def estado_base():return dict(x=.5,y=.9,brazo=1.2)

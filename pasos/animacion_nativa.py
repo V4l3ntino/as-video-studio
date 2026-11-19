@@ -268,6 +268,16 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
     previa = None
     preparados = None
     catalogo = None
+    ruta_errores = trabajo/'errores_escenas.json'
+    errores = leer_json(str(ruta_errores),{},estricto=True) or {}
+    errores = {sid:d for sid,d in errores.items() if 'escena:'+sid in ids}
+    fallidas = {}
+    def registrar_fallo(sid,firma,fuente,exc,indice):
+        detalle = dict(error=type(exc).__name__+': '+str(exc),firma=firma,
+            fuente=fuente.relative_to(Path(proyecto.raiz)).as_posix())
+        errores[sid] = fallidas[sid] = detalle
+        escribir_json(str(ruta_errores),errores)
+        avisar((indice+1)/max(1,len(escenas)),f'{sid} pendiente por error; continúo con la siguiente escena: {exc}')
     for i, escena in enumerate(escenas):
         sid, uid = escena['id'], 'escena:' + escena['id']
         solicitada = pedidas is None or uid in pedidas
@@ -300,7 +310,11 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                 fuente = carpeta_fuente/nombre
             else:
                 fuente = carpeta_fuente/'fuente.json'
-            entrega = leer_json(str(fuente), None,estricto=True)
+            try:
+                entrega = leer_json(str(fuente), None,estricto=True)
+            except ValueError as exc:
+                registrar_fallo(sid,firma,fuente,exc,i)
+                continue
             if entrega is None:
                 if preparados is None:
                     catalogo = p6_assets._catalogo_de(deepcopy(params),proyecto)
@@ -312,21 +326,29 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                 preparados['recursos'].update(recursos_animacion.catalogo(proyecto,marca['huella']))
                 contexto = recursos_animacion.contexto(proyecto,preparados,escena)
                 prompt = encargo(escena,dict(plan,catalogo=catalogo),manifiesto,previa,herramientas_prompt,contexto)
-                dato = consultar(proveedores[sid],prompt,referencias,avisar,recuperacion=fuente.parent/'consulta')
+                try:
+                    dato = consultar(proveedores[sid],prompt,referencias,avisar,recuperacion=fuente.parent/'consulta')
+                except (ValueError,SyntaxError) as exc:
+                    registrar_fallo(sid,firma,fuente,exc,i)
+                    continue
                 entrega = dict(respuesta=dato, proveedor=proveedores[sid],formato='programa-recursos/1',
                     recursos_disponibles=preparados['recursos'],personajes_recursos=preparados['personajes'])
                 escribir_json(str(fuente), entrega)
-            auxiliares,recursos_usados = {},{}
-            if entrega.get('formato') == 'programa-recursos/1':
-                auxiliares,recursos_usados = recursos_animacion.vincular(proyecto,marca['huella'],entrega,herramientas,escena)
-            codigo = validar(entrega['respuesta'], duracion, [*herramientas,*auxiliares])
-            salida = espacio / 'trabajo' / ('nativa_' + sid + '_' + uuid.uuid4().hex)
-            salida.mkdir(parents=True)
-            pedido = dict(imagen='', ancho=plan['resolucion'][0], alto=plan['resolucion'][1],
-                          fps=plan.get('fps', 30), duracion=duracion, escena=escena, parametros={})
-            archivos = espacio_estilo.renderizar(espacio, pedido, salida, avisar, codigo_escena=codigo['codigo'],
-                herramientas_escena=auxiliares)
-            comprobacion = comprobar_movimiento(archivos['clip'], salida,plan.get('fps',30))
+            try:
+                auxiliares,recursos_usados = {},{}
+                if entrega.get('formato') == 'programa-recursos/1':
+                    auxiliares,recursos_usados = recursos_animacion.vincular(proyecto,marca['huella'],entrega,herramientas,escena)
+                codigo = validar(entrega['respuesta'], duracion, [*herramientas,*auxiliares])
+                salida = espacio / 'trabajo' / ('nativa_' + sid + '_' + uuid.uuid4().hex)
+                salida.mkdir(parents=True)
+                pedido = dict(imagen='', ancho=plan['resolucion'][0], alto=plan['resolucion'][1],
+                              fps=plan.get('fps', 30), duracion=duracion, escena=escena, parametros={})
+                archivos = espacio_estilo.renderizar(espacio, pedido, salida, avisar, codigo_escena=codigo['codigo'],
+                    herramientas_escena=auxiliares)
+                comprobacion = comprobar_movimiento(archivos['clip'], salida,plan.get('fps',30))
+            except (ValueError, SyntaxError, TypeError, KeyError, AttributeError) as exc:
+                registrar_fallo(sid,firma,fuente,exc,i)
+                continue
             recursos_animacion.publicar(proyecto,recursos_usados)
             destino = trabajo / 'animaciones_estilo' / (sid + '_nativa_' + firma[:16] + '_' + uuid.uuid4().hex[:8])
             destino.mkdir(parents=True)
@@ -356,11 +378,20 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
         shutil.copyfile(poster, poster.parent / (sid + '.png'))
         ficha = dict(tipo='escena', origen='animacion_nativa', png=recibo['poster'], animacion_estilo=recibo)
         resultados[uid] = ficha
+        if sid in errores:
+            errores.pop(sid)
+            escribir_json(str(ruta_errores),errores)
         if solicitada:
             rehechas[uid] = ficha
         previa = dict(id=sid, acciones=recibo.get('acciones'), edicion=recibo.get('edicion'))
         escribir_json(str(trabajo / 'assets.json'), dict(assets={}, resultados=resultados))
         avisar((i + 1) / max(1, len(escenas)), f'Clip animado preparado: {sid} · {i + 1}/{len(escenas)}')
+    if fallidas:
+        # Los clips buenos ya están guardados y se recuperan al continuar. No
+        # completar assets ni arrancar montaje con huecos o un clip viejo fallido.
+        resumen = '; '.join(sid+': '+dato['error'].splitlines()[-1] for sid,dato in fallidas.items())
+        raise ValueError(f'Tanda recorrida; {len(fallidas)} escena(s) pendientes de corregir. '
+            f'Los clips correctos se conservan y no se repetirán. {resumen}')
     salidas = dict(plan='plan.json', escenas='escenas', assets='assets', dependencias='dependencias.json',
         n_escenas=len(escenas), duracion=plan.get('duracion_total'), coste_usd=0,
         resumen=f'{len(resultados)} clips de animación nativa; 0 ilustraciones generadas; calidad pendiente de revisión')

@@ -8,6 +8,7 @@ import ast
 import hashlib
 import ipaddress
 import json
+import keyword
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -20,6 +21,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+import unicodedata
 
 from nucleo.proyecto import escribir_json, leer_json, lock_de, ruta_contenida
 
@@ -27,6 +29,12 @@ VERSION = 1
 REQUISITO = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*(?:==)[A-Za-z0-9][A-Za-z0-9_.+!-]*$')
 HUELLA = re.compile(r'^[a-f0-9]{64}$')
 EJECUTOR = Path(__file__).resolve().parents[1] / 'motores' / 'estilo_ia' / 'ejecutor.py'
+
+
+def nombre_modulo_valido(nombre):
+    return (isinstance(nombre,str) and 1<=len(nombre)<=61 and nombre.isidentifier()
+        and not nombre.startswith('_') and not keyword.iskeyword(nombre)
+        and unicodedata.normalize('NFKC',nombre)==nombre)
 
 
 def huella(dato):
@@ -494,7 +502,7 @@ def renderizar(destino, pedido, salida, avisar, codigo_escena=None, herramientas
         fuente.write_text(codigo_escena, encoding='utf-8')
         pedido.update(codigo_escena=str(fuente.resolve()), imagen='')
         for nombre,contenido in (herramientas_escena or {}).items():
-            if not re.fullmatch(r'[a-z][a-z0-9_]{0,60}',nombre) or (destino/'herramientas'/(nombre+'.py')).exists():
+            if not nombre_modulo_valido(nombre) or (destino/'herramientas'/(nombre+'.py')).exists():
                 raise ValueError('nombre de recurso no válido o colisión con herramientas del estilo')
             auxiliares = salida/'herramientas'
             auxiliares.mkdir(exist_ok=True)

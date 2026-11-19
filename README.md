@@ -309,6 +309,13 @@ Los efectos/ambientes que cree el
 motor se incorporan a Sonidos y se mezclan una sola vez, fuera del clip visual.
 El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
 
+Un error local en el código, formato o render de una escena no interrumpe las
+siguientes: se conserva su entrega, se registra en `errores_escenas.json` del
+trabajo y se continúa la tanda. Al terminar se informa de las escenas pendientes
+y se bloquea el montaje incompleto. **Continuar** recupera los clips correctos y
+reintenta las pendientes sin repetir sus entregas guardadas. Parar, falta de cuota
+y fallos comunes de preparación siguen deteniendo el trabajo.
+
 Los nuevos renders nativos usan una fuente TrueType con tildes, ñ y signos ¿¡
 cuando el código pide la fuente predeterminada de Pillow. Se utiliza la misma
 fuente para medir y dibujar; no se quitan acentos ni se recodifica el texto.

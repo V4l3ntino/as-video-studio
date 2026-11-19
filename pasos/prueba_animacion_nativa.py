@@ -45,6 +45,46 @@ def entrega(codigo=CODIGO):
 
 
 class Nativa(unittest.TestCase):
+    def test_error_local_salta_a_siguiente_y_conserva_recibos_y_entregas(self):
+        mensajes=[]
+        real=espacio.renderizar
+        intentos=[]
+        def renderizar(destino,pedido,salida,avisar,**kw):
+            sid=pedido['escena']['id'];intentos.append(sid)
+            if sid=='S001':raise ValueError('fallo local del dibujo')
+            return real(destino,pedido,salida,avisar,**kw)
+        with patch.object(nativa,'consultar',return_value=entrega()) as ia, \
+                patch.object(espacio,'renderizar',side_effect=renderizar):
+            with self.assertRaisesRegex(ValueError,'Tanda recorrida; 1 escena'):
+                nativa.ejecutar(self.proyecto,self.params,lambda p,t:mensajes.append(t))
+        self.assertEqual(intentos,['S001','S002'])
+        self.assertEqual(ia.call_count,2)
+        trabajo=Path(self.proyecto.ruta_trabajo('assets'))
+        self.assertFalse((trabajo/'escenas/S001.estilo_ia.json').exists())
+        recibo=(trabajo/'escenas/S002.estilo_ia.json').read_bytes()
+        self.assertIn('fallo local',leer_json(str(trabajo/'errores_escenas.json'))['S001']['error'])
+        self.assertTrue(any('continúo con la siguiente' in t for t in mensajes))
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No repetir IA')), \
+                patch.object(espacio,'renderizar',wraps=real) as render:
+            self.generar()
+        self.assertEqual(render.call_count,1)
+        self.assertEqual((trabajo/'escenas/S002.estilo_ia.json').read_bytes(),recibo)
+        self.assertEqual(leer_json(str(trabajo/'errores_escenas.json')), {})
+
+    def test_cupo_y_cancelacion_no_solicitan_otras_escenas(self):
+        from pasos.cli_claude import LimiteAgotado
+        for fallo in (Cancelado('Parar'),LimiteAgotado('sin cuota')):
+            with self.subTest(tipo=type(fallo).__name__), \
+                    patch.object(nativa,'consultar',side_effect=fallo) as ia:
+                with self.assertRaises(type(fallo)):self.generar()
+                self.assertEqual(ia.call_count,1)
+
+    def test_json_invalido_de_una_escena_no_impide_pedir_la_siguiente(self):
+        with patch.object(nativa,'consultar',side_effect=[ValueError('JSON de escena inválido'),entrega()]) as ia:
+            with self.assertRaisesRegex(ValueError,'S001.*JSON de escena inválido'):self.generar()
+        self.assertEqual(ia.call_count,2)
+        self.assertTrue(Path(self.proyecto.ruta_trabajo('assets'),'escenas/S002.estilo_ia.json').exists())
+
     def test_rotulos_unicode_en_renderer_sin_tocar_fuentes_ni_clips_previos(self):
         from PIL import Image,ImageDraw,ImageFont
         from pasos import tipografia
