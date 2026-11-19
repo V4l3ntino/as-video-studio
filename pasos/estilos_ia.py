@@ -352,16 +352,17 @@ def congelar(presets, ficha, proyecto):
         raise ValueError('el paquete del estilo IA falta o ha cambiado')
     validar_analisis(manifiesto.get('analisis'))
     if manifiesto.get('espacio'):
-        from pasos import espacio_estilo
+        from pasos import espacio_estilo,biblioteca_estilo
         espacio = manifiesto['espacio']
         espacio_estilo.copiar(fuente.parent / 'paquetes' / espacio['huella'],
             Path(proyecto.ruta('estilo_ia', 'paquetes', espacio['huella'])), espacio['huella'])
+        biblioteca_estilo.sembrar(proyecto,Path(proyecto.ruta('estilo_ia','paquetes',espacio['huella'])),espacio['huella'])
     escribir_json(proyecto.ruta('estilo_ia', 'manifiesto.json'), manifiesto)
 
 
 def preparar(avisar, raiz, sid, presets):
     """Construye, instala, prueba y publica otra versión, sin alterar las anteriores."""
-    from pasos import espacio_estilo
+    from pasos import espacio_estilo,biblioteca_estilo
     destino = carpeta(raiz, sid)
     ficha = leer(raiz, sid)
     if not ficha.get('analisis') or ficha['estado'] not in ('analizado', 'preparado', 'error_preparacion', 'cancelado_preparacion', 'interrumpido_preparacion'):
@@ -400,12 +401,15 @@ def preparar(avisar, raiz, sid, presets):
             parametros=paquete['parametros'])
         try:
             espacio_estilo.renderizar(temporal, muestra, temporal / 'muestra', avisar)
+            if paquete.get('biblioteca'):
+                biblioteca_estilo.comprobar(temporal,paquete['biblioteca'],avisar)
         except ValueError as exc:
             ficha['corregir_constructor'] = str(exc)
             raise
         archivos = espacio_estilo.inventario(temporal)
         marca = dict(id=sid, version=version, huella=espacio_estilo.huella(archivos))
-        escribir_json(str(temporal / 'espacio.json'), dict(**marca, archivos=archivos, muestra_comprobada=True))
+        escribir_json(str(temporal / 'espacio.json'), dict(**marca, archivos=archivos, muestra_comprobada=True,
+            biblioteca_comprobada=bool(paquete.get('biblioteca'))))
         avisar(.9, 'Publicando herramientas, recursos y requisitos de esta versión')
         final = destino / 'versiones' / f'v{version}'
         if final.exists():

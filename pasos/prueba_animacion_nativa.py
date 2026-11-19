@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 _DATOS = tempfile.TemporaryDirectory(prefix='animacion_nativa_')
-for clave in ('ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_ESTADISTICAS'):
+for clave in ('ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_ESTADISTICAS', 'ESTUDIO_RECURSOS_ANIMACION'):
     os.environ[clave] = str(Path(_DATOS.name) / clave)
 
 from nucleo.proyecto import Proyecto, escribir_json, leer_json
@@ -45,6 +45,44 @@ def entrega(codigo=CODIGO):
 
 
 class Nativa(unittest.TestCase):
+    def test_personaje_animado_puede_interactuar_con_objeto_inmovil(self):
+        dato=entrega()
+        fijo=dict(tipo='objeto',objetivo='obstaculo',accion='Permanece inmóvil durante el empuje',
+            claves=[dict(t=0,estado={'x':100,'rotacion':0}),dict(t=2,estado={'x':100,'rotacion':0})])
+        dato['acciones'].append(fijo)
+        antes=copy.deepcopy(dato)
+        self.assertEqual(nativa.validar(dato,2)['acciones'],antes['acciones'])
+        dato['acciones'].reverse()
+        self.assertEqual(nativa.validar(dato,2)['acciones'],dato['acciones'])
+        # Los elementos estáticos no evitan validar sus claves y tiempos.
+        fijo['claves'][1]['t']=3
+        with self.assertRaisesRegex(ValueError,'tiempos de la acción'):nativa.validar(dato,2)
+        fijo['claves'][1]['t']=2
+        fijo['claves'][1]['estado']={}
+        with self.assertRaisesRegex(ValueError,'estado explícito'):nativa.validar(dato,2)
+        fijo['claves']=fijo['claves'][:1]
+        with self.assertRaisesRegex(ValueError,'dos poses'):nativa.validar(dato,2)
+
+    def test_todos_los_sujetos_estaticos_siguen_rechazados(self):
+        dato=entrega()
+        dato['acciones'][0]['claves'][1]['estado']=copy.deepcopy(dato['acciones'][0]['claves'][0]['estado'])
+        dato['acciones'].append(dict(tipo='objeto',objetivo='disco',accion='No se desplaza',
+            claves=[dict(t=0,estado={'rotacion':0}),dict(t=2,estado={'rotacion':0})]))
+        with self.assertRaisesRegex(ValueError,'cambiar de pose'):nativa.validar(dato,2)
+
+    def test_fuente_con_obstaculo_fijo_se_retoma_sin_otra_consulta(self):
+        dato=entrega()
+        dato['acciones'].append(dict(tipo='objeto',objetivo='pared',accion='Permanece inmóvil',
+            claves=[dict(t=0,estado={'x':200}),dict(t=2,estado={'x':200})]))
+        # Simula la entrega pagada que dejó guardada una validación anterior.
+        with patch.object(nativa,'consultar',return_value=dato) as ia, \
+                patch.object(nativa,'validar',side_effect=ValueError('validación antigua')):
+            with self.assertRaisesRegex(ValueError,'validación antigua'):self.generar(unidades=['escena:S001'])
+            self.assertEqual(ia.call_count,1)
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No repetir IA')):
+            resultado=self.generar(unidades=['escena:S001'])
+        self.assertTrue(resultado['unidades']['escena:S001']['animacion_estilo']['comprobacion']['movimiento_detectado'])
+
     def test_limite_temporal_tolera_solo_ruido_de_coma_flotante(self):
         dato = entrega()
         claves = dato['acciones'][0]['claves']

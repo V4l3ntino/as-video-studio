@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 _DATOS = tempfile.TemporaryDirectory(prefix='prueba_estilos_ia_')
 for clave in ('ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_ESTADISTICAS',
               'ESTUDIO_PRESETS', 'ESTUDIO_BANCO_PRESETS', 'ESTUDIO_ESTILOS_IA',
-              'ESTUDIO_PROYECTOS', 'ESTUDIO_BITACORA_GLOBAL'):
+              'ESTUDIO_PROYECTOS', 'ESTUDIO_BITACORA_GLOBAL', 'ESTUDIO_RECURSOS_ANIMACION'):
     os.environ[clave] = str(Path(_DATOS.name) / clave)
 
 from nucleo.proyecto import Proyecto, escribir_json, leer_json
@@ -370,8 +370,10 @@ class Contratos(unittest.TestCase):
 
     @unittest.skipUnless(REAL, 'usa --real para comprobar el motor con ffmpeg, sin IA')
     def test_preparacion_motor_local_pipeline_audio_y_portabilidad(self):
+        import shutil
+        import PIL
         from PIL import Image
-        from pasos import p6_assets, paquete_estilo, p8_render, sonido
+        from pasos import p6_assets, paquete_estilo, p8_render, sonido, animacion_nativa
         ficha = self.preparado()
         with patch.object(espacio, 'consultar_constructor', return_value=espacio.validar(PAQUETE)):
             resultado = ia.preparar(lambda *a: None, self.raiz, ficha['id'], presets)
@@ -389,14 +391,31 @@ class Contratos(unittest.TestCase):
         (trabajo / 'escenas').mkdir()
         Image.new('RGB', (160, 90), 'red').save(trabajo / 'escenas' / 'S001.png')
         escena = dict(id='S001', narracion='Un plano original.', prompt='Un entorno cálido.', t_in=0, t_out=1)
-        plan = dict(estilo=estilo_aplicado, escenas=[escena], resolucion=[160, 90], fps=12)
-        base = dict(unidades={'escena:S001': dict(png='escenas/S001.png')},
-                    todas={'escena:S001': dict(png='escenas/S001.png')}, plan=plan)
-        with patch.object(p6_assets, '_ejecutar_base', return_value=copy.deepcopy(base)):
-            animada = p6_assets.ejecutar(proyecto, {'estilo': estilo_aplicado})
+        plan = dict(animacion_nativa=True, estilo=estilo_aplicado, escenas=[escena], resolucion=[160, 90], fps=12)
+        espacio.instalar(local,lambda *a:None)
+        shutil.copytree(Path(PIL.__file__).parent,local/'dependencias/PIL')
+        codigo='''import math, wave
+from PIL import Image, ImageDraw
+def pintar(pedido,t):
+    w,h=pedido['ancho'],pedido['alto'];im=Image.new('RGB',(w,h),'navy');d=ImageDraw.Draw(im)
+    d.ellipse((w*.3,h*.1,w*.5,h*.4),fill='white')
+    d.line([(w*.4,h*.4),(w*.4,h*.8)],fill='white',width=4)
+    d.line([(w*.4,h*.5),(w*(.4+.3*math.cos(t*3)),h*(.5+.3*math.sin(t*3)))],fill='white',width=4)
+    return im
+def crear_audio(pedido,ruta):
+    with wave.open(ruta,'wb') as f:
+        f.setparams((1,2,16000,0,'NONE','not compressed'));f.writeframes(b'\\0\\0'*round(pedido['duracion']*16000))
+'''
+        entrega=dict(codigo=codigo,acciones=[dict(tipo='personaje',objetivo='actor',accion='Levanta el brazo',
+            claves=[dict(t=0,estado={'angulo':0}),dict(t=1,estado={'angulo':3})])],edicion='Plano fijo con actuación articulada.')
+        with patch.object(p6_assets,'planificar',side_effect=lambda *a,**k:copy.deepcopy(plan)), \
+                patch.object(p6_assets,'_ejecutar_base',side_effect=AssertionError('prohibido generar imágenes')), \
+                patch.object(animacion_nativa,'consultar',return_value=entrega):
+            animada = p6_assets.ejecutar(proyecto, {'estilo': estilo_aplicado,'animacion_nativa':False})
         self.assertTrue(animada['unidades']['escena:S001']['animacion_estilo']['clip'].endswith('.mp4'))
         with patch.object(espacio, 'renderizar', side_effect=AssertionError('no debe renderizar otra vez')), \
-                patch.object(p6_assets, '_ejecutar_base', return_value=copy.deepcopy(base)):
+                patch.object(p6_assets,'planificar',side_effect=lambda *a,**k:copy.deepcopy(plan)), \
+                patch.object(p6_assets,'_ejecutar_base',side_effect=AssertionError('prohibido generar imágenes')):
             p6_assets.ejecutar(proyecto, {'estilo': nueva['datos']['estilo']})
         visible = espacio.aplicar_recursos(proyecto, copy.deepcopy(plan))
         self.assertTrue(Path(visible['escenas'][0]['animacion_estilo']['clip']).is_file())

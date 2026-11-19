@@ -775,6 +775,8 @@ class Avance:
 
     def texto(self):
         """Mensaje honesto: lo que lleva, lo que se estimo y que es estimacion."""
+        if self.prevision.get('sin_limite'):
+            return f'{self.mensaje}; lleva {reloj(self.segundos)}; sin corte automático, puedes parar'
         estimado = float(self.prevision.get("segundos") or 60.0)
         transcurrido = self.segundos
         origen = self.prevision.get("origen", "estimacion")
@@ -786,6 +788,8 @@ class Avance:
                 f"(estimacion, no medida: {origen})")
 
     def valor(self):
+        if self.prevision.get('sin_limite'):
+            return self.desde
         estimado = max(1.0, float(self.prevision.get("segundos") or 60.0))
         avance = min(1.0, self.segundos / estimado)
         return self.desde + (self.hasta - self.desde) * avance

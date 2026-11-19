@@ -3422,6 +3422,8 @@ def _producir_imagen(nombre, prompt, referencias, destino, p, rehacer=False,
     del motor solo traia el texto de OpenAI, y en una tanda de 300 planos eso
     no dice donde mirar.
     """
+    from pasos import animacion_nativa
+    animacion_nativa.prohibir_imagenes(p)
     tamano = tamano or "apaisado"
     firma = medios.huella({"prompt": prompt, "calidad": p["calidad"],
                            **({"bibliotecas_codex": True} if bibliotecas.activa(p) else {}),
@@ -5153,6 +5155,8 @@ def _ejecutar_base(proyecto, params, avisar=None, unidades=None, solo_assets=Fal
     imagenes de antes, sacadas de la cache, con el estilo viejo.
     """
     arranque_paso = time.time()
+    from pasos import animacion_nativa
+    animacion_nativa.prohibir_imagenes(params,proyecto)
     p = _con_defectos(params)
     if (p.get('estilo') or {}).get('stickman'):
         from pasos import stickman

@@ -2,7 +2,158 @@
 
 ## Espacios de trabajo de Estilos con IA
 
-`assets.params.animacion_nativa=true` + `estilo.espacio_ia` activa la ruta de
+### Biblioteca al preparar el estilo (ruta actual; versiones antiguas conservadas)
+
+Las nuevas consultas de `espacio_estilo.consultar_constructor` exigen `biblioteca`
+v1 en el paquete: rig, partes anatómicas, funciones de interpolar/caminar/sentarse/
+saludar y assets arbol/casa/edificio/movil. Cada recurso tiene ficha, interfaz y dos
+estados de muestra; código SOLO en herramientas/<modulo>.py, sin duplicarlo en la
+ficha. `pasos/biblioteca_estilo.py` valida estáticamente el contrato y la apariencia
+nativa; no importa módulos generados. Se conserva la biblioteca al normalizar el
+paquete. No aceptar un constructor nuevo sin ella; los borradores/paquetes antiguos
+se siguen leyendo sin añadir campos ni alterar huellas.
+
+`estilos_ia.preparar` comprueba motor Y cada asset (incluidos movimientos y apariencia)
+en renderer separado antes de sellar/publicar. Una prueba fallida impide publicar.
+Las respuestas del constructor se conservan en constructor_respuestas/<firma>.txt
+ANTES de parsear/validar: repetir la misma solicitud inválida no repite cuota.
+Constructor Sonnet/medium sin corte automático y sin cambio de cuenta.
+
+`estilos_ia.congelar` siembra biblioteca y rig_base del paquete al crear el vídeo,
+solo copias y AST, sin IA, instalaciones ni ejecución. `recursos_animacion.preparar`
+siembra también para recuperar vídeos copiados y fusiona el catálogo aprendido;
+con biblioteca no introduce la utilería genérica antigua ni construye primer rig.
+Las identidades nuevas son datos sobre esa base. El código de escena sigue libre.
+Recursos nuevos comprobados se publican por SHA en el catálogo externo DEL MISMO
+estilo; no se modifica la biblioteca sellada y las fuentes conservan sus versiones.
+Versiones antiguas siguen con el camino compatible y sus recursos pagados; no se
+repreparan ni migran al abrirlas. Prueba offline con renderer real:
+`python pasos/prueba_biblioteca_estilo.py` (sin cuota ni red).
+
+### Apariencias por datos (prevalece sobre la ruta antigua de extensiones)
+
+El proveedor de personajes NO es fijo. `animacion_nativa.ejecutar` pasa los params
+a `recursos_animacion.preparar`; esta reparte los personajes por orden narrativo
+con `reparto_animaciones.proveedores`. 100% ChatGPT debe preparar también base,
+identidades/apariencias con ChatGPT, sin fallback a Claude si falta cuota. En mixto
+se distribuyen personajes y escenas por separado. No incluir proveedor en la clave
+histórica del personaje ni invalidar entregas/refs pagadas por cambiar el reparto.
+
+`motores/estilo_ia/apariencias.py` contiene dibujo compartido para el rig humano
+recuperado y el esquema `apariencia/1`: pelo/ropa/barba, colores, gafas/pecas/móvil,
+edad y factores de altura/cuerpo/cabeza. No generar funciones habituales por cada
+identidad. `encargo_apariencia` pide SOLO datos; `compilar_apariencia` crea localmente
+el wrapper, fija base+soporte+apariencias por SHA y conserva muestra articulada.
+`codigo_extra` es opcional para detalles NO cubiertos, con `EXTENSIONES` y acceso a
+`rig.dibujo_compartido`; no puede reemplazar los nombres del wrapper. No limitar
+el código de escena ni forzar un esquema cerrado sin posibilidad de extensión.
+
+Compatibilidad EXPLÍCITA: el adaptador humano reconoce el SHA256 del código del
+rig real, NO nombres de helpers parecidos. Otros rigs deben declarar literalmente
+`APARIENCIA_VERSION=1` y `aplicar_apariencia(datos)`; las bases nuevas reciben ese
+contrato para implementar el dibujo parametrizado con su propio acabado. Una base
+antigua incompatible conserva encargo_identidad con aviso, sin imponer otro estilo.
+Las entregas pagadas y consultas antiguas pendientes NO se migran ni invalidan.
+`.apariencia.json` fija perfil y módulos ANTES de consultar, junto a `.base.json`;
+raw apariencia se guarda ANTES de compilar. Reintentar un fallo local usa esos datos
+y dependencias, sin otra consulta ni resolver versiones nuevas. Claves históricas,
+fuentes/clips y VERSION se conservan. Un dato desconocido/inválido se rechaza,
+no se ignora ni se convierte en un personaje genérico.
+
+Verificación local con el rig real: seis identidades por datos renderizadas juntas,
+con movimiento, sin IA; 90 JSON reales mantuvieron sus hashes. Casos incluyen pelo
+largo/trenzas/coleta/rizado/calvo, vestido/camisa/camiseta/chaqueta/sudadera, gafas,
+barba/edad y proporciones. No es validación de fidelidad a las referencias ni una
+medición de latencia/cuota con proveedor real.
+
+Las escenas nuevas siguen siendo programas COMPLETOS, Sonnet/medium, sin catálogo
+cerrado ni constructor monolítico previo. `pasos/recursos_animacion.py` ofrece
+assets con dibujar(lienzo,estado,contexto), estado libre e interfaz
+documentada. Los personajes VISIBLES en el plan completo se preparan UNO A UNO
+antes del primer programa nuevo; reciben reparto real de `_catalogo_de` (el plan
+NO tiene `catalogo`), análisis y observaciones. Se verifica una muestra articulada
+en proceso separado; fuentes crudas se guardan antes de validar. No importar
+código generado en el servidor. La escena importa los rigs preparados y puede
+añadir código de actuación/dibujo y `recursos_nuevos` autocontenidos; no se fuerza
+un número fijo de poses o recursos. Casas/edificios/árboles/móviles base son una
+utilería opcional parametrizable, no un sustituto obligatorio de detalles del estilo.
+
+El primer rig comprobado se conserva en `rig_base.json` local y compartido por
+estilo. Los personajes posteriores reciben `encargo_identidad`: interfaz, firmas,
+paletas y geometría de anclas, no el motor entero. Importan base+soporte inmutables
+y aportan identidad, materiales y extensiones de CUALQUIER función de geometría;
+no basta recolorear ni heredar barba/ropa/accesorios del protagonista. El helper
+`motores/estilo_ia/soporte_rigs.py` instancia privadamente el módulo SOLO en el
+renderer: globals independientes, originales accesibles, sin mutar otro personaje.
+`dependencias` fija rutas+SHA; `fuentes`, `publicar` y `traer` incluyen el cierre
+transitivo y rechazan ausencias, ciclos y mezcla de estilos. No invalidar assets
+autocontenidos ni entregas pagadas antiguas. Guardar `.base.json` ANTES de consultar
+para recuperar la entrega sin otra petición incluso tras una interrupción.
+Identidad conserva todas las observaciones de personajes/materiales con evidencias
+y dudas; omite cámara/movimiento ya implementados. Su techo de entrada es 40k,
+frente a 30k del rig inicial, para incluir el contrato técnico sin truncar evidencia.
+Las firmas de `_P` no bastan: incluir su implementación de primitivas en el encargo
+de identidad. `chain`/`hull` del rig real requieren radios POR VÉRTICE, no un escalar.
+El personaje Amigos entregado falló por esto. Correcciones locales viven en
+`<clave>.correccion.json` con huella_original+entrega+motivo; comprobar la huella
+antes de usarlas y conservar `.entrega.json` y assets inmutables sin sobrescribir.
+No reconsultar al proveedor por un fallo local corregible de la entrega pagada.
+
+Compatibilidad de wrappers pagados: algunos delegan solo dibujar y olvidan exportar
+helpers heredados que su interfaz promete (S005 falló en rival.plantar_pies). En
+`recursos_animacion.fuentes`, `_fuente_compatible` añade __getattr__ SOLO a la copia
+del renderer cuando hay una única instancia inequívoca de soporte.crear, dependencia
+herramienta/instancias_de_rig y sin delegador explícito. No mutar el asset inmutable,
+su SHA, la fuente de escena ni sus firmas; no inventar controles faltantes. Los
+wrappers nuevos deben exportarlos. No sombrear el código del personaje al iterar
+los códigos de dependencias transitivas en fuentes.
+
+Assets inmutables en `estilo_ia/recursos_animacion/recursos/<sha>.json`; la fuente
+`programa-recursos/1` fija sus referencias disponibles y los módulos utilizados
+se recuperan por ruta RELATIVA+huella, sin depender del catálogo global. El
+ejecutor recibe sus módulos copiados en salida/herramientas, NUNCA dentro del
+paquete sellado. No permitir colisiones con módulos de Python/herramientas.
+Tras comprobar el clip se publican los utilizados en el catálogo compartido
+externo (`ESTUDIO_RECURSOS_ANIMACION`, o datos externos/datos de usuario), separado
+por huella del estilo; cada vídeo guarda copia portátil. Crecer el catálogo no
+entra en firmas ni invalida clips anteriores. Lectura estricta de assets y
+fuentes pagadas: corrupción debe detenerse, no provocar otra consulta. Las fuentes
+históricas con código se recuperan sin preparar assets nuevos. No renombrar VERSION
+de clips ni modificar guion/voz/params al leer. Prueba offline dedicada:
+`python pasos/prueba_recursos_animacion.py`; desviar también el catálogo compartido.
+
+`consultar` conserva entrega del CLI por firma de prompt/proveedor/adjuntos antes
+de limpiar temporal, incluso timeout/cancelación/JSON inválido; no se reconsulta
+un fichero existente. Claude medium con `tiempo_max_s=-1` (sin corte automático),
+`estadisticas.Avance` real para conectar Parar y sin reintento entre cuentas.
+Una regeneración conserva `regeneracion_pendiente.json` hasta publicar su recibo;
+si falla, retoma ese programa y no vuelve a pagar ni sustituye el clip anterior.
+El control de movimiento recibe FPS y no busca más allá del último fotograma:
+en un clip de 1 s a 12 fps, .95 s puede dar salida 0 sin escribir PNG.
+Las muestras prueban funcionamiento/variación temporal, NO calidad comparable.
+No lanzar IA real para validar ni afirmar aceleración sin medirla.
+
+Acciones nativas: exigir variación en AL MENOS un sujeto/objeto/gráfico de la escena,
+no en cada entrada. S010 declara al protagonista empujando un disco inmóvil: la
+inmovilidad del obstáculo es parte de la acción, no un error. Conservar sus claves
+y validar también sus tiempos/estados; rechazar la escena si todas sus entradas
+son estáticas. Mantener el control de movimiento real del clip; no inventar poses,
+mover el obstáculo ni borrar acciones para pasar. La fuente pagada se recupera.
+
+Preparación lenta real: el primer personaje agotó 600 s con 60193 caracteres de
+entrada. `encargo_personaje` ahora selecciona por tarea, no pide otro resumen a IA:
+identidad íntegra, guía visual y áreas visual/animación; TODAS las ventanas de los
+mismos <=24 lotes, con personajes/materiales/movimiento, evidencias/incertidumbres
+y cobertura. Omite voz, música, guion, grafismos, montaje y conclusiones redundantes.
+No truncar datos: techo 30k ANTES de proveedor. En este proyecto 27072–27190
+caracteres para los 13 personajes; NO es medición de latencia real. Sonnet/medium,
+referencias y capacidades articuladas intactos. Orden de primera aparición, no
+alfabético; todos se preparan antes de escenas nuevas. Clave histórica de personaje
+se conserva para recuperar entregas pagadas; el transporte compacto no las invalida.
+
+`estilo.espacio_ia` activa siempre la ruta de animación, aunque un preset antiguo
+guarde `animacion_nativa=false`. También se bloquean las funciones de imágenes
+antes de cargar proveedor/caché; no existe fallback de ilustraciones. Activa la ruta de
 `pasos/animacion_nativa.py` ANTES de `_ejecutar_base`: no llama al generador de
 imágenes. Recetas omiten catálogo/guía/cartelas/dirección/piezas de ilustración;
 conservan corte, voz, capas y montaje. Estilos publicados nuevos propagan el modo;

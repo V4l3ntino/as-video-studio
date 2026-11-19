@@ -231,13 +231,16 @@ def tiempo_max(esfuerzo=ESFUERZO_POR_DEFECTO, base_s=420, modelo=None,
     """Segundos que se le dan a UNA llamada antes de cortarla.
 
     `pedido_s` mayor que cero manda: es el techo que ha fijado una persona a
-    mano. Con 0 el techo se deriva del esfuerzo, que es lo unico que evita la
+    mano. -1 significa sin corte automático, conservando cancelación explícita.
+    Con 0 el techo se deriva del esfuerzo, que es lo unico que evita la
     trampa de ofrecer 'high' contra un techo pensado para 'low'.
     """
     try:
         pedido_s = int(pedido_s or 0)
     except (TypeError, ValueError):
         pedido_s = 0
+    if pedido_s == -1:
+        return None  # communicate(timeout=None), NO el timeout automático de 0
     if pedido_s > 0:
         return max(TIEMPO_MINIMO_S, min(TIEMPO_MAXIMO_S, pedido_s))
     escala = factor(modelo or MODELO_POR_DEFECTO, esfuerzo)
@@ -660,7 +663,7 @@ def ejecutar(instruccion, modelo=MODELO_POR_DEFECTO,
              base_tiempo_s=420, sistema=None,
              herramientas_vetadas=HERRAMIENTAS_VETADAS, permisos=None,
              extra=None, avance=None, consejos_extra=None, para="la llamada",
-             herramientas_permitidas=()):
+             herramientas_permitidas=(), reintentar_cuentas=True):
     """Lanza el CLI en headless y devuelve (texto de la respuesta, sobre JSON).
 
     La instruccion va SIEMPRE por stdin, nunca como argumento: un transcript de
@@ -672,6 +675,8 @@ def ejecutar(instruccion, modelo=MODELO_POR_DEFECTO,
     modelo = normalizar_modelo(modelo)
     esfuerzo = normalizar_esfuerzo(esfuerzo)
     lista = cuentas()
+    if not reintentar_cuentas:
+        lista = lista[:1]
     for indice, cuenta in enumerate(lista):
         try:
             return _una_pasada(
@@ -902,7 +907,8 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
                 esfuerzo=ESFUERZO_POR_DEFECTO, tiempo_max_s=0,
                 base_tiempo_s=600, herramientas_vetadas=(), avance=None,
                 para="la llamada", que="la respuesta", carpetas=(),
-                herramientas_permitidas=(), entrega_cruda=False):
+                herramientas_permitidas=(), entrega_cruda=False, archivo_entrega=None,
+                reintentar_cuentas=True):
     """Como `ejecutar`, pero el agente ESCRIBE su JSON y aqui se lee. -> dict.
 
     La instruccion NO tiene que decir como entregarlo: se le anade el cierre
@@ -937,6 +943,8 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
     # Claude rechaza Write en esas rutas aunque se use acceptEdits: en headless
     # pide una aprobacion que nadie puede contestar y termina sin el fichero.
     # realpath expande el alias y resuelve enlaces ANTES de pasar cwd al CLI.
+    if archivo_entrega and os.path.exists(archivo_entrega):
+        raise ValueError('ya existe una entrega conservada; revísala sin repetir la consulta')
     carpeta = os.path.realpath(tempfile.mkdtemp(prefix="cli_salida_"))
     try:
         ruta = os.path.join(carpeta, FICHERO_SALIDA)
@@ -945,7 +953,7 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
                  tiempo_max_s=tiempo_max_s, base_tiempo_s=base_tiempo_s,
                  herramientas_vetadas=vetadas, permisos="acceptEdits",
                  extra=extra, avance=avance, para=para,
-                 herramientas_permitidas=herramientas_permitidas)
+                  herramientas_permitidas=herramientas_permitidas,reintentar_cuentas=reintentar_cuentas)
         if not os.path.exists(ruta):
             hay = sorted(os.listdir(carpeta))[:8]
             denegadas = sorted({str(d.get("tool_name") or "herramienta")
@@ -959,6 +967,11 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
         with open(ruta, "r", encoding="utf-8-sig") as fh:
             crudo = fh.read()
     finally:
+        if archivo_entrega and os.path.isfile(ruta):
+            destino = os.path.realpath(archivo_entrega)
+            os.makedirs(os.path.dirname(destino),exist_ok=True)
+            shutil.copyfile(ruta,destino+'.parcial')
+            os.replace(destino+'.parcial',destino)
         shutil.rmtree(carpeta, ignore_errors=True)
     if entrega_cruda:
         return crudo, sobre

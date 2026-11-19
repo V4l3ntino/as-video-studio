@@ -218,14 +218,17 @@ respuesta para diagnóstico y **Reintentar análisis** continúa reutilizando lo
 lotes completados, sin inventar contenido ni repetirlos.
 
 Tras analizar, pulsa **Preparar herramientas y motor**. Claude construye un
-motor gráfico propio y sus herramientas/recursos originales, reutilizando la
-generación de imágenes y ffmpeg existentes sin modificar su código. Los recursos
+motor de dibujo/animación y una **biblioteca básica reutilizable del estilo**:
+monigote articulado (cabeza, torso, brazos, manos, piernas y pies), apariencias por
+parámetros, interpolación y movimientos básicos, árboles, casas, edificios y
+móviles. Todo se prepara con el acabado del estilo, antes de crear vídeos; no se
+generan imágenes por escena. Los recursos
 externos necesitan URL HTTPS pública, licencia declarada y SHA256 verificable.
 Cada versión queda en `versiones/v<N>/`, con esta organización:
 
 ```text
 motores/       código gráfico específico del estilo
-herramientas/  adaptaciones y auxiliares propios
+herramientas/  monigote, movimientos, elementos parametrizables y auxiliares propios
 recursos/      gráficos, tipografías y otros materiales del estilo
 referencias/   imágenes tomadas del vídeo de referencia
 requisitos/    dependencias solicitadas y versiones resueltas
@@ -237,6 +240,9 @@ muestra/       clip de comprobación técnica del motor
 
 La preparación instala únicamente versiones fijadas y ruedas binarias de PyPI,
 y comprueba resolución, duración y funcionamiento mediante una muestra animada.
+Además prueba cada asset básico, sus variantes y los controles de movimiento del
+monigote antes de publicar la versión. Su catálogo e interfaces quedan sellados
+en `paquete.json`; el código de los módulos vive en `herramientas/`.
 Puedes ver el clip y la ruta de la carpeta en la pantalla del estilo. Una entrega
 que falla no se anuncia como preparada; al reintentar una muestra fallida, el
 constructor recibe el diagnóstico para corregirla. Preparar otra versión no
@@ -249,8 +255,56 @@ de pasar a la siguiente. No se generan ilustraciones por escena ni se pegan los
 fotogramas de referencia como fondos. El análisis guía la realización, no una
 colección de imágenes. Los PNG visibles son pósteres de los clips terminados.
 Las herramientas propias del estilo se facilitan al programador de escenas.
-Las versiones publicadas anteriores conservan su funcionamiento salvo activación
-explícita de `assets.params.animacion_nativa=true` en un vídeo con espacio propio.
+Cada escena sigue entregando **código Python propio**, no un plan limitado a un
+catálogo cerrado. Dispone además de **assets de código reutilizables**:
+
+- Al crear el vídeo se copian automáticamente la biblioteca y el monigote del
+  estilo, sin IA. Antes de programar escenas se definen las apariencias de los
+  personajes visibles, conservando sus identidades: **no se construye otro rig**.
+  Cada identidad se comprueba con una muestra local. Las escenas importan esos rigs y
+  programan libremente su actuación, composición, cámaras y elementos adicionales.
+  El encargo de cada rig incluye identidad, acabado y observaciones de personajes,
+  materiales y movimiento, sin repetir instrucciones de voz, música o montaje.
+  Se conserva la evidencia seleccionada y se rechazan entradas mayores de 30.000
+  caracteres (40.000 para identidad antigua más interfaz compartida) antes de consultar;
+  no se recortan automáticamente. El orden sigue
+  la primera aparición de los personajes, no el alfabético.
+- Los personajes usan **apariencias por datos** sobre el rig preparado del estilo:
+  pelo, ropa, barba, gafas, pecas, edad, colores y proporciones. El dibujo habitual
+  está compartido; la IA no escribe funciones nuevas para vestir cada monigote.
+  El programa construye localmente un módulo pequeño con esos datos. Los detalles
+  excepcionales pueden añadir código sin limitar la actuación de las escenas.
+  El rig y el dibujo compartidos ya se preparan al crear el estilo, con el contrato
+  `APARIENCIA_VERSION=1` y `aplicar_apariencia(datos)` para parametrizar su acabado
+  propio. Rigs de versiones antiguas sin ese contrato conservan sus
+  extensiones de identidad, con aviso, sin forzarles el aspecto de otro estilo.
+  Las entregas y los personajes ya pagados se recuperan tal cual, sin regenerarlos.
+  Cada personaje tiene una instancia independiente; sus dependencias inmutables
+  se copian también al vídeo y viajan con él.
+- Los elementos básicos del catálogo del estilo tienen tamaños y materiales
+  configurables. Se reutilizan antes de crear geometría nueva. Si falta un detalle,
+  pueden ampliarse sin limitar el código de actuación de la escena.
+- Si falta un objeto, escenario o gráfico, el programa de esa escena puede entregar
+  también su módulo reutilizable. Se guarda y queda disponible para las siguientes
+  escenas, sin volver a pedirlo a la IA. No se modifica el paquete publicado.
+- Los assets utilizados y las fuentes de personajes viven en
+  `estilo_ia/recursos_animacion/` del vídeo y viajan al duplicarlo/exportarlo.
+  Sus versiones son inmutables por contenido. Un catálogo compartido externo al
+  programa permite usarlos en otros vídeos **del mismo estilo**, sin mezclar
+  acabados automáticamente. `ESTUDIO_RECURSOS_ANIMACION` permite elegir su ubicación;
+  incluye esa carpeta en las copias de seguridad.
+
+Las fuentes y clips anteriores siguen recuperándose sin preparar personajes ni
+regenerar lo ya pagado. Una entrega fallida se conserva antes de validar: no se
+borra ni se repite automáticamente por un error de formato o render. Claude
+mantiene Sonnet/medium, sin corte automático de tiempo, con Parar y sin cambio
+automático de cuenta. Preparar personajes usa su cuota cuando lo solicites al
+generar; no hay un tiempo de respuesta ni calidad equivalente garantizados.
+Los estilos ya publicados no se reescriben: siguen aprovechando sus recursos
+pagados. Para incorporar la biblioteca completa a un estilo antiguo hay que
+preparar una versión nueva; no se hace automáticamente ni se consume cuota al leerlo.
+Un proyecto con `estilo.espacio_ia` usa animación también si un preset antiguo
+lleva `animacion_nativa=false`; no genera ilustraciones ni hace fallback a ellas.
 Los efectos/ambientes que cree el
 motor se incorporan a Sonidos y se mezclan una sola vez, fuera del clip visual.
 El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
@@ -258,7 +312,10 @@ El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
 En **Encargo → Repartir carga de trabajo** puedes elegir el
 porcentaje de escenas animadas que dirige Claude y el que dirige ChatGPT/Codex.
 Se aplica al motor del estilo y a Stickman; no al guion, las imágenes ni las voces.
-Ambos usan el mismo motor local del estilo. El porcentaje cuenta escenas enteras,
+Ambos usan el mismo motor local del estilo. También se aplica a la preparación
+de personajes y sus apariencias: **100 % ChatGPT no llama a Claude para ellos**.
+En reparto mixto, el porcentaje se distribuye por separado entre personajes y
+escenas, en orden narrativo. El porcentaje cuenta unidades enteras,
 no tiempo ni cuota; las sobrantes se asignan a Claude. Se aplica a escenas nuevas
 o regeneradas: no rehace clips válidos por mover el deslizador. No hay cambio de
 proveedor automático si se agota una cuenta. La construcción inicial del motor
@@ -297,6 +354,9 @@ navegador; sustituye al analista/constructor por dobles sin consumir cuota.
 recuperación, reparto, rechazo de estáticos y ausencia del generador de imágenes,
 sin proveedores. Detectar variación temporal no demuestra actuación correcta ni
 calidad comparable: hace falta revisar una muestra animada frente a la referencia.
+`python pasos/prueba_recursos_animacion.py` verifica preparación previa de personajes,
+assets nuevos por escena, reutilización entre vídeos, portabilidad y recuperación
+sin proveedores. Las muestras técnicas no certifican fidelidad ni actuación correcta.
 `python pasos/prueba_transcripcion_estilo.py` comprueba los contratos sin red;
 `--real` descarga Whisper y un modelo de prueba y reconoce voz real en un MKV.
 
