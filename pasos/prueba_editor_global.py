@@ -27,6 +27,48 @@ if REAL:
     sys.argv.remove('--real')
 
 
+@unittest.skipUnless(shutil.which('node'), 'requiere Node para comprobar controles JavaScript')
+class ControlesNativos(unittest.TestCase):
+    def test_botones_nativos_y_bloqueo_sin_consultar_proveedores(self):
+        fuente=(RAIZ/'web/app.js').read_text(encoding='utf-8')
+        botones=fuente[fuente.index('function botonSustituirEscena('):fuente.index('/* ---------------------------------------- la animación de motion graphics')]
+        detectar=fuente[fuente.index('function animacionNativaLight()'):fuente.index('function galeriaImagenesPrevia(')]
+        programa='''const assert=require('node:assert/strict');
+let ocupado=false;
+const APP={light:{video:{fichas:{assets:{params:{estilo:{espacio_ia:{id:'estilo'}},animacion_nativa:false}}}}}};
+const trabajoVideoLight=()=>ocupado;
+const PREVIA={sustituyendo:false};
+const h=(tag,props,...children)=>({tag,props,children});
+'''+detectar+botones+'''
+assert.equal(animacionNativaLight(),true);
+const editar=()=>{},regenerar=()=>{};
+let nodo=botonSustituirEscena({id:'S068'},editar,regenerar);
+let botones=nodo.children.filter(n=>n&&n.tag==='button');
+assert.equal(botones.length,3);
+assert.equal(botones[0].props.onclick,editar);
+assert.equal(botones[1].props.onclick,regenerar);
+assert.equal(botones[0].props.disabled,false);
+ocupado=true;
+nodo=botonSustituirEscena({id:'S068'},editar,regenerar);
+assert(nodo.children.filter(n=>n&&n.tag==='button').every(n=>n.props.disabled));
+APP.light.video.fichas.assets.params={};
+assert.equal(animacionNativaLight(),false);
+console.log('OK');
+'''
+        resultado=subprocess.run(['node','-e',programa],capture_output=True,text=True,encoding='utf-8',timeout=20)
+        self.assertEqual(resultado.returncode,0,resultado.stderr)
+
+    def test_edicion_nativa_separa_guardar_descripcion_de_regenerar_una_escena(self):
+        fuente=(RAIZ/'web/app.js').read_text(encoding='utf-8')
+        editar=fuente[fuente.index('async function editarDescripcionEscenaNativa('):fuente.index('function botonSustituirEscena(')]
+        self.assertIn('/guion/descripciones',editar)
+        self.assertIn("method: 'PUT'",editar)
+        self.assertNotIn('API.ejecutar',editar)
+        self.assertNotIn('stickman/chat',editar)
+        self.assertIn("API.ejecutar(pid, 'assets'), {unidades: [`escena:${escena.id}`], rehacer: true}",fuente)
+        self.assertIn('animacionNativaLight() ? () => editarDescripcionEscenaNativa(escena)',fuente)
+
+
 @unittest.skipUnless(REAL, 'usa --real para comprobar el editor en Chromium')
 class EditorGlobal(unittest.TestCase):
     def test_edicion_global_conserva_borradores_guardado_y_reloj(self):

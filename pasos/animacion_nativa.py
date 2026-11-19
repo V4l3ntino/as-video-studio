@@ -3,6 +3,7 @@ import ast
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import shutil
 import uuid
@@ -149,12 +150,61 @@ def consultar(proveedor, prompt, referencias, avisar, recuperacion=None):
         avance.parar()
 
 
+def escena_del_encargo(escena,reparto=None):
+    """Vista para generación, sin mutar plan, firmas ni clips ya pagados.
+
+    Una descripción explícita sustituye la dirección ilustrativa anterior, no se
+    añade como una sugerencia más junto a ella. La detección de identidades es
+    literal, no una afirmación de verificación semántica del dibujo.
+    """
+    descripcion = escena.get('descripcion_visual')
+    if not isinstance(descripcion,str) or not descripcion.strip():
+        return dict(escena)
+    salida = dict(escena)
+    for clave in ('direccion','set','luz','tono','encuadre','carta','intervencion','componente'):
+        salida.pop(clave,None)
+    salida.update(prompt=descripcion,accion=descripcion,redactado=descripcion)
+    if reparto is not None:
+        visibles = []
+        texto = descripcion.casefold()
+        for ident,ficha in reparto.items():
+            alias = [ident,ident.removeprefix('auto_').replace('_',' ')]
+            if isinstance(ficha,dict) and isinstance(ficha.get('nombre'),str):
+                alias.append(ficha['nombre'])
+            for nombre in alias:
+                nombre = nombre.casefold().strip()
+                if len(nombre)<4:
+                    continue  # No inferir un actor a partir de pronombres ambiguos.
+                if re.search(r'(?<!\w)'+re.escape(nombre)+r'(?!\w)',texto):
+                    if re.search(r'(?:sin|no aparece|no se ve|ausencia de)\s+(?:el |la |al )?'+re.escape(nombre)+r'(?!\w)',texto):
+                        continue
+                    visibles.append(ident)
+                    break
+        # La lista de una dirección previa no puede imponer personajes ausentes
+        # ni declarar «sin personas» cuando la descripción los exige.
+        salida['personajes_visibles'] = visibles
+        salida['personajes'] = visibles
+    return salida
+
+
 def encargo(escena, plan, manifiesto, previa, herramientas=None, recursos=None):
+    escena = escena_del_encargo(escena,(plan.get('catalogo') or {}).get('reparto'))
     inspeccion = manifiesto.get('inspeccion_visual') or {}
     # Contexto acotado: todos los detalles originales siguen en el manifiesto.
     notas = [dict(conclusiones=l.get('conclusiones', ''), ventanas=l.get('ventanas', []))
              for l in inspeccion.get('lotes', [])]
     return '''PROGRAMA UNA ESCENA ANIMADA NATIVA, no una imagen ni un slideshow.
+CONTRATO VISUAL: si escena.descripcion_visual existe, representa ESA acción
+literalmente: sujetos, lugar, objetos, relaciones, gestos y sucesión de cambios.
+Tiene prioridad sobre metáforas de la narración, decorados de escenas anteriores
+y ejemplos del estilo. La referencia aporta ACABADO Y MOVIMIENTO, nunca sustituye
+el contenido de esta escena. No cambiar una persona poniendo un límite por un
+cartel de cerrado, cocinar en casa por un farol, ayudar a una vecina por un objeto,
+ni un termostato de pared por una linterna en un bosque. Elige encuadre y tiempos
+que hagan visible lo pedido. Si falta utilería/persona/escenario, crea el recurso;
+no cambies el significado para reutilizar algo disponible. La continuidad solo
+se conserva cuando es compatible con la descripción actual. Las acciones que
+declares deben describir y ejecutar lo pedido, no una sustitución temática.
 La referencia enseña CÓMO animar y editar, no qué fotograma copiar. Construye el
 escenario, personajes articulados, utilería y gráficos mediante dibujo procedural
 Pillow y código temporal. Cuerpos, brazos, manos, cabeza, ojos y objetos deben
@@ -318,14 +368,16 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
             if entrega is None:
                 if preparados is None:
                     catalogo = p6_assets._catalogo_de(deepcopy(params),proyecto)
+                    plan_encargo = dict(plan,escenas=[escena_del_encargo(e,catalogo.get('reparto') or {}) for e in escenas])
                     preparados = recursos_animacion.preparar(proyecto,marca,espacio,manifiesto,
-                        catalogo.get('reparto') or {},plan,consultar,avisar,params=params)
+                        catalogo.get('reparto') or {},plan_encargo,consultar,avisar,params=params)
                 referencias = [str(r) for r in sorted((espacio / 'referencias').glob('*.jpg'))]
                 # Incluye los objetos publicados por escenas anteriores sin
                 # cambiar las firmas ni los recursos fijados por sus fuentes.
                 preparados['recursos'].update(recursos_animacion.catalogo(proyecto,marca['huella']))
-                contexto = recursos_animacion.contexto(proyecto,preparados,escena)
-                prompt = encargo(escena,dict(plan,catalogo=catalogo),manifiesto,previa,herramientas_prompt,contexto)
+                escena_encargo = escena_del_encargo(escena,catalogo.get('reparto') or {})
+                contexto = recursos_animacion.contexto(proyecto,preparados,escena_encargo)
+                prompt = encargo(escena_encargo,dict(plan,catalogo=catalogo),manifiesto,previa,herramientas_prompt,contexto)
                 try:
                     dato = consultar(proveedores[sid],prompt,referencias,avisar,recuperacion=fuente.parent/'consulta')
                 except (ValueError,SyntaxError) as exc:
@@ -333,11 +385,27 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                     continue
                 entrega = dict(respuesta=dato, proveedor=proveedores[sid],formato='programa-recursos/1',
                     recursos_disponibles=preparados['recursos'],personajes_recursos=preparados['personajes'])
+                if escena_encargo.get('descripcion_visual'):
+                    entrega['contrato_visual'] = dict(descripcion=escena_encargo['descripcion_visual'],
+                        personajes_visibles=recursos_animacion.visibles(escena_encargo))
                 escribir_json(str(fuente), entrega)
             try:
                 auxiliares,recursos_usados = {},{}
+                escena_validacion = escena
+                if 'contrato_visual' in entrega:
+                    contrato = entrega['contrato_visual']
+                    if (not isinstance(contrato,dict) or not isinstance(contrato.get('descripcion'),str)
+                            or not contrato['descripcion'].strip()
+                            or not isinstance(contrato.get('personajes_visibles'),list)):
+                        raise ValueError('el contrato visual guardado de la escena está incompleto')
+                    escena_validacion = dict(escena,personajes_visibles=contrato.get('personajes_visibles'))
+                    requeridos = recursos_animacion.visibles(escena_validacion)
+                    objetivos = {a.get('objetivo') for a in entrega['respuesta'].get('acciones',[])
+                        if isinstance(a,dict) and a.get('tipo')=='personaje' and isinstance(a.get('objetivo'),str)}
+                    if any(ident not in objetivos for ident in requeridos):
+                        raise ValueError('la escena debe representar la acción de los personajes exigidos por su descripción: '+', '.join(requeridos))
                 if entrega.get('formato') == 'programa-recursos/1':
-                    auxiliares,recursos_usados = recursos_animacion.vincular(proyecto,marca['huella'],entrega,herramientas,escena)
+                    auxiliares,recursos_usados = recursos_animacion.vincular(proyecto,marca['huella'],entrega,herramientas,escena_validacion)
                 codigo = validar(entrega['respuesta'], duracion, [*herramientas,*auxiliares])
                 salida = espacio / 'trabajo' / ('nativa_' + sid + '_' + uuid.uuid4().hex)
                 salida.mkdir(parents=True)

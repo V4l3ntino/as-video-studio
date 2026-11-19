@@ -309,6 +309,19 @@ Los efectos/ambientes que cree el
 motor se incorporan a Sonidos y se mezclan una sola vez, fuera del clip visual.
 El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
 
+La **descripción visual de la escena manda sobre la dirección ilustrativa antigua**.
+Para escenas nuevas o regeneraciones, no se envían junto a ella decorados, luces o
+instrucciones de encuadre de otra propuesta. Las identidades del reparto mencionadas
+explícitamente se exigen también cuando la lista antigua decía «sin personajes».
+La continuidad y el estilo sirven para el acabado, no para sustituir la acción por
+otra metáfora. Los clips y fuentes existentes se conservan: corregirlos requiere
+regenerar esas escenas expresamente. Los controles técnicos no certifican por sí
+solos que el resultado visual cumpla todos los detalles de la descripción.
+En la previa de animación nativa aparecen **Editar escena** y **Regenerar escena**.
+Editar guarda su descripción visual sin tocar voz ni narración y sin generar nada;
+Regenerar rehace solo la escena seleccionada con el reparto de proveedores guardado.
+Los controles se bloquean mientras hay un trabajo activo.
+
 Un error local en el código, formato o render de una escena no interrumpe las
 siguientes: se conserva su entrega, se registra en `errores_escenas.json` del
 trabajo y se continúa la tanda. Al terminar se informa de las escenas pendientes

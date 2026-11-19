@@ -45,6 +45,40 @@ def entrega(codigo=CODIGO):
 
 
 class Nativa(unittest.TestCase):
+    def test_descripcion_visual_descarta_direccion_y_decorado_contradictorios(self):
+        import json
+        casos=[
+            ('El protagonista cocina tranquilo en su casa, con música y luz cálida.',
+             'Low angle paper lantern in a night market. No people.'),
+            ("El protagonista levanta una mano abierta en gesto de hasta aquí.",
+             'A stall reads CERRADO. No people.'),
+            ('La mano del protagonista gira un termostato de pared de caliente a frío y vuelve a caliente; detrás un chat alterna mensajes cariñosos y días en blanco.',
+             'A forest path with a hand lantern.'),
+            ('El protagonista sujeta la puerta a una vecina cargada con bolsas.',
+             'Close-up of a red mitten on a playground post. No people.')]
+        reparto={'auto_protagonista':{'nombre':'Protagonista'},'auto_rival':{'nombre':'Rival'}}
+        for descripcion,direccion in casos:
+            escena=dict(id='S069',narracion='Frase abstracta.',t_in=0,t_out=2,
+                descripcion_visual=descripcion,direccion=direccion,set='mercado_nocturno',
+                encuadre='old close-up',luz='old night light',tono='old cold tone',
+                personajes_visibles=[],personajes=[],intervencion={'descripcion_visual':'','personajes_visibles':[]})
+            antes=copy.deepcopy(escena)
+            prompt=nativa.encargo(escena,dict(resolucion=[320,180],catalogo={'reparto':reparto}),{},None)
+            datos=json.loads(prompt[prompt.index('{"escena":'):])
+            visual=datos['escena']
+            self.assertEqual(visual['personajes_visibles'],['auto_protagonista'])
+            self.assertEqual(visual['prompt'],descripcion)
+            for k in ('direccion','set','encuadre','luz','tono','intervencion'):
+                self.assertNotIn(k,visual)
+            self.assertNotIn(direccion,prompt)
+            self.assertEqual(escena,antes)
+        # Sin descripción explícita se conserva el contrato histórico.
+        historica=dict(id='S001',direccion='Dirección propia.',personajes_visibles=['auto_rival'])
+        self.assertEqual(nativa.escena_del_encargo(historica,reparto),historica)
+        # Una lista antigua no impone al protagonista a un escenario sin él.
+        actual=dict(historica,descripcion_visual='Dos sillas vacías sobre un escenario.')
+        self.assertEqual(nativa.escena_del_encargo(actual,reparto)['personajes_visibles'],[])
+
     def test_error_local_salta_a_siguiente_y_conserva_recibos_y_entregas(self):
         mensajes=[]
         real=espacio.renderizar

@@ -2,6 +2,43 @@
 
 ## Espacios de trabajo de Estilos con IA
 
+### Botones de escena en la previa nativa
+
+`abrirEditorEscena` solo ofrecía editar/regenerar cuando copia.stickman era true;
+para espacio_ia ambos callbacks eran null y solo aparecía Sustituir imagen. Ahora
+animacionNativaLight detecta también estilo.espacio_ia (incluye presets antiguos con
+flag false), muestra ambos botones y los bloquea durante trabajos. Editar nativo
+abre diálogo de descripción con GET/PUT /guion/descripciones, anclado al ID y texto
+de la frase; no usa chat Stickman ni genera nada. Regenerar nativo usa POST al
+endpoint existente de ejecutar assets con unidades:[escena:<sid>],rehacer:true;
+no envía params ni cambia proveedor, respeta reparto guardado. Stickman mantiene
+su chat y regeneración propios. No aplicar una operación global a la tanda.
+Estilos solo en web/estilo.css, no atributos style. Assets sellados automáticamente.
+
+### Descripción visual autoritativa en el encargo nativo
+
+Incidencia real: S068/S069/S070 tenían descripción con protagonista pero visibles=[]
+y dirección ilustrativa antigua «manopla/farol/cartel, No people». S072 mezclaba
+termostato mural con set sendero_bosque/dirección linterna. No era solo una alucinación:
+se enviaban instrucciones contradictorias y preparar/vincular no exigían al actor.
+
+`animacion_nativa.escena_del_encargo` crea copia SOLO para nueva generación: si hay
+descripcion_visual explícita, prompt/accion/redactado usan ese texto íntegro y se
+omiten direccion/set/luz/tono/encuadre/carta/intervencion/componente antiguos.
+Reconcilia visibles por menciones literales de IDs/alias/nombres del reparto (no
+NLP ni garantía de semántica); una lista antigua no impone otros actores ni excluye
+al protagonista mencionado. Sin descripción se conserva el comportamiento anterior.
+Preparar recursos recibe plan_encargo, contexto recibe escena_encargo, y el prompt
+explicita prioridad de acción/lugar/objetos/gestos sobre metáforas y continuidad.
+
+Entregas NUEVAS fijan contrato_visual:{descripcion,personajes_visibles}. Validación
+exige acción personaje con ese ID y vincular exige importar el rig de cada requerido.
+Una metáfora solo de objetos no cumple presencia del actor. NO interpretar esto
+como verificación visual completa: import/acciones declaradas no prueban qué se ve.
+Fuentes antiguas SIN contrato se recuperan como antes, sin invalidar cachés. No se
+mutan params ni plan original, VERSION ni firmas; no regenerar clips existentes
+automáticamente. Usuario debe regenerar expresamente los que quiera corregir.
+
 ### Errores por escena sin interrumpir el resto de la tanda
 
 `animacion_nativa.ejecutar` registra errores locales de lectura/JSON, validación,

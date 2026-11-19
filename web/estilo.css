@@ -3351,3 +3351,8 @@ button.avisa:hover:not(:disabled) { border-color: var(--aviso); }
 }
 .proveedor-voz:focus-visible { outline: 2px solid #91a3ff; outline-offset: 2px; }
 .consulta-voz-id:not(:empty) { margin: 8px 0; }
+/* Edición explícita de la descripción de una animación nativa. */
+.escena-nativa-dialogo { width: min(42rem, 90vw); max-height: 85vh; overflow: auto; padding: 1.25rem; color: var(--texto); background: var(--panel); border: 1px solid var(--linea); border-radius: 12px; }
+.escena-nativa-dialogo::backdrop { background: var(--negro); opacity: .7; }
+.escena-nativa-dialogo label { display: grid; gap: .5rem; }
+.escena-nativa-dialogo textarea { width: 100%; box-sizing: border-box; resize: vertical; }

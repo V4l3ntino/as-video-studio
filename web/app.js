@@ -11000,12 +11000,51 @@ async function sustituirMedioEscena(escena, archivo) {
   finally { PREVIA.sustituyendo = false; repintarVideo(); }
 }
 
+async function editarDescripcionEscenaNativa(escena) {
+  if (trabajoVideoLight()) return;
+  const pid = videoAbierto().pid;
+  try {
+    const datos = await pedir(`${API.proyecto(pid)}/guion/descripciones`);
+    if (videoAbierto().pid !== pid) return;
+    const actual = datos.escenas.find(e => e.id === escena.id && e.texto.trim() === escena.narracion.trim());
+    if (!actual) throw new Error('La escena ha cambiado. Recarga la previsualización antes de editarla.');
+    const area = h('textarea', {rows: 6, maxlength: 8000, 'aria-label': `Descripción visual de ${escena.id}`});
+    area.value = actual.descripcion_visual;
+    const estado = h('p', {clase: 'meta', role: 'status'});
+    const cerrar = () => {dialogo.close(); dialogo.remove();};
+    const guardar = h('button', {clase: 'primario', onclick: async () => {
+      if (trabajoVideoLight() || videoAbierto().pid !== pid) return;
+      const descripcion = area.value.trim();
+      if (!descripcion) {estado.textContent = 'Escribe una descripción visual.'; return;}
+      guardar.disabled = true;
+      try {
+        await pedir(`${API.proyecto(pid)}/guion/descripciones`, {method: 'PUT', cuerpo: {
+          escenas: [{...actual, descripcion_visual: descripcion}],
+        }});
+        if (videoAbierto().pid === pid) {
+          await refrescarLoDibujado(); repintarVideo();
+          toast('Descripción guardada. Pulsa Regenerar escena para aplicarla solo a esta animación.');
+        }
+        cerrar();
+      } catch (error) {estado.textContent = error.message;}
+      finally {guardar.disabled = false;}
+    }}, 'Guardar descripción');
+    const dialogo = h('dialog', {clase: 'escena-nativa-dialogo', 'aria-label': `Editar escena ${escena.id}`,
+      oncancel: ev => {ev.preventDefault(); cerrar();}},
+      h('h3', {}, `Editar escena · ${escena.id}`), h('p', {clase: 'meta'}, actual.texto),
+      h('label', {}, 'Descripción visual', area),
+      h('p', {clase: 'meta'}, 'No modifica la narración ni la voz. Guardar no genera contenido ni consume cuota.'),
+      estado, h('div', {clase: 'acciones'}, h('button', {clase: 'mini', onclick: cerrar}, 'Cancelar'), guardar));
+    document.body.appendChild(dialogo); dialogo.showModal(); area.focus();
+  } catch (error) {toast(`No se ha podido abrir la edición: ${error.message}`, true);}
+}
+
 function botonSustituirEscena(escena, editar, regenerar) {
   const entrada = h('input', {type: 'file', hidden: true,
     accept: '.png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.m4v,.avi',
     onchange: ev => sustituirMedioEscena(escena, ev.target.files[0]) });
   return h('div', {clase: 'editor-previa-acciones'}, entrada,
-    editar ? h('button', {clase: 'mini', onclick: editar},
+    editar ? h('button', {clase: 'mini', disabled: !!trabajoVideoLight(), onclick: editar},
       h('span', {'aria-hidden': 'true'}, '✦'), 'Editar escena') : null,
     regenerar ? h('button', {clase: 'mini', disabled: !!trabajoVideoLight(), onclick: regenerar,
       title: 'Generar de nuevo toda la animación de esta escena desde su descripción.'},
@@ -12354,9 +12393,13 @@ async function abrirEditorEscena(escena, estudio) {
     botones.forEach(b => {b.disabled = true;});
     try {
       estudio.modeloStickman.bloquear(true);
-      await trabajoRemotion(`${base}/stickman/regenerar`, {
-        porcentaje: estudio.modeloStickman.elegido() === 'ChatGPT' ? 100 : 0,
-      }, estado);
+      if (animacionNativaLight()) {
+        await trabajoRemotion(API.ejecutar(pid, 'assets'), {unidades: [`escena:${escena.id}`], rehacer: true}, estado);
+      } else {
+        await trabajoRemotion(`${base}/stickman/regenerar`, {
+          porcentaje: estudio.modeloStickman.elegido() === 'ChatGPT' ? 100 : 0,
+        }, estado);
+      }
       if (estudio.cerrado() || videoAbierto().pid !== pid) return;
       if (await refrescarLoDibujado() === false) throw new Error('No se pudo cargar la escena actualizada.');
       if (estudio.cerrado() || videoAbierto().pid !== pid) return;
@@ -12382,8 +12425,8 @@ async function abrirEditorEscena(escena, estudio) {
     h('aside', { clase: 'editor-global-panel' }, tabs, avisoRecuperacion, panel,
       h('div', { clase: 'anim-editor-pie' }, deshacerBoton, guardarBoton), estado),
     h('div', { clase: 'editor-global-visual' }, botonSustituirEscena(escena,
-      pedidoDelVideoLight().copia.stickman ? abrirEdicionStickman : null,
-      pedidoDelVideoLight().copia.stickman ? regenerarStickman : null), muestra), medios);
+      animacionNativaLight() ? () => editarDescripcionEscenaNativa(escena) : pedidoDelVideoLight().copia.stickman ? abrirEdicionStickman : null,
+      (animacionNativaLight() || pedidoDelVideoLight().copia.stickman) ? regenerarStickman : null), muestra), medios);
   tallerRemotion = crearTallerRemotion({pid, escena, trabajo: trabajoRemotion, ocupado, alElegir: () => {indiceRemotion = -1;},
     abrirResultado: plantilla => estudio.abrirResultadoIA(plantilla),
     tallerAbierto: () => estudio.tallerRemotionAbierto,
@@ -12539,7 +12582,7 @@ async function abrirEditorEscena(escena, estudio) {
     if (ocupado()) throw new Error('Espera a que termine la operación actual.');
     remotionOcupado = true; pausar();
     dialogo.classList.add('remotion-trabajando');
-    const actividad = ruta.endsWith('/stickman/regenerar') ? 'Regenerando animación' : ruta.endsWith('/stickman/chat') ? 'Preparando edición Stickman' : ruta.endsWith('/compilar') ? 'Compilando Remotion' : 'Renderizando Remotion';
+    const actividad = (ruta.endsWith('/stickman/regenerar') || ruta.endsWith('/pasos/assets/ejecutar')) ? 'Regenerando animación' : ruta.endsWith('/stickman/chat') ? 'Preparando edición Stickman' : ruta.endsWith('/compilar') ? 'Compilando Remotion' : 'Renderizando Remotion';
     mensaje.textContent = `${actividad} · 0 %`;
     try {
       const r = await pedir(ruta, {method: 'POST', cuerpo: datos}); tid = r.trabajo_id;
@@ -13410,7 +13453,8 @@ function animarPrevia(capa, fondo, tiempo) {
 }
 
 function animacionNativaLight() {
-  return APP.light.video.fichas?.assets?.params?.animacion_nativa === true;
+  const params = APP.light.video.fichas?.assets?.params;
+  return !!params?.estilo?.espacio_ia || params?.animacion_nativa === true;
 }
 
 function galeriaImagenesPrevia(escenas, alSeleccionar) {

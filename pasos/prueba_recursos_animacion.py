@@ -83,6 +83,52 @@ def dibujar(im,estado,contexto):
 
 
 class Recursos(unittest.TestCase):
+    def test_descripcion_exige_actor_aunque_direccion_antigua_decia_sin_personas(self):
+        self.base_parametrica()
+        self.params['catalogo']['reparto']={'auto_protagonista':{'descripcion':'Protagonista'}}
+        self.plan['escenas']=self.plan['escenas'][:1]
+        escena=self.plan['escenas'][0]
+        escena.update(descripcion_visual='El protagonista cocina tranquilo en su casa.',
+            direccion='Lantern at a night market. No people.',set='mercado_nocturno',personajes_visibles=[])
+        antes=copy.deepcopy(self.plan);llamadas=[]
+        def ia(proveedor,prompt,*a,**kw):
+            if 'DEFINE SOLO LOS DATOS DE APARIENCIA' in prompt:
+                llamadas.append('apariencia')
+                return dict(formato='apariencia/1',nombre='Protagonista',concepto='protagonista',apariencia={})
+            datos=datos_prompt(prompt);llamadas.append('escena')
+            self.assertEqual(datos['escena']['personajes_visibles'],['auto_protagonista'])
+            self.assertNotIn('direccion',datos['escena'])
+            self.assertNotIn('set',datos['escena'])
+            self.assertEqual(list(datos['recursos_animacion']['personajes']),['auto_protagonista'])
+            respuesta=entrega(programa_personajes(datos['recursos_animacion']['personajes'].values()))
+            respuesta['acciones'][0]['objetivo']='auto_protagonista'
+            return respuesta
+        with patch.object(nativa,'consultar',side_effect=ia):resultado=self.generar()
+        self.assertEqual(llamadas,['apariencia','escena'])
+        self.assertEqual(self.plan,antes)
+        recibo=resultado['todas']['escena:S001']['animacion_estilo']
+        fuente=leer_json(self.proyecto.ruta(recibo['fuente']),estricto=True)
+        self.assertEqual(fuente['contrato_visual']['descripcion'],escena['descripcion_visual'])
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No regenerar clips existentes')), \
+                patch.object(espacio,'renderizar',side_effect=AssertionError('No reanimar')):
+            self.generar()
+
+    def test_accion_de_objeto_no_sustituye_a_personaje_exigido_por_descripcion(self):
+        self.base_parametrica()
+        self.params['catalogo']['reparto']={'auto_protagonista':{'descripcion':'Protagonista'}}
+        self.plan['escenas']=self.plan['escenas'][:1]
+        self.plan['escenas'][0].update(descripcion_visual='El protagonista levanta la mano.',personajes_visibles=[])
+        def ia(proveedor,prompt,*a,**kw):
+            if 'DEFINE SOLO LOS DATOS DE APARIENCIA' in prompt:
+                return dict(formato='apariencia/1',nombre='Protagonista',concepto='protagonista',apariencia={})
+            datos=datos_prompt(prompt)
+            respuesta=entrega(programa_personajes(datos['recursos_animacion']['personajes'].values()))
+            respuesta['acciones'][0].update(tipo='objeto',objetivo='Cartel cerrado')
+            return respuesta
+        with patch.object(nativa,'consultar',side_effect=ia):
+            with self.assertRaisesRegex(ValueError,'personajes exigidos'):self.generar()
+        self.assertFalse(Path(self.proyecto.ruta_trabajo('assets'),'escenas/S001.estilo_ia.json').exists())
+
     def test_recursos_con_tildes_son_modulos_python_validos_y_portables(self):
         nombre='puerta_petr\u00f3leo_bisagra'
         dato=dict(ARBOL,concepto='puerta_de_prueba')
