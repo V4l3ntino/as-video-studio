@@ -11,6 +11,25 @@ import subprocess
 import sys
 
 
+def configurar_fuente_texto(pedido):
+    """Sustituye SOLO la fuente limitada por defecto, dentro de este renderer.
+
+    Medición y dibujo obtienen el mismo FreeTypeFont. No se recodifica texto ni
+    se sustituyen fuentes explícitas elegidas por el estilo.
+    """
+    if not pedido.get('fuente_texto'):
+        return
+    from PIL import ImageFont
+    ruta = Path(pedido['fuente_texto']).resolve()
+    if not ruta.is_relative_to(Path(pedido['salida']).resolve()) or not ruta.is_file():
+        raise ValueError('falta la fuente Unicode preparada para este render')
+    def cargar(size=None):
+        return ImageFont.truetype(str(ruta),size=10 if size is None else size)
+    # Antes de importar motor/recursos: también cubre alias from ... import y
+    # fuentes creadas al cargar el módulo o en cachés de geometría.
+    ImageFont.load_default = cargar
+
+
 def main():
     paquete, pedido_path = map(Path, sys.argv[1:3])
     sys.path[:0] = [str(paquete / 'dependencias'), str(paquete / 'herramientas'), str(paquete / 'motores')]
@@ -60,6 +79,7 @@ def main():
         elif evento.startswith('socket.'):
             raise PermissionError('los recursos se preparan antes del render, no mediante llamadas de red del motor')
     sys.addaudithook(auditar)
+    configurar_fuente_texto(pedido)
     modulo = importlib.util.spec_from_file_location('motor_del_estilo', codigo_nativo or paquete / 'motores' / 'escena.py')
     motor = importlib.util.module_from_spec(modulo)
     modulo.loader.exec_module(motor)

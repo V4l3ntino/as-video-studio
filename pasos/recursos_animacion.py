@@ -310,8 +310,11 @@ def __getattr__(nombre):
 def contrato():
     return '''Un asset es un módulo Python AUTOCONTENIDO, sin proveedores, imágenes,
 red, procesos ni instalaciones. Puede usar Pillow y biblioteca estándar, NO otros
-assets ni ficheros externos. Implementa dibujar(lienzo,estado,contexto): pinta sobre
-la PIL.Image recibida. contexto contiene ancho,alto,t y duracion; estado es un dict
+assets ni ficheros externos.
+La tipografía por defecto del renderer admite tildes, ñ y ¿¡. Conserva texto Unicode
+y mide/dibuja con la misma fuente, sin sustituir acentos ni conversiones de bytes.
+Implementa dibujar(lienzo,estado,contexto): pinta sobre la PIL.Image recibida.
+contexto contiene ancho,alto,t y duracion; estado es un dict
 LIBRE: define y documenta las propiedades que necesite tu dibujo (articulaciones,
 mirada, manos, expresiones, materiales, etc.). Puede devolver anclas en píxeles.
 No encierres el personaje en poses fijas: ofrece controles de sus articulaciones

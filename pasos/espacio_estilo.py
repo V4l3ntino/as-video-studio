@@ -123,6 +123,9 @@ escena:{id,narracion,prompt,marcas,t_in,t_out,...},parametros:objeto por escena,
 recursos:ruta de los recursos del estilo,salida:carpeta de trabajo exclusiva}.
 t es el segundo local, no tiempo absoluto. La narración y duración son inmutables.
 No dibujes palabras completas de la narración como subtítulos: los añade el Estudio.
+Conserva el texto Unicode: tildes, ñ, ¿ y ¡ no se recodifican ni se eliminan.
+Para rótulos usa una fuente TrueType con todos sus glifos; la predeterminada de
+Pillow sin configurar puede carecer de acentos. Mide y dibuja con la misma fuente.
 Entrega un motor real, no una plantilla vacía ni un simple zoom si el análisis exige
 capas, máscaras, partículas, iluminación, gráficos o efectos. Si la referencia no
 se puede reproducir con los recursos disponibles, no prometas la misma calidad.
@@ -453,6 +456,28 @@ def copiar(origen, destino, esperado):
     escribir_json(str(destino / 'espacio.json'), dict(huella=esperado))
 
 
+def preparar_fuente_texto(salida):
+    """Copia una fuente instalada con alfabeto español; sin descargas ni paquete nuevo."""
+    from pasos import tipografia
+    from PIL import ImageFont
+    ruta = Path(tipografia.FUENTES['arial'][0])
+    try:
+        fuente = ImageFont.truetype(str(ruta),24)
+        # Un glifo ausente devuelve el mismo dibujo .notdef que U+10FFFF.
+        ausente = fuente.getmask('\U0010ffff')
+        firma_ausente = (ausente.size,bytes(ausente))
+        for caracter in '¿¡ÁÉÍÓÚÜÑáéíóúüñ':
+            mascara = fuente.getmask(caracter)
+            if (mascara.size,bytes(mascara))==firma_ausente:
+                raise ValueError('la fuente no contiene el carácter '+caracter)
+    except (OSError,ValueError) as exc:
+        raise ValueError('No se puede preparar texto Unicode para la animación. Revisa ESTUDIO_FUENTES y Arial: '+str(exc)) from exc
+    destino = Path(salida)/'tipografia'/'texto_unicode.ttf'
+    destino.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(ruta,destino)
+    return str(destino.resolve())
+
+
 def renderizar(destino, pedido, salida, avisar, codigo_escena=None, herramientas_escena=None):
     from pasos import medios, medios_escena
     destino, salida = Path(destino), Path(salida)
@@ -461,6 +486,7 @@ def renderizar(destino, pedido, salida, avisar, codigo_escena=None, herramientas
     pedido = dict(pedido, salida=str(salida.resolve()), ffmpeg=medios.ffmpeg())
     ejecutor = destino / 'ejecutor.py'
     if codigo_escena is not None:
+        pedido['fuente_texto'] = preparar_fuente_texto(salida)
         # No se sustituye el ejecutor sellado de una versión publicada.
         ejecutor = salida / 'ejecutor_nativo.py'
         shutil.copyfile(EJECUTOR, ejecutor)

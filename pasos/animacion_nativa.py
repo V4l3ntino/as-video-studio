@@ -174,6 +174,11 @@ t está en segundos locales; el resultado debe ser determinista, sin efectos de
 estado entre frames. Opcional preparar(pedido) precalcula lo costoso; crear_audio
 opcional escribe solo efectos originales WAV PCM, sin voz ni música protegida.
 Usa solo Pillow y biblioteca estándar, sin nuevas dependencias. No ejecutes código.
+Texto: conserva Unicode en Python/JSON (tildes, ñ, ¿ y ¡), sin conversiones latin1
+ni quitar acentos. ImageFont.load_default(size=...) usa una fuente Unicode preparada
+por el renderer. Usa la MISMA fuente para textbbox/getlength y text/multiline_text;
+ajusta el texto al rótulo midiendo la caja real. Si eliges otra fuente explícita,
+debe contener todos los glifos del texto; no uses fuentes limitadas al ASCII.
 Puedes importar las herramientas del estilo y los módulos de recursos ofrecidos
 en recursos_animacion. Son dibujos y rigs reutilizables, NO un motor cerrado:
 mantén código propio de actuación, composición, efectos y montaje por escena.

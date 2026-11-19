@@ -45,6 +45,43 @@ def entrega(codigo=CODIGO):
 
 
 class Nativa(unittest.TestCase):
+    def test_rotulos_unicode_en_renderer_sin_tocar_fuentes_ni_clips_previos(self):
+        from PIL import Image,ImageDraw,ImageFont
+        from pasos import tipografia
+        codigo='''from PIL import Image,ImageDraw,ImageFont
+from PIL.ImageFont import load_default as fuente_por_alias
+ROTULO='¿POR QUÉ NO BASTÓ? ¡ATRACCIÓN, NIÑEZ Y PINGÜINO!'
+FUENTE=fuente_por_alias(size=24)
+def pintar(pedido,t):
+    im=Image.new('RGB',(960,100),'white')
+    d=ImageDraw.Draw(im)
+    ausente=FUENTE.getmask(chr(0x10ffff))
+    for caracter in '¿¡ÁÉÍÓÚÜÑáéíóúüñ':
+        m=FUENTE.getmask(caracter)
+        assert (m.size,bytes(m))!=(ausente.size,bytes(ausente))
+    assert ImageFont.load_default().getbbox('¿ÉÑ')
+    d.text((10,10),ROTULO,font=FUENTE,fill='black')
+    return im
+'''
+        antes=espacio.inventario(self.espacio)
+        salida=self.raiz/'texto'
+        archivos=espacio.renderizar(self.espacio,dict(ancho=960,alto=100,fps=12,duracion=.2,
+            escena={},parametros={}),salida,lambda *a:None,codigo_escena=codigo)
+        esperado=Image.new('RGB',(960,100),'white')
+        fuente=ImageFont.truetype(tipografia.FUENTES['arial'][0],24)
+        ImageDraw.Draw(esperado).text((10,10),'¿POR QUÉ NO BASTÓ? ¡ATRACCIÓN, NIÑEZ Y PINGÜINO!',font=fuente,fill='black')
+        with Image.open(archivos['poster']) as imagen:
+            self.assertEqual(imagen.convert('RGB').tobytes(),esperado.tobytes())
+        self.assertEqual(espacio.inventario(self.espacio),antes)
+        # La función global del anfitrión no se sustituye: solo el proceso hijo.
+        self.assertEqual(ImageFont.load_default.__module__,'PIL.ImageFont')
+
+    def test_fuente_unicode_ausente_falla_sin_descargar_ni_cambiar_el_texto(self):
+        from pasos import tipografia
+        with patch.dict(tipografia.FUENTES,{'arial':(str(self.raiz/'falta.ttf'),str(self.raiz/'falta_b.ttf'))}):
+            with self.assertRaisesRegex(ValueError,'ESTUDIO_FUENTES'):
+                espacio.preparar_fuente_texto(self.raiz/'sin_fuente')
+
     def test_personaje_animado_puede_interactuar_con_objeto_inmovil(self):
         dato=entrega()
         fijo=dict(tipo='objeto',objetivo='obstaculo',accion='Permanece inmóvil durante el empuje',

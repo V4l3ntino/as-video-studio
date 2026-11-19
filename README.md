@@ -309,6 +309,12 @@ Los efectos/ambientes que cree el
 motor se incorporan a Sonidos y se mezclan una sola vez, fuera del clip visual.
 El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
 
+Los nuevos renders nativos usan una fuente TrueType con tildes, ñ y signos ¿¡
+cuando el código pide la fuente predeterminada de Pillow. Se utiliza la misma
+fuente para medir y dibujar; no se quitan acentos ni se recodifica el texto.
+Requiere las fuentes instaladas del estudio (`ESTUDIO_FUENTES`). Esto no invalida
+ni reanima clips existentes: se aplica a escenas nuevas y al regenerarlas manualmente.
+
 En **Encargo → Repartir carga de trabajo** puedes elegir el
 porcentaje de escenas animadas que dirige Claude y el que dirige ChatGPT/Codex.
 Se aplica al motor del estilo y a Stickman; no al guion, las imágenes ni las voces.

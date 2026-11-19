@@ -2,6 +2,22 @@
 
 ## Espacios de trabajo de Estilos con IA
 
+### Texto Unicode en renders futuros, sin invalidar clips
+
+S014/S016 guardaban correctamente ¿POR QUÉ NO BASTÓ? y ATRACCIÓN, pero usaban
+ImageFont.load_default: su fuente limitada dibujaba .notdef en signos y acentos.
+No era corrupción UTF-8; NO recodificar ni quitar tildes. `preparar_fuente_texto`
+copia Arial de tipografia.FUENTES (ESTUDIO_FUENTES/sistema) SOLO a la salida del
+nuevo render; comprueba cobertura española contra glifo ausente. Sin red ni copia
+dentro del paquete sellado. Falta de fuente/glifo debe fallar con diagnóstico.
+`ejecutor.configurar_fuente_texto` sustituye ImageFont.load_default solo en el
+proceso renderer, antes de importar escena y recursos (incluidos alias y cachés
+de módulo). Mantiene tamaños y la misma fuente para medida/dibujo; NO reemplaza
+truetype explícitos ni altera texto. El anfitrión y paquetes originales intactos.
+No cambiar VERSION, firmas ni criterios de caché por esto: se aplica a renders
+nuevos y regeneraciones expresas, NUNCA reanimar todas las escenas existentes.
+Los prompts también exigen Unicode y cobertura de glifos para fuentes explícitas.
+
 ### Biblioteca al preparar el estilo (ruta actual; versiones antiguas conservadas)
 
 Las nuevas consultas de `espacio_estilo.consultar_constructor` exigen `biblioteca`
