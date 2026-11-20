@@ -25,6 +25,42 @@ import transiciones  # noqa: E402
 
 
 class TransicionesEscena(unittest.TestCase):
+    def test_montaje_no_anade_musica_guardada_ni_cama_por_tramos(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            proyecto = Proyecto.crear(tmp, 'Sin música añadida')
+            imagen = proyecto.ruta('imagen.png')
+            Image.new('RGB', (160, 90), 'red').save(imagen)
+            escenas = self.escenas[:2]
+            plan, movimiento = proyecto.ruta('plan.json'), proyecto.ruta('movimiento.json')
+            escribir_json(plan, dict(escenas=escenas, resolucion=[160, 90]))
+            escribir_json(movimiento, dict(movimientos=[dict(id=e['id'], hyperframe=imagen,
+                capa='ausente.svg', hyperframe_px=[160, 90], ventana_ini=[0, 0, 1, 1],
+                ventana_fin=[0, 0, 1, 1]) for e in escenas]))
+            def lotes(lista, *args, **kwargs):
+                for t in lista:
+                    Path(t['clip']).parent.mkdir(parents=True, exist_ok=True)
+                    Path(t['clip']).write_bytes(b'clip visual conservado')
+                return [dict(id=t['id'], clip=t['clip'], frames=t['frames']) for t in lista]
+            temas = (dict(id='antigua', titulo='Tema antiguo'),
+                     dict(tramos=[dict(id='antigua', fraccion=1)]))
+            for musica, solo in ((m, s) for m in temas for s in (False, True)):
+                with self.subTest(musica=musica, solo_montar=solo), \
+                        patch.object(p8_render, 'correr_lote', side_effect=lotes) as render, \
+                        patch.object(p8_render, '_concatenar') as concatenar, \
+                        patch.object(p8_render, '_elegir_codec', return_value='libx264'), \
+                        patch.object(p8_render.sonido, 'construir_cama', side_effect=AssertionError('No preparar música')), \
+                        patch.object(p8_render.sonido, 'eventos', return_value=[dict(papel='estilo_ia:0')]), \
+                        patch.object(p8_render.sonido, 'pista_de_efectos', return_value=('escena.wav', 1)):
+                    resultado = p8_render.ejecutar(proyecto, dict(plan=plan, movimiento=movimiento,
+                        musica=musica, sonido=True, lotes=1, fps=6), solo_montar=solo)
+                if solo:
+                    render.assert_not_called()
+                self.assertIsNone(concatenar.call_args.kwargs['musica'])
+                self.assertEqual(concatenar.call_args.kwargs['efectos'], 'escena.wav')
+                self.assertIsNone(resultado['salidas']['musica'])
+                self.assertEqual(resultado['salidas']['efectos'], 1)
+
     def setUp(self):
         self.escenas = [{"id": f"S{i:03d}", "narracion": f"Frase {i}.",
                          "duracion": 2, "t_in": 2 * (i - 1), "t_out": 2 * i}

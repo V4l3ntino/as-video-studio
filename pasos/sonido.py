@@ -32,8 +32,8 @@ propone, una persona aprueba, y a partir de ahi es determinista.
 
 QUE SUENA Y CUANDO
 ------------------
-    transicion_suave   un aire corto en los encadenados de cierre de frase
-    transicion_acento  un golpe en los acentos, cada pocos planos
+    Las transiciones visuales no añaden efectos de sonido automáticos.
+    Se conservan los sonidos de escena y los insertados manualmente.
     tecla              la maquina de escribir de una cartela, letra a letra
     retorno            el carro al terminar de escribirse una cartela
 
@@ -1301,29 +1301,11 @@ def _eventos_automaticos(escenas, cortes, params, semilla=0):
                           "duracion": max(0.0, float(escena.get("t_out") or 0)
                                           - float(escena.get("t_in") or 0))})
 
-        # 1. LA TRANSICION, colocada por su GOLPE y no por su primera muestra.
-        #
-        # El fichero empieza a sonar `golpe_de` segundos antes de pegar, y eso
-        # va de 0,05 a 0,90 s segun cual toque: colocarlos todos por el
-        # principio los reparte por medio segundo largo a un lado y a otro del
-        # corte. Lo que se fija es DONDE CAE EL GOLPE --en el centro de la
-        # mezcla visual, `ANCLA_TRANSICION`-- y el arranque del fichero sale de
-        # restar. Asi el adelanto deja de ser un numero y pasa a ser el que cada
-        # efecto necesita para llegar a tiempo.
-        corte = (cortes or {}).get(sid) or {}
-        if corte.get("tipo") and corte["tipo"] != "corte":
-            papel = ("transicion_acento" if corte.get("ranura") == "acento"
-                     else "transicion_suave")
-            ficha = elegir(surtido.get(papel), semilla, sid, papel,
-                           vetados_de=prohibidos)
-            if ficha:
-                diana = inicio + ANCLA_TRANSICION * float(corte.get("duracion") or 0.0)
-                golpe = golpe_de(banco("efectos", _nombre_de(ficha)))
-                fuera.append({"escena": sid, "t": max(0.0, diana - golpe),
-                              "papel": papel, "ficha": ficha,
-                              "ganancia": PAPELES[papel]["ganancia"]})
+        # Los cortes son solo visuales: no insertar barridos ni golpes, aunque
+        # un proyecto antiguo conserve esos papeles en params. Los sonidos
+        # explícitos de escena y los manuales mantienen su propia pista.
 
-        # 2. la maquina de escribir de una cartela, letra a letra
+        # La maquina de escribir de una cartela, letra a letra
         if not cartelas.es_cartela(escena):
             continue
         # El plano de CONTINUACION de una cartela que dura dos no se escribe:

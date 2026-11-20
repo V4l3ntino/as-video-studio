@@ -45,6 +45,167 @@ def entrega(codigo=CODIGO):
 
 
 class Nativa(unittest.TestCase):
+    def test_sonidos_stickman_en_estilo_ia_cache_y_portabilidad(self):
+        import wave
+        dato = entrega()
+        dato['sfx'] = [dict(name='blip', at=.4, dur=.12, gain=-18, seed=3, pitch=1),
+                       dict(name='ding', at=1.3, dur=.3, gain=-22)]
+        with patch.object(nativa, 'consultar', return_value=dato):
+            resultado = self.generar(unidades=['escena:S001'])
+        ficha = resultado['unidades']['escena:S001']['animacion_estilo']
+        self.assertEqual([s['nombre'] for s in ficha['sonidos']], ['blip', 'ding'])
+        from pasos import sonido
+        visible = espacio.aplicar_recursos(self.proyecto, copy.deepcopy(self.plan))
+        eventos = sonido._eventos_automaticos(visible['escenas'], {}, {})
+        self.assertEqual([e['papel'] for e in eventos], ['estilo_ia:sfx:0', 'estilo_ia:sfx:1'])
+        self.assertEqual([e['t'] for e in eventos], [.4, 1.3])
+        trabajo = Path(self.proyecto.ruta('pasos', 'assets', 'trabajo'))
+        for sonido, esperado in zip(ficha['sonidos'], dato['sfx']):
+            self.assertTrue(sonido['id'].startswith('estilo_ia:sfx:'))
+            self.assertEqual(sonido['inicio'], esperado['at'])
+            self.assertAlmostEqual(sonido['ganancia'], 10 ** (esperado['gain'] / 20))
+            with wave.open(str(trabajo / sonido['archivo'])) as wav:
+                self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), esperado['dur'], places=4)
+        # Retomar no dirige, reanima ni sintetiza de nuevo una escena completa.
+        with patch.object(nativa, 'consultar', side_effect=AssertionError('No repetir IA')), \
+                patch.object(espacio, 'renderizar', side_effect=AssertionError('No reanimar')):
+            recuperado = self.generar(unidades=['escena:S001'])
+        self.assertEqual(recuperado['unidades']['escena:S001']['animacion_estilo']['sonidos'], ficha['sonidos'])
+        copia = self.raiz / 'copia_portatil'
+        shutil.copytree(trabajo, copia)
+        self.assertTrue(all((copia / s['archivo']).is_file() for s in ficha['sonidos']))
+        # Si se pierde un WAV se recupera de la fuente pagada sin otra consulta.
+        (trabajo / ficha['sonidos'][0]['archivo']).unlink()
+        with patch.object(nativa, 'consultar', side_effect=AssertionError('No repetir IA')):
+            reparado = self.generar(unidades=['escena:S001'])
+        self.assertTrue(all((trabajo / s['archivo']).is_file()
+            for s in reparado['unidades']['escena:S001']['animacion_estilo']['sonidos']))
+
+    def test_contrato_sonidos_estricto_y_fuentes_antiguas(self):
+        self.assertNotIn('sfx', nativa.validar(entrega(), 2))
+        self.assertEqual(nativa.validar(dict(entrega(), sfx=[]), 2)['sfx'], [])
+        for sfx in (None, {}, [dict(name='inventado')], [dict(name='blip', at=2)],
+                    [dict(name='pop', at=1.9, dur=.2)], [dict(name='ding', gain=1)],
+                    [dict(name='hit', pitch=0)], [dict(name='tick')] * 41):
+            with self.subTest(sfx=sfx), self.assertRaises(ValueError):
+                nativa.validar(dict(entrega(), sfx=sfx), 2)
+        prompt = nativa.encargo(self.plan['escenas'][0], self.plan, {}, None)
+        self.assertIn('catalogo_sonidos', prompt)
+        self.assertIn('blip', prompt)
+        self.assertIn('NO necesitas sintetizarlos', prompt)
+
+    def test_catalogo_y_audio_original_coexisten_fuera_del_clip(self):
+        codigo = CODIGO + '''
+def crear_audio(pedido,ruta):
+    import wave, array
+    with wave.open(ruta,'wb') as wav:
+        wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(48000)
+        wav.writeframes(array.array('h',[100]*int(48000*pedido['duracion'])).tobytes())
+'''
+        dato = dict(entrega(codigo), sfx=[dict(name='pop', at=.5, dur=.15)])
+        with patch.object(nativa, 'consultar', return_value=dato):
+            resultado = self.generar(unidades=['escena:S001'])
+        ficha = resultado['unidades']['escena:S001']['animacion_estilo']
+        self.assertEqual([s['id'] for s in ficha['sonidos']], ['estilo_ia:sfx:0', 'estilo_ia:0'])
+        import json
+        import subprocess
+        from pasos import medios
+        clip = self.proyecto.ruta('pasos', 'assets', 'trabajo', ficha['clip'])
+        pistas = subprocess.run([medios.ffprobe(), '-v', 'error', '-show_entries',
+            'stream=codec_type', '-of', 'json', clip], capture_output=True, check=True)
+        self.assertEqual([s['codec_type'] for s in json.loads(pistas.stdout)['streams']], ['video'])
+
+    def test_regeneraciones_separan_respuestas_y_reintentos_recuperan_la_suya(self):
+        import json
+        from motores.imagen_openai import codex
+        self.plan['escenas'] = self.plan['escenas'][:1]
+        llamadas = []
+        def responder(*args, **kw):
+            llamadas.append(len(llamadas) + 1)
+            return json.dumps(entrega(CODIGO + '\n# intento ' + str(llamadas[-1])))
+        with patch.object(codex, 'texto', side_effect=responder):
+            original = self.generar()
+            primera = self.generar(rehacer=True)
+            with patch.object(espacio, 'renderizar', side_effect=ValueError('render interrumpido')):
+                with self.assertRaisesRegex(ValueError, 'render interrumpido'):
+                    self.generar(rehacer=True)
+            segunda = self.generar(rehacer=True)
+        self.assertEqual(llamadas, [1, 2, 3], 'Rehacer consulta de nuevo; retomar no vuelve a pagar')
+        fuentes = [leer_json(self.proyecto.ruta(r['unidades']['escena:S001']['animacion_estilo']['fuente']))
+                   for r in (original, primera, segunda)]
+        self.assertEqual(len({f['respuesta']['codigo'] for f in fuentes}), 3)
+
+    def test_pendiente_antiguo_conserva_consulta_compartida_sin_pagar(self):
+        import json
+        import hashlib
+        from motores.imagen_openai import codex
+        self.plan['escenas'] = self.plan['escenas'][:1]
+        with patch.object(nativa, 'consultar', return_value=entrega()):
+            inicial = self.generar()
+        fuente = Path(self.proyecto.ruta(inicial['unidades']['escena:S001']['animacion_estilo']['fuente']))
+        escribir_json(str(fuente.parent/'regeneracion_pendiente.json'), {'fuente': 'rehacer_antiguo.json'})
+        def conservada(proveedor, prompt, referencias, avisar, recuperacion=None):
+            self.assertEqual(Path(recuperacion), fuente.parent/'consulta')
+            firma = espacio.huella([proveedor, prompt, [hashlib.sha256(Path(r).read_bytes()).hexdigest() for r in referencias]])
+            salida = Path(recuperacion)/firma/'salida.json'
+            salida.parent.mkdir(parents=True, exist_ok=True)
+            salida.write_text(json.dumps(entrega()), encoding='utf-8')
+            return consultar(proveedor, prompt, referencias, avisar, recuperacion)
+        consultar = nativa.consultar
+        with patch.object(nativa, 'consultar', side_effect=conservada), \
+                patch.object(codex, 'texto', side_effect=AssertionError('No volver a pagar')):
+            self.generar(rehacer=True)
+
+    def test_correccion_s090_fusiona_ajuste_parcial_sin_perder_torso(self):
+        self.plan['escenas']=self.plan['escenas'][:1]
+        # El rig devuelve únicamente el ajuste IK, no la pose completa.
+        codigo=CODIGO.replace('    return im', '''    p = {'torso_incl': 9, 'cabeza_giro': .7}
+    def alcanzar_px(*args):return {'brazo_d': t}
+    p = alcanzar_px(p,'d',10,20,{}) or p
+    assert p['torso_incl'] == 9
+    return im''')
+        with patch.object(nativa,'consultar',return_value=entrega(codigo)):
+            with self.assertRaisesRegex(ValueError,'torso_incl'):self.generar()
+        fuente=next(Path(self.proyecto.ruta('estilo_ia/escenas_nativas')).glob('*/*/fuente.json'))
+        original=fuente.read_bytes();pagada=leer_json(str(fuente),estricto=True)
+        corregida=copy.deepcopy(pagada)
+        corregida['respuesta']['codigo']=codigo.replace("p = alcanzar_px(p,'d',10,20,{}) or p",
+            "ajuste = alcanzar_px(p,'d',10,20,{})\n    if isinstance(ajuste,dict):\n        p.update(ajuste)")
+        escribir_json(str(fuente.with_suffix('.correccion.json')),dict(huella_original=espacio.huella(pagada),
+            motivo='Fusionar el ajuste parcial del brazo.',entrega=corregida))
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No repetir IA')):
+            resultado=self.generar()
+        self.assertEqual(fuente.read_bytes(),original)
+        self.assertIn('correccion_local',resultado['unidades']['escena:S001']['animacion_estilo'])
+
+    def test_correccion_invalida_es_error_local_no_elude_contratos_ni_consulta(self):
+        pagada=dict(respuesta=entrega(),proveedor='Claude',contrato_estilo={'version':1},
+            contrato_visual={'descripcion':'Una persona','personajes_visibles':['actor']})
+        fuente=self.raiz/'fuente.json'
+        for cambio in ('huella','contrato_estilo','contrato_visual','proveedor'):
+            corregida=copy.deepcopy(pagada)
+            correccion=dict(huella_original=espacio.huella(pagada),motivo='Reparación',entrega=corregida)
+            if cambio=='huella':correccion['huella_original']='0'*64
+            else:corregida.pop(cambio)
+            escribir_json(str(fuente.with_suffix('.correccion.json')),correccion)
+            with self.subTest(cambio=cambio),self.assertRaises(ValueError):
+                nativa.aplicar_correccion_local(fuente,pagada)
+
+    def test_dependencia_desconocida_identifica_modulo_s057(self):
+        codigo='import asset_2fbb5a3730e96faea3ed3cf as plano\n'+CODIGO
+        with self.assertRaisesRegex(ValueError,'dependencia no admitida: asset_2fbb5a3730e96faea3ed3cf'):
+            nativa.validar_codigo(codigo)
+
+    def test_correccion_sin_original_no_consulta_y_continua_siguiente(self):
+        escena=self.plan['escenas'][0]
+        firma=espacio.huella([nativa.VERSION,self.marca,escena,self.plan['resolucion'],12,None])
+        fuente=Path(self.proyecto.ruta('estilo_ia','escenas_nativas','S001',firma,'fuente.json'))
+        escribir_json(str(fuente.with_suffix('.correccion.json')),dict(motivo='No reconsultar'))
+        with patch.object(nativa,'consultar',return_value=entrega()) as ia:
+            with self.assertRaisesRegex(ValueError,'falta la entrega original'):self.generar()
+        self.assertEqual(ia.call_count,1)  # Solo S002, nunca la fuente perdida S001.
+        self.assertTrue(Path(self.proyecto.ruta_trabajo('assets'),'escenas/S002.estilo_ia.json').is_file())
+
     def test_descripcion_visual_descarta_direccion_y_decorado_contradictorios(self):
         import json
         casos=[

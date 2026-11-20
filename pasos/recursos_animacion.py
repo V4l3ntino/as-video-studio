@@ -18,6 +18,7 @@ VERSION = 1
 BASE = Path(__file__).resolve().parents[1]/'motores/estilo_ia/recursos_base.py'
 SOPORTE = BASE.with_name('soporte_rigs.py')
 APARIENCIAS = BASE.with_name('apariencias.py')
+PERSONAS = BASE.with_name('personas.py')
 # Adaptador de geometría comprobado; nunca aplicarlo por parecido de nombres.
 RIG_HUMANO = '29a56e0438a6685153aa168974dc04dbc11f6859fbad6b5bb78239e52bba4476'
 MODULO = re.compile(r'^[a-z][a-z0-9_]{0,60}$')
@@ -236,6 +237,27 @@ def soporte_apariencias(proyecto,estilo):
         nombre='Dibujo compartido de ropa, pelo y rasgos por datos',
         codigo=APARIENCIAS.read_text(encoding='utf-8'),
         interfaz='crear(base,soporte,apariencia,perfil,extensiones=None) devuelve rig privado. Identidad apariencia/1, sin generar funciones de pelo/ropa/cara por personaje. Las extensiones excepcionales reciben rig como primer argumento; todas las funciones articuladas siguen disponibles.'))
+
+
+def personas_del_estilo(proyecto,estilo,ref_base,ref_soporte):
+    """Fábrica local e inmutable, preparada sin IA para extras y multitudes."""
+    perfil = perfil_apariencia(cargar(proyecto,ref_base))
+    apariencias = soporte_apariencias(proyecto,estilo)
+    util = guardar(proyecto,estilo,dict(tipo='herramienta',concepto='variantes_personas_soporte',
+        nombre='Instancias anónimas y siluetas del mismo rig',codigo=PERSONAS.read_text(encoding='utf-8'),
+        interfaz='crear(base,soporte,apariencias,perfil,apariencia=None,silueta=None,extensiones=None) devuelve rig.'))
+    refs = {'asset_'+r['huella'][:24]:r for r in (ref_base,ref_soporte,apariencias,util)}
+    mb,ms,ma,mu = ('asset_'+r['huella'][:24] for r in (ref_base,ref_soporte,apariencias,util))
+    codigo = f'''import {mb} as _base
+import {ms} as _soporte
+import {ma} as _apariencias
+import {mu} as _personas
+def crear(apariencia=None,silueta=None,extensiones=None):
+    return _personas.crear(_base,_soporte,_apariencias,{perfil!r},apariencia,silueta,extensiones)
+'''
+    return guardar(proyecto,estilo,dict(tipo='herramienta',concepto='personas_anonimas_del_estilo',
+        nombre='Personas anónimas, parejas, extras y siluetas DEL estilo',codigo=codigo,dependencias=refs,
+        interfaz='crear(apariencia=None,silueta=None,extensiones=None) devuelve UNA instancia privada del rig del estilo. Crea cada identidad UNA vez fuera de pintar; usa persona.dibujar(lienzo,estado,contexto) y los controles/unidades de la base. apariencia usa esquema apariencia/1 para pelo, ropa, colores y proporciones. silueta="#RRGGBB" SOLO si la descripción pide siluetas; conserva geometría y articulaciones del rig. No llama a IA. extensiones={nombre:funcion(rig,*args)} permite ampliar detalles; rig.dibujo_compartido conserva dibujo del estilo. Perfil de apariencia: '+str(perfil)))
 
 
 def encargo_apariencia(encargo,manifiesto):
@@ -593,7 +615,14 @@ def preparar(proyecto,marca,espacio,manifiesto,reparto,plan,consultar,avisar,par
         modulo = 'asset_'+ref['huella'][:24]
         recursos[modulo] = ref
         personajes[ident] = modulo
-    return dict(recursos=recursos,personajes=personajes)
+    anonimos = None
+    if ref_base:
+        modulo_base = 'asset_'+ref_base['huella'][:24]
+        recursos[modulo_base] = ref_base
+        ref_personas = personas_del_estilo(proyecto,estilo,ref_base,ref_soporte)
+        anonimos = 'asset_'+ref_personas['huella'][:24]
+        recursos[anonimos] = ref_personas
+    return dict(recursos=recursos,personajes=personajes,personas_anonimas=anonimos)
 
 
 def comprobar_personaje(proyecto,espacio,ref,salida,avisar):
@@ -624,12 +653,68 @@ def pintar(pedido,t):
 
 
 def contexto(proyecto,preparados,escena):
+    from motores.estilo_ia.apariencias import ESQUEMA,DEFECTO
     fichas = []
     for modulo,ref in preparados['recursos'].items():
         dato = cargar(proyecto,ref)['asset']
         fichas.append(dict(modulo=modulo,**{k:dato[k] for k in ('tipo','concepto','nombre','interfaz')}))
     return dict(personajes={i:preparados['personajes'][i] for i in visibles(escena)},catalogo=fichas,contrato_recursos=contrato(),
+        personas_anonimas=preparados.get('personas_anonimas'),
+        apariencia_personas=dict(esquema=ESQUEMA,valores_iniciales=DEFECTO),
+        reglas_estilo='El acabado del catálogo es obligatorio para TODOS los sujetos, también personas sin nombre, parejas, multitudes y siluetas. Si no tienen ID del reparto, usa personas_anonimas.crear y su dibujar con apariencia/1. No dibujes otro monigote desde cero ni simplifiques rostro/cuerpo/ropa por falta de nombre. Las siluetas solicitadas usan la misma geometría del rig con máscara de color. Los recursos nuevos amplían el acabado, no lo sustituyen por otro estilo.',
         instrucciones='El programa de la escena sigue siendo libre. Importa los módulos y usa sus dibujos/rigs; no reescribas las identidades del reparto. Puedes extenderlos con código de actuación, composición y dibujo adicional. La utilería base es solo apoyo geométrico: adapta materiales, luz y detalle al análisis; nunca empobrezcas la escena por ceñirte a esa base. Si falta un recurso o detalle, entrega recursos_nuevos:{nombre_modulo:{tipo,concepto,nombre,codigo,interfaz,muestra opcional}} junto al codigo de la escena, e impórtalo por ese nombre. Cada recurso nuevo es autocontenido y declara dibujar(lienzo,estado,contexto). No generes imágenes ni una biblioteca monolítica. No devuelvas un plan limitado a instancias: devuelve siempre codigo completo para esta escena.')
+
+
+def contrato_estilo(preparados,escena):
+    anonimos = preparados.get('personas_anonimas')
+    if not anonimos:
+        return None  # Fuente/estilo histórico sin base: no inventar un rig al leer.
+    descripcion = str(escena.get('descripcion_visual') or '').casefold()
+    # Guardia conservadora para que «siluetas» etiquetadas como objeto/gráfico no
+    # eludan el uso del rig. No es un intérprete semántico ni sustituye revisión.
+    sujetos = re.findall(r'\b(?:personas?|personajes?|hombres?|mujeres?|parejas?|siluetas?|protagonistas?|vecin[oa]s?|niñ[oa]s?)\b',descripcion)
+    sin_personas = bool(re.search(r'\b(?:sin personas|sin personajes|no hay personas)\b',descripcion))
+    return dict(version=1,personas=sorted(set(preparados['personajes'].values())|{anonimos}),
+        requiere_personas=bool(visibles(escena) or (sujetos and not sin_personas)))
+
+
+def _imports_recursos(arbol,disponibles):
+    """Imports estáticos y wrappers simples de __import__, sin ejecutar código."""
+    wrappers = {}
+    for n in arbol.body:
+        if not isinstance(n,ast.FunctionDef):continue
+        retornos = [x.value for x in ast.walk(n) if isinstance(x,ast.Return)
+            and x.value is not None and not (isinstance(x.value,ast.Constant) and x.value.value is None)]
+        args = [a.arg for a in n.args.posonlyargs+n.args.args]
+        if retornos and all(isinstance(x,ast.Call) and isinstance(x.func,ast.Name)
+                and x.func.id=='__import__' and len(x.args)==1 and not x.keywords
+                and isinstance(x.args[0],ast.Name) and x.args[0].id in args for x in retornos):
+            indices = {args.index(x.args[0].id) for x in retornos}
+            if len(indices)==1:wrappers[n.name] = indices.pop()
+    usados,alias = set(),{}
+    for n in ast.walk(arbol):
+        if isinstance(n,ast.Import):
+            for a in n.names:
+                if a.name in disponibles:
+                    usados.add(a.name);alias[a.asname or a.name] = a.name
+        elif isinstance(n,ast.ImportFrom) and n.module=='recursos_animacion':
+            for a in n.names:
+                if a.name not in disponibles:
+                    raise ValueError('recurso importado no disponible: '+a.name+' (from recursos_animacion)')
+                usados.add(a.name);alias[a.asname or a.name] = a.name
+        elif isinstance(n,ast.ImportFrom) and n.module in disponibles:
+            usados.add(n.module)
+        elif isinstance(n,(ast.Assign,ast.AnnAssign)):
+            v = n.value
+            if not isinstance(v,ast.Call) or not isinstance(v.func,ast.Name):continue
+            indice = 0 if v.func.id=='__import__' else wrappers.get(v.func.id)
+            if indice is None or len(v.args)<=indice:continue
+            nombre = v.args[indice]
+            if not isinstance(nombre,ast.Constant) or not isinstance(nombre.value,str) or nombre.value not in disponibles:continue
+            usados.add(nombre.value)
+            for t in n.targets if isinstance(n,ast.Assign) else [n.target]:
+                if isinstance(t,ast.Name):alias[t.id] = nombre.value
+    return usados,alias
 
 
 def vincular(proyecto,estilo,entrega,herramientas,escena):
@@ -639,20 +724,144 @@ def vincular(proyecto,estilo,entrega,herramientas,escena):
         raise ValueError('recursos_nuevos debe ser un objeto de hasta 20 módulos autocontenidos')
     for nombre,dato in nuevos.items():
         if (not espacio_estilo.nombre_modulo_valido(nombre) or nombre in herramientas
-                or nombre in sys.stdlib_module_names or nombre in ('recurso_muestra','escena_nativa','motor_del_estilo')):
+                or nombre in sys.stdlib_module_names or nombre in ('recurso_muestra','escena_nativa','motor_del_estilo','recursos_animacion')):
             raise ValueError('nombre de recurso nuevo no válido o reservado: '+str(nombre))
         ref = guardar(proyecto,estilo,dato)
         if nombre in disponibles and disponibles[nombre]!=ref:
             raise ValueError('el recurso nuevo intenta sustituir otro recurso disponible: '+nombre)
         disponibles[nombre] = ref
     arbol = ast.parse(entrega['respuesta'].get('codigo',''))
-    usados = set()
-    for nodo in ast.walk(arbol):
-        nombres = [a.name.split('.')[0] for a in nodo.names] if isinstance(nodo,ast.Import) else [(nodo.module or '').split('.')[0]] if isinstance(nodo,ast.ImportFrom) else []
-        usados.update(n for n in nombres if n in disponibles)
+    usados,_ = _imports_recursos(arbol,disponibles)
     for ident in visibles(escena):
         modulo = (entrega.get('personajes_recursos') or {}).get(ident)
         if not modulo or modulo not in usados:
             raise ValueError('la escena debe reutilizar el rig preparado del personaje: '+str(ident))
+    if 'contrato_estilo' in entrega:
+        _validar_personas_estilo(proyecto,entrega,disponibles,usados,arbol)
     referencias = {n:disponibles[n] for n in sorted(usados)}
-    return fuentes(proyecto,referencias),referencias
+    modulos = fuentes(proyecto,referencias)
+    agrupados = {a.name for n in ast.walk(arbol) if isinstance(n,ast.ImportFrom)
+        and n.module=='recursos_animacion' for a in n.names}
+    if agrupados:
+        # Fachada SOLO en las herramientas temporales del renderer. Los módulos
+        # reales siguen fijados por SHA; no importar el código de pasos/ allí.
+        if 'recursos_animacion' in herramientas or 'recursos_animacion' in modulos:
+            raise ValueError('colisión con la fachada de recursos de la escena')
+        modulos['recursos_animacion'] = '\n'.join('import '+n for n in sorted(agrupados))+'\n'
+    return modulos,referencias
+
+
+def _validar_personas_estilo(proyecto,entrega,disponibles,usados,arbol):
+    """Guardas de reutilización, no una certificación semántica de los píxeles."""
+    contrato = entrega['contrato_estilo']
+    if not isinstance(contrato,dict) or contrato.get('version')!=1:
+        raise ValueError('contrato de reutilización del estilo incompleto')
+    permitidos = contrato.get('personas')
+    if not isinstance(permitidos,list) or any(not isinstance(n,str) or n not in disponibles for n in permitidos):
+        raise ValueError('faltan los módulos de personas fijados por el contrato de estilo')
+    respuesta = entrega['respuesta']
+    acciones = respuesta.get('acciones') or []
+    personas = (contrato.get('requiere_personas') is True
+        or any(isinstance(a,dict) and a.get('tipo')=='personaje' for a in acciones)
+        or any(isinstance(a,dict) and a.get('tipo')=='personaje' for a in (respuesta.get('recursos_nuevos') or {}).values()))
+    if not personas:
+        return
+    # Un import sin una llamada al dibujo no cierra el agujero original.
+    _,alias = _imports_recursos(arbol,disponibles)
+    modulos,funciones = {a:m for a,m in alias.items() if m in permitidos},{}
+    for n in ast.walk(arbol):
+        if isinstance(n,ast.Import):
+            modulos.update({a.asname or a.name:a.name for a in n.names if a.name in usados and a.name in permitidos})
+        elif isinstance(n,ast.ImportFrom) and n.module in usados and n.module in permitidos:
+            funciones.update({a.asname or a.name:(n.module,a.name) for a in n.names})
+    auxiliares = {n.name:n for n in arbol.body if isinstance(n,ast.FunctionDef)}
+    fabricas = set()
+    def fabrica(n):
+        if not isinstance(n,ast.Call):return False
+        f = n.func
+        return ((isinstance(f,ast.Attribute) and isinstance(f.value,ast.Name) and f.value.id in modulos and f.attr=='crear')
+            or (isinstance(f,ast.Name) and ((f.id in funciones and funciones[f.id][1]=='crear') or f.id in fabricas)))
+    # Una auxiliar solo es fábrica si todos sus retornos efectivos proceden
+    # del crear permitido (se tolera None como salida de error, no otro rig).
+    for _ in range(len(auxiliares)):
+        antes = set(fabricas)
+        for nombre,funcion in auxiliares.items():
+            retornos = [x.value for x in ast.walk(funcion) if isinstance(x,ast.Return)
+                and x.value is not None and not (isinstance(x.value,ast.Constant) and x.value.value is None)]
+            if retornos and all(fabrica(x) for x in retornos):fabricas.add(nombre)
+        if fabricas==antes:break
+    instancias = set()
+    ambitos = {}
+    def ubicar(n,ambito=None):
+        if isinstance(n,ast.FunctionDef):ambito = n.name
+        ambitos[id(n)] = ambito
+        for hijo in ast.iter_child_nodes(n):ubicar(hijo,ambito)
+    ubicar(arbol)
+    parametros = {nombre:{a.arg for a in f.args.posonlyargs+f.args.args+f.args.kwonlyargs}
+        for nombre,f in auxiliares.items()}
+    def ruta(n):
+        if isinstance(n,ast.Name):
+            ambito = ambitos.get(id(n))
+            return (ambito if n.id in parametros.get(ambito,set()) else None,n.id)
+        if isinstance(n,ast.Subscript) and isinstance(n.slice,ast.Constant):
+            base = ruta(n.value)
+            if base is not None:return (base,n.slice.value)
+        return None
+    def deriva(n):
+        # Un rig preparado puede usarse como módulo, no solo como crear().
+        # S173 guarda esos módulos en RIGS y llama RIGS[i].dibujar.
+        if isinstance(n,ast.Name) and n.id in modulos:return True
+        clave = ruta(n)
+        if clave is not None and clave in instancias:return True
+        if fabrica(n):return True
+        if isinstance(n,(ast.List,ast.Tuple,ast.Set)):
+            return any(deriva(x) for x in n.elts)
+        if isinstance(n,ast.IfExp):
+            return deriva(n.body) or deriva(n.orelse)
+        if isinstance(n,ast.Subscript):
+            # Índice de una secuencia de personas; una clave de diccionario
+            # fijada se sigue por su ruta, no contamina todas las demás claves.
+            return deriva(n.value)
+        if isinstance(n,(ast.ListComp,ast.SetComp,ast.GeneratorExp)):
+            return deriva(n.elt)
+        if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id in ('zip','enumerate','list','tuple'):
+            return any(deriva(x) for x in n.args)
+        return False
+    nodos = list(ast.walk(arbol))
+    # Propaga alias/listas/comprensiones y variables de bucle para parejas y
+    # multitudes, sin restringirlas a dos variables de nombre prefijado.
+    for _ in range(len(nodos)):
+        antes = set(instancias)
+        for n in nodos:
+            if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id in auxiliares:
+                funcion = auxiliares[n.func.id]
+                args = funcion.args.posonlyargs+funcion.args.args
+                enlaces = [(a.arg,v) for a,v in zip(args,n.args)]
+                enlaces += [(k.arg,k.value) for k in n.keywords if k.arg in parametros[n.func.id]]
+                for nombre,valor in enlaces:
+                    if deriva(valor):instancias.add((n.func.id,nombre))
+            if (isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
+                    and n.func.attr in ('append','extend') and n.args and deriva(n.args[0])):
+                clave = ruta(n.func.value)
+                if clave is not None:instancias.add(clave)
+            expresion = n.value if isinstance(n,(ast.Assign,ast.AnnAssign)) else n.iter if isinstance(n,(ast.For,ast.comprehension)) else None
+            if expresion is None:continue
+            if deriva(expresion):
+                destinos = n.targets if isinstance(n,ast.Assign) else [n.target]
+                def guardar(t):
+                    clave = ruta(t)
+                    if clave is not None:instancias.add(clave)
+                    elif isinstance(t,(ast.Tuple,ast.List)):
+                        for x in t.elts:guardar(x)
+                for t in destinos:guardar(t)
+        if instancias==antes:break
+    for n in ast.walk(arbol):
+        if not isinstance(n,ast.Call):
+            continue
+        f = n.func
+        if (isinstance(f,ast.Name) and f.id in funciones and funciones[f.id][1]=='dibujar'):
+            return
+        if (isinstance(f,ast.Attribute) and f.attr=='dibujar'
+                and ((isinstance(f.value,ast.Name) and f.value.id in modulos) or deriva(f.value))):
+            return
+    raise ValueError('los personajes anónimos y siluetas también deben dibujarse con el rig del estilo; importa una persona preparada o usa personas_anonimas.crear(...).dibujar, no otro monigote desde cero')

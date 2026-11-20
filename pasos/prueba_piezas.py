@@ -4046,19 +4046,10 @@ def prueba_sonido():
        "los eventos salen en orden de reloj")
     ok(all(e["t"] >= 0 for e in lista), "y ninguno antes de que empiece el video")
 
-    # el reloj es el del VIDEO MONTADO: el primer plano esta en t=0 aunque su
-    # t_in sea 2.0, porque la voz se recorta ahi al montar
-    acento = [e for e in lista if e["papel"] == "transicion_acento"]
-    igual(len(acento), 1, "un acento, el de S002")
-    ok(abs(acento[0]["t"] - 4.0) < 0.01,
-       f"y su GOLPE cae en el corte de S002 (transicion de duracion 0 en esta "
-       f"prueba, asi que el ancla no lo mueve): {acento[0]['t']}")
-    igual([e for e in lista if e["papel"] == "transicion_suave"][0]["papel"],
-          "transicion_suave", "el encadenado suave de S003 tambien suena")
-    ok(not [e for e in lista if e["t"] < 0.5 and e["papel"].startswith("transicion")],
-       "el primer plano no encadena con nada, asi que no suena")
+    igual([e for e in lista if e["papel"].startswith("transicion")], [],
+          "ningún corte añade sonidos, aunque el proyecto conserve surtido antiguo")
 
-    titulo("sonido: el GOLPE del efecto cae donde la transicion se ve")
+    titulo("sonido: medir golpes no añade sonidos a las transiciones")
     # Lo que se oia: «los efectos no van sincronizados, y no sabria decir si
     # siempre». No era un retraso fijo -- era que el montaje colocaba la PRIMERA
     # MUESTRA del fichero, y un barrido tarda entre 0,05 y 0,90 s en pegar segun
@@ -4087,8 +4078,7 @@ def prueba_sonido():
     igual(sonido.golpe_de(os.path.join(banco_efectos, "no_existe.wav")), 0.0,
           "un efecto que no esta en el banco da 0 y no revienta: no se mezcla")
 
-    # Y LO QUE IMPORTA: dos ficheros que pegan en momentos MUY distintos tienen
-    # que dejar su golpe en el MISMO instante del video. Antes se separaban 0,85s.
+    # Incluso con efectos descargados, el montaje no los inserta por un corte.
     banco_de_verdad, nombre_de_verdad = sonido.banco, sonido._nombre_de
     sonido.banco = lambda *partes: os.path.join(banco_efectos, partes[-1])
     try:
@@ -4097,24 +4087,13 @@ def prueba_sonido():
         cortes_t = {"T001": {"tipo": "corte", "ranura": "corte"},
                     "T002": {"tipo": "fundido", "ranura": "suave",
                              "duracion": 0.46}}
-        golpes = {}
         for nombre in ("pronto.wav", "tarde.wav"):
             crudo = {"fuente": "prueba", "id": nombre[:-4]}
             sonido._nombre_de = lambda f, n=nombre: n              # noqa: SLF001
             lista_t = sonido.eventos(escenas_t, cortes_t,
                                      {"efectos": {"transicion_suave": [crudo]}},
                                      semilla=1)
-            evento = [e for e in lista_t if e["papel"] == "transicion_suave"][0]
-            golpes[nombre] = evento["t"] + sonido.golpe_de(
-                os.path.join(banco_efectos, nombre))
-        separacion = abs(golpes["pronto.wav"] - golpes["tarde.wav"])
-        ok(separacion < 0.02,
-           f"los dos dejan el golpe en el mismo instante ({separacion*1000:.0f} ms "
-           f"de diferencia); con la primera muestra se separaban 850 ms")
-        esperado = 4.0 + sonido.ANCLA_TRANSICION * 0.46
-        ok(abs(golpes["pronto.wav"] - esperado) < 0.02,
-           f"y ese instante es el ancla dentro de la transicion visual "
-           f"({golpes['pronto.wav']:.3f}s contra {esperado:.3f}s)")
+            igual(lista_t, [], f"{nombre}: el fundido visual no añade un efecto")
     finally:
         sonido.banco, sonido._nombre_de = banco_de_verdad, nombre_de_verdad
         shutil.rmtree(banco_efectos, ignore_errors=True)

@@ -1910,9 +1910,7 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
     # rehace el MP4 sin recodificar un solo clip.
     desfase = float(escenas[0]["t_in"]) if escenas else 0.0
     largo = (float(escenas[-1]["t_out"]) - desfase) if escenas else 0.0
-    # LA BANDA CUBRE TAMBIEN LA COLA. La musica cierra con su propio fundido
-    # (`sonido.construir_cama`), y si se construye solo para lo que dura el
-    # habla, ese fundido cae ANTES del negro y la cola se queda muda de golpe.
+    # La duración del montaje incluye también su cola de negro.
     largo_con_cola = largo + (COLA_NEGRO_S if escenas else 0.0)
     pista_efectos, sonidos = None, 0
     if p.get("sonido", True):
@@ -1922,36 +1920,17 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
         if lista_eventos:
             pista_efectos, sonidos = sonido.pista_de_efectos(
                 lista_eventos, largo, os.path.join(trabajo, "efectos.wav"))
-    pista_musica, faltan_temas, cama = None, [], False
-    ficha_musica = (p.get("musica") or {}) if p.get("sonido", True) else {}
-    if ficha_musica.get("tramos"):
-        # LA CAMA: varios temas encadenados, uno por tramo del video. Se
-        # construye AQUI, sin salir a la red, desde los ficheros que dejo en el
-        # banco quien la decidio: el mismo plan da la misma cama siempre.
-        avisar(0.94, f"encadenando {len(ficha_musica['tramos'])} temas")
-        pista_musica, faltan_temas = sonido.construir_cama(
-            ficha_musica, largo_con_cola, os.path.join(trabajo, "cama.wav"))
-        cama = bool(pista_musica)
-    elif ficha_musica.get("id"):
-        candidata = sonido.banco("musica", sonido._nombre_de(ficha_musica))
-        # si el tema no esta en el banco se sigue SIN el: un video sin musica
-        # es un video, y tumbar un render de veinte minutos por un mp3 que
-        # alguien borro del banco no arregla nada. Se dice en los avisos.
-        pista_musica = candidata if os.path.exists(candidata) else None
+    # Montar no añade música de fondo, ni siquiera si un vídeo antiguo guarda
+    # un tema o una cama por tramos. No silenciar los efectos propios de escena.
 
     avisar(0.95, "montando el video")
     destino = os.path.join(trabajo, "video.mp4")
     try:
-        ajuste_musica = float(p.get("musica_db") or 0.0)
-    except (TypeError, ValueError):
-        ajuste_musica = 0.0
-    try:
         ajuste_efectos = float(p.get("efectos_db") or 0.0)
     except (TypeError, ValueError):
         ajuste_efectos = 0.0
-    _concatenar(clips, destino, audio, desfase, trabajo, musica=pista_musica,
+    _concatenar(clips, destino, audio, desfase, trabajo, musica=None,
                 efectos=pista_efectos, duracion=largo_con_cola,
-                lufs=p.get("musica_lufs"), cama=cama, ajuste_db=ajuste_musica,
                 fps=fps, calidad=p["calidad_video"],
                 efectos_db=ajuste_efectos, codec=codec)
     duracion = medios.duracion_media(destino)
@@ -1977,29 +1956,19 @@ def ejecutar(proyecto, params, avisar=None, unidades=None, solo_montar=False):
             + "): llevan la transición cocida sobre el último fotograma del "
               "plano anterior, que ha cambiado. No rehacerlos dejaría un "
               "fogonazo en ese corte. No cuesta dinero: es recodificar.")
-    if faltan_temas:
-        avisos.append(f"faltan en el banco {len(faltan_temas)} tema(s) de la "
-                      f"banda sonora ({', '.join(str(t) for t in faltan_temas[:3])}): "
-                      f"esos tramos van sin música. Vuelve a montarla en «Sonido».")
-    if ficha_musica.get("id") and not ficha_musica.get("tramos") and not pista_musica:
-        avisos.append(f"el tema «{ficha_musica.get('titulo') or ficha_musica['id']}» "
-                      f"no está en el banco: el vídeo va sin música. Vuelve a "
-                      f"elegirlo en «Música y efectos».")
     salidas = {"mp4": "video.mp4",
                "duracion": round(duracion, 3),
                "clips": {e["id"]: f"clips/{e['id']}.mp4" for e in escenas},
                "fps": fps, "resolucion": [ancho, alto],
                "audio": os.path.basename(audio) if audio else None,
-               "musica": (sonido.describir(p) if cama else
-                          ficha_musica.get("titulo") if pista_musica else None),
+               "musica": None,
                "efectos": sonidos,
                "avisos": avisos,
                "solo_montado": bool(solo_montar),
                "resumen": (("banda sonora remontada sobre " if solo_montar else "")
                            + f"{len(escenas)} clips, {duracion:.1f}s a {fps} fps "
                            f"{ancho}x{alto}"
-                           + (f", {sonidos} efectos" if sonidos else "")
-                           + (" y música" if pista_musica else ""))}
+                            + (f", {sonidos} efectos" if sonidos else ""))}
     avisar(1.0, salidas["resumen"])
     # Lo que se mide es lo REHECHO: un «solo montar» reutiliza los clips y no
     # dice lo que cuesta renderizarlos (ver `p6_assets._anotar_tiempo`).

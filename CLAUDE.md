@@ -2,6 +2,121 @@
 
 ## Espacios de trabajo de Estilos con IA
 
+### Sonidos procedurales compartidos con Stickman
+
+`animacion_nativa.encargo` ofrece el catálogo `stickman.EFECTOS` y pide `sfx`
+con name/at/dur/gain/seed/pitch, sincronizado con las acciones programadas.
+`stickman.validar_sonidos` comparte los límites temporales y de volumen; `_sonidos`
+usa los algoritmos originales GrowKaz. Se copian WAV al directorio único del clip
+y se publican como `sonidos` del recibo con IDs `estilo_ia:sfx:<indice>`.
+Coexisten con crear_audio para efectos no cubiertos, nunca dentro del MP4 visual;
+la ruta existente sonidos_estilo_ia los lleva a la previa y al montaje una vez.
+Ausencia de sfx en fuentes pagadas conserva compatibilidad: no inventar efectos,
+no cambiar VERSION/firmas ni regenerar escenas automáticamente. Recibo sin alguno
+de sus WAV se recupera desde la fuente guardada sin otra consulta al proveedor.
+No se modifica el paquete sellado ni hay que reconstruir el estilo publicado.
+Regresiones sin proveedores en `pasos/prueba_animacion_nativa.py` y Stickman.
+
+### Personas anónimas y siluetas: mismo rig, no otro estilo por proveedor
+
+Diagnóstico real 20-11: Claude S104 (dos personas desayunando) y S109 (siluetas
+femeninas/espejos) importaban solo PIL/math, sin catálogo ni recursos_nuevos.
+ChatGPT S100 sí importaba protagonista y utilería; S103 reutilizaba busto y capas.
+Lista personajes_visibles vacía permitía reconstruir anónimos con otra geometría.
+
+`recursos_animacion.personas_del_estilo` congela una fábrica local sobre ref_base,
+soporte, apariencias y `motores/estilo_ia/personas.py`, con cierre transitivo por SHA.
+Se prepara SIN IA y se ofrece como contexto.personas_anonimas con esquema/defaults
+de apariencia. crear(apariencia=None,silueta=None,extensiones=None) devuelve instancia
+independiente; silueta RGB aplica máscara alfa al dibujo del mismo rig y conserva
+anclas, articulaciones y proporciones. No usar otro renderer universal. Rigs antiguos
+sin perfil no aceptan apariencia no soportada: conservan base/extensiones, no la
+simulan. El código de escena permanece libre para actuación/reflejos/efectos.
+
+Fuentes NUEVAS con fábrica fijan contrato_estilo v1 (módulos de personas permitidos
+y requiere_personas). Vincular comprueba llamada al dibujo de persona preparada o
+instancia de la fábrica, no solo un import; sigue alias/listas/bucles para multitudes.
+También mira descripción conservadora y acciones personaje, para no eludirlo
+etiquetando siluetas humanas como objetos. Esto es una guarda AST de reutilización,
+NO prueba semántica de cada píxel ni de toda la escena. Sin contrato previo NO se
+retrovalida/reanima una entrega pagada. No cambiar VERSION, firmas ni catálogo
+sellado. Un rechazo local se registra y salta a siguiente escena, sin reconsultar IA.
+El prompt obliga igual a Claude y ChatGPT a conservar geometría/acabado de la base.
+
+S109, regeneración `rehacer_eeceaa949fde4722bb1b66d5ce6e253c.json`: sí usaba la
+fábrica, pero `ps.append(personas.crear(...)) → _C['p']=ps → zip(_C['p'],ests)
+→ p.dibujar` era un falso positivo. La guarda sigue append/extend y rutas de
+claves constantes sin confundir `_C['p']` con otras claves, y admite dibujo por
+índice. No propagar procedencia a resultados de funciones arbitrarias solo por
+recibir personas como argumento. La entrega y el puntero pendiente se conservan
+intactos: no necesitan corrección ni otra consulta. Regresión con esa estructura,
+recuperación pendiente sin IA, render real y negativos en prueba_recursos_animacion.
+
+S104, `rehacer_a2f03bbdb91e4444a22b3ba5f54ca6fd.json`, usa otro recorrido:
+`_imp(n) → __import__(n)`, `_mk → personas.crear`, y pasa los rigs a
+`marco_sil → personas_dib → rig.dibujar`. Vincular debe resolver también los
+imports literales a través de ese wrapper y copiar sus cuatro recursos; aceptar
+solo la guarda dejaría módulos ausentes que sus except/pass ocultan. La guarda
+sigue fábricas auxiliares con retornos del crear permitido y parámetros de llamadas,
+separados por función (un parámetro homónimo ajeno no demuestra reutilización).
+No ejecutar la escena dentro del servicio para analizarla. Comprobación local de
+la entrega: seis rigs presentes y dibujables, render y movimiento, sin proveedores.
+
+### Recuperación local de escenas fallidas, sin repetir entregas
+
+S140: dos regeneraciones completadas tenían fuentes rehacer distintas pero la
+misma respuesta, porque `fuente.parent/consulta` compartía caché por prompt.
+Cada intento NUEVO fija ahora `consulta/rehacer_<id>` en regeneracion_pendiente;
+retomar ese intento conserva su ruta. Punteros antiguos sin `consulta` siguen
+leyendo la caché compartida ya pagada. No borrar respuestas ni cambiar VERSION,
+firmas o personajes para forzar una regeneración. Prueba con consultar real y
+Codex doblado: tres solicitudes inicial/rehacer/rehacer dan tres códigos, mientras
+un fallo de render recupera el último sin cuarta consulta.
+La entrega S140 además dibujaba el tablero desde y=311 sobre caras cercanas a
+y=330. Corrección explícita de la última fuente rehacer: compresión vertical
+de la capa mesa con apoyo y=628 (factor .55), sin alterar rigs, actuación,
+audio, tiempos ni recursos inmutables. Render completo comprobado y publicado
+en assets v29, con IA bloqueada; 172 recibos vecinos idénticos. Comprobada la
+previa HTTP en el segundo 533.647 contra el clip nuevo. Esto repara la mesa,
+no certifica la calidad de los demás gestos de la escena.
+
+Auditoría 20-11 de video_de_sticmananimation_3: ocho fallos reales, no todos de
+estilo. S057 tenía un carácter equivocado en el módulo del plano/lápiz; S059
+`Random(059) if False else Random(59)` en un recurso (la rama muerta ni compila);
+S090 reemplazaba la pose por el ajuste parcial de alcanzar_px y perdía torso_incl;
+S096 dibujaba a Ella en fotos pero no declaraba su ID en acciones. Reparaciones
+explícitas en `<fuente>.correccion.json` con huella_original, entrega y motivo,
+leídas por animacion_nativa.aplicar_correccion_local. No sobrescribir la fuente
+pagada ni recursos por SHA. La corrección NO puede cambiar contratos visual/estilo,
+proveedor, formato ni personajes_recursos. Si falta el original, fallar sin IA.
+El recibo registra la ruta y huella de la corrección; clips correctos no se reevalúan.
+
+S110/S115/S116/S117 usaban `from recursos_animacion import <módulo> as alias`.
+Vincular resuelve esos nombres contra disponibles+nuevos y crea una fachada SOLO
+en las herramientas temporales del renderer, no en el paquete sellado. La guarda
+de personas usa esos mismos aliases y sigue elenco condicional (IfExp), índices
+y enumerate. No habilitar imports arbitrarios por aceptar la fachada. Los errores
+de dependencias nombran el módulo; los del contrato visual solo los IDs ausentes.
+Las ocho se recuperaron con render y movimiento reales, consultas bloqueadas,
+110 recibos correctos y ocho fuentes pagadas intactos. Quedaron 118 clips y cero
+errores registrados; S119–S173 no se habían intentado (tanda cancelada), NO fallos.
+No prometer ausencia de errores futuros en código generado ni fidelidad visual por
+superar este control técnico. Regresiones offline en las dos suites nativas.
+
+Continuación S128–S173: S128 trae `oj oy` partido en tres usos; S134 invierte
+los límites verticales de elipses de la cavidad de copa; S158 desempaqueta cuatro
+coordenadas en x,y antes de indexarlas; S160 desplaza la cámara fuera de la imagen
+al acabar el zoom. Reparaciones explícitas en fuente.correccion.json, sin tocar
+originales ni SHA existentes. S173 es otro falso positivo: RIGS contiene MÓDULOS
+preparados y llama RIGS[i].dibujar. La procedencia AST sigue también los módulos
+permitidos a través de listas/índices, no solo instancias de crear. No sustituir
+su programa ni quitar el contrato. Regresión con render real y negativos de
+lista ajena/import sin dibujo en prueba_recursos_animacion.
+Recuperación local verificada con consultas y preparación IA bloqueadas: 173 clips,
+cero errores, 168 recibos anteriores y las cinco fuentes originales intactos.
+Las cinco recuperadas pasan render completo y control temporal; no certifica
+fidelidad visual. Suites nativa (25) y recursos (49) superadas.
+
 ### Botones de escena en la previa nativa
 
 `abrirEditorEscena` solo ofrecía editar/regenerar cuando copia.stickman era true;
@@ -1677,6 +1792,25 @@ GET del editor y los borradores WebGL son de lectura; solo PUT guarda, conserva
 otros params de esa unidad y no cambia assets/callouts. La última escena no
 tiene salida. Prueba offline: `python pasos/prueba_transiciones_escena.py`.
 
+Las transiciones visuales NO añaden sonido al montar: `_eventos_automaticos`
+ya no reparte `transicion_suave` ni `transicion_acento`, aunque estén en params
+antiguos. No silenciar toda la banda: conservar voz, música, sonidos nativos,
+ambientes, mecanografía y efectos insertados manualmente. Previa y P8 usan el
+mismo cálculo; el MP4 existente solo cambia al volver a montar. No borrar bancos,
+reescribir params ni invalidar clips visuales. Contrato en prueba_editor_escena
+y prueba_sonido de prueba_piezas.
+Petición posterior: tampoco añadir música de fondo. P8 pasa musica=None al
+concatenador tanto en montaje completo como solo_montar, ignorando temas y camas
+antiguos sin borrar los bancos ni params. Conservar los efectos de escena.
+Regresión de ambos formatos musicales en prueba_transiciones_escena.
+Remontar un MP4 al día no pasa por /generar en pendientes (plan vacío y 400).
+`lanzarTandaLight('render')` usa el endpoint existente de ejecutar render con
+solo_montar:true cuando hay MP4 y assets/callouts/render no están obsoletos.
+El botón Regenerar Vídeo no se desactiva por plan vacío: permite actualizar la
+mezcla sin reanimar ni renderizar clips. Si hay cambios visuales conserva la
+tanda incremental. Prueba JS en prueba_editor_global y ambos caminos de P8
+en prueba_transiciones_escena (solo_montar no llama a correr_lote).
+
 El editor admite `inicio`/`fin` en esa edición: el bloque pasa a ser un enlace
 temporizado dentro de la escena que sale. La API copia la edición a
 `salida_transicion` de esa unidad para invalidar también su clip. `resolver`
@@ -1687,6 +1821,15 @@ arrastra la salida anterior si usa ese cuadro. Las ediciones sin intervalo
 conservan su montaje histórico. La previa carga el pintor al abrir el editor y
 su progreso depende del reloj común, también al buscar y arrastrar. Regresión
 de persistencia y píxeles: `python pasos/prueba_editor_escena.py --real`.
+
+Si el navegador pierde WebGL, un pintor JS existente no implica un contexto vivo.
+Los canvas del editor atienden `webglcontextlost`, recrean ambos pintores y vuelven
+a dibujar al mismo reloj, sin guardar params ni regenerar clips. Ignorar eventos
+de canvas ya retirados: cerrar voluntariamente un contexto también emite pérdida.
+Las preparaciones asíncronas antiguas no deben limpiar el indicador de una revisión
+visual nueva. Si falla solo el enlace, conservar el error y permitir reintentarlo
+aunque ya exista el pintor a negro. Regresión Chromium con pérdida forzada y píxeles:
+`prueba_editor_global.py --real EditorGlobal.test_transiciones_recuperan_contexto_perdido_sin_modificar_el_video`.
 
 La pista **Sonidos**, debajo de Animación, agrupa los eventos automáticos por
 papel (mecanografía, retorno, transición y audio de biblioteca). Sus intervalos

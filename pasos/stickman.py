@@ -228,6 +228,23 @@ def claves(datos, duracion, ruta='claves'):
     return sorted(salida, key=lambda k: k['t'])
 
 
+def validar_sonidos(efectos, duracion):
+    """Catálogo procedural compartido por Stickman y los estilos con IA."""
+    from pasos.tiempos_stickman import tiempo
+    if not isinstance(efectos, list) or len(efectos) > 40:
+        raise ValueError('lista de efectos de sonido no válida (máximo 40)')
+    resultado = []
+    for indice, s in enumerate(efectos):
+        if not isinstance(s, dict):
+            raise ValueError('el efecto de sonido no es válido')
+        at = tiempo(s.get('at', 0), 0, max(0, duracion - .001), f'sfx[{indice}].at')
+        resultado.append(dict(name=elegir(s.get('name'), EFECTOS), at=at,
+            dur=tiempo(s.get('dur', min(.6, duracion - at)), .001, duracion - at, f'sfx[{indice}].dur'),
+            gain=numero(s.get('gain', -12), -40, 0), seed=numero(s.get('seed', 1), 0, 100000),
+            pitch=numero(s.get('pitch', 1), .5, 2)))
+    return resultado
+
+
 def escena(datos, duracion, reparto, catalogo_utileria=None):
     from pasos.tiempos_stickman import tiempo
     if not isinstance(datos, dict):
@@ -363,14 +380,7 @@ def escena(datos, duracion, reparto, catalogo_utileria=None):
                 raise ValueError('no repitas partes del objeto vectorial')
             resultado['objetos'][-1].update(recurso=ident, partes=animadas, paleta={k: color(v) for k, v in paleta.items()})
             resultado['utileria'][ident] = recurso
-    for indice, s in enumerate(efectos):
-        if not isinstance(s, dict):
-            raise ValueError('el efecto de sonido no es válido')
-        at = tiempo(s.get('at', 0), 0, max(0, duracion - .001), f'sfx[{indice}].at')
-        resultado['sfx'].append(dict(name=elegir(s.get('name'), EFECTOS), at=at,
-            dur=tiempo(s.get('dur', min(.6, duracion - at)), .001, duracion - at, f'sfx[{indice}].dur'),
-            gain=numero(s.get('gain', -12), -40, 0), seed=numero(s.get('seed', 1), 0, 100000),
-            pitch=numero(s.get('pitch', 1), .5, 2)))
+    resultado['sfx'] = validar_sonidos(efectos, duracion)
     resultado.update(realizacion_stickman.normalizar(datos, duracion, reparto))
     sujeto = (resultado.get('realizacion') or {}).get('sujeto')
     if sujeto and sujeto not in ids:

@@ -907,7 +907,7 @@ def probar_banda_sonora(proyecto, estado, params, plan):
         resultado = p8_render.ejecutar(proyecto, p, avisador("p8"))
         salidas = resultado["salidas"]
         igual(salidas.get("avisos"), [], "no debería haber avisos de sonido")
-        igual(salidas.get("musica"), "Tema de prueba", "la música entra en el MP4")
+        igual(salidas.get("musica"), None, "el montaje no añade la música guardada al MP4")
         ok(salidas.get("efectos", 0) > 0,
            f"y suenan efectos: {salidas.get('efectos')}")
 
@@ -935,7 +935,7 @@ def probar_banda_sonora(proyecto, estado, params, plan):
         n = min(len(con), len(sin))
         diferencia = float(np.abs(con[:n] - sin[:n]).mean())
         ok(diferencia > 0.001,
-           f"el audio del MP4 cambia al poner música y efectos ({diferencia:.4f})")
+            f"el audio del MP4 cambia al conservar los efectos ({diferencia:.4f})")
         pico_final = 20 * np.log10(max(1e-9, float(np.abs(con).max())))
         ok(pico_final <= -0.3,
            f"y el limitador impide que la mezcla se pase de cero ({pico_final:.1f} dBFS)")
@@ -958,30 +958,17 @@ def probar_banda_sonora(proyecto, estado, params, plan):
         estado.set_params("render", p)
         resultado_cama = p8_render.ejecutar(proyecto, p, avisador("p8"))
         igual(resultado_cama["salidas"].get("avisos"), [],
-              "la cama se monta sin avisos")
+              "ignorar una cama antigua no produce avisos")
+        igual(resultado_cama["salidas"].get("musica"), None,
+              "tampoco se añade música por tramos")
         trabajo_cama = proyecto.ruta_trabajo("render", crear=False)
         cama = os.path.join(trabajo_cama, "cama.wav")
-        ok(os.path.exists(cama), "se escribe la cama encadenada")
-        if os.path.exists(cama):
-            largo_cama = len(sonido._leer(cama)) / sonido.FRECUENCIA
-            # LA COLA CUENTA. El vídeo cierra con unos segundos de negro
-            # (`p8_render.COLA_NEGRO_S`) y la cama tiene que llegar hasta el
-            # final: si se corta con la última sílaba, el negro se queda mudo de
-            # golpe, que es lo contrario de lo que la cola viene a arreglar.
-            esperado = largo + p8_render.COLA_NEGRO_S
-            ok(abs(largo_cama - esperado) < 0.06,
-               f"y dura lo que el vídeo MÁS su cola de negro "
-               f"({largo_cama:.2f}s de {esperado:.2f}s)")
-            # el fundido de entrada: sin él, la cama arranca de golpe
-            arranque = sonido._leer(cama)[:int(sonido.FRECUENCIA * 0.2)]
-            entera = sonido._leer(cama)
-            ok(float(np.abs(arranque).max()) < float(np.abs(entera).max()) * 0.6,
-               "entra con fundido, no de golpe")
+        ok(not os.path.exists(cama), "no se prepara una cama de música al montar")
         con_cama = _pista_de(os.path.join(trabajo_cama, "video.mp4"),
                              trabajo, "cama_mp4.wav")
-        n2 = min(len(con_cama), len(sin))
-        ok(float(np.abs(con_cama[:n2] - sin[:n2]).mean()) > 0.001,
-           "y la cama llega al MP4, no se queda en un wav al lado")
+        n2 = min(len(con_cama), len(con))
+        ok(float(np.abs(con_cama[:n2] - con[:n2]).mean()) < 0.0001,
+           "cambiar música guardada no cambia la mezcla de voz y efectos")
     finally:
         for ruta in puestos:
             for resto in (ruta, os.path.splitext(ruta)[0] + ".48000.wav"):

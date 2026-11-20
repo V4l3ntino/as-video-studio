@@ -29,6 +29,32 @@ if REAL:
 
 @unittest.skipUnless(shutil.which('node'), 'requiere Node para comprobar controles JavaScript')
 class ControlesNativos(unittest.TestCase):
+    def test_remontar_mp4_al_dia_no_lanza_tanda_vacia_ni_rehace_escenas(self):
+        fuente = (RAIZ/'web/app.js').read_text(encoding='utf-8')
+        lanzar = fuente[fuente.index('async function lanzarTandaLight('):fuente.index('async function refrescarPlanosLight(')]
+        programa = '''const assert=require('node:assert/strict');
+const APP={light:{video:{pid:'video'}}}, CLAVE_VIDEO_LIGHT='video';
+const API={proyecto:pid=>'/api/proyectos/'+pid,ejecutar:(pid,paso)=>'/api/proyectos/'+pid+'/pasos/'+paso+'/ejecutar'};
+const errorVocesPersonajes=()=>null,pedidoDelVideoLight=()=>({copia:{}}),personajesPendientesDelEncargo=()=>false;
+const limpiarError=()=>{},persistirDescripcionesLight=async()=>{},seguirTrabajo=()=>{},pintarLight=()=>{};
+const mostrarError=(k,e)=>{throw e;};
+let mp4=true,obsoleto=false,peticiones=[];
+const hayMp4Light=()=>mp4,videoObsoletoLight=()=>obsoleto;
+const pedir=async(url,datos)=>{peticiones.push({url,...datos});return {trabajo_id:'trabajo'};};
+''' + lanzar + '''
+(async()=>{
+  await lanzarTandaLight('render','pendientes');
+  assert.equal(peticiones[0].url,'/api/proyectos/video/pasos/render/ejecutar');
+  assert.deepEqual(peticiones[0].cuerpo,{solo_montar:true});
+  obsoleto=true;
+  await lanzarTandaLight('render','pendientes');
+  assert.equal(peticiones[1].url,'/api/proyectos/video/generar');
+  assert.deepEqual(peticiones[1].cuerpo,{tanda:'render',modo:'pendientes'});
+})().catch(e=>{console.error(e);process.exitCode=1;});
+'''
+        resultado = subprocess.run(['node','-e',programa],capture_output=True,text=True,encoding='utf-8',timeout=20)
+        self.assertEqual(resultado.returncode,0,resultado.stderr)
+
     def test_botones_nativos_y_bloqueo_sin_consultar_proveedores(self):
         fuente=(RAIZ/'web/app.js').read_text(encoding='utf-8')
         botones=fuente[fuente.index('function botonSustituirEscena('):fuente.index('/* ---------------------------------------- la animación de motion graphics')]
@@ -71,6 +97,77 @@ console.log('OK');
 
 @unittest.skipUnless(REAL, 'usa --real para comprobar el editor en Chromium')
 class EditorGlobal(unittest.TestCase):
+    def test_transiciones_recuperan_contexto_perdido_sin_modificar_el_video(self):
+        from playwright.sync_api import sync_playwright
+        with tempfile.TemporaryDirectory(prefix='transiciones_gpu_') as tmp, patch.dict(os.environ):
+            entorno = dict(os.environ)
+            for clave in ('ESTUDIO_SECRETOS', 'ESTUDIO_AJUSTES', 'ESTUDIO_ESTADISTICAS'):
+                entorno[clave] = os.path.join(tmp, clave)
+                os.environ[clave] = entorno[clave]
+            from pasos._proyecto_animaciones import construir
+            proyecto, _ = construir(os.path.join(tmp, 'proyectos'), animaciones=[], etiquetas={})
+            antes = Path(proyecto.ruta('estado.json')).read_bytes()
+            with socket.socket() as sock:
+                sock.bind(('127.0.0.1', 0))
+                puerto = sock.getsockname()[1]
+            with open(os.path.join(tmp, 'servicio.log'), 'w') as log:
+                proceso = subprocess.Popen([sys.executable, str(RAIZ / 'app.py'), '--puerto', str(puerto),
+                    '--proyectos', os.path.join(tmp, 'proyectos')], cwd=RAIZ, env=entorno,
+                    stdout=log, stderr=log)
+                try:
+                    url = f'http://127.0.0.1:{puerto}'
+                    for _ in range(100):
+                        try:
+                            urllib.request.urlopen(url, timeout=1).close()
+                            break
+                        except OSError:
+                            time.sleep(.1)
+                    with sync_playwright() as pw:
+                        navegador = pw.chromium.launch(headless=True, executable_path=os.environ.get('ESTUDIO_EDGE') or None)
+                        pagina = navegador.new_page(viewport={'width': 1440, 'height': 1000})
+                        errores = []
+                        pagina.on('pageerror', lambda error: errores.append(str(error)))
+                        pagina.goto(url)
+                        pagina.wait_for_function('APP.light.datos && !APP.light.cargando')
+                        pagina.evaluate('''async pid => {
+                            APP.light.video.pid = pid; APP.light.video.vista = 'previa';
+                            PREVIA.ficha = await pedir(`${API.proyecto(pid)}/previsualizacion`);
+                            PREVIA.i = 0; document.querySelector('#inicio')?.remove();
+                            document.querySelector('#panel').replaceChildren(vistaPreviaLight());
+                        }''', proyecto.id)
+                        pagina.wait_for_function('document.querySelectorAll(".editor-global-columna .anim-timeline-pistas").length === 5')
+                        pagina.evaluate('EDITOR_GLOBAL.seleccionar("S001", "imagenes", 5.8)')
+                        visible = '''() => {
+                            const n = document.querySelector('.editor-global-escena[data-visual-activo="true"]');
+                            const c = n?.querySelectorAll('.escena-transicion')[1];
+                            return c && !c.hidden && !c.getContext('webgl').isContextLost();
+                        }'''
+                        pagina.wait_for_function(visible)
+                        for indice in (1, 0, 1):
+                            pagina.evaluate('''i => {
+                                const n = document.querySelector('.editor-global-escena[data-visual-activo="true"]');
+                                window.canvasAnterior = [...n.querySelectorAll('.escena-transicion')];
+                                canvasAnterior[i].getContext('webgl').getExtension('WEBGL_lose_context').loseContext();
+                            }''', indice)
+                            pagina.wait_for_function('!window.canvasAnterior[0].isConnected && !window.canvasAnterior[1].isConnected')
+                            pagina.wait_for_function(visible)
+                            # Verificar píxeles reales, no solo la visibilidad del canvas.
+                            pixel = pagina.evaluate('''() => {
+                                const c = document.querySelector('.editor-global-escena[data-visual-activo="true"]').querySelectorAll('.escena-transicion')[1];
+                                const gl = c.getContext('webgl'), p = new Uint8Array(4);
+                                gl.readPixels(c.width/2, c.height/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p);
+                                return [...p];
+                            }''')
+                            self.assertGreater(sum(pixel[:3]), 0)
+                        pagina.screenshot(path=os.path.join(tmp, 'transiciones-recuperadas.png'))
+                        self.assertFalse(pagina.evaluate('EDITOR_GLOBAL.modificado()'))
+                        self.assertEqual(antes, Path(proyecto.ruta('estado.json')).read_bytes())
+                        self.assertFalse(errores, errores)
+                        navegador.close()
+                finally:
+                    proceso.terminate()
+                    proceso.wait(timeout=15)
+
     def test_edicion_global_conserva_borradores_guardado_y_reloj(self):
         from playwright.sync_api import sync_playwright
         with tempfile.TemporaryDirectory(prefix='editor_global_') as tmp, patch.dict(os.environ):

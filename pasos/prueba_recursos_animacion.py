@@ -83,6 +83,338 @@ def dibujar(im,estado,contexto):
 
 
 class Recursos(unittest.TestCase):
+    def preparar_anonimos(self):
+        self.base_parametrica()
+        escena=dict(id='S001',personajes_visibles=[],descripcion_visual='Dos personas anónimas desayunan; otra silueta al fondo.')
+        preparados=recursos.preparar(self.proyecto,self.marca,self.espacio,{}, {},{'escenas':[escena]},
+            lambda *a,**k:self.fail('Las personas anónimas no deben pedir otro rig a IA'),lambda *a:None)
+        return preparados,escena
+
+    def test_personas_anonimas_parejas_y_siluetas_usan_mismo_rig_sin_ia(self):
+        from PIL import Image
+        preparados,escena=self.preparar_anonimos()
+        modulo=preparados['personas_anonimas']
+        ctx=recursos.contexto(self.proyecto,preparados,escena)
+        self.assertEqual(ctx['personas_anonimas'],modulo)
+        codigo=f'''from PIL import Image
+import {modulo} as personas
+pareja=[personas.crear({{'colores':{{'ropa':'#ff0000'}}}}),personas.crear({{'colores':{{'ropa':'#0000ff'}}}})]
+sombra=personas.crear(silueta='#00ff00')
+def pintar(pedido,t):
+    im=Image.new('RGB',(480,180),'black')
+    for persona,x in zip(pareja,(.2,.5)):
+        persona.dibujar(im,dict(x=x,y=.9,brazo=1.2-t),dict(t=t))
+    sombra.dibujar(im,dict(x=.8,y=.9,brazo=1.2-t),dict(t=t))
+    return im
+'''
+        dato=dict(respuesta=entrega(codigo),recursos_disponibles=preparados['recursos'],
+            personajes_recursos=preparados['personajes'],contrato_estilo=recursos.contrato_estilo(preparados,escena))
+        modulos,refs=recursos.vincular(self.proyecto,self.marca['huella'],dato,{},escena)
+        archivos=espacio.renderizar(self.espacio,dict(ancho=480,alto=180,fps=12,duracion=1,escena={},parametros={}),
+            self.raiz/'anonimos',lambda *a:None,codigo_escena=codigo,herramientas_escena=modulos)
+        nativa.comprobar_movimiento(archivos['clip'],self.raiz/'anonimos',12)
+        with Image.open(archivos['poster']) as im:
+            self.assertEqual(im.getpixel((96,63)),(255,0,0))
+            self.assertEqual(im.getpixel((240,63)),(0,0,255))
+            self.assertEqual(im.getpixel((384,63)),(0,255,0))
+            # La máscara conserva la geometría de cabeza del mismo rig.
+            self.assertEqual(im.getpixel((384,25)),(0,0,0))
+        copia=self.proyecto.duplicar(str(self.raiz/'copias'),'Anónimos portátiles')
+        self.assertEqual(recursos.fuentes(copia,refs),modulos)
+
+    def test_s109_append_cache_diccionario_zip_recupera_entrega_pagada(self):
+        preparados,escena=self.preparar_anonimos()
+        modulo=preparados['personas_anonimas']
+        # Estructura de rehacer_eeceaa949fde4722bb1b66d5ce6e253c.json:
+        # _prep crea con append, guarda en _C['p']; pintar recorre con zip.
+        codigo=f'''from PIL import Image
+import {modulo} as personas
+_C = {{}}
+def _prep():
+ if 'bg' in _C:
+  return
+ _C['bg'] = Image.new('RGB', (320, 180), 'black')
+ cols = [('#2a2e46', 'largo', '#171a2a'), ('#33304a', 'coleta', '#171a2a')]
+ ps = []
+ for sil, pelo, _x in cols:
+  ps.append(personas.crear(apariencia={{'pelo': pelo, 'ropa': 'vestido', 'altura': 1.0, 'movil': False}}, silueta=sil))
+ _C['p'] = ps
+def pintar(pedido, t):
+ _prep()
+ img = _C['bg'].convert('RGBA')
+ ctx = {{'t': t}}
+ ests = [dict(x=.3,y=.9,brazo=1.2-t),dict(x=.7,y=.9,brazo=t)]
+ layers = []
+ for p, e in zip(_C['p'], ests):
+  L = Image.new('RGBA', (320, 180), (0, 0, 0, 0))
+  p.dibujar(L, e, ctx)
+  layers.append(L)
+ for L in layers:
+  img.alpha_composite(L)
+ return img.convert('RGB')
+'''
+        self.plan['escenas']=self.plan['escenas'][:1]
+        e=self.plan['escenas'][0]
+        e.update(id='S109',personajes_visibles=[],descripcion_visual='Siluetas femeninas frente a espejos.')
+        firma=espacio.huella([nativa.VERSION,self.marca,e,self.plan['resolucion'],12,None])
+        carpeta=Path(self.proyecto.ruta('estilo_ia','escenas_nativas','S109',firma))
+        dato=dict(respuesta=entrega(codigo),proveedor='Claude',formato='programa-recursos/1',
+            recursos_disponibles=preparados['recursos'],contrato_estilo=recursos.contrato_estilo(preparados,e))
+        fuente=carpeta/'rehacer_s109.json'
+        pendiente=carpeta/'regeneracion_pendiente.json'
+        escribir_json(str(fuente),dato)
+        escribir_json(str(pendiente),dict(fuente=fuente.name))
+        original=fuente.read_bytes()
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No repetir entrega pagada')), \
+                patch.object(recursos,'preparar',side_effect=AssertionError('No preparar otros recursos')):
+            resultado=self.generar(unidades=['escena:S109'],rehacer=True)
+        recibo=resultado['todas']['escena:S109']['animacion_estilo']
+        self.assertTrue(recibo['comprobacion']['movimiento_detectado'])
+        self.assertEqual(fuente.read_bytes(),original)
+        self.assertFalse(pendiente.exists())
+        # También admite dibujar por índice, pero no otra clave ni una llamada
+        # arbitraria que simplemente recibe la lista como argumento.
+        for llamada in ("_C['p'][0].dibujar(img, ests[0], ctx)",):
+            variante=codigo.replace('p.dibujar(L, e, ctx)',llamada)
+            recursos.vincular(self.proyecto,self.marca['huella'],dict(dato,respuesta=entrega(variante)),{},e)
+        for llamada in ("_C['otro'].dibujar(img, ests[0], ctx)",
+                "inventar(_C['p']).dibujar(img, ests[0], ctx)"):
+            variante=codigo.replace('p.dibujar(L, e, ctx)',llamada)
+            with self.assertRaisesRegex(ValueError,'anónimos y siluetas'):
+                recursos.vincular(self.proyecto,self.marca['huella'],dict(dato,respuesta=entrega(variante)),{},e)
+
+    def test_s104_import_auxiliar_fabrica_y_parametros_conservan_rig(self):
+        preparados,escena=self.preparar_anonimos()
+        modulo=preparados['personas_anonimas']
+        # Estructura real de rehacer_a2f03bbdb91e4444a22b3ba5f54ca6fd.json.
+        codigo=f'''from PIL import Image
+def _imp(n):
+    try:
+        return __import__(n)
+    except Exception:
+        return None
+personas = _imp('{modulo}')
+def _mk(ap, sil=None):
+    try:
+        if sil:
+            return personas.crear(apariencia=ap, silueta=sil)
+        return personas.crear(apariencia=ap)
+    except Exception:
+        return None
+RA = _mk({{'pelo':'largo'}})
+RB = _mk({{'pelo':'corto'}})
+SAv = _mk({{}}, '#9a6be0')
+SBv = _mk({{}}, '#9a6be0')
+def personas_dib(img, ra, rb, t):
+    ctx = {{'t':t}}
+    for who, rig in (('A', ra), ('B', rb)):
+        if rig is None:
+            continue
+        est = dict(x=.3 if who=='A' else .7,y=.9,brazo=1.2-t)
+        try:
+            rig.dibujar(img, est, ctx)
+        except Exception:
+            pass
+def marco_sil(t, ra, rb):
+    im = Image.new('RGB',(320,180),'black')
+    personas_dib(im, ra, rb, t)
+    return im
+def pintar(pedido,t):
+    return marco_sil(t, SAv, SBv)
+'''
+        dato=dict(respuesta=entrega(codigo),recursos_disponibles=preparados['recursos'],
+            contrato_estilo=recursos.contrato_estilo(preparados,escena))
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No consultar proveedores')):
+            modulos,refs=recursos.vincular(self.proyecto,self.marca['huella'],dato,{},escena)
+            self.assertIn(modulo,refs)  # No basta aceptar el AST: debe viajar al renderer.
+            archivos=espacio.renderizar(self.espacio,dict(ancho=320,alto=180,fps=12,duracion=1,escena={},parametros={}),
+                self.raiz/'s104',lambda *a:None,codigo_escena=codigo,herramientas_escena=modulos)
+            nativa.comprobar_movimiento(archivos['clip'],self.raiz/'s104',12)
+        for variante in (
+                codigo.replace('return personas.crear(apariencia=ap)', 'return inventar(ap)'),
+                codigo.replace('rig.dibujar(img, est, ctx)', 'pass')+'''
+def sin_relacion(rig):
+    rig.dibujar(None, {}, {})
+sin_relacion(otro_monigote)
+'''):
+            with self.assertRaisesRegex(ValueError,'anónimos y siluetas'):
+                recursos.vincular(self.proyecto,self.marca['huella'],dict(dato,respuesta=entrega(variante)),{},escena)
+
+    def test_imports_agrupados_y_elenco_condicional_s110_s115_s117(self):
+        preparados,escena=self.preparar_anonimos()
+        modulo=preparados['personas_anonimas']
+        codigo=f'''from PIL import Image
+from recursos_animacion import {modulo} as personas
+from recursos_animacion import objeto_prueba as objeto
+DEPORTISTAS = (personas.crear(silueta='#ff0000'), personas.crear(silueta='#0000ff'))
+EJECUTIVOS = (personas.crear(), personas.crear())
+def pintar(pedido,t):
+    im = Image.new('RGB',(320,180),'black')
+    elenco = EJECUTIVOS if t > .5 else DEPORTISTAS
+    for n, persona in enumerate(elenco):
+        persona.dibujar(im,dict(x=.3+.4*n,y=.9,brazo=1.2-t),dict(t=t))
+    # S117 dibuja también directamente por índice.
+    DEPORTISTAS[0].dibujar(im,dict(x=.3,y=.9,brazo=1.2-t),dict(t=t))
+    objeto.dibujar(im,dict(x=.8,y=.5),dict(t=t))
+    return im
+'''
+        dato=dict(respuesta=entrega(codigo,recursos_nuevos={'objeto_prueba':ARBOL}),
+            recursos_disponibles=preparados['recursos'],contrato_estilo=recursos.contrato_estilo(preparados,escena))
+        modulos,refs=recursos.vincular(self.proyecto,self.marca['huella'],dato,{},escena)
+        self.assertEqual(set(refs),{modulo,'objeto_prueba'})
+        self.assertIn('recursos_animacion',modulos)
+        nativa.validar(dato['respuesta'],2,list(modulos))
+        antes=espacio.inventario(self.espacio)
+        archivos=espacio.renderizar(self.espacio,dict(ancho=320,alto=180,fps=12,duracion=1,escena={},parametros={}),
+            self.raiz/'agrupados',lambda *a:None,codigo_escena=codigo,herramientas_escena=modulos)
+        nativa.comprobar_movimiento(archivos['clip'],self.raiz/'agrupados',12)
+        self.assertEqual(espacio.inventario(self.espacio),antes)
+        # No aceptar la fachada como permiso para importar módulos arbitrarios.
+        for nombre in ('modulo_inexistente','subprocess','*'):
+            variante=f'from recursos_animacion import {nombre}\n'+codigo
+            with self.assertRaisesRegex(ValueError,'recurso importado no disponible'):
+                recursos.vincular(self.proyecto,self.marca['huella'],dict(dato,respuesta=entrega(variante)),{},escena)
+        # Un import agrupado sin usar la geometría sigue rechazándose.
+        codigo_sin_rig=f'from recursos_animacion import {modulo} as personas\n'+CODIGO
+        with self.assertRaisesRegex(ValueError,'anónimos y siluetas'):
+            recursos.vincular(self.proyecto,self.marca['huella'],dict(dato,respuesta=entrega(codigo_sin_rig)),{},escena)
+
+    def test_s173_lista_de_modulos_preparados_dibuja_por_indice(self):
+        preparados,escena=self.preparar_anonimos()
+        base=leer_json(str(recursos.raiz(self.proyecto)/'rig_base.json'),estricto=True)
+        modulo='asset_'+base['huella'][:24]
+        preparados['personajes']['actor']=modulo
+        codigo=f'''from PIL import Image
+from recursos_animacion import {modulo} as protagonista
+RIGS = (protagonista, protagonista)
+def pintar(pedido,t):
+    im = Image.new('RGB',(320,180),'black')
+    for i in (0,1):
+        RIGS[i].dibujar(im,dict(x=.3+.4*i,y=.9,brazo=1.2-t),dict(t=t))
+    return im
+'''
+        dato=dict(respuesta=entrega(codigo),recursos_disponibles=preparados['recursos'],
+            contrato_estilo=recursos.contrato_estilo(preparados,escena))
+        modulos,_=recursos.vincular(self.proyecto,self.marca['huella'],dato,{},escena)
+        archivos=espacio.renderizar(self.espacio,dict(ancho=320,alto=180,fps=12,duracion=1,escena={},parametros={}),
+            self.raiz/'s173',lambda *a:None,codigo_escena=codigo,herramientas_escena=modulos)
+        nativa.comprobar_movimiento(archivos['clip'],self.raiz/'s173',12)
+        for variante in (codigo.replace('RIGS = (protagonista, protagonista)','RIGS = (otro, otro)'),
+                codigo.replace('RIGS[i].dibujar','otro.dibujar')):
+            with self.assertRaisesRegex(ValueError,'anónimos y siluetas'):
+                recursos.vincular(self.proyecto,self.marca['huella'],dict(dato,respuesta=entrega(variante)),{},escena)
+
+    def test_recurso_s059_sintaxis_invalida_se_corrige_sin_sobrescribir_entrega(self):
+        self.plan['escenas']=self.plan['escenas'][:1]
+        dato=entrega('import nave\n'+CODIGO,recursos_nuevos={'nave':dict(ARBOL,
+            codigo='from random import Random\nrng = Random(059) if False else Random(59)\n'+ARBOL['codigo'])})
+        with patch.object(nativa,'consultar',return_value=dato) as ia:
+            with self.assertRaisesRegex(ValueError,'leading zeros'):self.generar()
+        self.assertEqual(ia.call_count,1)
+        fuente=next(Path(self.proyecto.ruta('estilo_ia/escenas_nativas')).glob('*/*/fuente.json'))
+        original=fuente.read_bytes();pagada=leer_json(str(fuente),estricto=True)
+        corregida=copy.deepcopy(pagada)
+        asset=corregida['respuesta']['recursos_nuevos']['nave']
+        asset['codigo']=asset['codigo'].replace('Random(059) if False else Random(59)','Random(59)')
+        escribir_json(str(fuente.with_suffix('.correccion.json')),dict(huella_original=espacio.huella(pagada),
+            motivo='Conservar la semilla efectiva 59, quitar literal inválido de rama muerta.',entrega=corregida))
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No pagar otro intento')):
+            resultado=self.generar()
+        self.assertEqual(fuente.read_bytes(),original)
+        recibo=resultado['unidades']['escena:S001']['animacion_estilo']
+        self.assertTrue(recibo['correccion_local'].endswith('fuente.correccion.json'))
+        self.assertEqual(recibo['huella_correccion'],espacio.huella(corregida))
+
+    def test_s096_foto_de_personaje_declara_presencia_sin_inventar_movimiento(self):
+        self.plan['escenas']=self.plan['escenas'][:1]
+        escena=self.plan['escenas'][0]
+        escena.update(personajes_visibles=['auto_protagonista','auto_ella'],
+            descripcion_visual='El protagonista mira una foto de Ella.')
+        refs={}
+        for ident in escena['personajes_visibles']:
+            ref=recursos.guardar(self.proyecto,self.marca['huella'],dict(ACTOR,nombre=ident))
+            refs['asset_'+ref['huella'][:24]]=ref
+        personajes=dict(zip(escena['personajes_visibles'],refs))
+        codigo=programa_personajes(refs)
+        codigo='\n'.join(linea.replace("1.2-2.4*t/pedido['duracion']",'.4')
+            if 'actor_1(' in linea else linea for linea in codigo.splitlines())+'\n'
+        respuesta=entrega(codigo)
+        respuesta['acciones'][0]['objetivo']='auto_protagonista'
+        dato=dict(respuesta=respuesta,formato='programa-recursos/1',proveedor='Claude',
+            recursos_disponibles=refs,personajes_recursos=personajes,
+            contrato_visual=dict(descripcion=escena['descripcion_visual'],personajes_visibles=escena['personajes_visibles']))
+        firma=espacio.huella([nativa.VERSION,self.marca,escena,self.plan['resolucion'],12,None])
+        fuente=Path(self.proyecto.ruta('estilo_ia','escenas_nativas','S001',firma,'fuente.json'))
+        escribir_json(str(fuente),dato);original=fuente.read_bytes()
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No IA')):
+            with self.assertRaisesRegex(ValueError,'descripción: auto_ella'):self.generar()
+        corregida=copy.deepcopy(dato)
+        corregida['respuesta']['acciones'].append(dict(tipo='personaje',objetivo='auto_ella',
+            accion='Aparece como fotografía, sin actuación corporal adicional.',
+            claves=[dict(t=t,estado={'representacion':'foto','visible':True}) for t in (0,2)]))
+        escribir_json(str(fuente.with_suffix('.correccion.json')),dict(huella_original=espacio.huella(dato),
+            motivo='Declarar el personaje representado en la foto.',entrega=corregida))
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No IA')):
+            resultado=self.generar()
+        self.assertEqual(fuente.read_bytes(),original)
+        self.assertTrue(resultado['unidades']['escena:S001']['animacion_estilo']['comprobacion']['movimiento_detectado'])
+
+    def test_contrato_estilo_rechaza_redibujar_o_importar_sin_usar_rig(self):
+        preparados,escena=self.preparar_anonimos()
+        modulo=preparados['personas_anonimas']
+        for codigo in (CODIGO,f'import {modulo} as personas\n'+CODIGO):
+            dato=dict(respuesta=entrega(codigo),recursos_disponibles=preparados['recursos'],
+                contrato_estilo=recursos.contrato_estilo(preparados,escena))
+            with self.assertRaisesRegex(ValueError,'anónimos y siluetas'):
+                recursos.vincular(self.proyecto,self.marca['huella'],dato,{},escena)
+        # Una entrega histórica no se invalida al leerla por añadir esta guarda.
+        dato.pop('contrato_estilo')
+        recursos.vincular(self.proyecto,self.marca['huella'],dato,{},escena)
+
+    def test_siluetas_no_eluden_estilo_etiquetandose_como_objeto(self):
+        preparados,escena=self.preparar_anonimos()
+        escena['descripcion_visual']='Siluetas femeninas frente a espejos.'
+        respuesta=entrega();respuesta['acciones'][0]['tipo']='objeto'
+        contrato=recursos.contrato_estilo(preparados,escena)
+        self.assertTrue(contrato['requiere_personas'])
+        with self.assertRaisesRegex(ValueError,'anónimos y siluetas'):
+            recursos.vincular(self.proyecto,self.marca['huella'],dict(respuesta=respuesta,
+                recursos_disponibles=preparados['recursos'],contrato_estilo=contrato),{},escena)
+        escena['descripcion_visual']='Una ciudad de noche sin personas.'
+        self.assertFalse(recursos.contrato_estilo(preparados,escena)['requiere_personas'])
+
+    def test_ambos_proveedores_reciben_y_cumplen_reutilizacion_anonima(self):
+        self.base_parametrica()
+        self.plan['escenas']=self.plan['escenas'][:1]
+        self.plan['escenas'][0].update(personajes_visibles=[],descripcion_visual='Dos personas desayunan.')
+        proveedores=[]
+        def ia(proveedor,prompt,*a,**kw):
+            proveedores.append(proveedor)
+            datos=datos_prompt(prompt);modulo=datos['recursos_animacion']['personas_anonimas']
+            self.assertTrue(modulo)
+            self.assertIn('CONSISTENCIA DE ESTILO OBLIGATORIA',prompt)
+            codigo=f'''from PIL import Image
+from {modulo} import crear
+persona=crear()
+def pintar(pedido,t):
+    im=Image.new('RGB',(320,180),'black')
+    persona.dibujar(im,dict(x=.5,y=.9,brazo=1.2-t),dict(t=t))
+    return im
+'''
+            return entrega(codigo)
+        with patch.object(nativa,'consultar',side_effect=ia):
+            self.params['reparto_animaciones']['carga_claude']=100
+            self.generar()
+            self.params['reparto_animaciones']['carga_claude']=0
+            resultado=self.generar(unidades=['escena:S001'],rehacer=True)
+        self.assertEqual(proveedores,['Claude','ChatGPT'])
+        recibo=resultado['todas']['escena:S001']['animacion_estilo']
+        fuente=leer_json(self.proyecto.ruta(recibo['fuente']),estricto=True)
+        self.assertTrue(fuente['contrato_estilo']['requiere_personas'])
+        with patch.object(nativa,'consultar',side_effect=AssertionError('No invalidar clips')), \
+                patch.object(espacio,'renderizar',side_effect=AssertionError('No reanimar')):
+            self.generar()
+
     def test_descripcion_exige_actor_aunque_direccion_antigua_decia_sin_personas(self):
         self.base_parametrica()
         self.params['catalogo']['reparto']={'auto_protagonista':{'descripcion':'Protagonista'}}

@@ -8947,9 +8947,12 @@ async function lanzarTandaLight(tanda, modo, opciones = {}) {
   try {
     await persistirDescripcionesLight(v);
     if (v.pedido) await volcarEncargoLight(v.pedido);
-    const datos = await pedir(`${API.proyecto(v.pid)}/generar`, {
+    // Un MP4 al día también puede remontarse para actualizar solo la mezcla.
+    // La tanda de pendientes estaría vacía; no usar «todo», que rehace clips.
+    const soloMontar = tanda === 'render' && hayMp4Light() && !videoObsoletoLight();
+    const datos = await pedir(soloMontar ? API.ejecutar(v.pid, 'render') : `${API.proyecto(v.pid)}/generar`, {
       method: 'POST',
-      cuerpo: { ...opciones, tanda, modo: modo || 'pendientes' },
+      cuerpo: soloMontar ? { solo_montar: true } : { ...opciones, tanda, modo: modo || 'pendientes' },
     });
     v.plan = datos.plan || null;
     const tid = datos.trabajo_id || (datos.trabajo || {}).id;
@@ -12329,8 +12332,21 @@ async function abrirEditorEscena(escena, estudio) {
       }
     }
   }, {capture: true});
-  let canvas = h('canvas', { clase: 'escena-transicion', hidden: true });
-  let canvasEnlace = h('canvas', { clase: 'escena-transicion', hidden: true });
+  function nuevoCanvasTransicion() {
+    return h('canvas', { clase: 'escena-transicion', hidden: true,
+      onwebglcontextlost: ev => {
+        // Un cambio de GPU, suspensión o presión de memoria puede perder el
+        // contexto sin borrar el pintor JS. No reutilizar ese contexto muerto.
+        if (ev.target !== canvas && ev.target !== canvasEnlace) return;
+        if (!dialogo.isConnected || !estudio.esActual(escena.id)) return;
+        ev.preventDefault();
+        control.liberarVisual();
+        estado.textContent = 'Recuperando la vista previa de las transiciones…';
+        control.prepararVisual?.();
+      } });
+  }
+  let canvas = nuevoCanvasTransicion();
+  let canvasEnlace = nuevoCanvasTransicion();
   const medios = h('div', { hidden: true });
   const reloj = h('span', { clase: 'anim-timeline-reloj' }, `0.000 / ${total.toFixed(3)} s`);
   const reproducir = h('button', { clase: 'mini', disabled: true, onclick: alternar }, '▶ Reproducir');
@@ -12487,8 +12503,8 @@ async function abrirEditorEscena(escena, estudio) {
       if (!pintor && !pintorEnlace && !control.preparando) return;
       revisionVisual++; [pintor, pintorEnlace].forEach(p => p?.cerrar());
       pintor = pintorEnlace = null; preparandoEnlace = null; control.preparando = false;
-      const nuevoCanvas = h('canvas', { clase: 'escena-transicion', hidden: true });
-      const nuevoEnlace = h('canvas', { clase: 'escena-transicion', hidden: true });
+      const nuevoCanvas = nuevoCanvasTransicion();
+      const nuevoEnlace = nuevoCanvasTransicion();
       canvas.replaceWith(nuevoCanvas); canvasEnlace.replaceWith(nuevoEnlace);
       canvas = nuevoCanvas; canvasEnlace = nuevoEnlace;
       medios.replaceChildren();
@@ -13053,12 +13069,17 @@ async function abrirEditorEscena(escena, estudio) {
         pintarReloj();
     })();
     try { await preparandoEnlace; }
-    catch (error) { estado.textContent = `Vista previa de transición: ${error.message}`; preparandoEnlace = null; }
+    catch (error) {
+      if (versionVisual !== revisionVisual) return;
+      preparandoEnlace = null;
+      throw error;
+    }
   }
   async function probarEnlace() {
     if (!bloqueEnlace() || ocupado()) return;
     pausar();
-    await prepararEnlace();
+    try { await prepararEnlace(); }
+    catch (error) { estado.textContent = `Vista previa de transición: ${error.message}`; return; }
     if (!dialogo.isConnected) return;
     const bloque = bloqueEnlace(); if (!bloque) return;
     tiempo = bloque.inicio; pintarReloj();
@@ -13404,23 +13425,26 @@ async function abrirEditorEscena(escena, estudio) {
       cargarOnda();
     }
     control.prepararVisual = async () => {
-    if (pintor || control.preparando || !dialogo.isConnected) return;
-    control.preparando = true;
-    const versionVisual = revisionVisual;
-    try {
-    const catalogo = ficha.enlace || ficha.catalogo;
-    const [w, a] = ficha.avatar.resolucion, escala = Math.min(1, 960 / Math.max(w, a));
-    canvas.width = Math.round(w * escala); canvas.height = Math.round(a * escala);
-    const negro = h('canvas', { width: canvas.width, height: canvas.height });
-    negro.getContext('2d').fillRect(0, 0, negro.width, negro.height);
-    const cuadroEscena = await fotogramaTransicion(escena, pid, false, canvas.width, canvas.height, medios);
-    cuadroBase = cuadroEscena;
-    if (!dialogo.isConnected || versionVisual !== revisionVisual || !estudio.esActual(escena.id)) return;
-    pintor = pintorTransicion(canvas, { ...catalogo, acento: ficha.enlace?.acento || { acento: [.5, .6, 1], oscuro: [.2, .3, .5], claro: [.8, .9, 1] } }, [negro, cuadroEscena]);
-    await prepararEnlace();
-    pintarReloj(); estado.textContent = 'Edita los elementos de la escena según la pestaña seleccionada.';
-    } catch (error) { estado.textContent = `Vista previa: ${error.message}`; }
-    finally { control.preparando = false; }
+      if (control.preparando || !dialogo.isConnected || !estudio.esActual(escena.id)) return;
+      control.preparando = true;
+      const versionVisual = revisionVisual;
+      try {
+        if (!pintor) {
+          const catalogo = ficha.enlace || ficha.catalogo;
+          const [w, a] = ficha.avatar.resolucion, escala = Math.min(1, 960 / Math.max(w, a));
+          canvas.width = Math.round(w * escala); canvas.height = Math.round(a * escala);
+          const negro = h('canvas', { width: canvas.width, height: canvas.height });
+          negro.getContext('2d').fillRect(0, 0, negro.width, negro.height);
+          const cuadroEscena = await fotogramaTransicion(escena, pid, false, canvas.width, canvas.height, medios);
+          if (!dialogo.isConnected || versionVisual !== revisionVisual || !estudio.esActual(escena.id)) return;
+          cuadroBase = cuadroEscena;
+          pintor = pintorTransicion(canvas, { ...catalogo, acento: ficha.enlace?.acento || { acento: [.5, .6, 1], oscuro: [.2, .3, .5], claro: [.8, .9, 1] } }, [negro, cuadroEscena]);
+        }
+        await prepararEnlace();
+        if (!dialogo.isConnected || versionVisual !== revisionVisual || !estudio.esActual(escena.id)) return;
+        pintarReloj(); estado.textContent = 'Edita los elementos de la escena según la pestaña seleccionada.';
+      } catch (error) { if (versionVisual === revisionVisual) estado.textContent = `Vista previa: ${error.message}`; }
+      finally { if (versionVisual === revisionVisual) control.preparando = false; }
     };
     control.listo = true;
     guardarBoton.disabled = !control.modificado(); deshacerBoton.disabled = !historial.length;
@@ -13769,7 +13793,7 @@ function botonRenderizarLight() {
       ? 'Tienes notas del repaso sin aplicar. Esto solo montaria el MP4 y '
         + 'saldria sin ellas. Usa «Aplicar», que aplica y monta de una vez.'
       : unirAyuda('Encadena los planos que acabas de mirar, con sus transiciones, '
-        + 'la voz y la musica, y saca el MP4 con recursos del equipo. Al terminar, '
+        + 'la voz y los sonidos de escena, sin música añadida, y saca el MP4 con recursos del equipo. Al terminar, '
         + 'prepara los textos y una miniatura para YouTube si faltan (usa IA).', textoDelPlan('render')),
     h('button', {
       clase: notasSinAplicar ? 'mini' : 'avisa',
@@ -13862,15 +13886,13 @@ function vistaVideoLight() {
         + 'y saldria igual, sin ellas. Usa «Aplicar los cambios» de abajo: '
         + 'aplica y monta, en un solo trabajo.'
       : (quedaTandaLight('render') === false
-        ? 'El MP4 esta al dia con los planos y el audio de ahora. Volver a '
-          + 'montarlo daria el mismo fichero.'
+        ? 'Vuelve a montar el MP4 con la mezcla actual, reutilizando los clips. No regenera escenas.'
         : unirAyuda('Encadena los planos que ya has visto, con sus transiciones, '
-          + 'la voz y la musica, y saca el MP4 con recursos del equipo. Al terminar, '
+          + 'la voz y los sonidos de escena, sin música añadida, y saca el MP4 con recursos del equipo. Al terminar, '
           + 'prepara los textos y una miniatura para YouTube si faltan (usa IA).', textoDelPlan('render'))),
       h('button', {
         clase: notasSinAplicar ? 'mini' : 'primario',
-        disabled: !!trabajoVideoLight() || notasSinAplicar
-                  || quedaTandaLight('render') === false,
+        disabled: !!trabajoVideoLight() || notasSinAplicar,
         onclick: () => lanzarTandaLight('render',
           (hayMp4Light() && !videoObsoletoLight()) ? 'todo' : 'pendientes'),
       }, hayMp4Light() ? 'Regenerar Vídeo' : 'Generar Vídeo')),

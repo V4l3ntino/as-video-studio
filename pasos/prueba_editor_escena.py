@@ -31,6 +31,35 @@ import _proyecto_animaciones as juguete  # noqa: E402
 
 
 class EditorEscena(unittest.TestCase):
+    def test_montaje_no_anade_sonidos_de_transicion_y_conserva_escenas_y_manuales(self):
+        from pasos import sonido
+        escenas = [dict(id='S001', t_in=0, t_out=2, narracion='Primera frase.'),
+                   dict(id='S002', t_in=2, t_out=4, narracion='Segunda frase.',
+                        sonidos_estilo_ia=[dict(inicio=.2, id='estilo_ia:0', archivo='escena.wav',
+                            duracion=.5, nombre='Ambiente propio', ganancia=.7)])]
+        cortes = {'S002': dict(tipo='fundido', ranura='suave', duracion=.4)}
+        params = dict(efectos={p: [dict(fuente='prueba', id=p, duracion=1)]
+                              for p in ('transicion_suave', 'transicion_acento')})
+        with patch.object(sonido, 'vetados', return_value={}), \
+                patch.object(sonido, 'golpe_de', side_effect=AssertionError('No cargar golpes automáticos')):
+            for ranura in ('suave', 'acento'):
+                cortes['S002']['ranura'] = ranura
+                eventos = sonido.eventos(escenas, cortes, params)
+                self.assertEqual([e['papel'] for e in eventos], ['estilo_ia:0'])
+                self.assertAlmostEqual(eventos[0]['t'], 2.2)
+                fuentes, actual = sonido.bloques_de_escena(escenas, cortes, params, 'S002')
+                self.assertEqual([b['id'] for b in fuentes], ['estilo_ia:0'])
+                self.assertIsNone(actual)
+            params['unidades'] = {'escena:S002': dict(sonidos=dict(ancla=animaciones.ancla_de(escenas[1]),
+                bloques=[dict(id='estilo_ia:0', inicio=.2, fin=.7),
+                         dict(id='freesound:123', inicio=1, fin=1.5)]))}
+            fuente = dict(id='freesound:123', inicio=0, fin=.5,
+                eventos=[dict(t=0, duracion=.5, ganancia=.4, papel='freesound:123',
+                              ficha=dict(archivo='manual.wav', duracion=.5))])
+            with patch.object(sonido, 'fuente_usuario', return_value=fuente):
+                eventos = sonido.eventos(escenas, cortes, params, proyecto=object())
+            self.assertEqual([e['papel'] for e in eventos], ['estilo_ia:0', 'freesound:123'])
+
     def test_editor_admite_guia_ia_textual_sin_mutar_parametros(self):
         from pasos import p7_callouts
         with tempfile.TemporaryDirectory() as tmp:

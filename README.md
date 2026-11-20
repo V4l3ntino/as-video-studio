@@ -281,6 +281,12 @@ catálogo cerrado. Dispone además de **assets de código reutilizables**:
   Las entregas y los personajes ya pagados se recuperan tal cual, sin regenerarlos.
   Cada personaje tiene una instancia independiente; sus dependencias inmutables
   se copian también al vídeo y viajan con él.
+- Las personas **sin nombre** también usan el rig del estilo: parejas, extras,
+  multitudes y siluetas no se redibujan como otros monigotes. Hay una fábrica local
+  de variantes por apariencia; las siluetas solicitadas son máscaras de la misma
+  geometría articulada. Claude y ChatGPT reciben y cumplen el mismo contrato de
+  reutilización. Las entregas nuevas que prescinden de ese dibujo quedan pendientes
+  de corregir; no se regeneran automáticamente los clips ya terminados.
 - Los elementos básicos del catálogo del estilo tienen tamaños y materiales
   configurables. Se reutilizan antes de crear geometría nueva. Si falta un detalle,
   pueden ampliarse sin limitar el código de actuación de la escena.
@@ -305,6 +311,12 @@ pagados. Para incorporar la biblioteca completa a un estilo antiguo hay que
 preparar una versión nueva; no se hace automáticamente ni se consume cuota al leerlo.
 Un proyecto con `estilo.espacio_ia` usa animación también si un preset antiguo
 lleva `animacion_nativa=false`; no genera ilustraciones ni hace fallback a ellas.
+Los estilos con IA reutilizan también el catálogo procedural de Stickman: blip,
+pop, ding, pasos, golpes y ambientes, entre otros. Al programar una escena nueva
+o regenerarla, la IA elige los sonidos y sus tiempos según las acciones. No requieren
+claves ni servicios de sonido de pago y aparecen por separado en **Sonidos**.
+Los clips ya terminados se conservan sin cambios: volver a montar no inventa
+sonidos para fuentes antiguas; regenerar una escena sí puede incorporarlos.
 Los efectos/ambientes que cree el
 motor se incorporan a Sonidos y se mezclan una sola vez, fuera del clip visual.
 El montaje utiliza las animaciones ya preparadas, sin pedir nuevas imágenes.
@@ -328,6 +340,11 @@ trabajo y se continúa la tanda. Al terminar se informa de las escenas pendiente
 y se bloquea el montaje incompleto. **Continuar** recupera los clips correctos y
 reintenta las pendientes sin repetir sus entregas guardadas. Parar, falta de cuota
 y fallos comunes de preparación siguen deteniendo el trabajo.
+Una reparación local de una entrega nativa se puede conservar aparte en
+`<fuente>.correccion.json`, con `huella_original`, `entrega` y `motivo`. Se comprueba
+contra el original y mantiene sus contratos visuales y de estilo; el recibo deja
+constancia de la corrección. No sobrescribe fuentes pagadas, recursos inmutables ni
+clips correctos, y no necesita otra consulta al proveedor.
 
 Los nuevos renders nativos usan una fuente TrueType con tildes, ñ y signos ¿¡
 cuando el código pide la fuente predeterminada de Pillow. Se utiliza la misma
@@ -420,10 +437,17 @@ reproducir las escenas disponibles mientras continúa la tanda; **Parar** conser
 las terminadas y **Continuar animaciones** retoma las pendientes. El botón de
 montaje utiliza los clips generados, las voces, los subtítulos y las transiciones.
 
-**Montar el vídeo** renderiza las escenas ya preparadas y las une con la voz,
-los efectos y la música. No genera imágenes, animaciones, avatares ni material
+**Montar el vídeo** renderiza las escenas ya preparadas y las une con la voz
+y los sonidos de escena, sin añadir música de fondo. No genera imágenes, animaciones, avatares ni material
 para publicación: prepara los avatares y efectos parallax en Imágenes antes de
 montar. El título, la descripción y la miniatura se generan por separado.
+Las transiciones son solo visuales: montar no añade barridos ni golpes de sonido
+automáticos, incluso en vídeos antiguos. Se conservan los sonidos de las escenas
+y los efectos insertados manualmente. Tampoco se mezcla la música de fondo que
+pueda estar guardada en proyectos antiguos. Un MP4 anterior necesita volver a montarse
+para aplicar este cambio.
+Si el vídeo ya está al día, **Regenerar Vídeo** remonta la mezcla reutilizando
+los clips, sin regenerar escenas ni renderizarlas de nuevo.
 
 Si una escena entrega un plan inválido incluso tras sus correcciones automáticas,
 queda pendiente y la tanda continúa con las siguientes. Al terminar se indican
