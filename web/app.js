@@ -6073,11 +6073,34 @@ function panelTranscripcionEstiloIA(ficha) {
   return detalles;
 }
 
+function progresoEstiloIA(ficha) {
+  const trabajo = ficha.trabajo;
+  if (!['pendiente', 'ejecutando'].includes(trabajo?.estado)) return null;
+  const preparando = trabajo.nombre === 'preparar_estilo_ia' || ficha.estado === 'preparando';
+  const mensaje = trabajo.mensaje || (preparando
+    ? 'Preparación del motor en curso. Este intento no publica el detalle de actividad.'
+    : 'Esperando el inicio del análisis…');
+  const indeterminado = preparando || !(trabajo.progreso > 0);
+  return h('div', { clase: 'estilo-ia-progreso', 'aria-label': preparando ? 'Preparación del motor' : 'Análisis del vídeo' },
+    h('div', { clase: 'estilo-ia-actividad' },
+      h('p', { clase: 'estilo-ia-fase', role: 'status' }, mensaje),
+      h('p', { clase: 'meta' }, `Tiempo transcurrido: ${mmss(trabajo.segundos)} · `
+        + (preparando ? 'Avance por fases; no hay un porcentaje fiable del código.' : 'El tiempo total puede variar.'))),
+    h('progress', { max: 1, value: indeterminado ? null : trabajo.progreso,
+      'aria-label': preparando ? 'Preparación en curso, sin porcentaje estimado' : 'Progreso del análisis',
+      'aria-valuetext': mensaje }),
+    h('button', { clase: 'mini', onclick: async () => {
+      try { await pedir(API.estiloIA(ficha.id) + '/cancelar', { method: 'POST' }); await cargarEstilosIA(); }
+      catch (e) { toast(e.message, true); }
+    } }, 'Parar'));
+}
+
 function detalleEstiloIA(ficha) {
   const analisis = ficha.analisis;
   const activo = ['pendiente', 'ejecutando'].includes(ficha.trabajo?.estado);
   const caja = h('section', { clase: 'estilo-ia-detalle', 'aria-label': `Análisis de ${ficha.nombre}` },
-    h('h3', {}, ficha.nombre), h('p', {}, analisis?.resumen || 'El análisis todavía no ha terminado.'));
+    h('h3', {}, ficha.nombre), progresoEstiloIA(ficha),
+    h('p', {}, analisis?.resumen || 'El análisis todavía no ha terminado.'));
   const elegido = ANALISTAS_ESTILOS_IA.get(ficha.id) || ficha.proveedor_analisis || 'Claude';
   const analizar = h('button', { clase: 'mini', disabled: activo, onclick: async () => {
     try {
@@ -6116,9 +6139,9 @@ function detalleEstiloIA(ficha) {
     ficha.estado === 'analizado' ? h('button', { clase: 'mini fantasma', onclick: () => usarBaseEstiloIA(ficha) },
       'Usar solo la base visual y editorial') : null));
   if (ficha.espacio) caja.appendChild(h('div', { clase: 'estilo-ia-muestra' },
-    h('p', { clase: 'meta' }, `Versión ${ficha.espacio.version} · motor comprobado · calidad pendiente de revisión`),
+    h('p', { clase: 'meta' }, ficha.muestra_tarjeta ? ficha.muestra_tarjeta.etiqueta : `Versión ${ficha.espacio.version} · motor comprobado · calidad pendiente de revisión`),
     h('p', { clase: 'meta' }, 'Carpeta del estilo: ', h('code', {}, ficha.carpeta_trabajo || 'espacio propio de esta versión')),
-    h('video', { controls: true, preload: 'metadata', src: API.estiloIA(ficha.id) + '/muestra?v=' + ficha.espacio.version,
+    h('video', { controls: true, preload: 'metadata', src: API.estiloIA(ficha.id) + '/muestra?v=' + (ficha.muestra_tarjeta?.sha256 || ficha.espacio.version),
       'aria-label': 'Muestra animada del motor del estilo' })));
   if (['error', 'cancelado', 'interrumpido'].includes(ficha.estado)) caja.appendChild(h('button', {
     clase: 'primario', onclick: async () => {
@@ -6163,12 +6186,7 @@ function vistaEstilosIA() {
         h('div', { clase: 'cuerpo' }, h('div', { clase: 'nombre' }, f.nombre),
           h('p', { clase: 'meta' }, f.preset_id ? 'Análisis y recursos de la base' : f.estado),
           h('p', { clase: 'pista' }, activo ? f.trabajo.mensaje || 'Preparando análisis…' : 'Ver análisis y recursos'))),
-      activo ? h('div', { clase: 'estilo-ia-progreso' },
-        h('progress', { max: 1, value: f.trabajo.progreso, 'aria-label': 'Progreso del análisis' }),
-        h('button', { clase: 'mini', onclick: async () => {
-          try { await pedir(API.estiloIA(f.id) + '/cancelar', { method: 'POST' }); await cargarEstilosIA(); }
-          catch (e) { toast(e.message, true); }
-        } }, 'Parar')) : null,
+      progresoEstiloIA(f),
       botonSintetizarEstiloIA(f)));
   });
   caja.appendChild(rejilla);
@@ -6717,6 +6735,7 @@ function estiloElegido() {
 function montajeDelEstiloLight(ficha) {
   const montaje = ((ficha || {}).datos || {}).montaje || {};
   return {
+    ...(montaje.formato ? { formato: montaje.formato } : {}),
     subtitulos: montaje.subtitulos !== false,
     parallax: parallaxPorDefectoLight(montaje.parallax),
     generar_personajes: montaje.generar_personajes !== false,

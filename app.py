@@ -10493,8 +10493,11 @@ def _ficha_estilo_ia(sid):
     except KeyError:  # el gestor poda trabajos terminados; el estilo no caduca
         tid = None
         ficha['trabajo'] = None
-    if not tid and ficha['estado'] in ('pendiente', 'analizando', 'preparando'):
+    activo = ficha.get('trabajo') and ficha['trabajo']['estado'] in ('pendiente', 'ejecutando')
+    if not activo and ficha['estado'] in ('pendiente', 'analizando', 'preparando'):
         ficha['estado'] = 'interrumpido_preparacion' if ficha['estado'] == 'preparando' else 'interrumpido'
+        if (ficha.get('trabajo') or {}).get('estado') == 'error':
+            ficha['error'] = ficha.get('error') or ficha['trabajo'].get('mensaje') or ficha['trabajo'].get('error')
     # La transcripción completa solo se utiliza en el trabajo del analista.
     ficha.pop('transcripcion', None)
     progreso_visual = leer_json(str(_estilos_ia().carpeta(raiz_proyectos(), sid) / 'analisis_visual' / 'progreso.json'), {}) or {}
@@ -10685,20 +10688,23 @@ def preparar_espacio_estilo_ia(sid: str):
         if TRABAJOS_ESTILOS_IA.listar(activos=True):
             raise ErrorApi(409, 'espera a que termine el trabajo de estilo en marcha')
         tid = TRABAJOS_ESTILOS_IA.lanzar('preparar_estilo_ia', _estilos_ia().preparar,
-                                       raiz_proyectos(), sid, _presets())
+                                       raiz_proyectos(), sid, _presets(),
+                                       retomar_interrumpido=ficha['estado'] == 'interrumpido_preparacion')
         INDICE_ESTILOS_IA[sid] = tid
     return {'estilo': _ficha_estilo_ia(sid)}
 
 
 @app.get("/api/estilos-ia/{sid}/muestra")
 def muestra_espacio_estilo_ia(sid: str):
-    """Clip de comprobación técnica de la última versión preparada del estilo."""
+    """Vista previa identificada de tarjeta o muestra del último motor preparado."""
     ficha = _ficha_estilo_ia(sid)
     marca = ficha.get('espacio') or {}
     version = marca.get('version')
     if type(version) is not int or version < 1:
         raise ErrorApi(404, 'el estilo no tiene una muestra preparada')
     ruta = _estilos_ia().carpeta(raiz_proyectos(), sid) / 'versiones' / f'v{version}' / 'muestra' / 'clip.mp4'
+    if ficha.get('muestra_tarjeta'):
+        ruta = _estilos_ia().carpeta(raiz_proyectos(), sid) / ficha['muestra_tarjeta']['ruta']
     if not ruta.is_file():
         raise ErrorApi(404, 'falta el clip de muestra del estilo')
     return FileResponse(str(ruta), media_type='video/mp4')

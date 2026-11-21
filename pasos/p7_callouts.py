@@ -716,6 +716,8 @@ def capa_fija_de(escena, p, banda=None, salida=SALIDA):
     """
     if cartelas.es_cartela(escena) or escena.get("capitulo_svg"):
         return _envoltorio_fijo("", salida), []
+    if p.get('subtitulo_perfil') == 'ricksclips_v1':
+        return capa_ricksclips(escena,p,salida)
     banda = banda or banda_subtitulo(salida)
     paleta = paleta_de_guia((p.get("estilo") or {}).get("guia"), p.get("paleta"))
     # `diseno_de` devuelve (nombre, ficha): aqui interesa la ficha, que trae la
@@ -735,6 +737,31 @@ def capa_fija_de(escena, p, banda=None, salida=SALIDA):
     fichas = [{"tipo": "subtitulo", "texto": x["texto"],
                "desde": x["desde"], "hasta": x["hasta"]} for x in trozos]
     return _envoltorio_fijo("".join(x for x in piezas if x), salida), fichas
+
+
+def capa_ricksclips(escena,p,salida):
+    """Perfil explícito y opt-in. Mismas marcas y capa fija en previa/montaje.
+
+    No se activa por nombre del estilo ni se escribe al abrir proyectos antiguos.
+    Fuente instalada Arial Bold, NO se afirma que sea la fuente de la referencia.
+    """
+    trozos=subtitulos.de_escena(escena,idioma=p.get('idioma'),palabra_a_palabra=True,
+        texto=texto_subtitulo_de(p,f"escena:{escena.get('id')}"))
+    w,h=salida;tam=max(12,round(min(w*.105,h*.05)));piezas=[];fichas=[]
+    for i,trozo in enumerate(trozos):
+        cuerpo=tam;medir=_medidor('Arial',cuerpo,negrita=True)
+        while medir(trozo['texto'])>w*.88 and cuerpo>10:
+            cuerpo-=1;medir=_medidor('Arial',cuerpo,negrita=True)
+        # Escalonado sutil por grupos, sin mover los tiempos ni escalar con cámara.
+        y=h*(.70+.018*min(2,i//3))
+        piezas.append(f'<g opacity="0"><text x="{w/2:g}" y="{y:g}" '
+            f'font-family="Arial" font-size="{cuerpo}" font-weight="700" '
+            f'text-anchor="middle" fill="#ffffff" stroke="#000000" '
+            f'stroke-width="{cuerpo*.12:g}" stroke-linejoin="round" paint-order="stroke fill">'
+            f'{tipografia.escapar(trozo["texto"])}</text>'
+            f'{_corte_seco(trozo["desde"],trozo["hasta"])}</g>')
+        fichas.append(dict(tipo='subtitulo',**trozo))
+    return _envoltorio_fijo(''.join(piezas),salida),fichas
 
 
 def capa_de_escena(escena, p, mov=None, banda=None, aspecto=16 / 9,

@@ -54,7 +54,12 @@ def leer(raiz, sid):
     ficha = leer_json(str(carpeta(raiz, sid) / 'estilo.json'), estricto=True)
     if not isinstance(ficha, dict) or ficha.get('id') != sid:
         raise ValueError('el estilo IA está incompleto')
-    return dict(ficha, limites=LIMITES.copy())
+    from pasos import muestra_tarjeta
+    # Campo de presentación derivado: nunca confiar en una copia persistida por
+    # una preparación anterior. La única fuente es el descriptor y SU marca.
+    ficha.pop('muestra_tarjeta',None)
+    muestra=muestra_tarjeta.leer(carpeta(raiz,sid),ficha.get('espacio'))
+    return dict(ficha, limites=LIMITES.copy(),**({'muestra_tarjeta':muestra} if muestra else {}))
 
 
 def listar(raiz):
@@ -360,14 +365,32 @@ def congelar(presets, ficha, proyecto):
     escribir_json(proyecto.ruta('estilo_ia', 'manifiesto.json'), manifiesto)
 
 
-def preparar(avisar, raiz, sid, presets):
+def preparar(avisar, raiz, sid, presets, retomar_interrumpido=False, paquete_local=None, muestra_local=None):
     """Construye, instala, prueba y publica otra versión, sin alterar las anteriores."""
     from pasos import espacio_estilo,biblioteca_estilo
     destino = carpeta(raiz, sid)
     ficha = leer(raiz, sid)
-    if not ficha.get('analisis') or ficha['estado'] not in ('analizado', 'preparado', 'error_preparacion', 'cancelado_preparacion', 'interrumpido_preparacion'):
+    estados = ('analizado', 'preparado', 'error_preparacion', 'cancelado_preparacion', 'interrumpido_preparacion')
+    ficha.pop('muestra_tarjeta',None)  # leer puede añadir la previa válida de la versión anterior
+    if retomar_interrumpido:
+        estados += ('preparando',)
+    if not ficha.get('analisis') or ficha['estado'] not in estados:
         raise ValueError('analiza la referencia antes de preparar sus herramientas')
     analisis = validar_analisis(ficha['analisis'])
+    # Entrada explícita de código construido localmente. Nunca consulta proveedores
+    # ni reutiliza/modifica respuestas pagadas del constructor.
+    if paquete_local is not None:
+        paquete_local = espacio_estilo.validar(paquete_local, exigir_biblioteca=True)
+        espacio_estilo._validar_cumplimiento(paquete_local.get('cumplimiento'),
+            paquete_local['archivos'], espacio_estilo.requisitos_constructor(analisis))
+    if muestra_local is not None:
+        if paquete_local is None or set(muestra_local) != {'ancho','alto','fps','duracion'}:
+            raise ValueError('la muestra local necesita ancho, alto, fps y duracion, junto a un paquete local')
+        if any(type(muestra_local[k]) is not int or not 64<=muestra_local[k]<=1920 or muestra_local[k]%2
+                for k in ('ancho','alto')) or type(muestra_local['fps']) is not int or not 1<=muestra_local['fps']<=60:
+            raise ValueError('resolución o FPS de muestra local no válidos')
+        if type(muestra_local['duracion']) not in (int,float) or not 1<=muestra_local['duracion']<=60:
+            raise ValueError('duración de muestra local no válida')
     existentes = destino / 'versiones'
     numeros = [int((ficha.get('espacio') or {}).get('version', 0))]
     if existentes.exists():
@@ -376,11 +399,12 @@ def preparar(avisar, raiz, sid, presets):
     temporal = destino / 'versiones' / ('.preparando_' + uuid.uuid4().hex)
     temporal.mkdir(parents=True)
     try:
+        avisar(0, 'Preparando el motor y las herramientas; comprobando las entregas guardadas')
         ficha.update(estado='preparando', error=None)
         escribir_json(str(destino / 'estilo.json'), ficha)
         borrador = destino / 'constructor.json'
-        paquete = leer_json(str(borrador), None)
-        if paquete is None or ficha.get('corregir_constructor'):
+        paquete = paquete_local if paquete_local is not None else leer_json(str(borrador), None)
+        if paquete_local is None and (paquete is None or ficha.get('corregir_constructor')):
             paquete = espacio_estilo.consultar_constructor(destino, analisis,
                 [str(destino / f'secuencia_{i}.jpg') for i in range(6)], avisar,
                 correccion=dict(error=ficha['corregir_constructor'], paquete_anterior=paquete) if ficha.get('corregir_constructor') else None)
@@ -399,8 +423,15 @@ def preparar(avisar, raiz, sid, presets):
             ancho=640, alto=360, fps=12, duracion=2,
             escena=dict(id='muestra', narracion='Muestra técnica del estilo.', prompt=analisis['guia_visual'], t_in=0, t_out=2),
             parametros=paquete['parametros'])
+        if muestra_local is not None:
+            muestra.update(muestra_local)
+            muestra['escena']['t_out'] = muestra['duracion']
         try:
             espacio_estilo.renderizar(temporal, muestra, temporal / 'muestra', avisar)
+            if paquete_local is not None:
+                from pasos import animacion_nativa
+                control = animacion_nativa.comprobar_movimiento(str(temporal/'muestra'/'clip.mp4'),temporal/'muestra',muestra['fps'])
+                escribir_json(str(temporal/'muestra'/'comprobacion.json'),control)
             if paquete.get('biblioteca'):
                 biblioteca_estilo.comprobar(temporal,paquete['biblioteca'],avisar)
         except ValueError as exc:
@@ -415,15 +446,23 @@ def preparar(avisar, raiz, sid, presets):
         if final.exists():
             raise ValueError('la versión ya existe; no se sobrescriben espacios publicados')
         temporal.rename(final)
-        nueva = publicar_espacio(destino, ficha, analisis, marca, final, presets)
+        nueva = publicar_espacio(destino, ficha, analisis, marca, final, presets,
+            actualizar=paquete_local is not None)
+        ficha.pop('corregir_constructor', None)
         ficha.update(estado='preparado', espacio=marca, preset_id=nueva['id'], error=None,
                      muestra_comprobada=True, limites=LIMITES.copy())
         escribir_json(str(destino / 'estilo.json'), ficha)
-        borrador.unlink(missing_ok=True)
+        if paquete_local is None:
+            borrador.unlink(missing_ok=True)
         return dict(estilo_id=sid, preset_id=nueva['id'], espacio=marca)
     except Exception as exc:
         ficha.update(estado='cancelado_preparacion' if isinstance(exc, Cancelado) else 'error_preparacion', error=str(exc))
         escribir_json(str(destino / 'estilo.json'), ficha)
+        if paquete_local is not None and paquete_local.get('blender') and temporal.exists():
+            # La preparación local Blender conserva fuentes, IPC y diagnósticos
+            # fallidos. No es una versión publicada ni se reutiliza como éxito.
+            fallo=temporal.with_name('.fallido_'+temporal.name.removeprefix('.preparando_'))
+            temporal.rename(fallo)
         raise
     finally:
         # Solo archivos de esta preparación; los paquetes publicados nunca se retiran.
@@ -431,7 +470,7 @@ def preparar(avisar, raiz, sid, presets):
             shutil.rmtree(temporal)
 
 
-def publicar_espacio(destino, ficha, analisis, marca, espacio, presets):
+def publicar_espacio(destino, ficha, analisis, marca, espacio, presets, actualizar=False):
     from pasos import espacio_estilo
     manifiesto = dict(formato='as-video-studio/estilo-ia', version=2, analisis=analisis,
                       limites=LIMITES.copy(), calidad_verificada=False, espacio=marca)
@@ -443,13 +482,27 @@ def publicar_espacio(destino, ficha, analisis, marca, espacio, presets):
                  montaje=dict(parallax=dict(activo=False)),
                  origen=dict(estilo_ia=dict(id=marca['id'], version=marca['version'], alcance='espacio_de_trabajo',
                      huella=hashlib.sha256(json.dumps(manifiesto, sort_keys=True).encode()).hexdigest()),
-                     estilo_resumen=analisis['resumen']))
+                      estilo_resumen=analisis['resumen']))
+    if actualizar and ficha.get('preset_id'):
+        # Cambiar el motor no borra decisiones previas de voz, grafismo o montaje.
+        anteriores = presets.leer(ficha['preset_id'])['datos']
+        datos = {**anteriores, **{k:dict(anteriores.get(k) or {}, **v) for k,v in datos.items()}}
+    if actualizar:
+        paquete_local = leer_json(str(espacio/'paquete.json'),estricto=True)
+        perfil = paquete_local.get('parametros',{}).get('subtitulo_perfil')
+        if perfil is not None:
+            datos['rotulos'] = dict(datos.get('rotulos') or {},subtitulo_perfil=perfil)
+        formato = paquete_local.get('parametros',{}).get('formato_video')
+        if formato is not None:
+            datos['montaje'] = dict(datos.get('montaje') or {},formato=formato)
     def copiar_paquete(carpeta_preset):
         base = Path(carpeta_preset) / 'estilo_ia'
         espacio_estilo.copiar(espacio, base / 'paquetes' / marca['huella'], marca['huella'])
         escribir_json(str(base / 'manifiesto.json'), manifiesto)
-    nueva = presets.guardar('canal', ficha['nombre'], datos, miniatura=str(destino / 'miniatura.jpg'),
-                            _preparar_ficheros=copiar_paquete)
+    opciones = dict(pid=ficha['preset_id']) if actualizar and ficha.get('preset_id') else {}
+    miniatura = espacio/'muestra'/'poster.png' if actualizar else destino/'miniatura.jpg'
+    nueva = presets.guardar('canal', ficha['nombre'], datos, miniatura=str(miniatura),
+                            _preparar_ficheros=copiar_paquete, **opciones)
     return nueva
 
 

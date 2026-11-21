@@ -260,7 +260,7 @@ def crear(apariencia=None,silueta=None,extensiones=None):
         interfaz='crear(apariencia=None,silueta=None,extensiones=None) devuelve UNA instancia privada del rig del estilo. Crea cada identidad UNA vez fuera de pintar; usa persona.dibujar(lienzo,estado,contexto) y los controles/unidades de la base. apariencia usa esquema apariencia/1 para pelo, ropa, colores y proporciones. silueta="#RRGGBB" SOLO si la descripción pide siluetas; conserva geometría y articulaciones del rig. No llama a IA. extensiones={nombre:funcion(rig,*args)} permite ampliar detalles; rig.dibujo_compartido conserva dibujo del estilo. Perfil de apariencia: '+str(perfil)))
 
 
-def encargo_apariencia(encargo,manifiesto):
+def encargo_apariencia(encargo,manifiesto,base=None,ayuda=None):
     from motores.estilo_ia.apariencias import ESQUEMA, DEFECTO
     datos = _datos_personaje(encargo,manifiesto)
     datos['tecnicas'] = {k:v for k,v in datos['tecnicas'].items() if k=='visual'}
@@ -286,22 +286,54 @@ rig.dibujo_compartido(lienzo,estado,contexto), añadir geometría Pillow anclada
 anclas devueltas y declarar EXTENSIONES={'dibujar':detalle}.
 Biblioteca estándar/PIL, sin proveedores, imágenes, red ni procesos. No ejecutes.
 DATOS:\n'''+json.dumps(datos,ensure_ascii=False,separators=(',',':'))
-    if len(prompt)>30000:
-        raise ValueError('el encargo de apariencia supera 30000 caracteres; revisar sin truncar ni consumir IA')
+    if base is not None and ayuda is not None:
+        # Una especie distinta no es ropa sobre un esqueleto humano. Ofrecer la
+        # mecánica fijada sin imponer ese esquema a anatomías incompatibles.
+        tecnico = json.loads(encargo_identidad(encargo,{},base,ayuda).rsplit('DATOS:\n',1)[1])
+        datos['geometria_base'] = tecnico['base']
+        datos['soporte'] = tecnico['soporte']
+        prompt = prompt[:prompt.index('DATOS:\n')]+'''EXCEPCIÓN ANATÓMICA EXPLÍCITA: el esquema anterior es HUMANO. Para un animal,
+cuadrúpedo u otra anatomía incompatible NO elijas ropa=null ni lo disfraces de humano.
+Devuelve {formato:"geometria/1",nombre,concepto,codigo_extra,interfaz,muestra:[a,b]}.
+No incluyas apariencia. codigo_extra define EXTENSIONES con dibujar, pose y
+estado_base, y las funciones adicionales necesarias (incluidos movimientos de esa
+anatomía). Cada función recibe rig primero. El wrapper crea una instancia privada
+de la base sin aplicar la apariencia humana. Reutiliza FK/IK/interpolación de la
+base cuando sean compatibles; no copies el motor. La geometría y los controles
+articulados son libres, no un catálogo de poses. Documenta unidades, articulaciones,
+anclas, cabeza, extremidades y cola si procede; muestra dos poses articuladas.
+Sin sustituir nombres del wrapper; puedes usar rig.originales y helpers de la base.
+No dibujes el humano debajo de un animal. Conserva acabado del estilo y anatomía
+del encargo. Esta excepción NO es necesaria para ropa, pelo o colores humanos.
+DATOS:\n'''+json.dumps(datos,ensure_ascii=False,separators=(',',':'))
+    limite = 40000 if base is not None and ayuda is not None else 30000
+    if len(prompt)>limite:
+        raise ValueError(f'el encargo de apariencia supera {limite} caracteres; revisar sin truncar ni consumir IA')
     return prompt
 
 
 def compilar_apariencia(dato,base,configuracion,referencias):
     """Wrapper mecánico local. La IA entrega datos, no repite el renderer."""
     from motores.estilo_ia.apariencias import validar as validar_apariencia
-    if not isinstance(dato,dict) or dato.get('formato')!='apariencia/1':
+    if not isinstance(dato,dict) or dato.get('formato') not in ('apariencia/1','geometria/1'):
         raise ValueError('se esperaban datos apariencia/1; entrega conservada, no se repetirá IA')
-    if set(dato)-{'formato','nombre','concepto','apariencia','codigo_extra'}:
+    geometria = dato['formato']=='geometria/1'
+    campos = {'interfaz','muestra'} if geometria else {'apariencia'}
+    if set(dato)-({'formato','nombre','concepto','codigo_extra'}|campos):
         raise ValueError('la apariencia debe entregar datos, no otro rig; entrega conservada')
-    apariencia = validar_apariencia(dato.get('apariencia'))
+    apariencia = None if geometria else validar_apariencia(dato.get('apariencia'))
     extra = dato.get('codigo_extra','')
     if not isinstance(extra,str):
         raise ValueError('codigo_extra de apariencia debe ser texto')
+    if geometria:
+        # Contrato estático: nunca ejecutar una entrega dentro del servicio.
+        extensiones = []
+        for n in ast.parse(extra).body:
+            if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='EXTENSIONES' for t in n.targets):
+                if isinstance(n.value,ast.Dict):
+                    extensiones = [k.value for k in n.value.keys if isinstance(k,ast.Constant)]
+        if not {'dibujar','pose','estado_base'}<=set(extensiones):
+            raise ValueError('geometria/1 necesita EXTENSIONES explícitas: dibujar, pose y estado_base')
     reservados = {'rig','_base','_soporte','_apariencias','dibujar','__getattr__'}
     for n in ast.parse(extra).body:
         nombres = {n.name} if isinstance(n,(ast.FunctionDef,ast.ClassDef)) else {
@@ -309,23 +341,26 @@ def compilar_apariencia(dato,base,configuracion,referencias):
         if nombres & reservados:
             raise ValueError('codigo_extra no puede sustituir el wrapper de apariencia')
     mb,ms,ma = (configuracion[k] for k in ('base','soporte','apariencias'))
+    crear = ('_soporte.crear(_base,extensiones=EXTENSIONES)' if geometria else
+        f"_apariencias.crear(_base,_soporte,{apariencia!r},perfil={configuracion['perfil']!r},extensiones=EXTENSIONES)")
     codigo = f'''import {mb} as _base
 import {ms} as _soporte
 import {ma} as _apariencias
 EXTENSIONES = {{}}
 {extra}
-rig = _apariencias.crear(_base,_soporte,{apariencia!r},perfil={configuracion['perfil']!r},extensiones=EXTENSIONES)
+rig = {crear}
 def dibujar(lienzo,estado,contexto):
     return rig.dibujar(lienzo,estado,contexto)
 def __getattr__(nombre):
     return getattr(rig,nombre)
 '''
-    muestra = json.loads(json.dumps(base['asset']['muestra']))
-    for e in muestra:
-        e['movil_visible'] = apariencia['movil']
-        e['movil_mano'] = 'd' if apariencia['movil'] else None
+    muestra = json.loads(json.dumps(dato.get('muestra') if geometria else base['asset']['muestra']))
+    if not geometria:
+        for e in muestra:
+            e['movil_visible'] = apariencia['movil']
+            e['movil_mano'] = 'd' if apariencia['movil'] else None
     asset = dict(tipo='personaje',nombre=dato.get('nombre'),concepto=dato.get('concepto'),
-        codigo=codigo,interfaz=base['asset']['interfaz'],muestra=muestra)
+        codigo=codigo,interfaz=dato.get('interfaz') if geometria else base['asset']['interfaz'],muestra=muestra)
     return validar(fijar_dependencias(asset,referencias))
 
 
@@ -571,7 +606,9 @@ def preparar(proyecto,marca,espacio,manifiesto,reparto,plan,consultar,avisar,par
                             configuracion = dict(perfil=perfil,base=modulo_base,
                                 soporte=modulo_soporte,apariencias=modulo_apariencias)
                             escribir_json(str(ruta.with_suffix('.apariencia.json')),configuracion)
-                            prompt = encargo_apariencia(encargo,manifiesto)
+                            prompt = encargo_apariencia(encargo,manifiesto,
+                                dict(base_rig,modulo=modulo_base),
+                                dict(cargar(proyecto,ref_soporte),modulo=modulo_soporte))
                         else:
                             avisar_personaje(None,'Rig antiguo sin contrato de apariencia: se conservan extensiones de identidad')
                             prompt=encargo_identidad(encargo,manifiesto,

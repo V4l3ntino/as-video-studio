@@ -908,7 +908,7 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
                 base_tiempo_s=600, herramientas_vetadas=(), avance=None,
                 para="la llamada", que="la respuesta", carpetas=(),
                 herramientas_permitidas=(), entrega_cruda=False, archivo_entrega=None,
-                reintentar_cuentas=True):
+                reintentar_cuentas=True, al_preparar=None):
     """Como `ejecutar`, pero el agente ESCRIBE su JSON y aqui se lee. -> dict.
 
     La instruccion NO tiene que decir como entregarlo: se le anade el cierre
@@ -924,6 +924,8 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
 
     `entrega_cruda` devuelve (contenido del fichero, sobre del CLI), para los
     consumidores que registran el consumo ANTES de validar su propio contrato.
+    `al_preparar(carpeta)` permite observar metadatos del temporal desde el
+    latido de progreso del consumidor; no ejecuta ni valida la entrega.
     """
     import json                                                # noqa: PLC0415
     import shutil                                              # noqa: PLC0415
@@ -948,6 +950,8 @@ def escribiendo(instruccion, modelo=MODELO_POR_DEFECTO,
     carpeta = os.path.realpath(tempfile.mkdtemp(prefix="cli_salida_"))
     try:
         ruta = os.path.join(carpeta, FICHERO_SALIDA)
+        if al_preparar is not None:
+            al_preparar(carpeta)
         texto, sobre = ejecutar(instruccion + CIERRE.format(fichero=ruta),
                  modelo=modelo, esfuerzo=esfuerzo, cwd=carpeta,
                  tiempo_max_s=tiempo_max_s, base_tiempo_s=base_tiempo_s,

@@ -11,6 +11,45 @@ import subprocess
 import sys
 
 
+def comprobar_formato(frame, pedido):
+    """Rechaza el fallo conocido de encajar un short con bandas en un lienzo ancho.
+
+    No certifica composición artística. Un fundido completamente negro es válido.
+    Solo se aplica a entregas nuevas que fijan el contrato, no a fuentes pagadas.
+    """
+    if (pedido.get('contrato_render') or {}).get('motor') != 'blender':
+        return
+    w,h = frame.size
+    if w <= h:
+        return
+    margen = max(1,round(w*.20))
+    def negro(caja):
+        return all(maximo <= 3 for minimo,maximo in frame.crop(caja).convert('RGB').getextrema())
+    if (negro((0,0,margen,h)) and negro((w-margen,0,w,h))
+            and not negro((margen,0,w-margen,h))):
+        raise ValueError('composición vertical con bandas negras: el vídeo requiere usar el lienzo horizontal completo')
+
+
+def vigilar_blender(blender, pedido):
+    """Cuenta renders reales exitosos del puente, no imports ni arranque del proceso."""
+    contrato = pedido.get('contrato_render') or {}
+    if contrato.get('motor') != 'blender':
+        return None
+    if blender is None or blender._sesion is None:
+        raise ValueError('la escena requiere Blender real; no se admite respaldo 2D')
+    evidencias = []
+    sesion = blender._sesion
+    original = sesion.render
+    def render(w,h,mesh,cam,sprites,ambiente,volumen):
+        if (w,h) != (pedido['ancho'],pedido['alto']) or not len(mesh.vertices):
+            raise ValueError('Blender debe renderizar geometría 3D al tamaño completo del vídeo')
+        resultado = original(w,h,mesh,cam,sprites,ambiente,volumen)
+        evidencias.append(dict(ancho=w,alto=h,vertices=len(mesh.vertices),sprites=len(sprites)))
+        return resultado
+    sesion.render = render
+    return evidencias
+
+
 def configurar_fuente_texto(pedido):
     """Sustituye SOLO la fuente limitada por defecto, dentro de este renderer.
 
@@ -48,6 +87,15 @@ def main():
         if not codigo_nativo.is_relative_to(salida.resolve()) or pedido.get('imagen'):
             raise ValueError('la escena nativa necesita código propio dentro de su salida, sin imagen de fondo')
         sys.path.insert(0, str(codigo_nativo.parent / 'herramientas'))
+    blender=None
+    if pedido.get('blender'):
+        # Solo el coordinador lanza el runtime exacto. El motor se importa DESPUÉS
+        # de instalar las mismas guardas de siempre; no se autoriza otro Popen.
+        spec=importlib.util.spec_from_file_location('rc_blender_cliente',paquete/'motores'/'blender_cliente_estudio.py')
+        blender=importlib.util.module_from_spec(spec);sys.modules['rc_blender_cliente']=blender
+        spec.loader.exec_module(blender)
+        blender.iniciar(paquete,pedido)
+    evidencias_blender = vigilar_blender(blender,pedido)
     def escritura(ruta):
         if isinstance(ruta, int):
             return  # descriptores abiertos por el ejecutor (stdout/ffmpeg)
@@ -92,9 +140,13 @@ def main():
                                    stderr=registro)
         try:
             for i in range(total):
+                antes = len(evidencias_blender) if evidencias_blender is not None else 0
                 frame = motor.pintar(pedido, i / fps).convert('RGB')
+                if evidencias_blender is not None and len(evidencias_blender) == antes:
+                    raise ValueError('la escena requiere un render Blender real por fotograma; no basta dibujar con Pillow')
                 if frame.size != (ancho, alto):
                     raise ValueError('el motor debe devolver fotogramas del tamaño solicitado')
+                comprobar_formato(frame,pedido)
                 if i == 0:
                     frame.save(salida / 'poster.png')
                 proceso.stdin.write(frame.tobytes())
@@ -107,11 +159,19 @@ def main():
             if proceso.poll() is None:
                 proceso.kill()
             proceso.wait()
+    if evidencias_blender is not None:
+        (salida/'contrato_render.json').write_text(json.dumps(dict(
+            contrato=pedido['contrato_render'],fotogramas=total,renders=evidencias_blender)),encoding='utf-8')
     audio = salida / 'sonido.wav'
     if hasattr(motor, 'crear_audio'):
         motor.crear_audio(pedido, str(audio))
+    if blender is not None:blender.cerrar()
     (salida / 'resultado.json').write_text(json.dumps(dict(audio=audio.is_file())), encoding='utf-8')
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        cliente=sys.modules.get('rc_blender_cliente')
+        if cliente is not None:cliente.cerrar()

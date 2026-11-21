@@ -196,6 +196,11 @@ def crear_audio(pedido,ruta):
         with self.assertRaisesRegex(ValueError,'dependencia no admitida: asset_2fbb5a3730e96faea3ed3cf'):
             nativa.validar_codigo(codigo)
 
+    def test_re_y_copy_son_biblioteca_estandar_admitida(self):
+        for imports in ('import re, copy', 'from re import sub\nfrom copy import deepcopy'):
+            with self.subTest(imports=imports):
+                nativa.validar_codigo(imports+'\n'+CODIGO)
+
     def test_correccion_sin_original_no_consulta_y_continua_siguiente(self):
         escena=self.plan['escenas'][0]
         firma=espacio.huella([nativa.VERSION,self.marca,escena,self.plan['resolucion'],12,None])

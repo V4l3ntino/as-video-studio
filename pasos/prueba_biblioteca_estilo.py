@@ -20,6 +20,7 @@ for clave in ('ESTUDIO_SECRETOS','ESTUDIO_AJUSTES','ESTUDIO_ESTADISTICAS',
 from nucleo.proyecto import Proyecto,escribir_json,leer_json
 from pasos import biblioteca_estilo as biblioteca,espacio_estilo as espacio,estilos_ia as estilos
 from pasos import recursos_animacion as recursos,animacion_nativa as nativa,presets_canal as presets,p6_assets,cli_claude
+ESCRIBIENDO_REAL = cli_claude.escribiendo
 
 
 RIG = '''import math
@@ -130,9 +131,60 @@ class Biblioteca(unittest.TestCase):
         self.assertNotIn('biblioteca',espacio.validar(antiguo))
         with self.assertRaises(ValueError):espacio.validar(antiguo,exigir_biblioteca=True)
 
+    def test_biblioteca_admite_re_y_copy_sin_dependencias_externas(self):
+        dato=paquete()
+        dato['archivos']['herramientas/personaje_base.py']='import re, copy\n'+RIG
+        valido=espacio.validar(dato,exigir_biblioteca=True)
+        self.assertEqual(valido['archivos'],dato['archivos'])
+        self.assertEqual(valido['dependencias'],[])
+
+    def test_constructor_exige_requisitos_y_conserva_sus_evidencias(self):
+        analisis=dict(guia_visual='Personajes 2D sobre escenarios 3D cel-shaded.',
+            areas=dict(animacion='Dolly con oclusiones.'),recursos=[dict(nombre='Taberna 3D',motivo='Profundidad')])
+        dato=paquete()
+        dato['cumplimiento']=dict(version=1,requisitos=[dict(id=r['id'],estado='implementado',
+            implementacion='Geometría proyectada con profundidad; revisar fidelidad en la muestra.',
+            archivos=['motores/escena.py']) for r in espacio.requisitos_constructor(analisis)])
+        with patch.object(cli_claude,'escribiendo',return_value=(json.dumps(dato),{})) as cli:
+            resultado=espacio.consultar_constructor(self.raiz,analisis,[],lambda *a:None)
+        self.assertEqual(resultado['cumplimiento'],dato['cumplimiento'])
+        prompt=cli.call_args.args[0]
+        self.assertIn('no lo rebajes silenciosamente',prompt)
+        self.assertIn('NO obliga a dibujar todo en 2D',prompt)
+        self.assertIn('Taberna 3D',prompt)
+        self.assertIn('no_compatible',prompt)
+
+    def test_requisitos_omitidos_o_no_compatibles_bloquean_sin_reconsultar(self):
+        analisis=dict(guia_visual='Escenarios con profundidad 3D.')
+        for caso in ('ausente','omitido','no_compatible','archivo_inexistente'):
+            with self.subTest(caso=caso):
+                destino=self.raiz/caso;dato=paquete()
+                entrada=dict(id='guia_visual',estado='implementado',implementacion='Proyección local.',
+                    archivos=['motores/escena.py'])
+                if caso=='no_compatible':entrada['estado']='no_compatible'
+                if caso=='archivo_inexistente':entrada['archivos']=['herramientas/no_existe.py']
+                if caso!='ausente':dato['cumplimiento']=dict(version=1,requisitos=[] if caso=='omitido' else [entrada])
+                with patch.object(cli_claude,'escribiendo',return_value=(json.dumps(dato),{})) as cli:
+                    for _ in range(2):
+                        with self.assertRaises(ValueError):
+                            espacio.consultar_constructor(destino,analisis,[],lambda *a:None)
+                self.assertEqual(cli.call_count,1)
+
+    def test_entrega_anterior_sin_informe_se_recupera_sin_consulta(self):
+        analisis=dict(guia_visual='Estilo antiguo conservado.')
+        with patch.object(cli_claude,'escribiendo',return_value=(json.dumps(paquete()),{})) as cli:
+            with self.assertRaisesRegex(ValueError,'cumplimiento'):
+                espacio.consultar_constructor(self.raiz,analisis,[],lambda *a:None)
+        prompt_anterior=cli.call_args.args[0].split('\nREQUISITOS DE REALIZACIÓN:')[0]
+        cruda=next((self.raiz/'constructor_respuestas').glob('*.txt'))
+        cruda.rename(cruda.with_name(espacio.huella([prompt_anterior,[]])+'.txt'))
+        with patch.object(cli_claude,'escribiendo',side_effect=AssertionError('No repetir IA')):
+            resultado=espacio.consultar_constructor(self.raiz,analisis,[],lambda *a:None)
+        self.assertNotIn('cumplimiento',resultado)
+
     def test_constructor_conserva_entrega_invalida_sin_repetir_cuota(self):
         respuesta=json.dumps(dict(codigo=MOTOR,archivos={},dependencias=[]))
-        with patch.object(cli_claude,'ejecutar',return_value=(respuesta,{})) as cli:
+        with patch.object(cli_claude,'escribiendo',return_value=(respuesta,{})) as cli:
             for _ in range(2):
                 with self.assertRaisesRegex(ValueError,'biblioteca'):
                     espacio.consultar_constructor(self.raiz,{},[],lambda *a:None)
@@ -140,7 +192,103 @@ class Biblioteca(unittest.TestCase):
         self.assertIn('BIBLIOTECA OBLIGATORIA',cli.call_args.args[0])
         self.assertEqual(cli.call_args.kwargs['esfuerzo'],'medium')
         self.assertEqual(cli.call_args.kwargs['tiempo_max_s'],-1)
+        self.assertTrue(cli.call_args.kwargs['entrega_cruda'])
+        self.assertFalse(cli.call_args.kwargs['reintentar_cuentas'])
+        self.assertNotIn('Write',cli.call_args.kwargs['herramientas_vetadas'])
         self.assertEqual(next((self.raiz/'constructor_respuestas').glob('*.txt')).read_text(encoding='utf-8'),respuesta)
+
+    def test_constructor_truncado_explica_error_y_no_repite_consulta(self):
+        respuesta=' = _estado(estado, ancho, alto)\\n resto de código sin principio de JSON\n```'
+        with patch.object(cli_claude,'escribiendo',return_value=(respuesta,{})) as cli:
+            for _ in range(2):
+                with self.assertRaisesRegex(ValueError,'JSON completo.*análisis del vídeo sigue guardado'):
+                    espacio.consultar_constructor(self.raiz,{},[],lambda *a:None)
+        self.assertEqual(cli.call_count,1)
+        self.assertEqual(next((self.raiz/'constructor_respuestas').glob('*.txt')).read_text(encoding='utf-8'),respuesta)
+
+    def test_constructor_nuevo_por_archivo_y_cache_antigua_siguen_validos(self):
+        esperado=espacio.validar(paquete(),exigir_biblioteca=True)
+        respuesta=json.dumps(paquete(),ensure_ascii=False)
+        with patch.object(cli_claude,'escribiendo',return_value=(respuesta,{})) as cli:
+            self.assertEqual(espacio.consultar_constructor(self.raiz,{},[],lambda *a:None),esperado)
+        ruta=next((self.raiz/'constructor_respuestas').glob('*.txt'))
+        self.assertEqual(Path(cli.call_args.kwargs['archivo_entrega']),ruta)
+        with patch.object(cli_claude,'escribiendo',side_effect=AssertionError('No repetir')):
+            self.assertEqual(espacio.consultar_constructor(self.raiz,{},[],lambda *a:None),esperado)
+
+    def test_reconstruccion_explicita_separa_cache_y_conserva_entrega_fallida(self):
+        truncada=' = _estado(estado, ancho, alto)'
+        with patch.object(cli_claude,'escribiendo',return_value=(truncada,{})):
+            with self.assertRaisesRegex(ValueError,'JSON completo'):
+                espacio.consultar_constructor(self.raiz,{},[],lambda *a:None)
+        anterior=next((self.raiz/'constructor_respuestas').glob('*.txt'))
+        correccion=dict(error='Reconstrucción autorizada: entrega truncada. Escribir JSON completo en archivo.',
+            paquete_anterior=None)
+        with patch.object(cli_claude,'escribiendo',return_value=(json.dumps(paquete()),{})) as cli:
+            nuevo=espacio.consultar_constructor(self.raiz,{},[],lambda *a:None,correccion=correccion)
+            repetido=espacio.consultar_constructor(self.raiz,{},[],lambda *a:None,correccion=correccion)
+        self.assertEqual(cli.call_count,1)
+        self.assertEqual(nuevo,repetido)
+        self.assertNotEqual(Path(cli.call_args.kwargs['archivo_entrega']),anterior)
+        self.assertEqual(anterior.read_text(encoding='utf-8'),truncada)
+        self.assertEqual(len(list((self.raiz/'constructor_respuestas').glob('*.txt'))),2)
+
+    def test_actividad_constructor_solo_mide_archivos_sin_ejecutarlos(self):
+        self.assertIn('Aún no hay archivos',espacio._actividad_constructor(None))
+        self.assertIn('Aún no hay archivos',espacio._actividad_constructor(self.raiz))
+        ruta=self.raiz/'herramientas'/'personaje.py';ruta.parent.mkdir()
+        ruta.write_text('raise AssertionError("Nunca ejecutar")',encoding='utf-8')
+        entrega=self.raiz/'salida.json';entrega.write_text('{"codigo":',encoding='utf-8')
+        os.utime(ruta,(100,100));os.utime(entrega,(110,110))
+        with patch.object(espacio.time,'time',return_value=260):
+            texto=espacio._actividad_constructor(self.raiz)
+        self.assertIn('2 archivos de trabajo',texto)
+        self.assertIn('salida.json, hace 150 s',texto)
+        self.assertIn('todavía no validada',texto)
+        self.assertIn('no confirma que Claude siga avanzando',texto)
+
+    def test_constructor_publica_fase_y_actividad_y_detiene_el_reloj(self):
+        mensajes=[];captura={}
+        def escribir(*args,**kwargs):
+            captura['avance']=kwargs['avance']
+            temporal=self.raiz/'temporal';temporal.mkdir()
+            kwargs['al_preparar'](str(temporal))
+            (temporal/'personaje.py').write_text('codigo parcial',encoding='utf-8')
+            avance=kwargs['avance']
+            avance.avisar(avance.valor(),avance.texto())
+            return json.dumps(paquete()),{}
+        with patch.object(cli_claude,'escribiendo',side_effect=escribir):
+            espacio.consultar_constructor(self.raiz,{},[],lambda valor,mensaje:mensajes.append((valor,mensaje)))
+        self.assertIn('construyendo el motor',mensajes[0][1])
+        self.assertTrue(any('1 archivos de trabajo' in m for _,m in mensajes))
+        self.assertIn('validando el código',mensajes[-1][1])
+        self.assertFalse(captura['avance']._hilo.is_alive())
+        self.assertTrue(all(v is None or v==.25 for v,_ in mensajes))
+
+    def test_constructor_cancelado_no_reintenta_y_detiene_el_reloj(self):
+        captura={}
+        def cancelar(*args,**kwargs):
+            captura['avance']=kwargs['avance']
+            kwargs['avance'].cancelado=True
+            raise RuntimeError('CLI detenido')
+        from nucleo.trabajos import Cancelado
+        with patch.object(cli_claude,'escribiendo',side_effect=cancelar) as cli:
+            with self.assertRaises(Cancelado):
+                espacio.consultar_constructor(self.raiz,{},[],lambda *a:None)
+        self.assertEqual(cli.call_count,1)
+        self.assertFalse(captura['avance']._hilo.is_alive())
+
+    def test_observador_recibe_temporal_antes_del_cli_y_no_cambia_entrega(self):
+        # Usa el adaptador real, doblando únicamente la llamada al proveedor.
+        carpetas=[]
+        def ejecutar(*args,**kwargs):
+            self.assertEqual(carpetas,[kwargs['cwd']])
+            (Path(kwargs['cwd'])/'salida.json').write_text('{"ok":true}',encoding='utf-8')
+            return 'LISTO',{}
+        with patch.object(cli_claude,'ejecutar',side_effect=ejecutar):
+            resultado=ESCRIBIENDO_REAL('JSON',al_preparar=carpetas.append)
+        self.assertEqual(resultado,dict(ok=True))
+        self.assertFalse(Path(carpetas[0]).exists())
 
     def test_prepara_biblioteca_antes_de_publicar_y_la_reutiliza_en_dos_videos(self):
         resultado,carpeta=self.preparar()
@@ -205,6 +353,69 @@ def pintar(pedido,t):
         fichas=estilos.listar(str(self.raiz/'videos'))
         self.assertEqual(fichas[0]['estado'],'error_preparacion')
         self.assertEqual(presets.listar()['presets'].get('canal',[]),[])
+
+    def test_paquete_local_prepara_y_actualiza_tarjeta_sin_cli_ni_tocar_v1(self):
+        primero,carpeta=self.preparar()
+        from pasos import muestra_tarjeta
+        muestra_tarjeta.instalar(carpeta,carpeta/'versiones/v1/muestra/clip.mp4','Previa editorial de prueba')
+        anterior=presets.leer(primero['preset_id'])
+        anterior['datos']['voz']={'idioma':'en','velocidad':1.1}
+        presets.guardar('canal',anterior['nombre'],anterior['datos'],pid=anterior['id'])
+        v1=espacio.inventario(carpeta/'versiones/v1')
+        ficha=leer_json(str(carpeta/'estilo.json'));local=paquete()
+        local['cumplimiento']=dict(version=1,requisitos=[dict(id=r['id'],estado='implementado',
+            implementacion='Código de prueba original.',archivos=['motores/escena.py'])
+            for r in espacio.requisitos_constructor(ficha['analisis'])])
+        pagado=carpeta/'constructor.json';pagado.write_text('entrega pagada que debe conservarse',encoding='utf-8')
+        with patch.object(espacio,'consultar_constructor',side_effect=AssertionError('No proveedor')):
+            segundo=estilos.preparar(lambda *a:None,str(self.raiz/'videos'),ficha['id'],presets,
+                paquete_local=local,muestra_local=dict(ancho=180,alto=320,fps=12,duracion=2))
+        self.assertEqual(segundo['espacio']['version'],2)
+        self.assertEqual(primero['preset_id'],segundo['preset_id'])
+        self.assertEqual(v1,espacio.inventario(carpeta/'versiones/v1'))
+        self.assertEqual(pagado.read_text(encoding='utf-8'),'entrega pagada que debe conservarse')
+        self.assertTrue((carpeta/'versiones/v2/muestra/comprobacion.json').is_file())
+        self.assertEqual(presets.leer(segundo['preset_id'])['datos']['estilo']['espacio_ia'],segundo['espacio'])
+        self.assertEqual(presets.leer(segundo['preset_id'])['datos']['voz'],{'idioma':'en','velocidad':1.1})
+        self.assertNotIn('muestra_tarjeta',leer_json(str(carpeta/'estilo.json')))
+        self.assertNotIn('muestra_tarjeta',estilos.leer(str(self.raiz/'videos'),ficha['id']))
+
+    def test_paquete_local_incompleto_se_rechaza_antes_de_cambiar_estado(self):
+        primero,carpeta=self.preparar()
+        original=(carpeta/'estilo.json').read_bytes()
+        with patch.object(espacio,'consultar_constructor',side_effect=AssertionError('No proveedor')):
+            with self.assertRaisesRegex(ValueError,'cumplimiento'):
+                estilos.preparar(lambda *a:None,str(self.raiz/'videos'),primero['estilo_id'],presets,paquete_local=paquete())
+        self.assertEqual(original,(carpeta/'estilo.json').read_bytes())
+        self.assertFalse((carpeta/'versiones/v2').exists())
+
+    def test_preparacion_blender_fallida_conserva_fuentes_y_logs(self):
+        from pasos import runtime_blender
+        primero,carpeta=self.preparar()
+        ficha=leer_json(str(carpeta/'estilo.json'));local=paquete()
+        local['archivos']['herramientas/servidor.py']='pass'
+        local['blender']=runtime_blender.requisito('herramientas/servidor.py')
+        local['cumplimiento']=dict(version=1,requisitos=[dict(id=r['id'],estado='implementado',
+            implementacion='Prueba local de conservación, no de bpy.',archivos=['motores/escena.py'])
+            for r in espacio.requisitos_constructor(ficha['analisis'])])
+        previo=espacio.inventario(carpeta/'versiones/v1')
+        def fallar(destino,pedido,salida,avisar):
+            salida.mkdir(parents=True,exist_ok=True)
+            (salida/'entrada.json').write_text('{}')
+            (salida/'blender.log').write_text('fallo bpy conservado')
+            raise ValueError('fallo bpy de prueba')
+        with patch.object(espacio,'renderizar',side_effect=fallar),\
+                patch.object(espacio,'consultar_constructor',side_effect=AssertionError('No proveedor')):
+            with self.assertRaisesRegex(ValueError,'fallo bpy de prueba'):
+                estilos.preparar(lambda *a:None,str(self.raiz/'videos'),ficha['id'],presets,paquete_local=local)
+        fallos=list((carpeta/'versiones').glob('.fallido_*'))
+        self.assertEqual(len(fallos),1)
+        self.assertTrue((fallos[0]/'muestra/entrada.json').is_file())
+        self.assertEqual((fallos[0]/'muestra/blender.log').read_text(),'fallo bpy conservado')
+        self.assertTrue((fallos[0]/'herramientas/servidor.py').is_file())
+        self.assertFalse((carpeta/'versiones/v2').exists())
+        self.assertEqual(espacio.inventario(carpeta/'versiones/v1'),previo)
+        self.assertEqual(presets.leer(primero['preset_id'])['datos']['estilo']['espacio_ia'],primero['espacio'])
 
     def test_asset_sellado_alterado_no_se_regenera(self):
         local=self.raiz/'paquete'

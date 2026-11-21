@@ -224,6 +224,13 @@ parámetros, interpolación y movimientos básicos, árboles, casas, edificios y
 móviles. Todo se prepara con el acabado del estilo, antes de crear vídeos; no se
 generan imágenes por escena. Los recursos
 externos necesitan URL HTTPS pública, licencia declarada y SHA256 verificable.
+Durante la preparación, la tarjeta y el detalle muestran la fase, el tiempo
+transcurrido y **Parar**. La barra es indeterminada: no se inventa un porcentaje
+del código. Mientras Claude construye, se indican los archivos y KB escritos,
+el último archivo modificado y hace cuánto se escribió. Son metadatos locales,
+no acceso al razonamiento de Claude ni prueba de que una entrega esté completa.
+Si pasa tiempo sin escrituras se indica esa ausencia de actividad; la entrega
+solo se da por válida después de comprobar su JSON y el contrato del motor.
 Cada versión queda en `versiones/v<N>/`, con esta organización:
 
 ```text
@@ -247,6 +254,13 @@ Puedes ver el clip y la ruta de la carpeta en la pantalla del estilo. Una entreg
 que falla no se anuncia como preparada; al reintentar una muestra fallida, el
 constructor recibe el diagnóstico para corregirla. Preparar otra versión no
 sobrescribe versiones anteriores.
+
+Las construcciones nuevas exigen a Claude justificar la implementación de cada
+requisito visual, de animación y del inventario de recursos. No debe sustituir
+silenciosamente un acabado 3D/híbrido por dibujo plano: si no puede cumplirlo con
+el entorno local, debe declararlo y la preparación se bloquea. Ese informe deja
+trazabilidad, no certifica fidelidad visual. Los motores y entregas anteriores se
+conservan; incorporar este encargo requiere preparar expresamente otra versión.
 
 **Crear vídeo con este estilo** abre el formulario habitual. Los estilos nuevos
 activan la **animación nativa**: se programa cada escena con acciones, poses
@@ -390,6 +404,25 @@ por sí solo la música, los efectos ni a los locutores; no se garantiza reprodu
 cualquier técnica audiovisual ni se verifican todos los movimientos y cortes.
 
 Verificación sin proveedores: `python pasos/prueba_estilos_ia.py`.
+Para una construcción local explícita, `estilos_ia.preparar(..., paquete_local=...)`
+valida biblioteca e informe completo y pasa por la misma instalación, render y
+publicación; no consulta el constructor ni toca respuestas pagadas. Una actualización
+local conserva el ID de tarjeta y sus ajustes, publica otra versión y no migra vídeos.
+RicksClips incluye fuentes en `motores/ricksclips/` y las herramientas
+`herramientas/preparar_ricksclips.py` y `herramientas/verificar_ricksclips.py` (`--help`).
+El backend histórico requiere OpenGL 3.3 local; el constructor opt-in
+`--backend blender` usa Blender 4.5.16 LTS aislado y conserva el código libre de escena.
+La integración está publicada y comprobada como v6 del estilo RicksClips local;
+los proyectos anteriores no se migran y el constructor conserva OpenGL por defecto.
+No hay fallback a fondos planos. Publicar Blender exige además preparación,
+P6/P8, duplicación, recuperación y secuencias HD revisadas correspondientes a
+las mismas fuentes: [contrato y evidencias](docs/RICKSCLIPS_BLENDER.md).
+La comprobación técnica no certifica
+fidelidad equivalente, voz ni música de la referencia.
+El preset local RicksClips parte de vertical 9:16 y activa un perfil de subtítulos
+palabra a palabra, blancos con contorno negro y sin caja; ambos son explícitos y
+no cambian los proyectos anteriores.
+
 Con Playwright instalado y Edge/ffmpeg disponibles, `--real` prueba extracción,
 subida, preparación del motor, animación, audio, portabilidad y formulario en un
 navegador; sustituye al analista/constructor por dobles sin consumir cuota.

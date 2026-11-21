@@ -2,6 +2,81 @@
 
 ## Espacios de trabajo de Estilos con IA
 
+### Escenas nativas nuevas: motor y formato del proyecto
+
+Las consultas nuevas fijan `contrato_render` en su fuente, sin cambiar VERSION,
+firmas ni fuentes pagadas. El paquete, no el nombre del estilo, decide Blender.
+`animacion_nativa.encargo` pide geometría 3D real con espacio3d.Renderer/Malla y
+sprites 2D cuando el paquete declara Blender; PIL.Image es la salida, no el motor.
+La resolución del proyecto manda sobre el formato de la referencia (RicksClips
+trae instrucciones verticales incluso en un vídeo horizontal).
+El ejecutor nativo observa llamadas exitosas al puente: exige malla no vacía,
+resolución completa y al menos un render por fotograma. Arrancar/importar Blender
+no cuenta. Conserva evidencia junto al recibo. Para estas entregas Blender rechaza
+el short centrado con bandas negras anchas; no aplica esa heurística a estilos
+Pillow de fondo negro ni retrovalida fuentes sin contrato. Las cuatro escenas
+pagadas del vídeo RicksClips no se adaptan automáticamente: requieren regeneración
+expresa o corrección local revisada, sin borrar originales ni recursos por SHA.
+Regresiones offline en `pasos/prueba_contrato_render_nativo.py`; sonda real sin IA
+en `herramientas/probar_contrato_nativo_blender.py --paquete <ruta> --salida <nueva>`.
+
+### Construcción local explícita (sin proveedores)
+
+`estilos_ia.preparar` admite `paquete_local` y `muestra_local`: valida antes de
+mutar estado, exige biblioteca/cumplimiento completo, instala con el mecanismo
+aislado existente, renderiza y comprueba movimiento/biblioteca antes de publicar.
+No consulta constructor ni lee/borra `constructor.json` en esta ruta. Actualiza la
+tarjeta existente conservando ajustes de voz/montaje y paquetes anteriores por SHA;
+los vídeos ya congelados no se migran. No editar estados para simular preparación.
+Regresiones en `prueba_biblioteca_estilo.py` con render real, v1 intacta y CLI vetado.
+RicksClips: fuentes locales en `motores/ricksclips/`, renderer OpenGL 3.3 con z-buffer,
+shadow map y sprites alfa. `preparar_ricksclips.py --publicar` exige evidencias de
+`verificar_ricksclips.py` ligadas por SHA a las fuentes. Sin fallback 2D; sin afirmar
+textura/fidelidad equivalente por superar pruebas técnicas.
+
+El constructor local `preparar_ricksclips.py --backend blender` es opt-in; publicar
+exige `blender_publicacion.json` y la puerta de `herramientas/validacion_blender.py`
+(fuentes exactas, preparación/P6/P8/duplicación, recuperación y HD revisado).
+No reemplazar ejecutores ni fuentes selladas de v1–v5. Su puente
+devuelve RGB/Z reales y lo inicia el coordinador antes de la guarda de procesos.
+Blender headless no tiene contexto GPU hasta el primer render; no consultarlo
+en el saludo IPC. Conservar materiales reutilizados al limpiar un frame.
+Blender ignora `PYTHONDONTWRITEBYTECODE` sin `--python-use-system-env`: puede
+escribir cientos de pyc dentro de la distribución sellada antes de cargar el
+servidor. Retirar primero PYTHONPATH/PYTHONHOME y demás PYTHON* heredados, desactivar
+user-site y activar la opción con bytecode deshabilitado. No excluir esos cambios
+del inventario para ocultarlos; conservar el fallo y verificar una instalación
+nueva. Contratos aislados en `pasos/prueba_runtime_blender.py`, prueba real en
+`herramientas/probar_integracion_blender.py`; no equivalen a fidelidad artística.
+
+La escena principal conecta olla/dedos/chorro a mano real tras IK y sustituye
+cuenco/mesa, tren y paredes sin duplicar geometría. Preservar aceite entre frames
+y retirar chorros al cambiar decorado. Niebla infinita de mundo dejó exteriores
+negros: usar composición atmosférica por Z real. P6 genera rutas >MAX_PATH:
+el servidor bpy usa prefijo extendido Windows y Blender arranca con cwd en cache/
+del paquete, no en el intercambio profundo ni dentro del runtime sellado.
+No truncar huellas/IDs. `--solo-ruta-larga` reproduce ese contrato.
+
+RicksClips local v6 Blender publicada: `ef3fa82f527c6424643ef6fdec9c5105002afde1f17c6ce0a3cd772ecf02b17a`.
+Evidencia `comprobaciones/blender_publicacion_03`: P6/P7/P8, recuperación,
+duplicación portable, 21 secuencias HD revisadas/reproducidas y tarjeta con bytes
+de su muestra real. Calidad artística NO equivalente; versiones/proyectos previos intactos.
+`estilos_ia.leer` añade muestra_tarjeta SOLO como proyección del descriptor válido:
+no persistir ese campo al preparar. Una copia persistida hacía reaparecer el piloto
+v5 tras publicar v6. La lectura ignora esa copia; `muestra_tarjeta.limpiar_derivada`
+retira solo el campo accidental sin cambiar marca/estado ni borrar previas.
+
+`rotulos.subtitulo_perfil=ricksclips_v1` es opt-in en presets y se propaga a
+callouts de vídeos nuevos: `p7_callouts.capa_ricksclips` usa marcas existentes,
+una palabra blanca con contorno negro y sin caja, a 70–73,6% de altura. Ausencia
+conserva EXACTAMENTE el camino clásico; no añadirlo a params por defecto ni
+inferirlo por el nombre del canal. No cambiar VERSION ni reescribir proyectos.
+Pruebas: `pasos/prueba_subtitulos_ricksclips.py`; muestra con SMIL/navegador en
+`herramientas/muestra_subtitulos_ricksclips.py` (marcas sintéticas, sin voz).
+`montaje.formato` en un preset es también opt-in: lo hereda el encargo NUEVO y
+`cambios_para` lo lleva a brief, nunca a render. Ausencia no escribe horizontal
+ni cambia formatos existentes. RicksClips local parte de vertical 9:16.
+
 ### Sonidos procedurales compartidos con Stickman
 
 `animacion_nativa.encargo` ofrece el catálogo `stickman.EFECTOS` y pide `sfx`
@@ -191,6 +266,22 @@ Los prompts también exigen Unicode y cobertura de glifos para fuentes explícit
 
 ### Biblioteca al preparar el estilo (ruta actual; versiones antiguas conservadas)
 
+El constructor nuevo recibe requisitos íntegros de guia_visual, áreas visual/animación/
+montaje/tipografía y cada recurso, con IDs y un informe `cumplimiento` por requisito.
+No rebajar 3D/híbrido a dibujo plano sin declararlo: PIL.Image es la salida, no impone
+Pillow como renderer. Los assets básicos siguen su contrato PIL/stdlib; motor y auxiliares
+pueden usar dependencias locales compatibles. Sin proveedores ni imágenes por escena.
+Ausencias, referencias a ficheros inexistentes o `no_compatible` bloquean la entrega nueva;
+el informe es trazabilidad declarada, NO prueba semántica ni certificación de fidelidad.
+La firma nueva separa el encargo, pero consultar_constructor busca la caché del prompt
+anterior antes de consultar: entregas pagadas/paquetes publicados no se retrovalidan ni
+se reconstruyen automáticamente. Para RicksClips hace falta pedir otra versión expresamente.
+
+El validador compartido `animacion_nativa.validar_codigo` admite también `re` y
+`copy` de la biblioteca estándar. Rechazarlos impedía validar la biblioteca al
+preparar el motor pese a no requerir instalación. Mantener la lista explícita y
+el rechazo de módulos ajenos; no cambiar firmas ni repetir consultas guardadas.
+
 Las nuevas consultas de `espacio_estilo.consultar_constructor` exigen `biblioteca`
 v1 en el paquete: rig, partes anatómicas, funciones de interpolar/caminar/sentarse/
 saludar y assets arbol/casa/edificio/movil. Cada recurso tiene ficha, interfaz y dos
@@ -206,6 +297,38 @@ Las respuestas del constructor se conservan en constructor_respuestas/<firma>.tx
 ANTES de parsear/validar: repetir la misma solicitud inválida no repite cuota.
 Constructor Sonnet/medium sin corte automático y sin cambio de cuenta.
 
+RicksClips: el mensaje final del constructor llegó empezado a mitad de código,
+sin principio de JSON. Las consultas NUEVAS usan cli_claude.escribiendo con
+entrega_cruda/archivo_entrega: motor+biblioteca se escriben en su temporal aislado,
+no en el mensaje final. Conserva firma y constructor_respuestas/<firma>.txt para
+reutilizar entregas antiguas válidas. Una truncada se conserva y explica el error;
+no se inventa su principio ni se vuelve a pagar al reintentar. Una construcción
+nueva exige decisión explícita; el análisis del vídeo no se repite. Read acotado
+a las referencias; Bash y herramientas de red vetadas, Write/Edit solo en temporal.
+
+Reinicio durante preparar: el disco puede conservar estado=preparando sin trabajo
+activo. _ficha_estilo_ia debe marcarlo interrumpido también cuando el tid apunta a
+un intento YA terminal, y mostrar su error; no dejar «preparando» sin barra ni botón.
+GET no persiste esa reconciliación. El endpoint pasa retomar_interrumpido al worker
+solo tras comprobar ausencia de trabajos activos; el worker lee de disco y admite
+preparando SOLO con ese permiso, o rechazaría la recuperación antes de su try.
+No reiniciar el servicio durante una consulta: en Windows puede quedar Claude
+huérfano escribiendo en cli_salida_*. Conservar esa entrega al terminar antes de
+solicitar otra; no interpretar su ausencia de barra como ausencia del proceso.
+
+Progreso de preparar: una lambda avance NO genera latidos por sí sola; ejecutar
+bloquea en communicate. consultar_constructor usa estadisticas.Avance (sin límite,
+sin porcentaje estimado), lo detiene en finally y propaga Cancelado; el adaptador
+conecta al_cancelar al proceso. escribiendo notifica al_preparar con el temporal
+antes de lanzar el CLI, sin cambiar prompt/firmas ni añadir permisos. El latido
+mide SOLO metadatos de .py/.json/.txt, sin ejecutar fuentes ni leer contenidos:
+cantidad/KB, último archivo y edad de escritura. salida.json presente NO significa
+JSON completo ni biblioteca válida. Sin escrituras recientes no afirmar avance.
+La UI comparte progresoEstiloIA entre tarjeta y detalle; muestra fase/tiempo/Parar
+y progress sin value durante preparación. Si un intento antiguo tiene mensaje
+vacío, declara que no publica detalle, no inventa su actividad. Recargar la página
+actualiza la UI sin reiniciar el servicio ni interrumpir la consulta existente.
+
 `estilos_ia.congelar` siembra biblioteca y rig_base del paquete al crear el vídeo,
 solo copias y AST, sin IA, instalaciones ni ejecución. `recursos_animacion.preparar`
 siembra también para recuperar vídeos copiados y fusiona el catálogo aprendido;
@@ -218,6 +341,21 @@ repreparan ni migran al abrirlas. Prueba offline con renderer real:
 `python pasos/prueba_biblioteca_estilo.py` (sin cuota ni red).
 
 ### Apariencias por datos (prevalece sobre la ruta antigua de extensiones)
+
+Excepción anatómica: `geometria/1` en `recursos_animacion.compilar_apariencia`
+conserva las tres dependencias fijadas, pero crea la instancia con soporte.crear
+SIN aplicar apariencia humana. Exige codigo_extra con EXTENSIONES explícitas
+dibujar/pose/estado_base, interfaz propia y dos muestras articuladas. No aceptar
+ropa=null ni convertir animales en humanos recoloreados. El encargo nuevo ofrece
+la interfaz, FK/IK y primitivas de la base para anatomías excepcionales; las
+entregas apariencia/1 y sus firmas siguen iguales. Escenas libres, no poses fijas.
+Don Bigotes (video_de_ricksclips) se recuperó localmente mediante corrección con
+huella_original, sin sobrescribir la entrega/cachés ni fuentes v6: extensión plana
+`motores/estilo_ia/geometria_felina.py`, con cuatro patas FK/IK, cabeza y cola.
+`herramientas/recuperar_gato_ricksclips.py` comprueba render, movimiento, controles,
+instancias independientes, cierre portable y hashes antes de guardar con --aplicar.
+No prepara otros personajes ni escenas, no consulta IA ni publica el estilo.
+Es geometría 2D explícita, no gato 3D ni certificación de fidelidad artística.
 
 El proveedor de personajes NO es fijo. `animacion_nativa.ejecutar` pasa los params
 a `recursos_animacion.preparar`; esta reparte los personajes por orden narrativo
@@ -486,6 +624,15 @@ con errores en `analisis_visual/respuestas/` y nombra proveedor/lote en el fallo
 No repitas automáticamente llamadas por un error de formato ni cambies VERSION
 por cambios del parser: se perdería la reutilización de lotes ya pagados. Siempre
 valida contenido/evidencias después de recuperar la sintaxis.
+
+RicksClips falló en el primer lote con JSON válido pero sin la cantidad de ventanas
+solicitada. El esquema visual fija minItems/maxItems e IDs permitidos por lote;
+el prompt enumera explícitamente cuántos objetos y qué IDs debe entregar. La guarda
+local sigue rechazando duplicados y evidencias ajenas. Las entregas se conservan
+en respuestas/ ANTES de validar también cuando su sintaxis es correcta; el error
+identifica proveedor, lote y ventanas ausentes. No reconsultar automáticamente,
+inventar observaciones ni cambiar VERSION/firmas de cachés completas. Reintentar
+reutiliza los lotes válidos y solicita el pendiente; no recupera contenido omitido.
 
 El desfase audio/vídeo se aplica al cruzar
 segmentos con ventanas visuales. `analista_del_informe` distingue un informe previo

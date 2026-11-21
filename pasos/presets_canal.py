@@ -151,7 +151,7 @@ TIPOS = {
         # clave llevaba desde entonces guardandose y aplicandose sin que nadie la
         # leyera. Y entra `subtitulo_tam`, que SI es una decision de grafismo y
         # se quedaba fuera: guardar un preset y aplicarlo perdia el tamano.
-        "claves": ("diseno", "paleta", "subtitulo_tam"),
+        "claves": ("diseno", "paleta", "subtitulo_tam", "subtitulo_perfil"),
         "pasos": ("callouts",),
     },
     "voz": {
@@ -165,7 +165,7 @@ TIPOS = {
     "montaje": {
         "nombre": "Montaje",
         "que_fija": "los subtitulos, las transiciones y las animaciones de los videos nuevos",
-        "claves": ("subtitulos", "parallax", "transiciones", "transiciones_personalizadas", "bibliotecas",
+        "claves": ("formato", "subtitulos", "parallax", "transiciones", "transiciones_personalizadas", "bibliotecas",
                    "animaciones", "plantillas_cartela", "color_acento", "generar_personajes", "incorporar_voz"),
         "pasos": ("voz", "assets", "callouts", "render"),
     },
@@ -258,8 +258,13 @@ def _limpiar_datos(tipo, datos):
             limpios['espacio_ia'] = espacio_estilo.validar_marca(limpios['espacio_ia'])
         except ValueError as fallo:
             raise ErrorPreset(str(fallo)) from fallo
+    if tipo == 'rotulos' and 'subtitulo_perfil' in limpios:
+        if limpios['subtitulo_perfil'] not in ('clasico','ricksclips_v1'):
+            raise ErrorPreset('perfil de subtítulos no válido')
     if tipo == "montaje":
         from pasos.transiciones import CATALOGO
+        if 'formato' in limpios and limpios['formato'] not in ('horizontal','vertical'):
+            raise ErrorPreset('formato de vídeo no válido')
         if "parallax" in limpios:
             from pasos import parallax
             try:
@@ -1137,6 +1142,8 @@ def cambios_para(ficha, params_actuales=None):
             de_callouts["diseno"] = datos["diseno"]
         if datos.get("subtitulo_tam"):
             de_callouts["subtitulo_tam"] = datos["subtitulo_tam"]
+        if 'subtitulo_perfil' in datos:
+            de_callouts['subtitulo_perfil'] = datos['subtitulo_perfil']
         if datos.get("paleta"):
             # solo viajan los papeles FIJADOS a mano: el resto se deriva de la
             # guia de estilo de CADA video, que es lo que hace que el rotulo
@@ -1150,9 +1157,11 @@ def cambios_para(ficha, params_actuales=None):
 
     if tipo == "montaje":
         render = {k: copy.deepcopy(v) for k, v in datos.items()
-                  if k not in ("bibliotecas", "generar_personajes", "incorporar_voz",
+                  if k not in ("formato", "bibliotecas", "generar_personajes", "incorporar_voz",
                                "plantillas_cartela", "color_acento")}
         cambios = {"render": render} if render else {}
+        if 'formato' in datos:
+            cambios['brief'] = dict(formato=datos['formato'])
         if "plantillas_cartela" in datos:
             cambios["callouts"] = {"plantillas_cartela": copy.deepcopy(datos["plantillas_cartela"])}
         if "color_acento" in datos:
@@ -1250,6 +1259,8 @@ def datos_de_params(params_por_paso, incluir=ORDEN):
         render = params.get("render") or {}
         bloque = {c: copy.deepcopy(render[c]) for c in TIPOS["montaje"]["claves"]
                   if c in render}
+        if 'formato' in brief:
+            bloque['formato'] = brief['formato']
         if "plantillas_cartela" in callouts:
             bloque["plantillas_cartela"] = copy.deepcopy(callouts["plantillas_cartela"])
         if "color_acento" in callouts:

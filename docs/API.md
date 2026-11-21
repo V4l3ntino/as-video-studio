@@ -273,7 +273,7 @@ Reglas que valen para toda la API y no se repiten en cada fila:
 | `POST` | `/api/estilos-ia/{sid}/cancelar` | Cancela cooperativamente el análisis sin borrar la referencia. |
 | `GET` | `/api/estilos-ia/{sid}/inspeccion` | Informe minucioso por intervalos, con evidencias, cobertura e incertidumbres. |
 | `GET` | `/api/estilos-ia/{sid}/miniatura` | Mosaico local de fotogramas; no es una muestra generada ni validada. |
-| `GET` | `/api/estilos-ia/{sid}/muestra` | Clip de comprobación técnica de la última versión preparada del estilo. |
+| `GET` | `/api/estilos-ia/{sid}/muestra` | Vista previa identificada de tarjeta o muestra del último motor preparado. |
 | `POST` | `/api/estilos-ia/{sid}/preparar` | Construye herramientas, instala requisitos locales y prueba otra versión del estilo. |
 | `POST` | `/api/estilos-ia/{sid}/reanudar` | Reintenta un análisis interrumpido; nunca sobrescribe una versión publicada. |
 | `POST` | `/api/estilos-ia/{sid}/sintetizar` | Finaliza la inspección y sintetiza solo los lotes completados, marcando el alcance parcial. |

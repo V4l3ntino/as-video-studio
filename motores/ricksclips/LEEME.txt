@@ -1,0 +1,82 @@
+RicksClips híbrido local, OpenGL 3.3. Dependencias exactas aisladas con --target.
+Fuentes originales del renderer y decorados: espacio3d.py, decorados3d.py,
+utileria3d.py, artesania3d.py y realizacion.py. El rig v4 conserva el esqueleto,
+FK/IK/anclas/apariencias v1; compilar_rig incorpora vestuario.py de forma
+autocontenida y ajusta el grosor de miembros. Los paquetes anteriores no se editan.
+No hay consultas de IA, descargas de imágenes ni procesos externos del motor.
+
+INTERFAZ DE ESCENA NATIVA (código libre, no un plan de catálogo cerrado):
+  from espacio3d import Renderer, Malla
+  from decorados3d import escena
+  from utileria3d import objeto
+  import realizacion
+  preparar(pedido): guardar Renderer(ancho,alto) en global de la escena.
+  pintar(pedido,t): m,cam,amb=escena('oeste',t); añadir geometría/actuación;
+      return renderer.render(m,cam,sprites,amb,volumen)
+  sprites: lista de (PIL.Image RGBA, (x,y,z) de pies, altura en metros).
+  Los PERSONAJES deben dibujarse con los rigs preparados del vídeo, no volver
+  a importarse/dibujarse como otro monigote. Dibujar cada rig sobre su RGBA y
+  pasarlo como sprite a render. Su alfa participa en profundidad y sombras.
+  No sustituir las personas preparadas por personaje_base si ya hay identidades.
+  Malla: caja(centro,tamaño,color), barra(a,b,radio,color), esfera(centro,radio,color),
+   quad(a,b,c,d,color), triangulo(a,b,c,color). Normales calculadas por cara.
+   torno(centro,perfil[(radio,altura)],color,lados=32): objetos huecos y perfiles.
+   caja_girada(centro,tamaño,color,giro_radianes): traviesas/objetos orientados.
+   material=0 base, 1 madera, 2 arenisca, 3 metal, 4 agua, 5 arena.
+   Establecer material antes de añadir primitivas y volver a 0 al terminar.
+   Agua: normales suaves por vértice y espuma/Fresnel; no simulación de fluidos.
+   artesania3d: cuenco, botella, farol, rotulo y detalle compartido de los seis sets.
+    planos_revision.plano(nombre) aporta ENCUADRES DE EJEMPLO, no código obligatorio.
+    decorados3d.pared_canon(m,lado,inicio,fin,base,altura,distancia,seed): macizo
+    continuo con relieve y normales hacia el corredor; no torres estratificadas.
+    edificio(...,variante=0): remate recto/escalonado/frontón, sin cambiar interfaz previa.
+    esfera utiliza normales analíticas de ellipsoide; las otras caras siguen planas.
+    contactos.centro_por_agarre(mano,agarre_local,angulo_grados,escala): centro de
+    objeto rígido en plano del actor después de resolver IK. transformar aplica
+    la transformación inversa para comprobar el contacto. NO es constraint 3D.
+  Cámara: {eye:[x,y,z],target:[x,y,z],fov:48,apertura:.3}; metros, Y arriba,
+  Z hacia observador. Evitar eye==target o mirada exactamente vertical: usar
+  desplazamiento lateral mínimo en tomas cenitales. No invocar otro proceso.
+  Ambiente: cielo RGB 0..1, sol vector, lampara xyz, potencia, niebla.
+  Volumen: {t:segundos desde explosión,cantidad:0..1,pos:[x,y,z]} opcional.
+  Renderer.last_depth: z-buffer del último fotograma; no es una profundidad falsa.
+
+ESCENARIOS: oeste/desierto, taberna, cocina, oficina, mar, canon, puente.
+  decorado: calma/ola para agua; torcido/hueco/tren para vías.
+  Animar parámetros con realizacion.interpolar; cámara con realizacion.camara.
+  Utilería: revolver, pistolera, olla, lata, gancho, vagon, cuenco, bala.
+  Los carteles/props 2D existentes siguen disponibles para sprites integrados.
+  No pegar referencias como fondos ni llamar auxiliar.fondo para fingir 3D.
+
+MOVIMIENTO Y MONTAJE:
+  Rig original: caminar/sentarse/saludar/interpolar, IK por ancla, expresiones,
+   mirada, proporciones, ropa/pelo/colores y extensiones. Cada identidad independiente.
+   Estado adicional del rig: sombrero='oeste'|'chef'|'gorra'|'chistera',
+   bigote=True, cinturon=True; accesorios siguen inclinación y anclas reales.
+  Cámara en 3D: interpolar eye/target/FOV para dolly, tilt, primer plano/aéreo.
+  realizacion.transicion(origen,destino,u,tipo='fundido'|'whip'|'pupila'|'mirilla')
+  usa dos fotogramas renderizados. El zoom al ojo lo programa la cámara antes
+  de la máscara; no se afirma haber detectado el easing exacto de la referencia.
+  auxiliar.efecto conserva chispas, gotas_sudor, aura, lineas_velocidad y lluvia
+  como overlays 2D originales. Humo/hongo espacial: usar volumen del Renderer,
+  no auxiliar.humo/explosion planos como sustitutos del volumen.
+  realizacion.audio(pedido,ruta) acepta parametros.sfx [{name,at,dur,gain,seed}].
+  Nombres whoosh, disparo, explosion, trueno, olas, lluvia, tren. WAV separado;
+  el Estudio lo mezcla una vez, no incluir sonido dentro del MP4 visual.
+
+INTEGRACIÓN Y LÍMITES EXPLÍCITOS:
+  Subtítulos/guion/voz/montaje corresponden al Estudio, no al renderer.
+  El preset nuevo activa rotulos.subtitulo_perfil=ricksclips_v1: una palabra
+  por marca real, Arial Bold instalada, blanco con perfil negro, sin caja,
+  centro al 70-73.6% del cuadro en capa fija. No es la fuente exacta identificada.
+  Guía de guion existente conservada. No sintetizamos voz durante preparación.
+  La música no fue verificada en el análisis y el montaje actual no la incorpora;
+  no se declara reproducida. El ritmo final depende de los guiones/planos futuros.
+  No se ha identificado la fuente ni el easing original. No se promete fidelidad
+  equivalente, actuación arbitraria correcta ni textura pintada indistinguible.
+  Acabado original low-poly/cel-shaded: geometría y luz reales, no fotorealismo.
+  GPU/contexto OpenGL 3.3 local obligatorio. Sin fallback a fondos 2D si falla.
+  Muestra vertical 9:16; cada vídeo sigue el formato de SU encargo, sin modificar
+  narración, voces, tiempos ni params de proyectos existentes.
+  El preset nuevo parte de montaje.formato=vertical (9:16); el usuario puede
+  cambiarlo para ESE vídeo. No se aplica a vídeos anteriores al abrirlos.

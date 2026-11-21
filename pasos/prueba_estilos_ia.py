@@ -303,6 +303,59 @@ class Contratos(unittest.TestCase):
             foto = app.obtener_estilo_ia(pendiente['id'])['estilo']
             self.assertEqual(foto['estado'], 'interrumpido')
 
+    def test_preparacion_sin_trabajo_activo_no_se_presenta_como_en_marcha(self):
+        import app
+        ficha = self.preparado()
+        ficha['estado'] = 'preparando'
+        ruta = ia.carpeta(self.raiz, ficha['id']) / 'estilo.json'
+        escribir_json(str(ruta), ficha)
+        for estado in ('error', 'cancelado', 'listo', 'ejecutando', 'pendiente'):
+            trabajo = dict(estado=estado, mensaje='Fallo al iniciar', error='ValueError: fallo')
+            with patch.object(app, 'raiz_proyectos', return_value=self.raiz), \
+                    patch.dict(app.INDICE_ESTILOS_IA, {ficha['id']: 'doble'}), \
+                    patch.object(app.TRABAJOS_ESTILOS_IA, 'estado', return_value=trabajo):
+                foto = app._ficha_estilo_ia(ficha['id'])
+            activo = estado in ('pendiente', 'ejecutando')
+            self.assertEqual(foto['estado'], 'preparando' if activo else 'interrumpido_preparacion')
+            if estado == 'error':
+                self.assertEqual(foto['error'], 'Fallo al iniciar')
+        self.assertEqual(leer_json(str(ruta))['estado'], 'preparando')  # GET no muta datos.
+
+    def test_retomar_preparacion_reiniciada_conserva_analisis_y_constructor(self):
+        ficha = self.preparado()
+        ficha['estado'] = 'preparando'
+        carpeta = ia.carpeta(self.raiz, ficha['id'])
+        escribir_json(str(carpeta / 'estilo.json'), ficha)
+        escribir_json(str(carpeta / 'constructor.json'), PAQUETE)
+        with patch.object(espacio, 'consultar_constructor', side_effect=AssertionError('No repetir IA')), \
+                patch.object(espacio, 'materializar', side_effect=Cancelado()) as materializar:
+            with self.assertRaisesRegex(ValueError, 'analiza la referencia'):
+                ia.preparar(lambda *a: None, self.raiz, ficha['id'], presets)
+            materializar.assert_not_called()
+            with self.assertRaises(Cancelado):
+                ia.preparar(lambda *a: None, self.raiz, ficha['id'], presets, retomar_interrumpido=True)
+            self.assertEqual(materializar.call_count, 1)
+        self.assertEqual(leer_json(str(carpeta / 'estilo.json'))['analisis'], ficha['analisis'])
+        self.assertEqual(leer_json(str(carpeta / 'constructor.json')), PAQUETE)
+
+    def test_api_retoma_estado_preparando_solo_si_no_hay_trabajos_activos(self):
+        import app
+        ficha = self.preparado()
+        ficha['estado'] = 'preparando'
+        escribir_json(str(ia.carpeta(self.raiz, ficha['id']) / 'estilo.json'), ficha)
+        with patch.object(app, 'raiz_proyectos', return_value=self.raiz), \
+                patch.dict(app.INDICE_ESTILOS_IA, {}, clear=True), \
+                patch.object(app.TRABAJOS_ESTILOS_IA, 'listar', return_value=[]) as listar, \
+                patch.object(app.TRABAJOS_ESTILOS_IA, 'estado', return_value=dict(estado='pendiente')), \
+                patch.object(app.TRABAJOS_ESTILOS_IA, 'lanzar', return_value='doble') as lanzar:
+            app.preparar_espacio_estilo_ia(ficha['id'])
+            self.assertTrue(lanzar.call_args.kwargs['retomar_interrumpido'])
+            lanzar.reset_mock()
+            listar.return_value = [dict(estado='ejecutando')]
+            with self.assertRaises(app.ErrorApi):
+                app.preparar_espacio_estilo_ia(ficha['id'])
+            lanzar.assert_not_called()
+
     def test_paquete_rechaza_rutas_y_dependencias_globales(self):
         self.assertEqual(espacio.validar(PAQUETE)['dependencias'], [])
         for cambios in (dict(archivos={'../app.py': 'mal'}), dict(archivos={'motores/../../app.py': 'mal'}),
@@ -466,7 +519,7 @@ def crear_audio(pedido,ruta):
         programa = ("import uvicorn, app; from pasos import estilos_ia as ia, espacio_estilo as espacio, transcripcion_estilo as voz, analisis_video as av; "
                     "av.SEGUNDOS_VENTANA=0.3; "
                     "informe_lote=lambda ventanas: dict(conclusiones='Capas y cámara suave.', ventanas=[dict(id=v['id'],areas={a:'Detalle observado en la secuencia.' for a in av.AREAS},evidencias=[f\"F{v['fotogramas'][0]:07d}\"],incertidumbres='Fuente no verificable.') for v in ventanas]); "
-                    "exec(\"def consultar(analista,prompt,refs,destino,avisar,mensaje):\\n"
+                    "exec(\"def consultar(analista,prompt,refs,destino,avisar,mensaje,ventanas=None):\\n"
                     " import json,time\\n"
                     " if not prompt.startswith('Inspecciona MINUCIOSAMENTE'): return ANALISIS\\n"
                     " ventanas=json.loads(prompt.split('Ventanas y mediciones locales:\\\\n')[1].split('\\\\nFotogramas disponibles:')[0])\\n"
@@ -674,6 +727,64 @@ def crear_audio(pedido,ruta):
         finally:
             proceso.terminate(); proceso.wait(timeout=15)
 
+
+    @unittest.skipUnless(REAL, 'usa --real para navegador, sin IA ni instalaciones')
+    def test_progreso_motor_visible_en_tarjeta_y_detalle_sin_porcentajes_ficticios(self):
+        import socket
+        import subprocess
+        import time
+        import urllib.request
+        from playwright.sync_api import sync_playwright
+        from pasos import medios
+        ficha=self.preparado()
+        ficha.update(estado='preparando',trabajo=dict(nombre='preparar_estilo_ia',estado='ejecutando',
+            progreso=0,segundos=742,mensaje=''))
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1',0));puerto=sock.getsockname()[1]
+        programa=f"import app,uvicorn; uvicorn.run(app.app,host='127.0.0.1',port={puerto},log_level='error')"
+        proceso=subprocess.Popen([sys.executable,'-c',programa],env=dict(os.environ,ESTUDIO_PROYECTOS=self.raiz),
+            cwd=Path(__file__).resolve().parents[1])
+        try:
+            url=f'http://127.0.0.1:{puerto}'
+            for _ in range(100):
+                try:
+                    urllib.request.urlopen(url,timeout=1).close();break
+                except OSError:time.sleep(.1)
+            with sync_playwright() as pw:
+                navegador=pw.chromium.launch(headless=True,executable_path=medios.edge())
+                pagina=navegador.new_page(viewport=dict(width=1100,height=900))
+                errores=[];pagina.on('pageerror',lambda e:errores.append(str(e)))
+                pagina.route('**/api/estilos-ia',lambda ruta:ruta.fulfill(json=dict(estilos=[ficha])))
+                pagina.goto(url)
+                pagina.wait_for_function('APP.light.datos && !APP.light.cargando')
+                pagina.evaluate("document.querySelector('#inicio')?.remove()")
+                pagina.locator('#btn-estilos-ia').click()
+                pagina.locator('.estilo-ia-progreso').wait_for(state='visible')
+                pagina.locator('.estilo-ia-ficha .cara-y-cuerpo').click()
+                pagina.locator('.estilo-ia-detalle .estilo-ia-progreso').wait_for(state='visible')
+                self.assertEqual(pagina.locator('.estilo-ia-progreso progress:not([value])').count(),2)
+                self.assertIn('12:22',pagina.locator('.estilo-ia-detalle .estilo-ia-progreso').inner_text())
+                self.assertIn('no publica el detalle',pagina.locator('.estilo-ia-detalle .estilo-ia-progreso').inner_text())
+                ficha['trabajo']['mensaje']='Claude: construyendo el motor. 4 archivos de trabajo · 48 KB escritos. Entrega todavía no validada.'
+                pagina.evaluate('cargarEstilosIA()')
+                pagina.wait_for_function("document.querySelector('.estilo-ia-detalle .estilo-ia-fase')?.textContent.includes('4 archivos')")
+                self.assertEqual(pagina.locator('.estilo-ia-detalle .estilo-ia-progreso button').inner_text(),'Parar')
+                capturas=Path(os.environ.get('LOCALAPPDATA',tempfile.gettempdir()))/'Temp'/'opencode'
+                capturas.mkdir(parents=True,exist_ok=True)
+                pagina.locator('.estilo-ia-detalle').screenshot(path=str(capturas/'progreso-motor-detalle.png'))
+                pagina.set_viewport_size(dict(width=390,height=844))
+                pagina.locator('.estilo-ia-detalle .estilo-ia-progreso').screenshot(path=str(capturas/'progreso-motor-movil.png'))
+                ficha['estado']='analizando';ficha['trabajo'].update(nombre='estilo_ia',progreso=.5,mensaje='Analizando lote 3 de 6')
+                pagina.evaluate('cargarEstilosIA()')
+                pagina.wait_for_function("document.querySelector('.estilo-ia-detalle progress')?.value === .5")
+                ficha.update(estado='error_preparacion',error='Prueba fallida');ficha['trabajo']['estado']='error'
+                pagina.evaluate('cargarEstilosIA()')
+                pagina.wait_for_function("document.querySelectorAll('.estilo-ia-progreso').length === 0")
+                self.assertTrue(pagina.get_by_role('button',name='Preparar herramientas y motor',exact=True).is_visible())
+                self.assertEqual(errores,[])
+                navegador.close()
+        finally:
+            proceso.terminate();proceso.wait(timeout=15)
 
     @unittest.skipUnless(REAL, 'usa --real para navegador, sin IA ni instalaciones')
     def test_borrar_estilo_ia_quita_card_y_restaurar_lo_devuelve(self):

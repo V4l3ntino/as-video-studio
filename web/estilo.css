@@ -36,8 +36,13 @@
 .estilo-ia-detalle li { margin-bottom: .6rem; }
 .estilo-ia-limites { background: var(--aviso-fondo); color: var(--aviso-texto); border: 1px solid var(--aviso-borde); border-radius: 10px; padding: 1rem; margin: 1.25rem 0; }
 .estilo-ia-aislamiento { color: var(--tenue); padding: 1rem 0; font-size: .85rem; line-height: 1.6; }
-.estilo-ia-progreso { display: flex; gap: .75rem; align-items: center; padding: 1rem; }
-.estilo-ia-progreso progress { width: 100%; accent-color: var(--acento2); }
+.estilo-ia-progreso { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: 1rem; }
+.estilo-ia-actividad { grid-column: 1 / -1; min-width: 0; }
+.estilo-ia-actividad p { margin: 0; overflow-wrap: anywhere; }
+.estilo-ia-actividad .meta { margin-top: .5rem; }
+.estilo-ia-fase { font-size: .9rem; line-height: 1.5; }
+.estilo-ia-progreso progress { width: 100%; min-width: 0; accent-color: var(--acento2); }
+.estilo-ia-detalle > .estilo-ia-progreso { border: 1px solid var(--linea); border-radius: 10px; margin-bottom: 1rem; }
 .estilo-ia-sintetizar { padding: .25rem 1rem 1rem; }
 .estilo-ia-sintetizar button { white-space: normal; }
 .estilo-ia-sintetizar .pista { margin: .5rem 0 0; }

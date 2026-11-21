@@ -346,7 +346,7 @@ def repartir_escrito(dibujados, texto):
 
 
 def de_escena(escena, cap_linea=CAP_LINEA, idioma=None, texto="",
-              cap_trozo=None):
+              cap_trozo=None, palabra_a_palabra=False):
     """[{"texto", "desde", "hasta"}] en el reloj DEL PLANO, o [] si no cuadra.
 
     `desde`/`hasta` salen de la primera y la ultima marca del rango, menos el
@@ -368,8 +368,9 @@ def de_escena(escena, cap_linea=CAP_LINEA, idioma=None, texto="",
         # ninguno: miente sobre lo unico que promete.
         return []
     t_in = float(escena.get("t_in") or 0.0)
-    rangos = list(tramos(palabras, cap_linea=cap_linea, cap_trozo=cap_trozo,
-                         intocables=_cifras_de(palabras, idioma)))
+    rangos = ([(i,i+1) for i in range(len(palabras))] if palabra_a_palabra else
+        list(tramos(palabras, cap_linea=cap_linea, cap_trozo=cap_trozo,
+                    intocables=_cifras_de(palabras, idioma))))
     dibujados = [limpiar_texto(palabras[a:b], idioma) for a, b in rangos]
     if texto:
         dibujados = repartir_escrito(dibujados, texto)

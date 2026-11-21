@@ -153,6 +153,47 @@ class Inspeccion(unittest.TestCase):
             ejecutar(dict(result='', structured_output=dict(ok=True)), [])
         self.assertEqual(ejecutar(dict(result='Texto normal'), [])[0], 'Texto normal')
 
+    def test_esquema_lote_exige_cantidad_e_ids_solicitados(self):
+        indice = self.indice()
+        with patch.object(cli_claude, 'ejecutar', side_effect=[
+                (json.dumps(informe_lote(indice['ventanas'][:2])), {}),
+                (json.dumps(informe_lote(indice['ventanas'][2:])), {})]) as modelo:
+            av.examinar(self.destino, {}, {}, lambda *a: None)
+        for llamada, ventanas in zip(modelo.call_args_list, [indice['ventanas'][:2], indice['ventanas'][2:]]):
+            extra = llamada.kwargs['extra']
+            esquema = json.loads(extra[extra.index('--json-schema') + 1])['properties']['ventanas']
+            self.assertEqual(esquema['minItems'], len(ventanas))
+            self.assertEqual(esquema['maxItems'], len(ventanas))
+            self.assertEqual(esquema['items']['properties']['id']['enum'], [v['id'] for v in ventanas])
+            self.assertIn('Entrega exactamente ' + str(len(ventanas)), llamada.args[0])
+
+    def test_omision_conserva_entrega_diagnostico_y_lotes_completos(self):
+        indice = self.indice(segundos=36)
+        grupos = av._grupos_inspeccion(indice)
+        incompleto = informe_lote(grupos[1][:1])
+        with patch.object(av, 'consultar', side_effect=[informe_lote(grupos[0]), incompleto]) as modelo:
+            with self.assertRaisesRegex(ValueError, 'Claude, lote visual 2/3:.*faltan V0004.*Reintentar'):
+                av.examinar(self.destino, {}, {}, lambda *a: None)
+        self.assertEqual(modelo.call_count, 2)  # Nunca reintentar automáticamente.
+        entregas = [leer_json(str(p)) for p in (self.destino / 'analisis_visual' / 'respuestas').glob('*.json')]
+        fallida = next(d for d in entregas if d['lote'] == 2)
+        self.assertEqual(fallida['respuesta'], incompleto)
+        self.assertEqual(fallida['intervalos_esperados'], ['V0003', 'V0004'])
+        self.assertEqual(len(list((self.destino / 'analisis_visual' / 'informes').glob('*/lote_*.json'))), 1)
+        self.assertFalse((self.destino / 'analisis_visual' / 'informe_actual.json').exists())
+        with patch.object(av, 'consultar', side_effect=[informe_lote(g) for g in grupos[1:]]) as modelo:
+            informe = av.examinar(self.destino, {}, {}, lambda *a: None)
+        self.assertEqual(modelo.call_count, 2)
+        self.assertEqual(informe['cobertura']['lotes_completos'], 3)
+
+    def test_ids_duplicados_no_sustituyen_intervalos_ausentes(self):
+        indice = self.indice()
+        ventanas = indice['ventanas'][:2]
+        dato = informe_lote(ventanas)
+        dato['ventanas'][1] = copy.deepcopy(dato['ventanas'][0])
+        with self.assertRaisesRegex(ValueError, 'no corresponden'):
+            av.validar_lote(dato, ventanas, indice['fotogramas'])
+
     def test_json_acepta_markdown_o_introduccion_sin_consultar_otra_vez(self):
         for texto in ('```json\n{"ok":true}\n```', 'Resultado:\n{"ok":true}\nFin.'):
             with patch.object(cli_claude, 'ejecutar', return_value=(texto, {})) as modelo:
@@ -254,7 +295,7 @@ class Inspeccion(unittest.TestCase):
         ficha = dict(proveedor_analisis='Claude', analisis_ejecucion='uno')
         escribir_json(str(self.destino / 'transcripcion' / 'resultado.json'), {})
         llamadas = []
-        def consultar(*args):
+        def consultar(*args, **kwargs):
             numero = len(llamadas)
             llamadas.append(numero)
             if numero == 1:

@@ -114,7 +114,7 @@ def _cerrar_areas_completas(texto):
     return texto
 
 
-def _esquema_consulta(prompt):
+def _esquema_consulta(prompt, ventanas=None):
     def objeto(campos):
         return dict(type='object', properties=campos, required=list(campos), additionalProperties=False)
     cadena = dict(type='string')
@@ -122,7 +122,11 @@ def _esquema_consulta(prompt):
     if prompt.startswith('Inspecciona MINUCIOSAMENTE'):
         ventana = objeto(dict(id=cadena, areas=objeto({a: cadena for a in AREAS}),
                               evidencias=lista, incertidumbres=cadena))
-        return objeto(dict(conclusiones=cadena, ventanas=dict(type='array', items=ventana)))
+        lista_ventanas = dict(type='array', items=ventana)
+        if ventanas is not None:
+            ventana['properties']['id'] = dict(type='string', enum=[v['id'] for v in ventanas])
+            lista_ventanas.update(minItems=len(ventanas), maxItems=len(ventanas))
+        return objeto(dict(conclusiones=cadena, ventanas=lista_ventanas))
     if prompt.startswith('Resume estas inspecciones'):
         return objeto(dict(intervalos=lista, conclusiones=cadena))
     if prompt.startswith('Sintetiza la inspección'):
@@ -163,12 +167,12 @@ def interpretar_respuesta(texto, analista, destino, mensaje):
                 'Pulsa Reintentar para continuar; los lotes completados se conservan.') from fallo
 
 
-def consultar(analista, prompt, referencias, destino, avisar, mensaje):
+def consultar(analista, prompt, referencias, destino, avisar, mensaje, ventanas=None):
     analista = proveedor(analista)
     if len(referencias) > 5:
         raise ValueError('cada tanda visual debe conservar un máximo de cinco adjuntos sin reducir su detalle')
     avisar(None, mensaje)
-    esquema = _esquema_consulta(prompt)
+    esquema = _esquema_consulta(prompt, ventanas)
     prompt += ('\nFormato de entrega obligatorio: un único objeto JSON válido, con todas las claves y '
                'cadenas entre comillas dobles. Sin comentarios, comas finales, bloques Markdown ni texto fuera del objeto. '
                'Escapa las comillas internas y los saltos de línea dentro de las cadenas.')
@@ -447,7 +451,11 @@ def validar_lote(dato, ventanas, fotos):
         raise ValueError('el analista no ha entregado conclusiones del lote visual')
     detalles = dato.get('ventanas')
     if not isinstance(detalles, list) or len(detalles) != len(ventanas):
-        raise ValueError('el analista ha omitido intervalos del vídeo')
+        recibidos = {d.get('id') for d in detalles if isinstance(d, dict) and isinstance(d.get('id'), str)} if isinstance(detalles, list) else set()
+        faltan = [v['id'] for v in ventanas if v['id'] not in recibidos]
+        cantidad = str(len(detalles)) if isinstance(detalles, list) else 'ninguna lista válida'
+        raise ValueError(f'el analista ha omitido intervalos del vídeo: se esperaban {len(ventanas)}, '
+            f'recibidos {cantidad}' + (f'; faltan {", ".join(faltan)}' if faltan else ''))
     ids = {v['id'] for v in ventanas}
     if {d.get('id') for d in detalles if isinstance(d, dict)} != ids:
         raise ValueError('las observaciones no corresponden a las ventanas enviadas')
@@ -575,14 +583,26 @@ lo permita. Si un área no aparece, dilo. No fuerces detalles que no se distingu
                     'velocidades por segundo de PTS real. RANSAC estima movimiento global y las regiones son una '
                     'rejilla sin etiquetas semánticas. Resume cada área en 1–3 frases específicas, sin repetir '
                     'inventarios extensos. Las ventanas pueden NO ser contiguas.\n')
+            prompt += ('\nEntrega exactamente ' + str(len(ventanas)) + ' objetos en ventanas, uno por cada ID, '
+                'sin agrupar, duplicar ni omitir: ' + ', '.join(v['id'] for v in ventanas) + '.\n')
             prompt += '\nVentanas y mediciones locales:\n' + json.dumps(ventanas, ensure_ascii=False)
             prompt += '\nFotogramas disponibles:\n' + json.dumps(locales, ensure_ascii=False)
             prompt += '\nNarración de estos intervalos:\n' + json.dumps(segmentos if transcripcion.get('segmentos') else dict(
                 origen=transcripcion.get('origen'), texto=transcripcion.get('texto', ''), sin_marcas=True), ensure_ascii=False)
             dato = consultar(analista, prompt, adjuntos, destino,
                 lambda *args: avisar(.63 + .27 * numero / len(grupos), f'{analista}: inspeccionando imágenes del lote {numero + 1}/{len(grupos)}'),
-                f'Lote visual {numero + 1}/{len(grupos)}: composición, animación, grafismos y transiciones')
-            dato = validar_lote(dato, ventanas, locales)
+                f'Lote visual {numero + 1}/{len(grupos)}: composición, animación, grafismos y transiciones', ventanas=ventanas)
+            # Incluso un JSON válido puede omitir contenido: conservar la entrega
+            # antes de validarla, sin confundirla con un lote completado.
+            entrega = base / 'respuestas' / (espacio_estilo.huella([firma, numero, dato]) + '.json')
+            escribir_json(str(entrega), dict(proveedor=analista, lote=numero + 1,
+                intervalos_esperados=[v['id'] for v in ventanas], respuesta=dato))
+            try:
+                dato = validar_lote(dato, ventanas, locales)
+            except ValueError as fallo:
+                raise ValueError(f'{analista}, lote visual {numero + 1}/{len(grupos)}: {fallo}. '
+                    'La respuesta se ha conservado para diagnóstico. Pulsa Reintentar para continuar; '
+                    'los lotes completados se conservan.') from fallo
             escribir_json(str(ruta), dato)
         else:
             dato = validar_lote(dato, ventanas, locales)

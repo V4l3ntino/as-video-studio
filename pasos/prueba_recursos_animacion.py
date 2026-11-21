@@ -650,6 +650,47 @@ EXTENSIONES={'dibujar':detalle}
         self.assertIsNone(recursos.perfil_apariencia(dict(asset=ACTOR)))
         self.assertIn('APARIENCIA_VERSION=1',recursos.encargo_personaje(dict(id='ana',diseno={}),{}))
 
+    def test_geometria_excepcional_recupera_sin_aplicar_apariencia_humana(self):
+        base=self.base_parametrica()
+        reparto={'gato':{'descripcion':'Gato cuadrúpedo sin ropa'}}
+        plan={'escenas':[{'personajes_visibles':['gato']}]}
+        original=dict(formato='apariencia/1',nombre='Gato',concepto='gato',apariencia={'ropa':None})
+        args=(self.proyecto,self.marca,self.espacio,{},reparto,plan)
+        with self.assertRaisesRegex(ValueError,'ropa'):
+            recursos.preparar(*args,lambda *a,**k:original,lambda *a:None)
+        cruda=next((recursos.raiz(self.proyecto)/'personajes').glob('*.entrega.json'))
+        extra='''from PIL import ImageDraw
+def inicial(rig):return dict(x=160,y=130,angulo=0)
+def anclas(rig,estado,contexto=None):return {'cabeza':(estado['x'],estado['y'])}
+def animal(rig,im,estado,contexto):
+    assert rig.PAL['cuerpo']=='#ffffff', 'No aplicar colores/ropa humanos'
+    d=ImageDraw.Draw(im);x=estado['x'];y=estado['y'];a=estado['angulo']
+    d.ellipse((x-50,y-30,x+50,y),fill='orange')
+    d.line((x,y,x+a,y-50),fill='white',width=4)
+    return rig.pose(estado,contexto)
+EXTENSIONES={'estado_base':inicial,'pose':anclas,'dibujar':animal}
+'''
+        nuevo=dict(formato='geometria/1',nombre='Gato',concepto='gato',codigo_extra=extra,
+            interfaz='x,y píxeles; angulo control libre; pose devuelve cabeza.',
+            muestra=[dict(x=160,y=130,angulo=-30),dict(x=160,y=130,angulo=30)])
+        escribir_json(str(cruda.with_name(cruda.name.replace('.entrega.json','.correccion.json'))),
+            dict(huella_original=espacio.huella(original),entrega=nuevo,motivo='Anatomía no humana'))
+        preparados=recursos.preparar(*args,lambda *a,**k:self.fail('No consultar'),lambda *a:None)
+        ref=preparados['recursos'][preparados['personajes']['gato']]
+        self.assertEqual(leer_json(str(cruda),estricto=True),original)
+        asset=recursos.cargar(self.proyecto,ref)['asset']
+        self.assertEqual(asset['muestra'],nuevo['muestra'])
+        self.assertEqual(asset['interfaz'],nuevo['interfaz'])
+        self.assertNotIn('_apariencias.crear(',asset['codigo'])
+        copia=self.proyecto.duplicar(str(self.raiz/'copias'),'Geometría portable')
+        self.assertEqual(recursos.fuentes(copia,{'gato':ref}),recursos.fuentes(self.proyecto,{'gato':ref}))
+        config=leer_json(str(cruda.with_name(cruda.name.replace('.entrega.json','.apariencia.json'))),estricto=True)
+        refs=leer_json(str(cruda.with_name(cruda.name.replace('.entrega.json','.base.json'))),estricto=True)
+        for invalido in (dict(nuevo,apariencia={}),dict(nuevo,codigo_extra='EXTENSIONES={}'),
+                dict(nuevo,muestra=[{}]),dict(nuevo,codigo_extra=extra+'\nrig=None')):
+            with self.assertRaises(ValueError):
+                recursos.compilar_apariencia(invalido,recursos.cargar(self.proyecto,base),config,refs)
+
     def test_correccion_local_recupera_entrega_sin_reconsultar_ni_sobrescribirla(self):
         reparto={'ana':{'descripcion':'Ana'}}
         plan={'escenas':[{'personajes_visibles':['ana']}]}

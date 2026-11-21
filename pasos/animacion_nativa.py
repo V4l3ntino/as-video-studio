@@ -47,7 +47,7 @@ def validar_codigo(codigo, herramientas=(), entrada='pintar'):
     if not any(isinstance(n, ast.FunctionDef) and n.name == entrada for n in arbol.body):
         raise ValueError('el módulo debe implementar '+entrada)
     permitidos = {'PIL', 'math', 'random', 'json', 'os', 'pathlib', 'collections', 'functools',
-                  'hashlib', 'wave', 'array', 'colorsys', 'itertools', 'statistics'}
+                  'hashlib', 'wave', 'array', 'colorsys', 'itertools', 'statistics', 're', 'copy'}
     permitidos.update(herramientas)
     for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.Import):
@@ -194,14 +194,37 @@ def escena_del_encargo(escena,reparto=None):
     return salida
 
 
-def encargo(escena, plan, manifiesto, previa, herramientas=None, recursos=None):
+def encargo(escena, plan, manifiesto, previa, herramientas=None, recursos=None, contrato_render=None):
     from pasos.stickman import EFECTOS
     escena = escena_del_encargo(escena,(plan.get('catalogo') or {}).get('reparto'))
     inspeccion = manifiesto.get('inspeccion_visual') or {}
     # Contexto acotado: todos los detalles originales siguen en el manifiesto.
     notas = [dict(conclusiones=l.get('conclusiones', ''), ventanas=l.get('ventanas', []))
              for l in inspeccion.get('lotes', [])]
-    return '''PROGRAMA UNA ESCENA ANIMADA NATIVA, no una imagen ni un slideshow.
+    motor = '''Construye escenario, personajes y objetos con Pillow y los recursos del estilo.
+Usa Pillow, biblioteca estándar y herramientas preparadas del paquete.'''
+    if contrato_render and contrato_render.get('motor') == 'blender':
+        motor = '''MOTOR OBLIGATORIO: Blender real para escenografía 3D, combinado con rigs 2D.
+PIL.Image es SOLO el contrato de salida, NO obliga a dibujar el escenario con Pillow.
+Importa Renderer y Malla de espacio3d: el paquete conecta Renderer a Blender.
+En preparar(pedido), crea Renderer(pedido['ancho'],pedido['alto']). En CADA pintar,
+construye geometría 3D original de la escena con Malla y las herramientas 3D del
+paquete y llama renderer.render(malla,camara,sprites,ambiente). Malla.vertices debe
+contener triángulos reales; camara usa eye/target (vectores xyz, Y arriba) y fov.
+Los sprites son tuplas (imagen RGBA del rig, posición xyz de base, altura en metros).
+Usa los rigs exigidos para los personajes sobre esa geometría con profundidad.
+No uses un decorado Pillow de pantalla completa, ni un render de muestra genérico
+para sustituir la escena, ni imágenes guardadas. Puedes usar Pillow para rigs,
+textos, efectos y composición SOBRE el render real. numpy está disponible.
+No importes bpy: el coordinador inicia Blender y espacio3d comunica con él.
+Si faltan decorados, construye su geometría; no reemplaces 3D por perspectiva dibujada.'''
+    return motor + '''
+FORMATO DEL VÍDEO OBLIGATORIO: resolucion del encargo manda sobre el formato de la
+referencia y de sus ejemplos. Compón para TODO ese lienzo. Si ancho > alto, es
+horizontal 16:9: adapta cámara, decorado y distribución de actores al ancho completo.
+NO centres un lienzo vertical 720x1280 con bandas negras dentro de una salida horizontal.
+No estires actores ni recortes una composición vertical para fingir formato horizontal.
+PROGRAMA UNA ESCENA ANIMADA NATIVA, no una imagen ni un slideshow.
 CONTRATO VISUAL: si escena.descripcion_visual existe, representa ESA acción
 literalmente: sujetos, lugar, objetos, relaciones, gestos y sucesión de cambios.
 Tiene prioridad sobre metáforas de la narración, decorados de escenas anteriores
@@ -214,8 +237,8 @@ no cambies el significado para reutilizar algo disponible. La continuidad solo
 se conserva cuando es compatible con la descripción actual. Las acciones que
 declares deben describir y ejecutar lo pedido, no una sustitución temática.
 La referencia enseña CÓMO animar y editar, no qué fotograma copiar. Construye el
-escenario, personajes articulados, utilería y gráficos mediante dibujo procedural
-Pillow y código temporal. Cuerpos, brazos, manos, cabeza, ojos y objetos deben
+escenario, personajes articulados, utilería y gráficos mediante el motor obligatorio
+y código temporal. Cuerpos, brazos, manos, cabeza, ojos y objetos deben
 moverse de acuerdo con la acción del guion. No basta zoom, desplazamiento de toda
 una ilustración, partículas, luces o texto sobre una imagen inmóvil. En escenas
 sin personas, anima la transformación del objeto, gráfico o mecanismo que explica
@@ -257,7 +280,7 @@ Incluye efectos en las acciones que los justifican; sfx:[] solo si no correspond
 ninguno. El anfitrión los prepara y publica por separado en la pista Sonidos.
 crear_audio(pedido,ruta) es opcional SOLO para un efecto original que no cubra el
 catálogo, WAV PCM sin voz ni música. No dupliques ahí los efectos de sfx.
-Usa solo Pillow y biblioteca estándar, sin nuevas dependencias. No ejecutes código.
+Usa las dependencias locales del motor y herramientas ofrecidas, sin instalaciones. No ejecutes código.
 Texto: conserva Unicode en Python/JSON (tildes, ñ, ¿ y ¡), sin conversiones latin1
 ni quitar acentos. ImageFont.load_default(size=...) usa una fuente Unicode preparada
 por el renderer. Usa la MISMA fuente para textbbox/getlength y text/multiline_text;
@@ -348,7 +371,7 @@ def aplicar_correccion_local(fuente,entrega):
     corregida = correccion['entrega']
     # Una reparación local no puede quitar los contratos para eludir guardas ni
     # sustituir el proveedor/procedencia de la entrega pagada.
-    for campo in ('contrato_estilo','contrato_visual','proveedor','formato','personajes_recursos'):
+    for campo in ('contrato_estilo','contrato_visual','contrato_render','proveedor','formato','personajes_recursos'):
         if corregida.get(campo) != entrega.get(campo):
             raise ValueError('la corrección local no puede cambiar '+campo)
     return corregida,ruta
@@ -454,7 +477,11 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                 preparados['recursos'].update(recursos_animacion.catalogo(proyecto,marca['huella']))
                 escena_encargo = escena_del_encargo(escena,catalogo.get('reparto') or {})
                 contexto = recursos_animacion.contexto(proyecto,preparados,escena_encargo)
-                prompt = encargo(escena_encargo,dict(plan,catalogo=catalogo),manifiesto,previa,herramientas_prompt,contexto)
+                paquete = leer_json(str(espacio/'paquete.json'),estricto=True)
+                contrato_render = dict(version=1, resolucion=plan['resolucion'],
+                    motor='blender' if paquete.get('blender') else 'nativo')
+                prompt = encargo(escena_encargo,dict(plan,catalogo=catalogo),manifiesto,previa,herramientas_prompt,contexto,
+                    contrato_render=contrato_render)
                 try:
                     # Una regeneración nueva no es un reintento de la respuesta
                     # anterior. Los pendientes antiguos mantienen su caché pagada.
@@ -469,7 +496,8 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                     registrar_fallo(sid,firma,fuente,exc,i)
                     continue
                 entrega = dict(respuesta=dato, proveedor=proveedores[sid],formato='programa-recursos/1',
-                    recursos_disponibles=preparados['recursos'],personajes_recursos=preparados['personajes'])
+                    recursos_disponibles=preparados['recursos'],personajes_recursos=preparados['personajes'],
+                    contrato_render=contrato_render)
                 estilo_requerido = recursos_animacion.contrato_estilo(preparados,escena_encargo)
                 if estilo_requerido is not None:
                     entrega['contrato_estilo'] = estilo_requerido
@@ -495,13 +523,28 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                         raise ValueError('la escena debe representar la acción de los personajes exigidos por su descripción: '+', '.join(i for i in requeridos if i not in objetivos))
                 if entrega.get('formato') == 'programa-recursos/1':
                     auxiliares,recursos_usados = recursos_animacion.vincular(proyecto,marca['huella'],entrega,herramientas,escena_validacion)
-                codigo = validar(entrega['respuesta'], duracion, [*herramientas,*auxiliares])
+                contrato_render = entrega.get('contrato_render')
+                permitidas = [*herramientas,*auxiliares]
+                if contrato_render and contrato_render.get('motor') == 'blender':
+                    permitidas.append('numpy')
+                codigo = validar(entrega['respuesta'], duracion, permitidas)
                 salida = espacio / 'trabajo' / ('nativa_' + sid + '_' + uuid.uuid4().hex)
                 salida.mkdir(parents=True)
                 pedido = dict(imagen='', ancho=plan['resolucion'][0], alto=plan['resolucion'][1],
                               fps=plan.get('fps', 30), duracion=duracion, escena=escena, parametros={})
+                if contrato_render is not None:
+                    if contrato_render != dict(version=1,resolucion=plan['resolucion'],
+                            motor='blender' if leer_json(str(espacio/'paquete.json'),estricto=True).get('blender') else 'nativo'):
+                        raise ValueError('el contrato de render no corresponde al formato/motor del proyecto')
+                    pedido['contrato_render'] = contrato_render
                 archivos = espacio_estilo.renderizar(espacio, pedido, salida, avisar, codigo_escena=codigo['codigo'],
                     herramientas_escena=auxiliares)
+                evidencia_render = None
+                if contrato_render and contrato_render.get('motor') == 'blender':
+                    evidencia_render = leer_json(str(salida/'contrato_render.json'),estricto=True)
+                    if (evidencia_render.get('contrato') != contrato_render
+                            or len(evidencia_render.get('renders') or []) < max(1,round(duracion*pedido['fps']))):
+                        raise ValueError('falta evidencia de render Blender real en la escena')
                 comprobacion = comprobar_movimiento(archivos['clip'], salida,plan.get('fps',30))
                 from pasos import stickman
                 sonidos_catalogo = (stickman._sonidos(codigo, salida, sid, avisar)
@@ -532,6 +575,10 @@ def ejecutar(proyecto, params, avisar, unidades=None, rehacer=False, previo=None
                 edicion=codigo['edicion'], comprobacion=comprobacion)
             if recursos_usados:
                 recibo['recursos_animacion'] = recursos_usados
+            if evidencia_render is not None:
+                escribir_json(str(destino/'contrato_render.json'),evidencia_render)
+                recibo['contrato_render'] = contrato_render
+                recibo['evidencia_render'] = (destino/'contrato_render.json').relative_to(trabajo).as_posix()
             if correccion is not None:
                 recibo['correccion_local'] = correccion.relative_to(Path(proyecto.raiz)).as_posix()
                 recibo['huella_correccion'] = espacio_estilo.huella(entrega)
